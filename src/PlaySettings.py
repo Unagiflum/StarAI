@@ -1,9 +1,10 @@
 import pygame
 import json
 import os
+import sys
 from UI import UI
 
-TITLE_FONT_SIZE = 64
+TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)
 SETTINGS_FILE = "Config/Gamesettings.json"
 
 def load_settings():
@@ -45,25 +46,43 @@ def save_settings(settings):
 def run(screen):
     """Run the Play Settings menu."""
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont(None, 24)
+    font = pygame.font.SysFont(None, int(0.03*UI.SCREEN_HEIGHT))
     settings = load_settings()
 
     # Create key bindings
     key_bindings = []
-    start_y = 250
-    y_spacing = 60
+    start_y = int(0.25*UI.SCREEN_HEIGHT)
+    y_spacing = int(0.08*UI.SCREEN_HEIGHT)
 
     # Player 1 settings (left column)
     player1_labels = ["Player 1: Left", "Player 1: Right", "Player 1: Forward", "Player 1: Action 1",
                       "Player 1: Action 2"]
     for i, label in enumerate(player1_labels):
-        key_bindings.append(UI.KeyBinding(250, start_y + i * y_spacing, 200, 40, label, settings[label]))
+        key_bindings.append(
+            UI.KeyBinding(
+                int(0.25*UI.SCREEN_WIDTH),
+                start_y + i * y_spacing,
+                int(0.2*UI.SCREEN_WIDTH),
+                int(0.05*UI.SCREEN_HEIGHT),
+                label,
+                settings[label]
+            )
+        )
 
     # Player 2 settings (right column)
     player2_labels = ["Player 2: Left", "Player 2: Right", "Player 2: Forward", "Player 2: Action 1",
                       "Player 2: Action 2"]
     for i, label in enumerate(player2_labels):
-        key_bindings.append(UI.KeyBinding(750, start_y + i * y_spacing, 200, 40, label, settings[label]))
+        key_bindings.append(
+            UI.KeyBinding(
+                int(0.75*UI.SCREEN_WIDTH),
+                start_y + i * y_spacing,
+                int(0.2*UI.SCREEN_WIDTH),
+                int(0.05*UI.SCREEN_HEIGHT),
+                label,
+                settings[label]
+            )
+        )
 
     # Flag to return to the main menu
     back_to_menu = [False]
@@ -80,10 +99,10 @@ def run(screen):
 
     # Create buttons
     save_button = UI.Button(
-        x=UI.SCREEN_WIDTH // 2 - 220,
-        y=700,
-        width=200,
-        height=50,
+        UI.ok_button_left,
+        UI.ok_button_top,
+        UI.ok_button_width,
+        UI.ok_button_height,
         text="Save",
         callback=save_and_exit,
         bg_color=UI.OK_GREEN,
@@ -91,10 +110,10 @@ def run(screen):
     )
 
     cancel_button = UI.Button(
-        x=UI.SCREEN_WIDTH // 2 + 20,
-        y=700,
-        width=200,
-        height=50,
+        UI.can_button_left,
+        UI.ok_button_top,
+        UI.ok_button_width,
+        UI.ok_button_height,
         text="Cancel",
         callback=go_back,
         bg_color=UI.CAN_RED,
@@ -103,7 +122,7 @@ def run(screen):
 
     running = True
     while running:
-        clock.tick(60)
+        clock.tick(UI.FPS)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -120,10 +139,10 @@ def run(screen):
             return
 
         # Draw screen
-        screen.fill(UI.DARK_BLUE)
+        screen.fill(UI.BG_COLOR)
 
         # Draw title
-        UI.draw_title(screen, "Game Settings", TITLE_FONT_SIZE, 80)
+        UI.draw_title(screen, "Game Settings", TITLE_FONT_SIZE, 0.1*UI.SCREEN_HEIGHT)
 
         # Draw key bindings
         for binding in key_bindings:

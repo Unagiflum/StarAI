@@ -1,12 +1,10 @@
+import math
 import pygame
 import sys
 import PickFleet
 import PlaySettings
 import TrainSettings
 from UI import UI
-
-# Constants
-FPS = 30
 
 def handle_menu_selection(module, screen):
     """Handle the selected menu item."""
@@ -33,10 +31,10 @@ def main():
     background = UI.load_background("UI/Main.png", UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     # Create menu buttons
-    button_width = 300
-    button_height = 50
-    start_y = UI.SCREEN_HEIGHT // 2 - 100
-    y_spacing = 60
+    button_width = int(0.3*UI.SCREEN_WIDTH)
+    button_height = int(0.0625*UI.SCREEN_HEIGHT)
+    start_y = int(UI.SCREEN_HEIGHT *0.35)
+    y_spacing = int(0.075 * UI.SCREEN_HEIGHT)
 
     menu_items = [
         ("Play Game", PickFleet),
@@ -48,7 +46,7 @@ def main():
     buttons = []
     for i, (text, module) in enumerate(menu_items):
         button = UI.Button(
-            x=UI.SCREEN_WIDTH // 2 - button_width // 2,
+            x=int(UI.SCREEN_WIDTH // 2 - button_width // 2),
             y=start_y + i * y_spacing,
             width=button_width,
             height=button_height,
@@ -61,7 +59,7 @@ def main():
 
     running = True
     while running:
-        clock.tick(FPS)
+        clock.tick(UI.FPS)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -74,10 +72,10 @@ def main():
         if background:
             screen.blit(background, (0, 0))
         else:
-            screen.fill(UI.BLACK)
+            screen.fill(UI.BG_COLOR)
 
         # Draw title
-        title_font = pygame.font.SysFont(None, int(UI.SCREEN_HEIGHT * 0.1))
+        #title_font = pygame.font.SysFont(None, int(UI.SCREEN_HEIGHT * 0.1))
         UI.draw_title(screen, "StarAI", int(UI.SCREEN_HEIGHT * 0.15), UI.SCREEN_HEIGHT // 6)
 
         # Draw buttons

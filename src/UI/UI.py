@@ -1,8 +1,17 @@
 import pygame
 
-SCREEN_WIDTH = 1000
-SCREEN_HEIGHT = 800
+SCREEN_HEIGHT = 950
+SCREEN_WIDTH = int(SCREEN_HEIGHT*1.25)
+FPS = 30
 
+button_spaceH = int(SCREEN_WIDTH * 0.005)
+button_spaceV = int(SCREEN_HEIGHT * 0.00625)
+
+ok_button_width = int(0.150 * SCREEN_WIDTH)
+ok_button_height = int(0.05 * SCREEN_HEIGHT)
+ok_button_left = SCREEN_WIDTH // 2 - ok_button_width - int(0.0167*SCREEN_WIDTH)
+can_button_left = SCREEN_WIDTH // 2 + int(0.0167*SCREEN_WIDTH)
+ok_button_top = SCREEN_HEIGHT-ok_button_height-button_spaceV*4
 # Colors
 WHITE = (255, 255, 255)
 LIGHT_GREY = (170, 170, 170)
@@ -10,13 +19,11 @@ GREY = (100, 100, 100)
 DARK_GREY = (50, 50, 50)
 BLACK = (0, 0, 0)
 
-DARK_BLUE = (0, 0, 20)
-
 ORANGE = (255, 100, 0)
 RED = (255,0,0)
 DARK_RED = (50, 0, 0)
 
-BRIGHT_GREEN = (100,255,100)
+BRIGHT_GREEN = (150,255,100)
 DARK_GREEN = (0, 50, 0)
 
 OK_GREEN = (0, 155, 0)
@@ -24,8 +31,10 @@ OK_GREEN_HI = (100, 200, 100)
 CAN_RED = (155, 0, 0)
 CAN_RED_HI = (200, 100, 100)
 
-MENU_BUTTON_COLOR = (0, 50, 0)
-MENU_BUTTON_COLOR_HI = (0,100,0)
+MENU_BUTTON_COLOR = (0, 125, 125)
+MENU_BUTTON_COLOR_HI = (0,175, 175)
+
+BG_COLOR = (0, 0, 20)
 
 def load_background(path, screen_width, screen_height):
     """Load and scale the background image to fit the screen."""
@@ -70,7 +79,7 @@ class Button:
 
 class ToggleButton(Button):
     def __init__(self, x, y, width, height, text, callback=None, initial_state=False,
-                 bg_color=GREY, active_color=BRIGHT_GREEN, text_color=WHITE, hover_color=LIGHT_GREY):
+                 bg_color=MENU_BUTTON_COLOR, active_color=BRIGHT_GREEN, text_color=WHITE, hover_color=MENU_BUTTON_COLOR_HI):
         super().__init__(x, y, width, height, text, callback, bg_color, hover_color, text_color)
         self.is_on = initial_state
         self.active_color = active_color
@@ -165,9 +174,9 @@ class KeyBinding(Button):
 
     def draw(self, surface, font):
         # Draw the label
-        label_font = pygame.font.SysFont(None, 28)
+        label_font = pygame.font.SysFont(None, int(0.03*SCREEN_HEIGHT))
         label_surf = label_font.render(self.label, True, WHITE)
-        label_rect = label_surf.get_rect(midright=(self.rect.x - 10, self.rect.y + self.rect.height // 2))
+        label_rect = label_surf.get_rect(midright=(self.rect.x - int(0.01*SCREEN_WIDTH), self.rect.y + self.rect.height // 2))
         surface.blit(label_surf, label_rect)
 
         # Determine button color based on hover state
@@ -196,7 +205,7 @@ class KeyBinding(Button):
 
 class Slider:
     def __init__(self, x, y, width, min_val, max_val, start_val, label, is_int=False, step=1):
-        self.rect = pygame.Rect(x, y, width, 20)
+        self.rect = pygame.Rect(x, y, width, int(0.02*SCREEN_HEIGHT))
         self.min_val = min_val
         self.max_val = max_val
         self.value = start_val
@@ -204,7 +213,7 @@ class Slider:
         self.is_int = is_int
         self.step = step
         self.handle_x = self.value_to_position(self.value)
-        self.handle_radius = 10
+        self.handle_radius = int(0.015*SCREEN_HEIGHT)
         self.dragging = False
 
     def value_to_position(self, value):
@@ -235,29 +244,29 @@ class Slider:
     def get_handle_rect(self):
         return pygame.Rect(
             self.handle_x - self.handle_radius,
-            self.rect.y - self.handle_radius + 10,
+            self.rect.y - self.handle_radius + int(0.01*SCREEN_HEIGHT),
             self.handle_radius * 2,
             self.handle_radius * 2
         )
 
     def draw(self, surface, font):
-        padding_x = 20
-        padding_y = 20
+        padding_x = int(0.02*SCREEN_WIDTH)
+        padding_y = int(0.02*SCREEN_HEIGHT)
         bg_x = self.rect.x - padding_x
-        bg_y = self.rect.y - 40
+        bg_y = self.rect.y - int(0.04*SCREEN_HEIGHT)
         bg_width = self.rect.width + 2 * padding_x
-        bg_height = 65
+        bg_height = 0.08*SCREEN_HEIGHT
 
         bg_rect = pygame.Rect(bg_x, bg_y, bg_width, bg_height)
         pygame.draw.rect(surface, DARK_GREY, bg_rect, border_radius=5)
 
-        pygame.draw.line(surface, WHITE, (self.rect.x, self.rect.y + 10),
-                         (self.rect.x + self.rect.width, self.rect.y + 10), 5)
-        pygame.draw.circle(surface, ORANGE, (self.handle_x, self.rect.y + 10), self.handle_radius)
+        pygame.draw.line(surface, WHITE, (self.rect.x, self.rect.y + int(0.01*SCREEN_HEIGHT)),
+                         (self.rect.x + self.rect.width, self.rect.y + int(0.01*SCREEN_HEIGHT)), 5)
+        pygame.draw.circle(surface, ORANGE, (self.handle_x, self.rect.y + int(0.01*SCREEN_HEIGHT)), self.handle_radius)
 
         label_text = f"{self.label}: {self.format_value()}"
         label_surf = font.render(label_text, True, WHITE)
-        label_rect = label_surf.get_rect(topleft=(self.rect.x, self.rect.y - 30))
+        label_rect = label_surf.get_rect(topleft=(self.rect.x, self.rect.y - int(0.03*SCREEN_HEIGHT)))
         surface.blit(label_surf, label_rect)
 
     def format_value(self):

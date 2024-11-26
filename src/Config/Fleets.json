@@ -1,16 +1,41 @@
 {
     "Player1": {
         "ships": [
+            "Arilou",
+            "Druuge",
+            "Earthling",
+            "Ilwrath",
+            "Kohr-Ah",
+            "Kzer-za",
             "Mycon",
-            "Mycon",
-            "Mycon",
-            "Mycon"
+            "Orz",
+            "Pkunk",
+            "Shofixti",
+            "Spathi",
+            "Supox",
+            "Thraddash",
+            "Yehat",
+            "Zoqfot"
         ],
-        "ai": true
+        "ai": false
     },
     "Player2": {
         "ships": [
-            "Arilou"
+            "Arilou",
+            "Druuge",
+            "Earthling",
+            "Ilwrath",
+            "Kohr-Ah",
+            "Kzer-za",
+            "Mycon",
+            "Orz",
+            "Pkunk",
+            "Shofixti",
+            "Spathi",
+            "Supox",
+            "Thraddash",
+            "Yehat",
+            "Zoqfot"
         ],
         "ai": false
     }
