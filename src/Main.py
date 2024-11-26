@@ -6,8 +6,6 @@ import TrainSettings
 from UI import UI
 
 # Constants
-SCREEN_WIDTH = 1000
-SCREEN_HEIGHT = 800
 FPS = 30
 
 def handle_menu_selection(module, screen):
@@ -29,15 +27,15 @@ def main():
     pygame.mixer.init()
     UI.sound_manager.load_sounds()
 
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    screen = pygame.display.set_mode((UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT))
     pygame.display.set_caption("StarAI")
     clock = pygame.time.Clock()
-    background = UI.load_background("UI/Main.png", SCREEN_WIDTH, SCREEN_HEIGHT)
+    background = UI.load_background("UI/Main.png", UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     # Create menu buttons
     button_width = 300
     button_height = 50
-    start_y = SCREEN_HEIGHT // 2 - 100
+    start_y = UI.SCREEN_HEIGHT // 2 - 100
     y_spacing = 60
 
     menu_items = [
@@ -50,7 +48,7 @@ def main():
     buttons = []
     for i, (text, module) in enumerate(menu_items):
         button = UI.Button(
-            x=SCREEN_WIDTH // 2 - button_width // 2,
+            x=UI.SCREEN_WIDTH // 2 - button_width // 2,
             y=start_y + i * y_spacing,
             width=button_width,
             height=button_height,
@@ -79,11 +77,11 @@ def main():
             screen.fill(UI.BLACK)
 
         # Draw title
-        title_font = pygame.font.SysFont(None, int(SCREEN_HEIGHT * 0.1))
-        UI.draw_title(screen, "StarAI", int(SCREEN_HEIGHT * 0.15), SCREEN_HEIGHT // 6)
+        title_font = pygame.font.SysFont(None, int(UI.SCREEN_HEIGHT * 0.1))
+        UI.draw_title(screen, "StarAI", int(UI.SCREEN_HEIGHT * 0.15), UI.SCREEN_HEIGHT // 6)
 
         # Draw buttons
-        button_font = pygame.font.SysFont(None, int(SCREEN_HEIGHT * 0.05))
+        button_font = pygame.font.SysFont(None, int(UI.SCREEN_HEIGHT * 0.05))
         for button in buttons:
             button.draw(screen, button_font)
 

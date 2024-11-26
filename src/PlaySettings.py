@@ -3,10 +3,6 @@ import json
 import os
 from UI import UI
 
-# Constants
-SCREEN_WIDTH = 1000
-SCREEN_HEIGHT = 800
-
 TITLE_FONT_SIZE = 64
 SETTINGS_FILE = "Config/Gamesettings.json"
 
@@ -84,7 +80,7 @@ def run(screen):
 
     # Create buttons
     save_button = UI.Button(
-        x=SCREEN_WIDTH // 2 - 220,
+        x=UI.SCREEN_WIDTH // 2 - 220,
         y=700,
         width=200,
         height=50,
@@ -95,7 +91,7 @@ def run(screen):
     )
 
     cancel_button = UI.Button(
-        x=SCREEN_WIDTH // 2 + 20,
+        x=UI.SCREEN_WIDTH // 2 + 20,
         y=700,
         width=200,
         height=50,

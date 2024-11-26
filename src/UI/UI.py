@@ -1,5 +1,8 @@
 import pygame
 
+SCREEN_WIDTH = 1000
+SCREEN_HEIGHT = 800
+
 # Colors
 WHITE = (255, 255, 255)
 LIGHT_GREY = (170, 170, 170)

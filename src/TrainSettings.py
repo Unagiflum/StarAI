@@ -5,8 +5,6 @@ import sys
 from UI import UI
 
 # Define constants
-SCREEN_WIDTH = 1000
-SCREEN_HEIGHT = 800
 TITLE_FONT_SIZE = 64
 SETTINGS_FILE = "Config/Trainingsettings.json"
 

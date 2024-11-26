@@ -5,10 +5,6 @@ import os
 from UI import UIBox, UI
 from typing import Dict, Tuple
 
-# Constants
-SCREEN_WIDTH = 1000
-SCREEN_HEIGHT = 800
-
 # Display settings
 SELECTION_ICON_SIZE = (75, 75)
 FLEET_ICON_SIZE = (50, 50)
@@ -16,9 +12,7 @@ COST_FONT_SIZE = 24
 TITLE_FONT_SIZE = 64
 PLAYER_FONT_SIZE = 24
 
-
 def load_ships() -> Dict:
-    """Load ship data from Ships.json."""
     try:
         with open('Ships/Ships.json', 'r') as f:
             return json.load(f)
@@ -138,7 +132,7 @@ def run(screen: pygame.Surface):
 
     # Create AI toggle buttons
     left_ai_toggle = UI.ToggleButton(50, 85, 100, 30, "AI", initial_state=False)
-    right_ai_toggle = UI.ToggleButton(SCREEN_WIDTH - 487, 85, 100, 30, "AI", initial_state=False)
+    right_ai_toggle = UI.ToggleButton(UI.SCREEN_WIDTH - 487, 85, 100, 30, "AI", initial_state=False)
 
     # Create "One of Each" buttons
     def create_one_of_each(fleet: UIBox.Fleet, ships_data: dict, fleet_sprites: dict):
@@ -157,7 +151,7 @@ def run(screen: pygame.Surface):
     )
 
     right_one_of_each = UI.Button(
-        SCREEN_WIDTH - 377, 85, 325, 30,
+        UI.SCREEN_WIDTH - 377, 85, 325, 30,
         "Pick One of Each Ship",
         lambda: create_one_of_each(right_fleet, ships_data, fleet_sprites),
         bg_color=UI.MENU_BUTTON_COLOR,
@@ -166,12 +160,12 @@ def run(screen: pygame.Surface):
 
     left_ships = UIBox.ShipList(50, 125, selection_width, selection_height,
                           "Player 1: Pick your fleet", SELECTION_ICON_SIZE)
-    right_ships = UIBox.ShipList(SCREEN_WIDTH - 487, 125, selection_width, selection_height,
+    right_ships = UIBox.ShipList(UI.SCREEN_WIDTH - 487, 125, selection_width, selection_height,
                            "Player 2: Pick your fleet", SELECTION_ICON_SIZE)
 
     left_fleet = UIBox.Fleet(50, 400, selection_width, fleet_height,
                        "Player 1 Fleet", FLEET_ICON_SIZE)
-    right_fleet = UIBox.Fleet(SCREEN_WIDTH - 487, 400, selection_width, fleet_height,
+    right_fleet = UIBox.Fleet(UI.SCREEN_WIDTH - 487, 400, selection_width, fleet_height,
                         "Player 2 Fleet", FLEET_ICON_SIZE)
 
     # Add ships to selection lists
@@ -205,7 +199,7 @@ def run(screen: pygame.Surface):
         running = False
 
     confirm_button = UI.Button(
-        SCREEN_WIDTH // 2 - button_width - 10,
+        UI.SCREEN_WIDTH // 2 - button_width - 10,
         725,
         button_width,
         button_height,
@@ -217,7 +211,7 @@ def run(screen: pygame.Surface):
     )
 
     cancel_button = UI.Button(
-        SCREEN_WIDTH // 2 + 10,
+        UI.SCREEN_WIDTH // 2 + 10,
         725,
         button_width,
         button_height,
