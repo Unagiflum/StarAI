@@ -1,0 +1,12 @@
+{
+    "Player 1: Left": "a",
+    "Player 1: Right": "d",
+    "Player 1: Forward": "w",
+    "Player 1: Action 1": "tab",
+    "Player 1: Action 2": "`",
+    "Player 2: Left": "left",
+    "Player 2: Right": "right",
+    "Player 2: Forward": "up",
+    "Player 2: Action 1": "right ctrl",
+    "Player 2: Action 2": "right shift"
+}

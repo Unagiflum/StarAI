@@ -1,0 +1,17 @@
+{
+    "Player1": {
+        "ships": [
+            "Mycon",
+            "Mycon",
+            "Mycon",
+            "Mycon"
+        ],
+        "ai": true
+    },
+    "Player2": {
+        "ships": [
+            "Arilou"
+        ],
+        "ai": false
+    }
+}

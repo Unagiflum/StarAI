@@ -1,0 +1,17 @@
+{
+    "Arilou": {"Skiff": 16},
+    "Druuge": {"Mauler": 17},
+    "Earthling": {"Cruiser": 12},
+    "Ilwrath": {"Avenger": 11},
+    "Kohr-Ah": {"Marauder": 30},
+    "Kzer-za": {"Dreadnought": 30},
+	"Mycon": {"Podship": 16},
+	"Orz": {"Nemesis": 23},
+	"Pkunk": {"Fury": 20},
+	"Shofixti": {"Scout": 5},
+	"Spathi": {"Eluder": 16},
+	"Supox": {"Blade": 15},
+	"Thraddash": {"Torch": 10},
+	"Yehat": {"Terminator": 18},
+	"Zoqfot": {"Stinger": 6}
+}
