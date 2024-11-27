@@ -1,6 +1,6 @@
 import pygame
 
-SCREEN_HEIGHT = 950
+SCREEN_HEIGHT = 960
 SCREEN_WIDTH = int(SCREEN_HEIGHT*1.25)
 FPS = 30
 
@@ -34,6 +34,11 @@ CAN_RED_HI = (200, 100, 100)
 MENU_BUTTON_COLOR = (0, 125, 125)
 MENU_BUTTON_COLOR_HI = (0,175, 175)
 
+MAIN_BUTTON_COLOR = (0, 0, 0, 125)
+MAIN_BUTTON_COLOR_HI = (0, 0, 0, 255)
+
+HANDLE_COLOR = (0, 0, 0)
+
 BG_COLOR = (0, 0, 20)
 
 def load_background(path, screen_width, screen_height):
@@ -45,13 +50,14 @@ def load_background(path, screen_width, screen_height):
         print(f"Could not load background image: {e}")
         return None
 
+
 class Button:
     def __init__(self, x, y, width, height, text, callback, bg_color=GREY, hover_color=LIGHT_GREY, text_color=WHITE):
         self.rect = pygame.Rect(x, y, width, height)
         self.text = text
         self.callback = callback
-        self.bg_color = bg_color
-        self.hover_color = hover_color
+        self.bg_color = (*bg_color, 255) if len(bg_color) == 3 else bg_color
+        self.hover_color = (*hover_color, 255) if len(hover_color) == 3 else hover_color
         self.text_color = text_color
         self.enabled = True
 
@@ -67,15 +73,19 @@ class Button:
 
     def draw(self, surface, font):
         if not self.enabled:
-            color = DARK_GREY
+            color = (*DARK_GREY, 255)
         else:
             mouse_pos = pygame.mouse.get_pos()
             color = self.hover_color if self.rect.collidepoint(mouse_pos) else self.bg_color
 
-        pygame.draw.rect(surface, color, self.rect, border_radius=5)
+        button_surface = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
+        pygame.draw.rect(button_surface, color, button_surface.get_rect(), border_radius=5)
+
         text_surf = font.render(self.text, True, self.text_color)
-        text_rect = text_surf.get_rect(center=self.rect.center)
-        surface.blit(text_surf, text_rect)
+        text_rect = text_surf.get_rect(center=button_surface.get_rect().center)
+        button_surface.blit(text_surf, text_rect)
+
+        surface.blit(button_surface, self.rect)
 
 class ToggleButton(Button):
     def __init__(self, x, y, width, height, text, callback=None, initial_state=False,
@@ -85,11 +95,11 @@ class ToggleButton(Button):
         self.active_color = active_color
 
         # Toggle switch dimensions
-        self.switch_width = 40
-        self.switch_height = height - 10
+        self.switch_width = int(0.02*SCREEN_WIDTH)
+        self.switch_height = int(0.02*SCREEN_WIDTH)
         self.switch_rect = pygame.Rect(
-            self.rect.right - self.switch_width - 5,
-            self.rect.y + 5,
+            self.rect.right - self.switch_width - int(0.005*SCREEN_WIDTH),
+            self.rect.y + int(0.005*SCREEN_WIDTH),
             self.switch_width,
             self.switch_height
         )
@@ -262,7 +272,7 @@ class Slider:
 
         pygame.draw.line(surface, WHITE, (self.rect.x, self.rect.y + int(0.01*SCREEN_HEIGHT)),
                          (self.rect.x + self.rect.width, self.rect.y + int(0.01*SCREEN_HEIGHT)), 5)
-        pygame.draw.circle(surface, ORANGE, (self.handle_x, self.rect.y + int(0.01*SCREEN_HEIGHT)), self.handle_radius)
+        pygame.draw.circle(surface, HANDLE_COLOR, (self.handle_x, self.rect.y + int(0.01*SCREEN_HEIGHT)), self.handle_radius)
 
         label_text = f"{self.label}: {self.format_value()}"
         label_surf = font.render(label_text, True, WHITE)

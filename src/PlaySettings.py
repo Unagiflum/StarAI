@@ -75,7 +75,7 @@ def run(screen):
     for i, label in enumerate(player2_labels):
         key_bindings.append(
             UI.KeyBinding(
-                int(0.75*UI.SCREEN_WIDTH),
+                int(0.65*UI.SCREEN_WIDTH),
                 start_y + i * y_spacing,
                 int(0.2*UI.SCREEN_WIDTH),
                 int(0.05*UI.SCREEN_HEIGHT),

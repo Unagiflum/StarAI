@@ -133,7 +133,7 @@ def run(screen: pygame.Surface):
 
     left_column_start =  int(0.033*UI.SCREEN_WIDTH)
     top_button_start = int(0.1*UI.SCREEN_HEIGHT)
-    AI_toggle_width = int(0.1*UI.SCREEN_WIDTH)
+    AI_toggle_width = int(0.075*UI.SCREEN_WIDTH)
     top_button_height = int(0.0375*UI.SCREEN_HEIGHT)
     each_button_width = selection_width-AI_toggle_width-UI.button_spaceH
 

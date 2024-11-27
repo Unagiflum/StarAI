@@ -2,10 +2,10 @@ import pygame
 from . import UI
 
 # Constants for ShipList and Fleet
-SCROLLBAR_WIDTH = 10
-SCROLL_BUTTON_HEIGHT = 10
+SCROLLBAR_WIDTH = int(0.01*UI.SCREEN_WIDTH)
+SCROLL_BUTTON_HEIGHT = int(0.01*UI.SCREEN_HEIGHT)
 SCROLL_SPEED = 20
-SPACING = 5
+SPACING = int(0.005*UI.SCREEN_WIDTH)
 
 class ShipContainer:
     def __init__(self, x, y, width, height, title, icon_size):

@@ -52,8 +52,8 @@ def main():
             height=button_height,
             text=text,
             callback=lambda m=module: handle_menu_selection(m, screen),
-            bg_color=UI.MENU_BUTTON_COLOR,
-            hover_color=UI.MENU_BUTTON_COLOR_HI
+            bg_color=UI.MAIN_BUTTON_COLOR,
+            hover_color=UI.MAIN_BUTTON_COLOR_HI
         )
         buttons.append(button)
 
