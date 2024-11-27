@@ -7,7 +7,7 @@ from UI import UI, UIBox
 from src.UI.UI import SCREEN_HEIGHT
 
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT * 0.08)
-HIGHLIGHT_COLOR = (25, 25, 25)  # Orange highlight
+HIGHLIGHT_COLOR = (50, 50, 0)
 FLEET_ICON_SIZE = (int(UI.SCREEN_WIDTH * 0.048), int(UI.SCREEN_WIDTH * 0.048))
 
 def load_fleet_data():
@@ -181,8 +181,8 @@ def run(screen):
         UI.ok_button_height,
         "Confirm",
         confirm_callback,
-        bg_color=UI.GREY,
-        hover_color=UI.GREY
+        bg_color=UI.DISABLED_BUTTON,
+        hover_color=UI.DISABLED_BUTTON
     )
 
     cancel_button = UI.Button(
@@ -239,8 +239,8 @@ def run(screen):
             confirm_button.bg_color = UI.OK_GREEN
             confirm_button.hover_color = UI.OK_GREEN_HI
         else:
-            confirm_button.bg_color = UI.GREY
-            confirm_button.hover_color = UI.GREY
+            confirm_button.bg_color = UI.DISABLED_BUTTON
+            confirm_button.hover_color = UI.DISABLED_BUTTON
 
         # Draw everything
         if background:

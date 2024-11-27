@@ -276,8 +276,8 @@ def run(screen: pygame.Surface):
         UI.ok_button_height,
         "Confirm",
         confirm_callback,
-        bg_color=UI.GREY,
-        hover_color=UI.GREY,
+        bg_color=UI.DISABLED_BUTTON,
+        hover_color=UI.DISABLED_BUTTON,
         text_color=UI.WHITE
     )
 
@@ -353,8 +353,8 @@ def run(screen: pygame.Surface):
             confirm_button.bg_color = UI.OK_GREEN
             confirm_button.hover_color = UI.OK_GREEN_HI
         else:
-            confirm_button.bg_color = UI.GREY
-            confirm_button.hover_color = UI.GREY
+            confirm_button.bg_color = UI.DISABLED_BUTTON
+            confirm_button.hover_color = UI.DISABLED_BUTTON
 
         # Draw everything
         if background:
