@@ -231,6 +231,7 @@ class Fleet(ShipContainer):
                 return True
         return False
 
+
     def _update_ship_positions(self):
         for i, (sprite, name, cost, _) in enumerate(self.ships):
             row = i // self.icons_per_row

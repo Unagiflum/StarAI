@@ -258,6 +258,8 @@ def run(screen: pygame.Surface):
             save_fleets(left_fleet, right_fleet, left_ai_toggle.value, right_ai_toggle.value)
             print("Fleets confirmed.")
             UI.sound_manager.play_sound('menu')
+            import PickShip
+            PickShip.run(screen)
 
     running = True
 
