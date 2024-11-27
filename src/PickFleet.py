@@ -7,7 +7,7 @@ from typing import Dict, Tuple
 
 # Display settings
 SELECTION_ICON_SIZE = (int(UI.SCREEN_WIDTH*0.075), int(UI.SCREEN_WIDTH*0.075))
-FLEET_ICON_SIZE = (int(UI.SCREEN_WIDTH*0.060), int(UI.SCREEN_WIDTH*0.060))
+FLEET_ICON_SIZE = (int(UI.SCREEN_WIDTH*0.048), int(UI.SCREEN_WIDTH*0.048))
 COST_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.03)
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.08)
 PLAYER_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.03)
@@ -116,6 +116,7 @@ def run(screen: pygame.Surface):
     font = pygame.font.SysFont(None, COST_FONT_SIZE)
     title_font = pygame.font.SysFont(None, TITLE_FONT_SIZE)
     player_font = pygame.font.SysFont(None, PLAYER_FONT_SIZE)
+    background = UI.load_background("UI/Menu.png", UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     # Load ships data and sprites
     ships_data = load_ships()
@@ -135,7 +136,7 @@ def run(screen: pygame.Surface):
     top_button_start = int(0.1*UI.SCREEN_HEIGHT)
     AI_toggle_width = int(0.075*UI.SCREEN_WIDTH)
     top_button_height = int(0.0375*UI.SCREEN_HEIGHT)
-    each_button_width = selection_width-AI_toggle_width-UI.button_spaceH
+    each_button_width = int(0.5*(selection_width-AI_toggle_width-2*UI.button_spaceH))
 
     right_column_start = int(UI.SCREEN_WIDTH//2+(0.016*UI.SCREEN_WIDTH))
 
@@ -165,10 +166,13 @@ def run(screen: pygame.Surface):
             ship_cost = ship_info[ship_type]
             fleet.add_ship(fleet_sprites[ship_name], ship_name, ship_cost)
 
+    def clear_fleet(fleet: UIBox.Fleet, ships_data: dict, fleet_sprites: dict):
+        fleet.ships.clear()  # Remove all ships
+
     left_one_of_each = UI.Button(
         left_column_start+AI_toggle_width+UI.button_spaceH,
         top_button_start, each_button_width, top_button_height,
-        "Pick One of Each Ship",
+        "One of Each Ship",
         lambda: create_one_of_each(left_fleet, ships_data, fleet_sprites),
         bg_color=UI.MENU_BUTTON_COLOR,
         hover_color=UI.MENU_BUTTON_COLOR_HI
@@ -177,8 +181,26 @@ def run(screen: pygame.Surface):
     right_one_of_each = UI.Button(
         right_column_start+AI_toggle_width+UI.button_spaceH,
         top_button_start, each_button_width, top_button_height,
-        "Pick One of Each Ship",
+        "One of Each Ship",
         lambda: create_one_of_each(right_fleet, ships_data, fleet_sprites),
+        bg_color=UI.MENU_BUTTON_COLOR,
+        hover_color=UI.MENU_BUTTON_COLOR_HI
+    )
+
+    left_clear_button = UI.Button(
+        left_column_start+AI_toggle_width+2*UI.button_spaceH+each_button_width,
+        top_button_start, each_button_width, top_button_height,
+        "Clear Fleet 1",
+        lambda: clear_fleet(left_fleet, ships_data, fleet_sprites),
+        bg_color=UI.MENU_BUTTON_COLOR,
+        hover_color=UI.MENU_BUTTON_COLOR_HI
+    )
+
+    right_clear_button = UI.Button(
+        right_column_start+AI_toggle_width+2*UI.button_spaceH+each_button_width,
+        top_button_start, each_button_width, top_button_height,
+        "Clear Fleet 2",
+        lambda: clear_fleet(right_fleet, ships_data, fleet_sprites),
         bg_color=UI.MENU_BUTTON_COLOR,
         hover_color=UI.MENU_BUTTON_COLOR_HI
     )
@@ -231,9 +253,6 @@ def run(screen: pygame.Surface):
     right_ai_toggle.is_on = right_ai
 
     # Create buttons
-    ok_button_width = int(0.150*UI.SCREEN_WIDTH)
-    ok_button_height = int(0.05*UI.SCREEN_HEIGHT)
-
     def confirm_callback():
         if len(left_fleet.ships) > 0 and len(right_fleet.ships) > 0:
             save_fleets(left_fleet, right_fleet, left_ai_toggle.value, right_ai_toggle.value)
@@ -294,6 +313,9 @@ def run(screen: pygame.Surface):
             left_one_of_each.handle_event(event, UI.sound_manager)
             right_one_of_each.handle_event(event, UI.sound_manager)
 
+            left_clear_button.handle_event(event, UI.sound_manager)
+            right_clear_button.handle_event(event, UI.sound_manager)
+
             confirm_button.handle_event(event, UI.sound_manager)
             cancel_button.handle_event(event, UI.sound_manager)
 
@@ -333,7 +355,11 @@ def run(screen: pygame.Surface):
             confirm_button.hover_color = UI.GREY
 
         # Draw everything
-        screen.fill(UI.BG_COLOR)
+        if background:
+            screen.blit(background, (0, 0))
+        else:
+            screen.fill(UI.BG_COLOR)
+
         UI.draw_title(screen, "Pick Fleets", TITLE_FONT_SIZE, int(0.05*UI.SCREEN_HEIGHT))
 
         # Draw AI toggles
@@ -342,6 +368,9 @@ def run(screen: pygame.Surface):
 
         left_one_of_each.draw(screen, font)
         right_one_of_each.draw(screen, font)
+
+        left_clear_button.draw(screen, font)
+        right_clear_button.draw(screen, font)
 
         left_ships.draw(screen, font, player_font)
         right_ships.draw(screen, font, player_font)

@@ -48,6 +48,7 @@ def run(screen):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(0.03*UI.SCREEN_HEIGHT))
     settings = load_settings()
+    background = UI.load_background("UI/Menu.png", UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     # Create key bindings
     key_bindings = []
@@ -139,7 +140,10 @@ def run(screen):
             return
 
         # Draw screen
-        screen.fill(UI.BG_COLOR)
+        if background:
+            screen.blit(background, (0, 0))
+        else:
+            screen.fill(UI.BG_COLOR)
 
         # Draw title
         UI.draw_title(screen, "Game Settings", TITLE_FONT_SIZE, 0.1*UI.SCREEN_HEIGHT)

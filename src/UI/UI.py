@@ -16,6 +16,7 @@ ok_button_top = SCREEN_HEIGHT-ok_button_height-button_spaceV*4
 WHITE = (255, 255, 255)
 LIGHT_GREY = (170, 170, 170)
 GREY = (100, 100, 100)
+
 DARK_GREY = (50, 50, 50)
 BLACK = (0, 0, 0)
 
@@ -26,18 +27,21 @@ DARK_RED = (50, 0, 0)
 BRIGHT_GREEN = (150,255,100)
 DARK_GREEN = (0, 50, 0)
 
-OK_GREEN = (0, 155, 0)
-OK_GREEN_HI = (100, 200, 100)
-CAN_RED = (155, 0, 0)
-CAN_RED_HI = (200, 100, 100)
+OK_GREEN = (0, 155, 0, 75)
+OK_GREEN_HI = (0, 155, 0, 255)
+CAN_RED = (155, 0, 0, 75)
+CAN_RED_HI = (155, 0, 0, 255)
 
-MENU_BUTTON_COLOR = (0, 125, 125)
-MENU_BUTTON_COLOR_HI = (0,175, 175)
+MENU_BUTTON_COLOR = (0, 175, 175, 75)
+MENU_BUTTON_COLOR_HI = (0, 175, 175, 255)
 
 MAIN_BUTTON_COLOR = (0, 0, 0, 125)
 MAIN_BUTTON_COLOR_HI = (0, 0, 0, 255)
 
-HANDLE_COLOR = (0, 0, 0)
+SLIDER_BG = (50, 50, 100, 100)
+SLIDER_BG_HI = (50, 50, 100, 255)
+
+HANDLE_COLOR = (255, 0, 0)
 
 BG_COLOR = (0, 0, 20)
 
@@ -87,26 +91,61 @@ class Button:
 
         surface.blit(button_surface, self.rect)
 
+
 class ToggleButton(Button):
     def __init__(self, x, y, width, height, text, callback=None, initial_state=False,
                  bg_color=MENU_BUTTON_COLOR, active_color=BRIGHT_GREEN, text_color=WHITE, hover_color=MENU_BUTTON_COLOR_HI):
         super().__init__(x, y, width, height, text, callback, bg_color, hover_color, text_color)
         self.is_on = initial_state
-        self.active_color = active_color
+        self.active_color = (*active_color, 255) if len(active_color) == 3 else active_color
 
-        # Toggle switch dimensions
-        self.switch_width = int(0.02*SCREEN_WIDTH)
-        self.switch_height = int(0.02*SCREEN_WIDTH)
+        self.switch_width = int(0.02 * SCREEN_WIDTH)
+        self.switch_height = int(0.02 * SCREEN_WIDTH)
         self.switch_rect = pygame.Rect(
-            self.rect.right - self.switch_width - int(0.005*SCREEN_WIDTH),
-            self.rect.y + int(0.005*SCREEN_WIDTH),
+            self.rect.right - self.switch_width - int(0.005 * SCREEN_WIDTH),
+            self.rect.y + int(0.005 * SCREEN_WIDTH),
             self.switch_width,
             self.switch_height
         )
 
-        # Sliding button dimensions
         self.button_width = self.switch_width // 2
         self.button_height = self.switch_height
+
+    def draw(self, surface, font):
+        # Create background surface with alpha
+        button_surface = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
+
+        if not self.enabled:
+            color = (*DARK_GREY, 255)
+        else:
+            mouse_pos = pygame.mouse.get_pos()
+            color = self.hover_color if self.rect.collidepoint(mouse_pos) else self.bg_color
+
+        pygame.draw.rect(button_surface, color, button_surface.get_rect(), border_radius=5)
+        surface.blit(button_surface, self.rect)
+
+        text_surf = font.render(self.text, True, self.text_color)
+        text_rect = text_surf.get_rect(midleft=(self.rect.x + 10, self.rect.centery))
+        surface.blit(text_surf, text_rect)
+
+        switch_color = self.active_color if self.is_on else (*DARK_RED, 255) if len(DARK_RED) == 3 else DARK_RED
+        switch_surface = pygame.Surface((self.switch_rect.width, self.switch_rect.height), pygame.SRCALPHA)
+        pygame.draw.rect(switch_surface, switch_color, switch_surface.get_rect(), border_radius=self.switch_height // 2)
+        surface.blit(switch_surface, self.switch_rect)
+
+        button_x = (self.switch_rect.right - self.button_width - 2
+                    if self.is_on
+                    else self.switch_rect.x + 2)
+        button_rect = pygame.Rect(
+            0,
+            0,
+            self.button_width - 2,
+            self.button_height - 4
+        )
+        button_surface = pygame.Surface((button_rect.width, button_rect.height), pygame.SRCALPHA)
+        button_color = self.active_color if self.is_on else (*DARK_RED, 255) if len(DARK_RED) == 3 else DARK_RED
+        pygame.draw.rect(button_surface, button_color, button_rect, border_radius=self.button_height // 2)
+        surface.blit(button_surface, (button_x, self.switch_rect.y + 2))
 
     def handle_event(self, event, sound_manager=None):
         if not self.enabled:
@@ -119,39 +158,6 @@ class ToggleButton(Button):
                 self.is_on = not self.is_on
                 if self.callback:
                     self.callback(self.is_on)
-
-    def draw(self, surface, font):
-        # Determine background color based on state and hover
-        if not self.enabled:
-            color = DARK_GREY
-        else:
-            mouse_pos = pygame.mouse.get_pos()
-            color = self.hover_color if self.rect.collidepoint(mouse_pos) else self.bg_color
-
-        # Draw the button background
-        pygame.draw.rect(surface, color, self.rect, border_radius=5)
-
-        # Draw the label aligned to the left
-        text_surf = font.render(self.text, True, self.text_color)
-        text_rect = text_surf.get_rect(midleft=(self.rect.x + 10, self.rect.centery))
-        surface.blit(text_surf, text_rect)
-
-        # Draw toggle switch background
-        switch_color = self.active_color if self.is_on else DARK_RED
-        pygame.draw.rect(surface, switch_color, self.switch_rect, border_radius=self.switch_height // 2)
-
-        # Draw sliding button
-        button_x = (self.switch_rect.right - self.button_width - 2
-                    if self.is_on
-                    else self.switch_rect.x + 2)
-        button_rect = pygame.Rect(
-            button_x,
-            self.switch_rect.y + 2,
-            self.button_width - 2,
-            self.button_height - 4
-        )
-        button_color = self.active_color if self.is_on else DARK_RED
-        pygame.draw.rect(surface, button_color, button_rect, border_radius=self.button_height // 2)
 
     @property
     def value(self):
@@ -213,9 +219,11 @@ class KeyBinding(Button):
         key_rect = key_surf.get_rect(center=self.rect.center)
         surface.blit(key_surf, key_rect)
 
+
 class Slider:
-    def __init__(self, x, y, width, min_val, max_val, start_val, label, is_int=False, step=1):
-        self.rect = pygame.Rect(x, y, width, int(0.02*SCREEN_HEIGHT))
+    def __init__(self, x, y, width, min_val, max_val, start_val, label, is_int=False, step=1,
+                 bg_color=SLIDER_BG, hover_color=SLIDER_BG_HI):
+        self.rect = pygame.Rect(x, y, width, int(0.02 * SCREEN_HEIGHT))
         self.min_val = min_val
         self.max_val = max_val
         self.value = start_val
@@ -223,8 +231,11 @@ class Slider:
         self.is_int = is_int
         self.step = step
         self.handle_x = self.value_to_position(self.value)
-        self.handle_radius = int(0.015*SCREEN_HEIGHT)
+        self.handle_radius = int(0.015 * SCREEN_HEIGHT)
         self.dragging = False
+        self.bg_color = (*bg_color, 255) if len(bg_color) == 3 else bg_color
+        self.hover_color = (*hover_color, 255) if len(hover_color) == 3 else hover_color
+        self.is_hovered = False
 
     def value_to_position(self, value):
         ratio = (value - self.min_val) / (self.max_val - self.min_val)
@@ -246,6 +257,17 @@ class Slider:
         elif event.type == pygame.MOUSEBUTTONUP:
             self.dragging = False
         elif event.type == pygame.MOUSEMOTION:
+            mouse_pos = event.pos
+            padding_x = int(0.02 * SCREEN_WIDTH)
+            padding_y = int(0.02 * SCREEN_HEIGHT)
+            bg_rect = pygame.Rect(
+                self.rect.x - padding_x,
+                self.rect.y - int(0.04 * SCREEN_HEIGHT),
+                self.rect.width + 2 * padding_x,
+                0.08 * SCREEN_HEIGHT
+            )
+            self.is_hovered = bg_rect.collidepoint(mouse_pos)
+
             if self.dragging:
                 mouse_x = max(self.rect.x, min(self.rect.x + self.rect.width, event.pos[0]))
                 self.value = self.position_to_value(mouse_x)
@@ -254,36 +276,39 @@ class Slider:
     def get_handle_rect(self):
         return pygame.Rect(
             self.handle_x - self.handle_radius,
-            self.rect.y - self.handle_radius + int(0.01*SCREEN_HEIGHT),
+            self.rect.y - self.handle_radius + int(0.01 * SCREEN_HEIGHT),
             self.handle_radius * 2,
             self.handle_radius * 2
         )
 
     def draw(self, surface, font):
-        padding_x = int(0.02*SCREEN_WIDTH)
-        padding_y = int(0.02*SCREEN_HEIGHT)
+        padding_x = int(0.02 * SCREEN_WIDTH)
+        padding_y = int(0.02 * SCREEN_HEIGHT)
         bg_x = self.rect.x - padding_x
-        bg_y = self.rect.y - int(0.04*SCREEN_HEIGHT)
+        bg_y = self.rect.y - int(0.04 * SCREEN_HEIGHT)
         bg_width = self.rect.width + 2 * padding_x
-        bg_height = 0.08*SCREEN_HEIGHT
+        bg_height = 0.08 * SCREEN_HEIGHT
 
-        bg_rect = pygame.Rect(bg_x, bg_y, bg_width, bg_height)
-        pygame.draw.rect(surface, DARK_GREY, bg_rect, border_radius=5)
+        # Create a transparent surface for the background
+        bg_surface = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
+        bg_color = self.hover_color if self.is_hovered else self.bg_color
+        pygame.draw.rect(bg_surface, bg_color, bg_surface.get_rect(), border_radius=5)
+        surface.blit(bg_surface, (bg_x, bg_y))
 
-        pygame.draw.line(surface, WHITE, (self.rect.x, self.rect.y + int(0.01*SCREEN_HEIGHT)),
-                         (self.rect.x + self.rect.width, self.rect.y + int(0.01*SCREEN_HEIGHT)), 5)
-        pygame.draw.circle(surface, HANDLE_COLOR, (self.handle_x, self.rect.y + int(0.01*SCREEN_HEIGHT)), self.handle_radius)
+        pygame.draw.line(surface, WHITE, (self.rect.x, self.rect.y + int(0.01 * SCREEN_HEIGHT)),
+                         (self.rect.x + self.rect.width, self.rect.y + int(0.01 * SCREEN_HEIGHT)), 5)
+        pygame.draw.circle(surface, HANDLE_COLOR, (self.handle_x, self.rect.y + int(0.01 * SCREEN_HEIGHT)),
+                           self.handle_radius)
 
         label_text = f"{self.label}: {self.format_value()}"
         label_surf = font.render(label_text, True, WHITE)
-        label_rect = label_surf.get_rect(topleft=(self.rect.x, self.rect.y - int(0.03*SCREEN_HEIGHT)))
+        label_rect = label_surf.get_rect(topleft=(self.rect.x, self.rect.y - int(0.03 * SCREEN_HEIGHT)))
         surface.blit(label_surf, label_rect)
 
     def format_value(self):
         if self.is_int:
             return f"{int(self.value)}"
         return f"{self.value:.4f}"
-
 
 def draw_title(screen, text, font_size=40, y_pos=50):
     """Utility function to draw a centered title with consistent styling"""
@@ -331,7 +356,7 @@ class SoundManager:
 
     def set_sound_volume(self, volume):
         """Set volume for all sound effects (0.0 to 1.0)."""
-        self.sound_volume = max(0.0, min(1.0, volume))
+        self.sound_volume = max(0.0, min(0.5, volume))
         for sound in self.sounds.values():
             sound.set_volume(self.sound_volume)
 

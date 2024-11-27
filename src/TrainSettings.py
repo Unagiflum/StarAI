@@ -42,6 +42,7 @@ def run(screen):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(0.03*UI.SCREEN_HEIGHT))
     settings = load_settings()
+    background = UI.load_background("UI/Menu.png", UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     slider_left = int(UI.SCREEN_WIDTH*0.25)
     slider_width = int(UI.SCREEN_WIDTH*0.5)
@@ -54,7 +55,7 @@ def run(screen):
         UI.Slider(slider_left, HH[0], slider_width, 0.0001, 0.01, settings["learning_rate"], "Learning Rate"),
         UI.Slider(slider_left, HH[1], slider_width, 0.8, 1.0, settings["discount_factor"], "Discount Factor"),
         UI.Slider(slider_left, HH[2], slider_width, 0.0, 1.0, settings["epsilon"], "Epsilon"),
-        UI.Slider(slider_left, HH[3], slider_width, 1, 20, settings["number_of_layers"], "Number of Hidden Layers", is_int=True),  # Updated key
+        UI.Slider(slider_left, HH[3], slider_width, 1, 20, settings["number_of_layers"], "Number of Hidden Layers", is_int=True),
         UI.Slider(slider_left, HH[4], slider_width, 16, 512, settings["layer_size"], "Layer Size", is_int=True, step=16),
         UI.Slider(slider_left, HH[5], slider_width, 32, 256, settings["batch_size"], "Batch Size", is_int=True, step=32),
     ]
@@ -113,7 +114,10 @@ def run(screen):
         if back_to_menu[0]:
             return
 
-        screen.fill(UI.BG_COLOR)
+        if background:
+            screen.blit(background, (0, 0))
+        else:
+            screen.fill(UI.BG_COLOR)
 
         # Draw title using shared function
         UI.draw_title(screen, "Training Settings", TITLE_FONT_SIZE, int(0.1*UI.SCREEN_HEIGHT))
