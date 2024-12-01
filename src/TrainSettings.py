@@ -3,6 +3,7 @@ import json
 import os
 import sys
 from UI import UI
+from UI import UISlider
 
 # Define constants
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)
@@ -52,12 +53,12 @@ def run(screen):
         HH[ii] = int(0.25*UI.SCREEN_HEIGHT+(ii * 0.1*UI.SCREEN_HEIGHT))
 
     sliders = [
-        UI.Slider(slider_left, HH[0], slider_width, 0.0001, 0.01, settings["learning_rate"], "Learning Rate"),
-        UI.Slider(slider_left, HH[1], slider_width, 0.8, 1.0, settings["discount_factor"], "Discount Factor"),
-        UI.Slider(slider_left, HH[2], slider_width, 0.0, 1.0, settings["epsilon"], "Epsilon"),
-        UI.Slider(slider_left, HH[3], slider_width, 1, 20, settings["number_of_layers"], "Number of Hidden Layers", is_int=True),
-        UI.Slider(slider_left, HH[4], slider_width, 16, 512, settings["layer_size"], "Layer Size", is_int=True, step=16),
-        UI.Slider(slider_left, HH[5], slider_width, 32, 256, settings["batch_size"], "Batch Size", is_int=True, step=32),
+        UISlider.Slider(slider_left, HH[0], slider_width, 0.0001, 0.01, settings["learning_rate"], "Learning Rate"),
+        UISlider.Slider(slider_left, HH[1], slider_width, 0.8, 1.0, settings["discount_factor"], "Discount Factor"),
+        UISlider.Slider(slider_left, HH[2], slider_width, 0.0, 1.0, settings["epsilon"], "Epsilon"),
+        UISlider.Slider(slider_left, HH[3], slider_width, 1, 20, settings["number_of_layers"], "Number of Hidden Layers", is_int=True),
+        UISlider.Slider(slider_left, HH[4], slider_width, 16, 512, settings["layer_size"], "Layer Size", is_int=True, step=16),
+        UISlider.Slider(slider_left, HH[5], slider_width, 32, 256, settings["batch_size"], "Batch Size", is_int=True, step=32),
     ]
 
     back_to_menu = [False]
