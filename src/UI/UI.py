@@ -322,69 +322,32 @@ def draw_title(screen, text, font_size=40, y_pos=50):
 
 class SoundManager:
     def __init__(self):
-        """Initialize the sound manager and create empty sound dictionaries."""
-        # Ensure pygame mixer is initialized
         if not pygame.mixer.get_init():
             pygame.mixer.init()
-
         self.sounds = {}
-        self.music = {}
-
-        # Set default volume levels
-        self.sound_volume = 1.0
-        self.music_volume = 0.5
+        self.volume = 1.0
 
     def load_sounds(self):
-        """Load all sound effects from the UI directory."""
         sound_files = {
             'menu': 'UI/menu.wav',
-            # Add more sound mappings here as needed
         }
-
         for sound_name, path in sound_files.items():
             try:
                 sound = pygame.mixer.Sound(path)
-                sound.set_volume(self.sound_volume)
+                sound.set_volume(self.volume)
                 self.sounds[sound_name] = sound
             except pygame.error as e:
                 print(f"Could not load sound '{sound_name}' from {path}: {e}")
 
     def play_sound(self, sound_name):
-        """Play a sound effect by its name."""
         if sound_name in self.sounds:
             self.sounds[sound_name].play()
         else:
             print(f"Warning: Sound '{sound_name}' not found")
 
-    def set_sound_volume(self, volume):
-        """Set volume for all sound effects (0.0 to 1.0)."""
-        self.sound_volume = max(0.0, min(0.5, volume))
+    def set_volume(self, volume):
+        self.volume = max(0.0, min(1.0, volume))
         for sound in self.sounds.values():
-            sound.set_volume(self.sound_volume)
+            sound.set_volume(self.volume)
 
-    def set_music_volume(self, volume):
-        """Set volume for music (0.0 to 1.0)."""
-        self.music_volume = max(0.0, min(1.0, volume))
-        pygame.mixer.music.set_volume(self.music_volume)
-
-    def play_music(self, music_name, loops=-1):
-        """Play background music."""
-        if music_name in self.music:
-            pygame.mixer.music.load(self.music[music_name])
-            pygame.mixer.music.set_volume(self.music_volume)
-            pygame.mixer.music.play(loops)
-
-    def stop_music(self):
-        """Stop currently playing music."""
-        pygame.mixer.music.stop()
-
-    def pause_music(self):
-        """Pause currently playing music."""
-        pygame.mixer.music.pause()
-
-    def unpause_music(self):
-        """Unpause currently playing music."""
-        pygame.mixer.music.unpause()
-
-# Create a global instance of the sound manager
 sound_manager = SoundManager()

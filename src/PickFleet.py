@@ -257,7 +257,6 @@ def run(screen: pygame.Surface):
         if len(left_fleet.ships) > 0 and len(right_fleet.ships) > 0:
             save_fleets(left_fleet, right_fleet, left_ai_toggle.value, right_ai_toggle.value)
             print("Fleets confirmed.")
-            UI.sound_manager.play_sound('menu')
             import PickShip
             PickShip.run(screen)
 
@@ -266,7 +265,6 @@ def run(screen: pygame.Surface):
     def cancel_callback():
         nonlocal running
         print("Cancel button clicked. Returning to main menu.")
-        UI.sound_manager.play_sound('menu')
         running = False
 
     confirm_button = UI.Button(

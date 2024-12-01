@@ -64,12 +64,10 @@ def run(screen):
 
     def go_back():
         """Return to the main menu."""
-        UI.sound_manager.play_sound('menu')
         back_to_menu[0] = True
 
     def save_and_exit():
         """Save settings and return to the main menu."""
-        UI.sound_manager.play_sound('menu')
         new_settings = {
             slider.label.replace(" ", "_").lower(): slider.value
             for slider in sliders

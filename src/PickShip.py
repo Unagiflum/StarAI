@@ -137,7 +137,6 @@ def run(screen):
             sprite, name, cost, _ = left_fleet.ships[selected_idx]
             left_selection["ship"] = name
             left_selection["sprite"] = selection_sprites[name]
-            UI.sound_manager.play_sound('menu')
 
     def pick_random_right():
         if right_fleet.ships:
@@ -145,7 +144,6 @@ def run(screen):
             sprite, name, cost, _ = right_fleet.ships[selected_idx]
             right_selection["ship"] = name
             right_selection["sprite"] = selection_sprites[name]
-            UI.sound_manager.play_sound('menu')
 
     random_left = UI.Button(
         SELECTION_L_LEFT,
