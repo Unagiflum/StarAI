@@ -24,7 +24,7 @@ def main():
     pygame.init()
     pygame.mixer.init()
     UI.sound_manager.load_sounds()
-    UI.sound_manager.set_volume(0.5)
+    UI.sound_manager.set_volume(0.35)
 
     screen = pygame.display.set_mode((UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT))
     pygame.display.set_caption("StarAI")

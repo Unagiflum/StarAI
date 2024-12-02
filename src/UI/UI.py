@@ -12,6 +12,7 @@ ok_button_height = int(0.05 * SCREEN_HEIGHT)
 ok_button_left = SCREEN_WIDTH // 2 - ok_button_width - int(0.0167*SCREEN_WIDTH)
 can_button_left = SCREEN_WIDTH // 2 + int(0.0167*SCREEN_WIDTH)
 ok_button_top = SCREEN_HEIGHT-ok_button_height-button_spaceV*4
+
 # Colors
 WHITE = (255, 255, 255)
 LIGHT_GREY = (170, 170, 170)
@@ -44,8 +45,8 @@ SLIDER_BG = (50, 50, 100, 100)
 SLIDER_BG_HI = (50, 50, 100, 255)
 
 HANDLE_COLOR = (255, 0, 0)
-
 BG_COLOR = (0, 0, 20)
+
 
 def load_background(path, screen_width, screen_height):
     """Load and scale the background image to fit the screen."""
@@ -55,6 +56,47 @@ def load_background(path, screen_width, screen_height):
     except pygame.error as e:
         print(f"Could not load background image: {e}")
         return None
+
+
+def draw_title(screen, text, font_size=40, y_pos=50):
+    """Utility function to draw a centered title with consistent styling"""
+    font = pygame.font.SysFont(None, font_size)
+    title_surf = font.render(text, True, WHITE)
+    title_rect = title_surf.get_rect(center=(screen.get_width() // 2, y_pos))
+    screen.blit(title_surf, title_rect)
+
+
+class SoundManager:
+    def __init__(self):
+        if not pygame.mixer.get_init():
+            pygame.mixer.init()
+        self.sounds = {}
+        self.volume = 1.0
+
+    def load_sounds(self):
+        sound_files = {
+            'menu': 'UI/menu.wav',
+        }
+        for sound_name, path in sound_files.items():
+            try:
+                sound = pygame.mixer.Sound(path)
+                sound.set_volume(self.volume)
+                self.sounds[sound_name] = sound
+            except pygame.error as e:
+                print(f"Could not load sound '{sound_name}' from {path}: {e}")
+
+    def play_sound(self, sound_name):
+        if sound_name in self.sounds:
+            self.sounds[sound_name].play()
+        else:
+            print(f"Warning: Sound '{sound_name}' not found")
+
+    def set_volume(self, volume):
+        self.volume = max(0.0, min(1.0, volume))
+        for sound in self.sounds.values():
+            sound.set_volume(self.volume)
+
+sound_manager = SoundManager()
 
 
 class Button:
@@ -165,6 +207,7 @@ class ToggleButton(Button):
     def value(self):
         return self.is_on
 
+
 class KeyBinding(Button):
     def __init__(self, x, y, width, height, label, default_key, callback=None,
                  bg_color=DARK_GREY, hover_color=DARK_GREEN, text_color=WHITE):
@@ -221,43 +264,3 @@ class KeyBinding(Button):
         key_rect = key_surf.get_rect(center=self.rect.center)
         surface.blit(key_surf, key_rect)
 
-
-def draw_title(screen, text, font_size=40, y_pos=50):
-    """Utility function to draw a centered title with consistent styling"""
-    font = pygame.font.SysFont(None, font_size)
-    title_surf = font.render(text, True, WHITE)
-    title_rect = title_surf.get_rect(center=(screen.get_width() // 2, y_pos))
-    screen.blit(title_surf, title_rect)
-
-
-class SoundManager:
-    def __init__(self):
-        if not pygame.mixer.get_init():
-            pygame.mixer.init()
-        self.sounds = {}
-        self.volume = 1.0
-
-    def load_sounds(self):
-        sound_files = {
-            'menu': 'UI/menu.wav',
-        }
-        for sound_name, path in sound_files.items():
-            try:
-                sound = pygame.mixer.Sound(path)
-                sound.set_volume(self.volume)
-                self.sounds[sound_name] = sound
-            except pygame.error as e:
-                print(f"Could not load sound '{sound_name}' from {path}: {e}")
-
-    def play_sound(self, sound_name):
-        if sound_name in self.sounds:
-            self.sounds[sound_name].play()
-        else:
-            print(f"Warning: Sound '{sound_name}' not found")
-
-    def set_volume(self, volume):
-        self.volume = max(0.0, min(1.0, volume))
-        for sound in self.sounds.values():
-            sound.set_volume(self.volume)
-
-sound_manager = SoundManager()
