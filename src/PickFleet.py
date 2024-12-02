@@ -21,7 +21,7 @@ def load_ships() -> Dict:
         return {}
 
 def load_ship_sprite(ship_name: str) -> Tuple[pygame.Surface, Tuple[int, int]]:
-    """Load ship sprite without scaling and return its surface and size."""
+    """Load the ship sprite without scaling and return its surface and size."""
     try:
         sprite_path = os.path.join('Ships', ship_name, f'{ship_name}00.png')
         sprite = pygame.image.load(sprite_path).convert_alpha()
