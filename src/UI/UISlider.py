@@ -17,6 +17,9 @@ class Slider:
         self.bg_color = (*bg_color, 255) if len(bg_color) == 3 else bg_color
         self.hover_color = (*hover_color, 255) if len(hover_color) == 3 else hover_color
         self.is_hovered = False
+        self.line_rect = pygame.Rect(self.rect.x, self.rect.y+int(0.003 * UI.SCREEN_HEIGHT),
+                                   self.rect.width, int(0.015 * UI.SCREEN_HEIGHT))
+        self.decimal_places = abs(len(str(self.step).split('.')[-1])) if '.' in str(self.step) else 0
 
     def value_to_position(self, value):
         ratio = (value - self.min_val) / (self.max_val - self.min_val)
@@ -25,16 +28,37 @@ class Slider:
     def position_to_value(self, pos_x):
         ratio = (pos_x - self.rect.x) / self.rect.width
         value = self.min_val + ratio * (self.max_val - self.min_val)
-        if self.is_int:
-            value = round(value / self.step) * self.step
+        value = round(value / self.step) * self.step
         return max(self.min_val, min(self.max_val, value))
+
+    def adjust_value(self, increment):
+        new_value = self.value + (self.step if increment else -self.step)
+        self.value = max(self.min_val, min(self.max_val, new_value))
+        self.handle_x = self.value_to_position(self.value)
 
     def handle_event(self, event, sound_manager=None):
         if event.type == pygame.MOUSEBUTTONDOWN:
-            if self.get_handle_rect().collidepoint(event.pos):
-                if sound_manager:
-                    sound_manager.play_sound('menu')
-                self.dragging = True
+            if event.button == 1:  # Left click
+                handle_rect = self.get_handle_rect()
+                if handle_rect.collidepoint(event.pos):
+                    if sound_manager:
+                        sound_manager.play_sound('menu')
+                    self.dragging = True
+                elif self.line_rect.collidepoint(event.pos):
+                    if sound_manager:
+                        sound_manager.play_sound('menu')
+                    self.value = self.position_to_value(event.pos[0])
+                    self.handle_x = self.value_to_position(self.value)
+            elif self.is_hovered:  # Mouse wheel
+                if event.button == 4:  # Scroll up
+                    if sound_manager:
+                        sound_manager.play_sound('menu')
+                    self.adjust_value(True)
+                elif event.button == 5:  # Scroll down
+                    if sound_manager:
+                        sound_manager.play_sound('menu')
+                    self.adjust_value(False)
+
         elif event.type == pygame.MOUSEBUTTONUP:
             self.dragging = False
         elif event.type == pygame.MOUSEMOTION:
@@ -70,14 +94,12 @@ class Slider:
         bg_width = self.rect.width + 2 * padding_x
         bg_height = 0.08 * UI.SCREEN_HEIGHT
 
-        # Create a transparent surface for the background
         bg_surface = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
         bg_color = self.hover_color if self.is_hovered else self.bg_color
         pygame.draw.rect(bg_surface, bg_color, bg_surface.get_rect(), border_radius=5)
         surface.blit(bg_surface, (bg_x, bg_y))
 
-        pygame.draw.line(surface, UI.WHITE, (self.rect.x, self.rect.y + int(0.01 * UI.SCREEN_HEIGHT)),
-                         (self.rect.x + self.rect.width, self.rect.y + int(0.01 * UI.SCREEN_HEIGHT)), 5)
+        pygame.draw.rect(surface, UI.SLIDER_LINE, self.line_rect)
         pygame.draw.circle(surface, UI.HANDLE_COLOR, (self.handle_x, self.rect.y + int(0.01 * UI.SCREEN_HEIGHT)),
                            self.handle_radius)
 
@@ -89,4 +111,4 @@ class Slider:
     def format_value(self):
         if self.is_int:
             return f"{int(self.value)}"
-        return f"{self.value:.4f}"
+        return f"{self.value:.{self.decimal_places}f}"
