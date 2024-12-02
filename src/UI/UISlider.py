@@ -12,12 +12,12 @@ class Slider:
         self.is_int = is_int
         self.step = step
         self.handle_x = self.value_to_position(self.value)
-        self.handle_radius = int(0.015 * UI.SCREEN_HEIGHT)
+        self.handle_radius = int(0.01 * UI.SCREEN_HEIGHT)
         self.dragging = False
         self.bg_color = (*bg_color, 255) if len(bg_color) == 3 else bg_color
         self.hover_color = (*hover_color, 255) if len(hover_color) == 3 else hover_color
         self.is_hovered = False
-        self.line_rect = pygame.Rect(self.rect.x, self.rect.y+int(0.003 * UI.SCREEN_HEIGHT),
+        self.line_rect = pygame.Rect(self.rect.x, self.rect.y+int(0.0025 * UI.SCREEN_HEIGHT),
                                    self.rect.width, int(0.015 * UI.SCREEN_HEIGHT))
         self.decimal_places = abs(len(str(self.step).split('.')[-1])) if '.' in str(self.step) else 0
 
