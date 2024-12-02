@@ -2,7 +2,7 @@ import pygame
 import sys
 import json
 import os
-from UI import UIBox, UI
+from UI import UI, UIButton, UIBox
 from typing import Dict, Tuple
 
 # Display settings
@@ -141,7 +141,7 @@ def run(screen: pygame.Surface):
     right_column_start = int(UI.SCREEN_WIDTH//2+(0.016*UI.SCREEN_WIDTH))
 
     # Create AI toggle buttons
-    left_ai_toggle = UI.ToggleButton(
+    left_ai_toggle = UIButton.ToggleButton(
         left_column_start,
         top_button_start,
         AI_toggle_width,
@@ -149,7 +149,7 @@ def run(screen: pygame.Surface):
         "AI",
         initial_state=False
     )
-    right_ai_toggle = UI.ToggleButton(
+    right_ai_toggle = UIButton.ToggleButton(
         right_column_start,
         top_button_start,
         AI_toggle_width,
@@ -169,7 +169,7 @@ def run(screen: pygame.Surface):
     def clear_fleet(fleet: UIBox.Fleet, ships_data: dict, fleet_sprites: dict):
         fleet.ships.clear()  # Remove all ships
 
-    left_one_of_each = UI.Button(
+    left_one_of_each = UIButton.Button(
         left_column_start+AI_toggle_width+UI.button_spaceH,
         top_button_start, each_button_width, top_button_height,
         "One of Each Ship",
@@ -178,7 +178,7 @@ def run(screen: pygame.Surface):
         hover_color=UI.MENU_BUTTON_COLOR_HI
     )
 
-    right_one_of_each = UI.Button(
+    right_one_of_each = UIButton.Button(
         right_column_start+AI_toggle_width+UI.button_spaceH,
         top_button_start, each_button_width, top_button_height,
         "One of Each Ship",
@@ -187,7 +187,7 @@ def run(screen: pygame.Surface):
         hover_color=UI.MENU_BUTTON_COLOR_HI
     )
 
-    left_clear_button = UI.Button(
+    left_clear_button = UIButton.Button(
         left_column_start+AI_toggle_width+2*UI.button_spaceH+each_button_width,
         top_button_start, each_button_width, top_button_height,
         "Clear Fleet 1",
@@ -196,7 +196,7 @@ def run(screen: pygame.Surface):
         hover_color=UI.MENU_BUTTON_COLOR_HI
     )
 
-    right_clear_button = UI.Button(
+    right_clear_button = UIButton.Button(
         right_column_start+AI_toggle_width+2*UI.button_spaceH+each_button_width,
         top_button_start, each_button_width, top_button_height,
         "Clear Fleet 2",
@@ -267,7 +267,7 @@ def run(screen: pygame.Surface):
         print("Cancel button clicked. Returning to main menu.")
         running = False
 
-    confirm_button = UI.Button(
+    confirm_button = UIButton.Button(
         UI.ok_button_left,
         UI.ok_button_top,
         UI.ok_button_width,
@@ -279,7 +279,7 @@ def run(screen: pygame.Surface):
         text_color=UI.WHITE
     )
 
-    cancel_button = UI.Button(
+    cancel_button = UIButton.Button(
         UI.can_button_left,
         UI.ok_button_top,
         UI.ok_button_width,

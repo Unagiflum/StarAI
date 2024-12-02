@@ -5,6 +5,7 @@ import PickFleet
 import PlaySettings
 import TrainSettings
 from UI import UI
+from UI import UIButton
 
 def handle_menu_selection(module, screen):
     """Handle the selected menu item."""
@@ -46,7 +47,7 @@ def main():
 
     buttons = []
     for i, (text, module) in enumerate(menu_items):
-        button = UI.Button(
+        button = UIButton.Button(
             x=int(UI.SCREEN_WIDTH // 2 - button_width // 2),
             y=start_y + i * y_spacing,
             width=button_width,

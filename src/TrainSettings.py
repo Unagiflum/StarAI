@@ -4,6 +4,7 @@ import os
 import sys
 from UI import UI
 from UI import UISlider
+from UI import UIButton
 
 # Define constants
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)
@@ -76,7 +77,7 @@ def run(screen):
         save_settings(new_settings)
         back_to_menu[0] = True
 
-    save_button = UI.Button(
+    save_button = UIButton.Button(
         UI.ok_button_left,
         UI.ok_button_top,
         UI.ok_button_width,
@@ -87,7 +88,7 @@ def run(screen):
         UI.OK_GREEN_HI
     )
 
-    cancel_button = UI.Button(
+    cancel_button = UIButton.Button(
         UI.can_button_left,
         UI.ok_button_top,
         UI.ok_button_width,

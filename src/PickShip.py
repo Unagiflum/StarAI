@@ -3,7 +3,7 @@ import json
 import os
 import sys
 import random
-from UI import UI, UIBox
+from UI import UI, UIButton, UIBox
 from src.UI.UI import SCREEN_HEIGHT
 
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT * 0.08)
@@ -145,7 +145,7 @@ def run(screen):
             right_selection["ship"] = name
             right_selection["sprite"] = selection_sprites[name]
 
-    random_left = UI.Button(
+    random_left = UIButton.Button(
         SELECTION_L_LEFT,
         RAND_TOP,
         SELECTION_BOX_SIZE,
@@ -156,7 +156,7 @@ def run(screen):
         hover_color=UI.MENU_BUTTON_COLOR_HI
     )
 
-    random_right = UI.Button(
+    random_right = UIButton.Button(
         SELECTION_R_LEFT,
         RAND_TOP,
         SELECTION_BOX_SIZE,
@@ -172,7 +172,7 @@ def run(screen):
             print("Ships selected:", left_selection["ship"], "vs", right_selection["ship"])
             # TODO: Call Battle module with selected ships
 
-    confirm_button = UI.Button(
+    confirm_button = UIButton.Button(
         UI.ok_button_left,
         UI.ok_button_top,
         UI.ok_button_width,
@@ -183,7 +183,7 @@ def run(screen):
         hover_color=UI.DISABLED_BUTTON
     )
 
-    cancel_button = UI.Button(
+    cancel_button = UIButton.Button(
         UI.can_button_left,
         UI.ok_button_top,
         UI.ok_button_width,

@@ -3,6 +3,7 @@ import json
 import os
 import sys
 from UI import UI
+from UI import UIButton
 
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)
 SETTINGS_FILE = "Config/Gamesettings.json"
@@ -60,7 +61,7 @@ def run(screen):
                       "Player 1: Action 2"]
     for i, label in enumerate(player1_labels):
         key_bindings.append(
-            UI.KeyBinding(
+            UIButton.KeyBinding(
                 int(0.25*UI.SCREEN_WIDTH),
                 start_y + i * y_spacing,
                 int(0.2*UI.SCREEN_WIDTH),
@@ -75,7 +76,7 @@ def run(screen):
                       "Player 2: Action 2"]
     for i, label in enumerate(player2_labels):
         key_bindings.append(
-            UI.KeyBinding(
+            UIButton.KeyBinding(
                 int(0.65*UI.SCREEN_WIDTH),
                 start_y + i * y_spacing,
                 int(0.2*UI.SCREEN_WIDTH),
@@ -99,7 +100,7 @@ def run(screen):
         back_to_menu[0] = True
 
     # Create buttons
-    save_button = UI.Button(
+    save_button = UIButton.Button(
         UI.ok_button_left,
         UI.ok_button_top,
         UI.ok_button_width,
@@ -110,7 +111,7 @@ def run(screen):
         hover_color=UI.OK_GREEN_HI
     )
 
-    cancel_button = UI.Button(
+    cancel_button = UIButton.Button(
         UI.can_button_left,
         UI.ok_button_top,
         UI.ok_button_width,
