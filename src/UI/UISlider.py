@@ -11,15 +11,23 @@ class Slider:
         self.label = label
         self.is_int = is_int
         self.step = step
-        self.handle_x = self.value_to_position(self.value)
-        self.handle_radius = int(0.01 * UI.SCREEN_HEIGHT)
         self.dragging = False
         self.bg_color = (*bg_color, 255) if len(bg_color) == 3 else bg_color
         self.hover_color = (*hover_color, 255) if len(hover_color) == 3 else hover_color
         self.is_hovered = False
-        self.line_rect = pygame.Rect(self.rect.x, self.rect.y+int(0.0025 * UI.SCREEN_HEIGHT),
-                                   self.rect.width, int(0.015 * UI.SCREEN_HEIGHT))
         self.decimal_places = abs(len(str(self.step).split('.')[-1])) if '.' in str(self.step) else 0
+        self.handle_x = self.value_to_position(self.value)
+
+        self.bg_rect_height = int(0.08 * UI.SCREEN_HEIGHT)
+        self.line_width = int(self.bg_rect_height/20)
+        self.padding_x = int(self.bg_rect_height/5)
+        self.padding_y = int(self.bg_rect_height/5)
+        self.handle_radius = int(self.bg_rect_height/10)
+        self.handle_offset = int(self.bg_rect_height/10)
+        self.line_rect = pygame.Rect(self.rect.x, self.rect.y + self.handle_offset - self.line_width,
+            self.rect.width, 2*self.line_width)
+        self.bg_rect = pygame.Rect(self.rect.x - self.padding_x, self.rect.y - 3 * self.padding_y,
+            self.rect.width + 2 * self.padding_x, self.bg_rect_height)
 
     def value_to_position(self, value):
         ratio = (value - self.min_val) / (self.max_val - self.min_val)
@@ -63,15 +71,7 @@ class Slider:
             self.dragging = False
         elif event.type == pygame.MOUSEMOTION:
             mouse_pos = event.pos
-            padding_x = int(0.02 * UI.SCREEN_WIDTH)
-            padding_y = int(0.02 * UI.SCREEN_HEIGHT)
-            bg_rect = pygame.Rect(
-                self.rect.x - padding_x,
-                self.rect.y - int(0.04 * UI.SCREEN_HEIGHT),
-                self.rect.width + 2 * padding_x,
-                0.08 * UI.SCREEN_HEIGHT
-            )
-            self.is_hovered = bg_rect.collidepoint(mouse_pos)
+            self.is_hovered = self.bg_rect.collidepoint(mouse_pos)
 
             if self.dragging:
                 mouse_x = max(self.rect.x, min(self.rect.x + self.rect.width, event.pos[0]))
@@ -81,28 +81,24 @@ class Slider:
     def get_handle_rect(self):
         return pygame.Rect(
             self.handle_x - self.handle_radius,
-            self.rect.y - self.handle_radius + int(0.01 * UI.SCREEN_HEIGHT),
+            self.rect.y - self.handle_radius + self.handle_offset,
             self.handle_radius * 2,
             self.handle_radius * 2
         )
 
     def draw(self, surface, font):
-        padding_x = int(0.02 * UI.SCREEN_WIDTH)
-        padding_y = int(0.02 * UI.SCREEN_HEIGHT)
-        bg_x = self.rect.x - padding_x
-        bg_y = self.rect.y - int(0.04 * UI.SCREEN_HEIGHT)
-        bg_width = self.rect.width + 2 * padding_x
-        bg_height = 0.08 * UI.SCREEN_HEIGHT
-
-        bg_surface = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
+        # Create background surface with alpha
+        bg_surface = pygame.Surface(self.bg_rect.size, pygame.SRCALPHA)
         bg_color = self.hover_color if self.is_hovered else self.bg_color
         pygame.draw.rect(bg_surface, bg_color, bg_surface.get_rect(), border_radius=5)
-        surface.blit(bg_surface, (bg_x, bg_y))
+        surface.blit(bg_surface, self.bg_rect.topleft)
 
+        # Draw slider line and handle
         pygame.draw.rect(surface, UI.SLIDER_LINE, self.line_rect)
-        pygame.draw.circle(surface, UI.HANDLE_COLOR, (self.handle_x, self.rect.y + int(0.01 * UI.SCREEN_HEIGHT)),
+        pygame.draw.circle(surface, UI.HANDLE_COLOR, (self.handle_x, self.rect.y + self.handle_offset),
                            self.handle_radius)
 
+        # Draw label
         label_text = f"{self.label}: {self.format_value()}"
         label_surf = font.render(label_text, True, UI.WHITE)
         label_rect = label_surf.get_rect(topleft=(self.rect.x, self.rect.y - int(0.03 * UI.SCREEN_HEIGHT)))
