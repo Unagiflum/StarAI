@@ -4,8 +4,7 @@ import sys
 import PickFleet
 import PlaySettings
 import TrainSettings
-from UI import UI
-from UI import UIButton
+from UI import UI, UIButton
 
 def handle_menu_selection(module, screen):
     """Handle the selected menu item."""

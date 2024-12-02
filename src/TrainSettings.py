@@ -2,9 +2,7 @@ import pygame
 import json
 import os
 import sys
-from UI import UI
-from UI import UISlider
-from UI import UIButton
+from UI import UI, UISlider, UIButton
 
 # Define constants
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)
@@ -16,7 +14,7 @@ def load_settings():
         "learning_rate": 0.001,
         "discount_factor": 0.99,
         "epsilon": 1.0,
-        "number_of_layers": 3,  # Updated key name
+        "number_of_hidden_layers": 3,
         "layer_size": 128,
         "batch_size": 64,
     }
@@ -57,7 +55,7 @@ def run(screen):
         UISlider.Slider(slider_left, HH[0], slider_width, 0.0001, 0.01, settings["learning_rate"], "Learning Rate"),
         UISlider.Slider(slider_left, HH[1], slider_width, 0.8, 1.0, settings["discount_factor"], "Discount Factor"),
         UISlider.Slider(slider_left, HH[2], slider_width, 0.0, 1.0, settings["epsilon"], "Epsilon"),
-        UISlider.Slider(slider_left, HH[3], slider_width, 1, 20, settings["number_of_layers"], "Number of Hidden Layers", is_int=True),
+        UISlider.Slider(slider_left, HH[3], slider_width, 1, 20, settings["number_of_hidden_layers"], "Number of Hidden Layers", is_int=True),
         UISlider.Slider(slider_left, HH[4], slider_width, 16, 512, settings["layer_size"], "Layer Size", is_int=True, step=16),
         UISlider.Slider(slider_left, HH[5], slider_width, 32, 256, settings["batch_size"], "Batch Size", is_int=True, step=32),
     ]

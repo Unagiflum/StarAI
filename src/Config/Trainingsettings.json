@@ -1,8 +1,0 @@
-{
-    "learning_rate": 0.01,
-    "discount_factor": 1.0,
-    "epsilon": 1.0,
-    "number_of_hidden_layers": 20,
-    "layer_size": 16,
-    "batch_size": 32
-}
