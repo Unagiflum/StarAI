@@ -1,4 +1,3 @@
-import math
 import pygame
 import sys
 import PickFleet
