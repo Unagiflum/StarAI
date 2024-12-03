@@ -9,7 +9,7 @@ class Slider:
         self.line_width = int(self.bg_rect_height/20)
         self.padding_x = int(self.bg_rect_height/5)
         self.padding_y = int(self.bg_rect_height/5)
-        self.handle_radius = int(self.bg_rect_height/10)
+        self.handle_radius = int(self.bg_rect_height/8)
         self.handle_offset = int(self.bg_rect_height*0.75)
         self.bg_rect = pygame.Rect(self.rect.x, self.rect.y,
                                    self.rect.width, self.bg_rect_height)
