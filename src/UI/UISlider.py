@@ -4,13 +4,25 @@ from . import UI
 class Slider:
     def __init__(self, x, y, width, min_val, max_val, start_val, label, is_int=False, step=1,
                  bg_color=UI.SLIDER_BG, hover_color=UI.SLIDER_BG_HI):
-        self.rect = pygame.Rect(x, y, width, int(0.02 * UI.SCREEN_HEIGHT))
+        self.bg_rect_height = int(0.08 * UI.SCREEN_HEIGHT)
+        self.rect = pygame.Rect(x, y, width, self.bg_rect_height)
+        self.line_width = int(self.bg_rect_height/20)
+        self.padding_x = int(self.bg_rect_height/5)
+        self.padding_y = int(self.bg_rect_height/5)
+        self.handle_radius = int(self.bg_rect_height/10)
+        self.handle_offset = int(self.bg_rect_height*0.75)
+        self.bg_rect = pygame.Rect(self.rect.x, self.rect.y,
+                                   self.rect.width, self.bg_rect_height)
+        self.line_rect = pygame.Rect(self.rect.x + self.padding_x, self.rect.y + self.handle_offset - self.line_width,
+            self.rect.width - 2*self.padding_x, 2 * self.line_width)
+
         self.min_val = min_val
         self.max_val = max_val
         self.value = start_val
         self.label = label
         self.is_int = is_int
         self.step = step
+
         self.dragging = False
         self.bg_color = (*bg_color, 255) if len(bg_color) == 3 else bg_color
         self.hover_color = (*hover_color, 255) if len(hover_color) == 3 else hover_color
@@ -18,23 +30,12 @@ class Slider:
         self.decimal_places = abs(len(str(self.step).split('.')[-1])) if '.' in str(self.step) else 0
         self.handle_x = self.value_to_position(self.value)
 
-        self.bg_rect_height = int(0.08 * UI.SCREEN_HEIGHT)
-        self.line_width = int(self.bg_rect_height/20)
-        self.padding_x = int(self.bg_rect_height/5)
-        self.padding_y = int(self.bg_rect_height/5)
-        self.handle_radius = int(self.bg_rect_height/10)
-        self.handle_offset = int(self.bg_rect_height/10)
-        self.line_rect = pygame.Rect(self.rect.x, self.rect.y + self.handle_offset - self.line_width,
-            self.rect.width, 2*self.line_width)
-        self.bg_rect = pygame.Rect(self.rect.x - self.padding_x, self.rect.y - 3 * self.padding_y,
-            self.rect.width + 2 * self.padding_x, self.bg_rect_height)
-
     def value_to_position(self, value):
         ratio = (value - self.min_val) / (self.max_val - self.min_val)
-        return self.rect.x + int(ratio * self.rect.width)
+        return self.line_rect.x + int(ratio * self.line_rect.width)
 
     def position_to_value(self, pos_x):
-        ratio = (pos_x - self.rect.x) / self.rect.width
+        ratio = (pos_x - self.line_rect.x) / self.line_rect.width
         value = self.min_val + ratio * (self.max_val - self.min_val)
         value = round(value / self.step) * self.step
         return max(self.min_val, min(self.max_val, value))
@@ -101,7 +102,7 @@ class Slider:
         # Draw label
         label_text = f"{self.label}: {self.format_value()}"
         label_surf = font.render(label_text, True, UI.WHITE)
-        label_rect = label_surf.get_rect(topleft=(self.rect.x, self.rect.y - int(0.03 * UI.SCREEN_HEIGHT)))
+        label_rect = label_surf.get_rect(topleft=(self.line_rect.x, self.rect.y + self.padding_y))
         surface.blit(label_surf, label_rect)
 
     def format_value(self):

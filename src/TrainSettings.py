@@ -49,7 +49,7 @@ def run(screen):
 
     HH = [0] * 6
     for ii in range(6):
-        HH[ii] = int(0.25*UI.SCREEN_HEIGHT+(ii * 0.1*UI.SCREEN_HEIGHT))
+        HH[ii] = int(0.25*UI.SCREEN_HEIGHT+(ii * 0.09*UI.SCREEN_HEIGHT))
 
     sliders = [
         UISlider.Slider(slider_left, HH[0], slider_width, 0.0001, 0.01,
