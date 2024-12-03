@@ -1,8 +1,6 @@
 import pygame
 import sys
-import PickFleet
-import PlaySettings
-import TrainSettings
+from src.Menus import PickFleet, TrainSettings, PlaySettings
 from UI import UI, UIButton
 
 def handle_menu_selection(module, screen):

@@ -257,7 +257,7 @@ def run(screen: pygame.Surface):
         if len(left_fleet.ships) > 0 and len(right_fleet.ships) > 0:
             save_fleets(left_fleet, right_fleet, left_ai_toggle.value, right_ai_toggle.value)
             print("Fleets confirmed.")
-            import PickShip
+            from Menus import PickShip
             PickShip.run(screen)
 
     running = True
