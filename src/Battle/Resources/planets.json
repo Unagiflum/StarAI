@@ -1,0 +1,19 @@
+{
+    "Life": {
+        "Image":"Battle/Resources/Planets/life.png",
+        "Gravity": 100,
+        "Radius": 100,
+        "Colors": [100,100,255]
+    },
+    "Iceworld": {
+        "Image":"Battle/Resources/Planets/ice.png",
+        "Gravity": 50,
+        "Radius": 75,
+        "Colors": [200,200,200]
+    },
+    "Giant": {
+        "Image":"Battle/Resources/Planets/giant.png",
+        "Gravity": 250,
+        "Radius": 150,
+        "Colors": [120,100,0]}
+}
