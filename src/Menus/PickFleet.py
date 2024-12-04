@@ -2,7 +2,8 @@ import pygame
 import sys
 import json
 import os
-from UI import UI, UIButton, UIBox
+from src.UI import UI, UIButton, UIBox
+from src.Menus import PickShip
 from typing import Dict, Tuple
 
 # Display settings
@@ -257,7 +258,7 @@ def run(screen: pygame.Surface):
         if len(left_fleet.ships) > 0 and len(right_fleet.ships) > 0:
             save_fleets(left_fleet, right_fleet, left_ai_toggle.value, right_ai_toggle.value)
             print("Fleets confirmed.")
-            from Menus import PickShip
+
             PickShip.run(screen)
 
     running = True

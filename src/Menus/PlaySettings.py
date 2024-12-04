@@ -2,7 +2,7 @@ import pygame
 import json
 import os
 import sys
-from UI import UI, UIButton
+from src.UI import UI, UIButton
 
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)
 SETTINGS_FILE = "Config/Gamesettings.json"

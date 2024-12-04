@@ -2,7 +2,7 @@ import pygame
 import json
 import os
 import sys
-from UI import UI, UISlider, UIButton
+from src.UI import UI, UISlider, UIButton
 
 # Define constants
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)

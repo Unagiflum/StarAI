@@ -3,7 +3,7 @@ import json
 import os
 import sys
 import random
-from UI import UI, UIButton, UIBox
+from src.UI import UI, UIButton, UIBox
 
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT * 0.08)
 HIGHLIGHT_COLOR = (50, 50, 0)
