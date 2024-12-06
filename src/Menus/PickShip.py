@@ -48,12 +48,14 @@ def load_ships_data():
             ships_data = json.load(f)
 
         original_sprites = {}
-        for ship_name in ships_data:
+        simplified_data = {}
+        for ship_name, stats in ships_data.items():
+            simplified_data[ship_name] = {stats['ShipType']: stats['Cost']}
             sprite, _ = load_ship_sprite(ship_name)
             if sprite:
                 original_sprites[ship_name] = sprite
 
-        return ships_data, original_sprites
+        return simplified_data, original_sprites
     except Exception as e:
         print(f"Error loading Ships.json: {e}")
         return None, None

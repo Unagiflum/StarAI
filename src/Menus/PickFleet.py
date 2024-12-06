@@ -13,10 +13,18 @@ COST_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.03)
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.08)
 PLAYER_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.03)
 
+
 def load_ships() -> Dict:
     try:
         with open('Ships/Ships.json', 'r') as f:
-            return json.load(f)
+            ships_data = json.load(f)
+
+        # Convert to the format expected by the rest of the code
+        simplified_data = {}
+        for ship_name, stats in ships_data.items():
+            simplified_data[ship_name] = {stats['ShipType']: stats['Cost']}
+
+        return simplified_data
     except Exception as e:
         print(f"Error loading Ships.json: {e}")
         return {}
