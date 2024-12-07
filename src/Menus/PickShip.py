@@ -12,7 +12,7 @@ HIGHLIGHT_COLOR = (50, 50, 0)
 FLEET_ICON_WIDTH = int(UI.SCREEN_WIDTH * 0.06)
 FLEET_ICON_SIZE = (FLEET_ICON_WIDTH, FLEET_ICON_WIDTH)
 X_COLOR = (255, 0, 0)  # Red X for dead ships
-X_THICKNESS = 1
+X_THICKNESS = 2
 
 
 def draw_x(surface, rect):
