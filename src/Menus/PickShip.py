@@ -8,24 +8,28 @@ from src.Ships.SpaceShip import SpaceShip
 from src.Battle import Battle
 
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT * 0.08)
-HIGHLIGHT_COLOR = (50, 50, 0)
-FLEET_ICON_WIDTH = int(UI.SCREEN_WIDTH * 0.06)
-FLEET_ICON_SIZE = (FLEET_ICON_WIDTH, FLEET_ICON_WIDTH)
-X_COLOR = (255, 0, 0)  # Red X for dead ships
-X_THICKNESS = 2
+HIGHLIGHT_COLOR = (50, 50, 75)
+FLEET_ICON_SIZE = (int(UI.SCREEN_WIDTH * 0.06), int(UI.SCREEN_WIDTH * 0.06))
+X_COLOR = (255, 0, 0, 100)
+X_THICKNESS = int(0.2*UI.FLEET_ICON_SIZE[0])
 
 
 def draw_x(surface, rect):
     """Draw a red X in a square box sized to the largest ship dimension."""
-    size = FLEET_ICON_WIDTH
+    size = UI.FLEET_ICON_SIZE[0]
     x_rect = pygame.Rect(
-        rect.centerx - size//2,
-        rect.centery - size//2,
+        rect.centerx - size // 2,
+        rect.centery - size // 2,
         size,
         size
     )
-    pygame.draw.line(surface, X_COLOR, x_rect.topleft, x_rect.bottomright, X_THICKNESS)
-    pygame.draw.line(surface, X_COLOR, x_rect.bottomleft, x_rect.topright, X_THICKNESS)
+
+    x_surface = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.line(x_surface, X_COLOR, (0, 0), (size, size), X_THICKNESS)
+    pygame.draw.line(x_surface, X_COLOR, (0, size), (size, 0), X_THICKNESS)
+
+    surface.blit(x_surface, x_rect)
+
 
 def load_fleet_data():
     try:
@@ -98,7 +102,8 @@ def run(screen):
     if not fleet_data or not ships_data or not original_sprites:
         return
 
-    player2_ships[0].currently_alive = False
+    player1_ships[1].currently_alive = False
+    player1_ships[2].currently_alive = False
 
     LEFT_COLUMN_START = int(0.033 * UI.SCREEN_WIDTH)
     RIGHT_COLUMN_START = int(UI.SCREEN_WIDTH // 2 + (0.016 * UI.SCREEN_WIDTH))
@@ -122,7 +127,7 @@ def run(screen):
         FLEET_WIDTH,
         FLEET_HEIGHT,
         "Player 1 Fleet",
-        FLEET_ICON_SIZE
+        UI.FLEET_ICON_SIZE
     )
 
     right_fleet = UIBox.Fleet(
@@ -131,7 +136,7 @@ def run(screen):
         FLEET_WIDTH,
         FLEET_HEIGHT,
         "Player 2 Fleet",
-        FLEET_ICON_SIZE
+        UI.FLEET_ICON_SIZE
     )
 
     # Load ships into fleets
@@ -153,7 +158,8 @@ def run(screen):
                                           SELECTION_BOX_SIZE),
                       "ship": None,
                       "sprite": None,
-                      "ship_obj": None}
+                      "ship_obj": None,
+                      "index": None}
 
     right_selection = {"rect": pygame.Rect(SELECTION_R_LEFT,
                                            SELECTION_TOP,
@@ -161,8 +167,8 @@ def run(screen):
                                            SELECTION_BOX_SIZE),
                        "ship": None,
                        "sprite": None,
-                       "ship_obj": None}
-
+                       "ship_obj": None,
+                       "index": None}
     def pick_random_left():
         alive_ships = [(i, ship) for i, ship in enumerate(player1_ships) if ship.currently_alive]
         if alive_ships:
@@ -171,6 +177,7 @@ def run(screen):
             left_selection["ship"] = name
             left_selection["sprite"] = selection_sprites[name]
             left_selection["ship_obj"] = ship_obj
+            left_selection["index"] = idx  # Add this line
 
     def pick_random_right():
         alive_ships = [(i, ship) for i, ship in enumerate(player2_ships) if ship.currently_alive]
@@ -180,6 +187,7 @@ def run(screen):
             right_selection["ship"] = name
             right_selection["sprite"] = selection_sprites[name]
             right_selection["ship_obj"] = ship_obj
+            right_selection["index"] = idx  # Add this line
 
     random_left = UIButton.Button(
         SELECTION_L_LEFT,
@@ -251,6 +259,7 @@ def run(screen):
                             left_selection["ship"] = name
                             left_selection["sprite"] = selection_sprites[name]
                             left_selection["ship_obj"] = player1_ships[i]
+                            left_selection["index"] = i
                             UI.sound_manager.play_sound('menu')
                             break
 
@@ -260,6 +269,7 @@ def run(screen):
                             right_selection["ship"] = name
                             right_selection["sprite"] = selection_sprites[name]
                             right_selection["ship_obj"] = player2_ships[i]
+                            right_selection["index"] = i
                             UI.sound_manager.play_sound('menu')
                             break
 
@@ -299,25 +309,22 @@ def run(screen):
         right_fleet.draw(screen, font)
 
         # Draw highlight boxes under selected ships and X's over dead ships
+
         if left_selection["ship"]:
-            for i, (_, name, _, rect) in enumerate(left_fleet.ships):
-                if name == left_selection["ship"]:
-                    highlight_rect = pygame.Rect(rect.centerx - FLEET_ICON_SIZE[0] // 2,
-                                                 rect.centery - FLEET_ICON_SIZE[1] // 2,
-                                                 FLEET_ICON_SIZE[0],
-                                                 FLEET_ICON_SIZE[1])
-                    pygame.draw.rect(screen, HIGHLIGHT_COLOR, highlight_rect)
-                    break
+            rect = left_fleet.ships[left_selection["index"]][3]  # Get rect from stored index
+            highlight_rect = pygame.Rect(rect.centerx - UI.FLEET_ICON_SIZE[0] // 2,
+                                         rect.centery - UI.FLEET_ICON_SIZE[1] // 2,
+                                         UI.FLEET_ICON_SIZE[0],
+                                         UI.FLEET_ICON_SIZE[1])
+            pygame.draw.rect(screen, HIGHLIGHT_COLOR, highlight_rect)
 
         if right_selection["ship"]:
-            for i, (_, name, _, rect) in enumerate(right_fleet.ships):
-                if name == right_selection["ship"]:
-                    highlight_rect = pygame.Rect(rect.centerx - FLEET_ICON_SIZE[0] // 2,
-                                                 rect.centery - FLEET_ICON_SIZE[1] // 2,
-                                                 FLEET_ICON_SIZE[0],
-                                                 FLEET_ICON_SIZE[1])
-                    pygame.draw.rect(screen, HIGHLIGHT_COLOR, highlight_rect)
-                    break
+            rect = right_fleet.ships[right_selection["index"]][3]  # Get rect from stored index
+            highlight_rect = pygame.Rect(rect.centerx - UI.FLEET_ICON_SIZE[0] // 2,
+                                         rect.centery - UI.FLEET_ICON_SIZE[1] // 2,
+                                         UI.FLEET_ICON_SIZE[0],
+                                         UI.FLEET_ICON_SIZE[1])
+            pygame.draw.rect(screen, HIGHLIGHT_COLOR, highlight_rect)
 
         # Redraw ships to appear above highlights
         for i, (sprite, _, _, rect) in enumerate(left_fleet.ships):

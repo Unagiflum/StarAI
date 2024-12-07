@@ -8,7 +8,6 @@ from typing import Dict, Tuple
 
 # Display settings
 SELECTION_ICON_SIZE = (int(UI.SCREEN_WIDTH*0.075), int(UI.SCREEN_WIDTH*0.075))
-FLEET_ICON_SIZE = (int(UI.SCREEN_WIDTH*0.06), int(UI.SCREEN_WIDTH*0.06))
 COST_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.03)
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.08)
 PLAYER_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.03)
@@ -133,7 +132,7 @@ def run(screen: pygame.Surface):
 
     # Scale sprites for selection and fleet views, maintaining proportions
     selection_sprites = scale_sprites(original_sprites, SELECTION_ICON_SIZE[0])
-    fleet_sprites = scale_sprites(original_sprites, FLEET_ICON_SIZE[0])
+    fleet_sprites = scale_sprites(original_sprites, UI.FLEET_ICON_SIZE[0])
 
     # Create UI components
 
@@ -238,7 +237,7 @@ def run(screen: pygame.Surface):
         selection_width,
         fleet_height,
         "Player 1 Fleet",
-        FLEET_ICON_SIZE
+        UI.FLEET_ICON_SIZE
     )
     right_fleet = UIBox.Fleet(
         right_column_start,
@@ -246,7 +245,7 @@ def run(screen: pygame.Surface):
         selection_width,
         fleet_height,
         "Player 2 Fleet",
-        FLEET_ICON_SIZE
+        UI.FLEET_ICON_SIZE
     )
 
     # Add ships to selection lists
