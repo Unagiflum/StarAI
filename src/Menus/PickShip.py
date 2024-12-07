@@ -10,7 +10,7 @@ from src.Battle import Battle
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT * 0.08)
 HIGHLIGHT_COLOR = (50, 50, 75)
 FLEET_ICON_SIZE = (int(UI.SCREEN_WIDTH * 0.06), int(UI.SCREEN_WIDTH * 0.06))
-X_COLOR = (255, 0, 0, 100)
+X_COLOR = (255, 100, 100, 100)
 X_THICKNESS = int(0.2*UI.FLEET_ICON_SIZE[0])
 
 
@@ -102,8 +102,6 @@ def run(screen):
     if not fleet_data or not ships_data or not original_sprites:
         return
 
-    player1_ships[1].currently_alive = False
-    player1_ships[2].currently_alive = False
 
     LEFT_COLUMN_START = int(0.033 * UI.SCREEN_WIDTH)
     RIGHT_COLUMN_START = int(UI.SCREEN_WIDTH // 2 + (0.016 * UI.SCREEN_WIDTH))
