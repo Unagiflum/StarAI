@@ -98,6 +98,8 @@ def run(screen):
     if not fleet_data or not ships_data or not original_sprites:
         return
 
+    player2_ships[0].currently_alive = False
+
     LEFT_COLUMN_START = int(0.033 * UI.SCREEN_WIDTH)
     RIGHT_COLUMN_START = int(UI.SCREEN_WIDTH // 2 + (0.016 * UI.SCREEN_WIDTH))
 
