@@ -1,9 +1,9 @@
-# Druuge.py
+# KohrAh.py
 from src.Ships.SpaceShip import SpaceShip
-import src.Ships.Druuge.DruugeA1 as A1
-import src.Ships.Druuge.DruugeA2 as A2
+import src.Ships.KohrAh.KohrAhA1 as A1
+import src.Ships.KohrAh.KohrAhA2 as A2
 
-class Druuge(SpaceShip):
+class KohrAh(SpaceShip):
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
 

@@ -4,7 +4,24 @@ import os
 import sys
 import random
 from src.UI import UI, UIButton, UIBox
+
 from src.Ships.SpaceShip import SpaceShip
+from src.Ships.Arilou.Arilou import Arilou
+from src.Ships.Druuge.Druuge import Druuge
+from src.Ships.Earthling.Earthling import Earthling
+from src.Ships.Ilwrath.Ilwrath import Ilwrath
+from src.Ships.KohrAh.KohrAh import KohrAh
+from src.Ships.KzerZa.KzerZa import KzerZa
+from src.Ships.Mycon.Mycon import Mycon
+from src.Ships.Orz.Orz import Orz
+from src.Ships.Pkunk.Pkunk import Pkunk
+from src.Ships.Shofixti.Shofixti import Shofixti
+from src.Ships.Spathi.Spathi import Spathi
+from src.Ships.Supox.Supox import Supox
+from src.Ships.Thraddash.Thraddash import Thraddash
+from src.Ships.Yehat.Yehat import Yehat
+from src.Ships.ZoqFot.ZoqFot import ZoqFot
+
 from src.Battle import Battle
 
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT * 0.08)
@@ -37,10 +54,29 @@ def load_fleet_data():
             fleet_data = json.load(f)
 
         # Create SpaceShip objects
-        player1_ships = [SpaceShip(ship_name, 1) for ship_name in fleet_data["Player1"]["ships"]]
-        player2_ships = [SpaceShip(ship_name, 2) for ship_name in fleet_data["Player2"]["ships"]]
 
+        ship_classes = {
+            "Arilou": Arilou,
+            "Druuge": Druuge,
+            "Earthling": Earthling,
+            "Ilwrath": Ilwrath,
+            "KohrAh": KohrAh,
+            "KzerZa": KzerZa,
+            "Mycon": Mycon,
+            "Orz": Orz,
+            "Pkunk": Pkunk,
+            "Shofixti": Shofixti,
+            "Spathi": Spathi,
+            "Supox": Supox,
+            "Thraddash": Thraddash,
+            "Yehat": Yehat,
+            "ZoqFot": ZoqFot
+        }
+
+        player1_ships = [ship_classes[ship_name](ship_name, 1) for ship_name in fleet_data["Player1"]["ships"]]
+        player2_ships = [ship_classes[ship_name](ship_name, 2) for ship_name in fleet_data["Player2"]["ships"]]
         return fleet_data, player1_ships, player2_ships
+
     except Exception as e:
         print(f"Error loading Fleets.json: {e}")
         return None, [], []
@@ -101,7 +137,6 @@ def run(screen):
     ships_data, original_sprites = load_ships_data()
     if not fleet_data or not ships_data or not original_sprites:
         return
-
 
     LEFT_COLUMN_START = int(0.033 * UI.SCREEN_WIDTH)
     RIGHT_COLUMN_START = int(UI.SCREEN_WIDTH // 2 + (0.016 * UI.SCREEN_WIDTH))

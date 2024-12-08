@@ -63,7 +63,7 @@
         "ShipMass": 7,
         "Inertia": true
     },
-    "Kohr-Ah": {
+    "KohrAh": {
         "ShipType": "Marauder",
         "Cost": 30,
         "MaxHP": 42,
@@ -79,7 +79,7 @@
         "ShipMass": 10,
         "Inertia": true
     },
-    "Kzer-Za": {
+    "KzerZa": {
         "ShipType": "Dreadnought",
         "Cost": 30,
         "MaxHP": 42,

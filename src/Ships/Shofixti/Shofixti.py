@@ -1,11 +1,14 @@
-def action1(ship):
-    """Action1"""
-    return False
+# Shofixti.py
+from src.Ships.SpaceShip import SpaceShip
+import src.Ships.Shofixti.ShofixtiA1 as A1
+import src.Ships.Shofixti.ShofixtiA2 as A2
 
-def action2(ship):
-    """Action2"""
-    return False
+class Shofixti(SpaceShip):
+    def __init__(self, ship_name, player_num):
+        super().__init__(ship_name, player_num)
 
-def action3(ship):
-    """Action3"""
-    return False
+    def perform_action1(self):
+        return A1.action(self)
+
+    def perform_action2(self):
+        return A2.action(self)

@@ -1,11 +1,14 @@
-def action1(ship):
-    """Action1"""
-    return False
+# Pkunk.py
+from src.Ships.SpaceShip import SpaceShip
+import src.Ships.Pkunk.PkunkA1 as A1
+import src.Ships.Pkunk.PkunkA2 as A2
 
-def action2(ship):
-    """Action2"""
-    return False
+class Pkunk(SpaceShip):
+    def __init__(self, ship_name, player_num):
+        super().__init__(ship_name, player_num)
 
-def action3(ship):
-    """Action3"""
-    return False
+    def perform_action1(self):
+        return A1.action(self)
+
+    def perform_action2(self):
+        return A2.action(self)
