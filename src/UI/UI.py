@@ -13,7 +13,10 @@ ok_button_left = SCREEN_WIDTH // 2 - ok_button_width - int(0.0167*SCREEN_WIDTH)
 can_button_left = SCREEN_WIDTH // 2 + int(0.0167*SCREEN_WIDTH)
 ok_button_top = SCREEN_HEIGHT-ok_button_height-button_spaceV*4
 
-FLEET_ICON_SIZE = (int(SCREEN_WIDTH*0.06), int(SCREEN_WIDTH*0.06))
+FLEET_ICON_SIZE = (int(SCREEN_WIDTH*0.060), int(SCREEN_WIDTH*0.060))
+SELECTION_WIDTH = int(0.45 * SCREEN_WIDTH)
+SELECTION_HEIGHT = int(.35 * SCREEN_HEIGHT)
+FLEET_HEIGHT = int(.40 * SCREEN_HEIGHT)
 
 # Colors
 WHITE = (255, 255, 255)

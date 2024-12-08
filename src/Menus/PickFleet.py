@@ -136,15 +136,11 @@ def run(screen: pygame.Surface):
 
     # Create UI components
 
-    selection_width = int(0.45*UI.SCREEN_WIDTH)
-    selection_height = int(.35*UI.SCREEN_HEIGHT)
-    fleet_height = int(.4*UI.SCREEN_HEIGHT)
-
     left_column_start =  int(0.033*UI.SCREEN_WIDTH)
     top_button_start = int(0.1*UI.SCREEN_HEIGHT)
     AI_toggle_width = int(0.075*UI.SCREEN_WIDTH)
     top_button_height = int(0.0375*UI.SCREEN_HEIGHT)
-    each_button_width = int(0.5*(selection_width-AI_toggle_width-2*UI.button_spaceH))
+    each_button_width = int(0.5*(UI.SELECTION_WIDTH-AI_toggle_width-2*UI.button_spaceH))
 
     right_column_start = int(UI.SCREEN_WIDTH//2+(0.016*UI.SCREEN_WIDTH))
 
@@ -216,8 +212,8 @@ def run(screen: pygame.Surface):
     left_ships = UIBox.ShipList(
         left_column_start,
         top_button_start+top_button_height+UI.button_spaceV,
-        selection_width,
-        selection_height,
+        UI.SELECTION_WIDTH,
+        UI.SELECTION_HEIGHT,
         "Player 1: Pick your fleet",
         SELECTION_ICON_SIZE
     )
@@ -225,25 +221,25 @@ def run(screen: pygame.Surface):
     right_ships = UIBox.ShipList(
         right_column_start,
         top_button_start + top_button_height + UI.button_spaceV,
-        selection_width,
-        selection_height,
+        UI.SELECTION_WIDTH,
+        UI.SELECTION_HEIGHT,
         "Player 2: Pick your fleet",
         SELECTION_ICON_SIZE
     )
 
     left_fleet = UIBox.Fleet(
         left_column_start,
-        top_button_start + top_button_height + selection_height + 2*UI.button_spaceV,
-        selection_width,
-        fleet_height,
+        top_button_start + top_button_height + UI.SELECTION_HEIGHT + 2*UI.button_spaceV,
+        UI.SELECTION_WIDTH,
+        UI.FLEET_HEIGHT,
         "Player 1 Fleet",
         UI.FLEET_ICON_SIZE
     )
     right_fleet = UIBox.Fleet(
         right_column_start,
-        top_button_start + top_button_height + selection_height + 2 * UI.button_spaceV,
-        selection_width,
-        fleet_height,
+        top_button_start + top_button_height + UI.SELECTION_HEIGHT + 2 * UI.button_spaceV,
+        UI.SELECTION_WIDTH,
+        UI.FLEET_HEIGHT,
         "Player 2 Fleet",
         UI.FLEET_ICON_SIZE
     )

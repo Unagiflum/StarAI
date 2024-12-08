@@ -26,7 +26,7 @@ from src.Battle import Battle
 
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT * 0.08)
 HIGHLIGHT_COLOR = (50, 50, 75)
-FLEET_ICON_SIZE = (int(UI.SCREEN_WIDTH * 0.06), int(UI.SCREEN_WIDTH * 0.06))
+FLEET_ICON_SIZE = UI.FLEET_ICON_SIZE
 X_COLOR = (255, 100, 100, 100)
 X_THICKNESS = int(0.2*UI.FLEET_ICON_SIZE[0])
 
@@ -142,23 +142,21 @@ def run(screen):
     RIGHT_COLUMN_START = int(UI.SCREEN_WIDTH // 2 + (0.016 * UI.SCREEN_WIDTH))
 
     FLEET_TOP = int(0.15 * UI.SCREEN_HEIGHT)
-    FLEET_WIDTH = int(0.45 * UI.SCREEN_WIDTH)
-    FLEET_HEIGHT = int(0.4 * UI.SCREEN_HEIGHT)
 
     SELECTION_BOX_SIZE = int(UI.SCREEN_WIDTH * 0.165)
-    SELECTION_TOP = FLEET_TOP + FLEET_HEIGHT + int(0.05 * UI.SCREEN_HEIGHT)
-    SELECTION_L_LEFT = LEFT_COLUMN_START + int(0.5 * (FLEET_WIDTH - SELECTION_BOX_SIZE))
-    SELECTION_R_LEFT = RIGHT_COLUMN_START + int(0.5 * (FLEET_WIDTH - SELECTION_BOX_SIZE))
+    SELECTION_TOP = FLEET_TOP + UI.FLEET_HEIGHT + int(0.05 * UI.SCREEN_HEIGHT)
+    SELECTION_L_LEFT = LEFT_COLUMN_START + int(0.5 * (UI.SELECTION_WIDTH - SELECTION_BOX_SIZE))
+    SELECTION_R_LEFT = RIGHT_COLUMN_START + int(0.5 * (UI.SELECTION_WIDTH - SELECTION_BOX_SIZE))
     RAND_TOP = SELECTION_TOP + SELECTION_BOX_SIZE + int(0.01 * UI.SCREEN_HEIGHT)
 
-    fleet_sprites = scale_sprites(original_sprites, int(UI.SCREEN_WIDTH * 0.048))
+    fleet_sprites = scale_sprites(original_sprites, UI.FLEET_ICON_SIZE[0])
     selection_sprites = scale_sprites(original_sprites, SELECTION_BOX_SIZE)
 
     left_fleet = UIBox.Fleet(
         LEFT_COLUMN_START,
         FLEET_TOP,
-        FLEET_WIDTH,
-        FLEET_HEIGHT,
+        UI.SELECTION_WIDTH,
+        UI.FLEET_HEIGHT,
         "Player 1 Fleet",
         UI.FLEET_ICON_SIZE
     )
@@ -166,8 +164,8 @@ def run(screen):
     right_fleet = UIBox.Fleet(
         RIGHT_COLUMN_START,
         FLEET_TOP,
-        FLEET_WIDTH,
-        FLEET_HEIGHT,
+        UI.SELECTION_WIDTH,
+        UI.FLEET_HEIGHT,
         "Player 2 Fleet",
         UI.FLEET_ICON_SIZE
     )
