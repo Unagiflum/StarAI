@@ -13,7 +13,7 @@
         "ThrustWait": 0,
         "TurnWait": 0,
         "ShipMass": 1,
-        "Inertia": true
+        "Inertia": false
     },
     "Druuge": {
         "ShipType": "Mauler",
