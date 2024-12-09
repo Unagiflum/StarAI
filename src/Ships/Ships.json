@@ -13,7 +13,9 @@
         "ThrustWait": 0,
         "TurnWait": 0,
         "ShipMass": 1,
-        "Inertia": false
+        "Inertia": false,
+        "SpriteLocation": "/src/Ships/Arilou/",
+        "SpriteScale": 1.0
     },
     "Druuge": {
         "ShipType": "Mauler",
@@ -29,7 +31,9 @@
         "ThrustWait": 1,
         "TurnWait": 4,
         "ShipMass": 5,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/Druuge/",
+        "SpriteScale": 1.0
     },
     "Earthling": {
         "ShipType": "Cruiser",
@@ -45,7 +49,9 @@
         "ThrustWait": 4,
         "TurnWait": 1,
         "ShipMass": 6,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/Earthling/",
+        "SpriteScale": 1.0
     },
     "Ilwrath": {
         "ShipType": "Avenger",
@@ -61,7 +67,9 @@
         "ThrustWait": 0,
         "TurnWait": 2,
         "ShipMass": 7,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/Ilwrath/",
+        "SpriteScale": 1.0
     },
     "KohrAh": {
         "ShipType": "Marauder",
@@ -77,7 +85,9 @@
         "ThrustWait": 4,
         "TurnWait": 4,
         "ShipMass": 10,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/KohrAh/",
+        "SpriteScale": 1.0
     },
     "KzerZa": {
         "ShipType": "Dreadnought",
@@ -93,7 +103,9 @@
         "ThrustWait": 6,
         "TurnWait": 4,
         "ShipMass": 10,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/KzerZa/",
+        "SpriteScale": 0.87
     },
     "Mycon": {
         "ShipType": "Podship",
@@ -109,7 +121,9 @@
         "ThrustWait": 6,
         "TurnWait": 6,
         "ShipMass": 7,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/Mycon/",
+        "SpriteScale": 1.0
     },
     "Orz": {
         "ShipType": "Nemesis",
@@ -125,7 +139,9 @@
         "ThrustWait": 0,
         "TurnWait": 1,
         "ShipMass": 4,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/Orz/",
+        "SpriteScale": 1.0
     },
     "Pkunk": {
         "ShipType": "Fury",
@@ -141,7 +157,9 @@
         "ThrustWait": 0,
         "TurnWait": 0,
         "ShipMass": 1,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/Pkunk/",
+        "SpriteScale": 1.0
     },
     "Shofixti": {
         "ShipType": "Scout",
@@ -157,7 +175,9 @@
         "ThrustWait": 0,
         "TurnWait": 1,
         "ShipMass": 1,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/Shofixti/",
+        "SpriteScale": 1.0
     },
     "Spathi": {
         "ShipType": "Eluder",
@@ -173,7 +193,9 @@
         "ThrustWait": 1,
         "TurnWait": 1,
         "ShipMass": 7,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/Spathi/",
+        "SpriteScale": 1.0
     },
     "Supox": {
         "ShipType": "Blade",
@@ -189,7 +211,9 @@
         "ThrustWait": 0,
         "TurnWait": 1,
         "ShipMass": 4,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/Supox/",
+        "SpriteScale": 1.0
     },
     "Thraddash": {
         "ShipType": "Torch",
@@ -205,7 +229,9 @@
         "ThrustWait": 0,
         "TurnWait": 1,
         "ShipMass": 7,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/Thraddash/",
+        "SpriteScale": 1.0
     },
     "Yehat": {
         "ShipType": "Terminator",
@@ -221,7 +247,9 @@
         "ThrustWait": 2,
         "TurnWait": 2,
         "ShipMass": 3,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/Yehat/",
+        "SpriteScale": 1.0
     },
     "ZoqFot": {
         "ShipType": "Stinger",
@@ -237,6 +265,8 @@
         "ThrustWait": 0,
         "TurnWait": 1,
         "ShipMass": 5,
-        "Inertia": true
+        "Inertia": true,
+        "SpriteLocation": "/src/Ships/ZoqFot/",
+        "SpriteScale": 1.0
     }
 }

@@ -5,7 +5,6 @@ import sys
 import random
 from src.UI import UI, UIButton, UIBox
 
-from src.Ships.SpaceShip import SpaceShip
 from src.Ships.Arilou.Arilou import Arilou
 from src.Ships.Druuge.Druuge import Druuge
 from src.Ships.Earthling.Earthling import Earthling
@@ -93,17 +92,30 @@ def load_ship_sprite(ship_name):
 
 
 def scale_sprites(original_sprites, target_size):
+    # First find max dimension after applying sprite_scale
     max_dim = 1
-    for sprite in original_sprites.values():
-        width, height = sprite.get_size()
-        max_dim = max(max_dim, width, height)
-
-    scale_factor = target_size / max_dim
-    scaled_sprites = {}
     for name, sprite in original_sprites.items():
+        with open('Ships/Ships.json', 'r') as f:
+            ships_data = json.load(f)
+            sprite_scale = ships_data[name]['SpriteScale']
+
         width, height = sprite.get_size()
-        new_width = int(width * scale_factor)
-        new_height = int(height * scale_factor)
+        scaled_width = width * sprite_scale
+        scaled_height = height * sprite_scale
+        max_dim = max(max_dim, scaled_width, scaled_height)
+
+    base_scale_factor = target_size / max_dim
+    scaled_sprites = {}
+
+    # Now scale each sprite by both its SpriteScale and the base_scale_factor
+    for name, sprite in original_sprites.items():
+        with open('Ships/Ships.json', 'r') as f:
+            ships_data = json.load(f)
+            sprite_scale = ships_data[name]['SpriteScale']
+
+        width, height = sprite.get_size()
+        new_width = int(width * sprite_scale * base_scale_factor)
+        new_height = int(height * sprite_scale * base_scale_factor)
         scaled_sprites[name] = pygame.transform.scale(sprite, (new_width, new_height))
 
     return scaled_sprites
@@ -371,10 +383,10 @@ def run(screen):
         # Draw selection boxes
         for selection in [left_selection, right_selection]:
             pygame.draw.rect(screen, UI.BLACK, selection["rect"])
-            pygame.draw.rect(screen, UI.WHITE, selection["rect"], 2)
             if selection["sprite"]:
                 sprite_rect = selection["sprite"].get_rect(center=selection["rect"].center)
                 screen.blit(selection["sprite"], sprite_rect)
+            pygame.draw.rect(screen, UI.WHITE, selection["rect"], 2)
 
         random_left.draw(screen, font)
         random_right.draw(screen, font)

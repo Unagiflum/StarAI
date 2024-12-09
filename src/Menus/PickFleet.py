@@ -21,7 +21,10 @@ def load_ships() -> Dict:
         # Convert to the format expected by the rest of the code
         simplified_data = {}
         for ship_name, stats in ships_data.items():
-            simplified_data[ship_name] = {stats['ShipType']: stats['Cost']}
+            simplified_data[ship_name] = {
+                stats['ShipType']: stats['Cost'],
+                'SpriteScale': stats['SpriteScale']
+            }
 
         return simplified_data
     except Exception as e:
@@ -40,23 +43,26 @@ def load_ship_sprite(ship_name: str) -> Tuple[pygame.Surface, Tuple[int, int]]:
         surface.fill(UI.GREY)
         return surface, SELECTION_ICON_SIZE
 
-def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int) -> Dict[str, pygame.Surface]:
-    """Scale sprites proportionally based on the largest dimension among all sprites."""
-    # Find the maximum dimension across all sprites
-    max_dim = 1  # Avoid division by zero
-    for sprite in original_sprites.values():
+def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int, ships_data: Dict) -> Dict[str, pygame.Surface]:
+    # Find the maximum dimension across all sprites after applying SpriteScale
+    max_dim = 1
+    for name, sprite in original_sprites.items():
         width, height = sprite.get_size()
-        max_dim = max(max_dim, width, height)
+        sprite_scale = ships_data[name]['SpriteScale']
+        scaled_width = width * sprite_scale
+        scaled_height = height * sprite_scale
+        max_dim = max(max_dim, scaled_width, scaled_height)
 
-    # Calculate scaling factor based on target size
+    # Calculate uniform scaling factor
     scale_factor = target_size / max_dim
 
-    # Scale all sprites using the same factor
+    # Scale all sprites using both factors
     scaled_sprites = {}
     for name, sprite in original_sprites.items():
         width, height = sprite.get_size()
-        new_width = int(width * scale_factor)
-        new_height = int(height * scale_factor)
+        sprite_scale = ships_data[name]['SpriteScale']
+        new_width = int(width * sprite_scale * scale_factor)
+        new_height = int(height * sprite_scale * scale_factor)
         scaled_sprites[name] = pygame.transform.scale(sprite, (new_width, new_height))
 
     return scaled_sprites
@@ -131,8 +137,8 @@ def run(screen: pygame.Surface):
     original_sprites = {ship_name: load_ship_sprite(ship_name)[0] for ship_name in ships_data}
 
     # Scale sprites for selection and fleet views, maintaining proportions
-    selection_sprites = scale_sprites(original_sprites, SELECTION_ICON_SIZE[0])
-    fleet_sprites = scale_sprites(original_sprites, UI.FLEET_ICON_SIZE[0])
+    selection_sprites = scale_sprites(original_sprites, SELECTION_ICON_SIZE[0], ships_data)
+    fleet_sprites = scale_sprites(original_sprites, UI.FLEET_ICON_SIZE[0], ships_data)
 
     # Create UI components
 
