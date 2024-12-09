@@ -9,18 +9,7 @@ SETTINGS_FILE = "Config/Gamesettings.json"
 
 def load_settings():
     """Load settings from file or use defaults."""
-    default_settings = {
-        "Player 1: Left": pygame.K_a,
-        "Player 1: Right": pygame.K_d,
-        "Player 1: Forward": pygame.K_w,
-        "Player 1: Action 1": pygame.K_TAB,
-        "Player 1: Action 2": pygame.K_BACKQUOTE,
-        "Player 2: Left": pygame.K_LEFT,
-        "Player 2: Right": pygame.K_RIGHT,
-        "Player 2: Forward": pygame.K_UP,
-        "Player 2: Action 1": pygame.K_RCTRL,
-        "Player 2: Action 2": pygame.K_RSHIFT
-    }
+    default_settings = UI.DEFAULT_KEYS
     if os.path.isfile(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, 'r') as f:

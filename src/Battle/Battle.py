@@ -22,26 +22,13 @@ THRUST_MARKER_END_COLOR = (150, 0, 0)  # Red
 
 def load_settings():
     """Load control settings."""
-    default_settings = {
-        "Player 1: Left": pygame.K_a,
-        "Player 1: Right": pygame.K_d,
-        "Player 1: Forward": pygame.K_w,
-        "Player 1: Action 1": pygame.K_TAB,
-        "Player 1: Action 2": pygame.K_BACKQUOTE,
-        "Player 2: Left": pygame.K_LEFT,
-        "Player 2: Right": pygame.K_RIGHT,
-        "Player 2: Forward": pygame.K_UP,
-        "Player 2: Action 1": pygame.K_RCTRL,
-        "Player 2: Action 2": pygame.K_RSHIFT,
-    }
-
     try:
         with open('Config/Gamesettings.json', 'r') as f:
             loaded_settings = json.load(f)
             return {key: value for key, value in loaded_settings.items()}
     except Exception as e:
         print(f"Error loading settings: {e}. Using default settings.")
-        return default_settings
+        return UI.DEFAULT_KEYS
 
 
 def get_random_position():
