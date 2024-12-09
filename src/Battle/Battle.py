@@ -129,8 +129,7 @@ class Ship:
         player_prefix = f"Player {self.obj.player}: "
         forward_key = settings[player_prefix + "Forward"]
 
-        if not self.obj.inertia and self.thrust_timer == 0 and not pygame.key.get_pressed()[
-            get_pygame_key(forward_key)]:
+        if not self.obj.inertia and self.thrust_timer == 0 and not pygame.key.get_pressed()[forward_key]:
             self.velocity = [0.0, 0.0]
 
     def apply_thrust(self):
