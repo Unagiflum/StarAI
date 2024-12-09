@@ -4,6 +4,7 @@ import json
 import random
 import math
 from src.UI import UI
+from src.Battle.SpaceObject import Planet
 
 # Constants
 ARENA_SIZE = 8000
@@ -163,6 +164,14 @@ def run(screen, ship1, ship2):
     player1 = Ship(ship1, pos1, random.randint(0, 15))
     player2 = Ship(ship2, pos2, random.randint(0, 15))
 
+    # Initialize planet at arena center
+    planet = Planet()
+    planet.position = [ARENA_SIZE / 2, ARENA_SIZE / 2]
+
+    # Scale planet image
+    planet_size = int(planet.diameter * scale_factor)
+    planet.image = pygame.transform.scale(planet.image, (planet_size, planet_size))
+
     border_rect = pygame.Rect(0, 0, UI.SCREEN_HEIGHT, UI.SCREEN_HEIGHT)
     border_color = (50, 50, 50)  # Dark gray
 
@@ -205,12 +214,30 @@ def run(screen, ship1, ship2):
                 player.velocity[0] *= max_speed / speed
                 player.velocity[1] *= max_speed / speed
 
+            # Apply planet gravity
+            dx = planet.position[0] - player.position[0]
+            dy = planet.position[1] - player.position[1]
+            distance = math.sqrt(dx * dx + dy * dy)
+
+            if distance > planet.diameter / 2:  # Only apply gravity outside planet
+                gravity_force = 1000*planet.gravity / (distance * distance)
+                player.velocity[0] += gravity_force * dx / distance
+                player.velocity[1] += gravity_force * dy / distance
+
             player.position[0] = (player.position[0] + player.velocity[0]) % ARENA_SIZE
             player.position[1] = (player.position[1] + player.velocity[1]) % ARENA_SIZE
             player.update_thrust_markers()
 
         screen.fill(UI.BLACK)
         screen.set_clip(border_rect)
+
+        # Draw planet
+        planet_x = int(planet.position[0] * scale_factor)
+        planet_y = int(planet.position[1] * scale_factor)
+        screen.blit(planet.image, (
+            planet_x - planet_size//2,
+            planet_y - planet_size//2
+        ))
 
         for player in [player1, player2]:
             for marker in player.thrust_markers:
@@ -235,6 +262,7 @@ def run(screen, ship1, ship2):
                         screen_x + (UI.SCREEN_HEIGHT if screen_x < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT),
                         screen_y + (UI.SCREEN_HEIGHT if screen_y < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT)
                     ))
+
 
                 for pos_x, pos_y in positions:
                     pygame.draw.circle(screen, marker.get_color(), (pos_x, pos_y),
