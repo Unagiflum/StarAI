@@ -1,7 +1,7 @@
 import pygame
 
 SCREEN_HEIGHT = 960
-SCREEN_WIDTH = int(SCREEN_HEIGHT*1.25)
+SCREEN_WIDTH = int(SCREEN_HEIGHT*1.3)
 FPS = 30
 
 button_spaceH = int(SCREEN_WIDTH * 0.005)

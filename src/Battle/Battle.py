@@ -6,7 +6,7 @@ import math
 from src.UI import UI
 
 # Constants
-ARENA_SIZE = 3000
+ARENA_SIZE = 8000
 SPEED_SCALE = 0.75  # Adjust this to tune all velocities
 TURN_WAIT_SCALE = 2.0
 THRUST_WAIT_SCALE = 2.0
