@@ -10,37 +10,45 @@ SETTINGS_FILE = "Config/Gamesettings.json"
 def load_settings():
     """Load settings from file or use defaults."""
     default_settings = {
-        "Player 1: Left": "a",
-        "Player 1: Right": "d",
-        "Player 1: Forward": "w",
-        "Player 1: Action 1": "tab",
-        "Player 1: Action 2": "`",
-        "Player 2: Left": "left",
-        "Player 2: Right": "right",
-        "Player 2: Forward": "up",
-        "Player 2: Action 1": "right ctrl",
-        "Player 2: Action 2": "right shift"
+        "Player 1: Left": pygame.K_a,
+        "Player 1: Right": pygame.K_d,
+        "Player 1: Forward": pygame.K_w,
+        "Player 1: Action 1": pygame.K_TAB,
+        "Player 1: Action 2": pygame.K_BACKQUOTE,
+        "Player 2: Left": pygame.K_LEFT,
+        "Player 2: Right": pygame.K_RIGHT,
+        "Player 2: Forward": pygame.K_UP,
+        "Player 2: Action 1": pygame.K_RCTRL,
+        "Player 2: Action 2": pygame.K_RSHIFT
     }
     if os.path.isfile(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, 'r') as f:
                 settings = json.load(f)
+                # Convert saved integer values back to readable names
+                settings = {key: pygame.key.name(value) for key, value in settings.items()}
             return {**default_settings, **settings}  # Merge defaults and loaded settings
         except Exception as e:
             print(f"Error loading settings: {e}. Using defaults.")
-            return default_settings
+            return {key: pygame.key.name(value) for key, value in default_settings.items()}
     else:
-        return default_settings
+        return {key: pygame.key.name(value) for key, value in default_settings.items()}
 
 
 def save_settings(settings):
     """Save settings to file."""
     try:
+        # Convert human-readable key names to Pygame constants
+        converted_settings = {
+            key: pygame.key.key_code(value) if isinstance(value, str) else value
+            for key, value in settings.items()
+        }
         with open(SETTINGS_FILE, 'w') as f:
-            json.dump(settings, f, indent=4)
+            json.dump(converted_settings, f, indent=4)
         print("Settings saved successfully.")
     except Exception as e:
         print(f"Error saving settings: {e}")
+
 
 
 def run(screen):

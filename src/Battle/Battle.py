@@ -20,45 +20,29 @@ THRUST_MARKER_LIFE = 30  # frames
 THRUST_MARKER_START_COLOR = (255, 255, 0)  # Yellow
 THRUST_MARKER_END_COLOR = (150, 0, 0)  # Red
 
-def get_pygame_key(key_name):
-    """Convert key name to pygame key constant."""
-    key_mapping = {
-        'right ctrl': pygame.K_RCTRL,
-        'right shift': pygame.K_RSHIFT,
-        'left': pygame.K_LEFT,
-        'right': pygame.K_RIGHT,
-        'up': pygame.K_UP,
-        'tab': pygame.K_TAB,
-        'a': pygame.K_a,
-        'd': pygame.K_d,
-        'w': pygame.K_w,
-        '`': pygame.K_BACKQUOTE,
-    }
-    return key_mapping[key_name.lower()]
-
 def load_settings():
     """Load control settings."""
     default_settings = {
-        "Player 1: Left": "a",
-        "Player 1: Right": "d",
-        "Player 1: Forward": "w",
-        "Player 1: Action 1": "tab",
-        "Player 1: Action 2": "`",
-        "Player 2: Left": "left",
-        "Player 2: Right": "right",
-        "Player 2: Forward": "up",
-        "Player 2: Action 1": "right ctrl",
-        "Player 2: Action 2": "right shift"
+        "Player 1: Left": pygame.K_a,
+        "Player 1: Right": pygame.K_d,
+        "Player 1: Forward": pygame.K_w,
+        "Player 1: Action 1": pygame.K_TAB,
+        "Player 1: Action 2": pygame.K_BACKQUOTE,
+        "Player 2: Left": pygame.K_LEFT,
+        "Player 2: Right": pygame.K_RIGHT,
+        "Player 2: Forward": pygame.K_UP,
+        "Player 2: Action 1": pygame.K_RCTRL,
+        "Player 2: Action 2": pygame.K_RSHIFT,
     }
 
     try:
         with open('Config/Gamesettings.json', 'r') as f:
             loaded_settings = json.load(f)
-            default_settings.update(loaded_settings)
-    except:
-        pass
+            return {key: value for key, value in loaded_settings.items()}
+    except Exception as e:
+        print(f"Error loading settings: {e}. Using default settings.")
+        return default_settings
 
-    return default_settings
 
 def get_random_position():
     """Get random position avoiding center area."""
@@ -213,19 +197,20 @@ def run(screen, ship1, ship2):
         player1.update_timers()
         player2.update_timers()
 
-        if keys[get_pygame_key(settings["Player 1: Left"])]:
+        if keys[settings["Player 1: Left"]]:
             player1.turn_left()
-        if keys[get_pygame_key(settings["Player 1: Right"])]:
+        if keys[settings["Player 1: Right"]]:
             player1.turn_right()
-        if keys[get_pygame_key(settings["Player 1: Forward"])]:
+        if keys[settings["Player 1: Forward"]]:
             player1.apply_thrust()
 
-        if keys[get_pygame_key(settings["Player 2: Left"])]:
+        if keys[settings["Player 2: Left"]]:
             player2.turn_left()
-        if keys[get_pygame_key(settings["Player 2: Right"])]:
+        if keys[settings["Player 2: Right"]]:
             player2.turn_right()
-        if keys[get_pygame_key(settings["Player 2: Forward"])]:
+        if keys[settings["Player 2: Forward"]]:
             player2.apply_thrust()
+
 
         for player in [player1, player2]:
             speed = math.sqrt(player.velocity[0] ** 2 + player.velocity[1] ** 2)
