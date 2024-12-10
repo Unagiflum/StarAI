@@ -1,9 +1,6 @@
 import json
 import math
-
-SPEED_SCALE = 0.75
-TURN_WAIT_SCALE = 2.0
-THRUST_WAIT_SCALE = 2.0
+import src.GameConstants as GameConstants
 
 class GameObject:
     def __init__(self, player_num, max_hp, start_hp, inertia, sprite_location, sprite_scale, size):
@@ -25,46 +22,86 @@ class GameObject:
         self.can_expire = False
         self.expiration_timer = 0
 
+        # Physics attributes
+        self.accumulated_impulses = [0.0, 0.0]
+        self.max_speed = float('inf')
+
+    def add_impulse(self, dx, dy):
+        """Add a physics impulse to the object."""
+        self.accumulated_impulses[0] += dx
+        self.accumulated_impulses[1] += dy
+
+    def update_physics(self):
+        """Update physics state including velocity and position."""
+        if self.inertia:
+            self.velocity[0] += self.accumulated_impulses[0]
+            self.velocity[1] += self.accumulated_impulses[1]
+
+            if self.max_speed < float('inf'):
+                speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
+                if speed > self.max_speed:
+                    scale = self.max_speed / speed
+                    self.velocity[0] *= scale
+                    self.velocity[1] *= scale
+        else:
+            # For non-inertial objects, velocity directly matches impulses
+            if any(self.accumulated_impulses):
+                self.velocity = self.accumulated_impulses.copy()
+            else:
+                self.velocity = [0.0, 0.0]
+
+        self.accumulated_impulses = [0.0, 0.0]
+        self.position[0] = (self.position[0] + self.velocity[0]) % GameConstants.ARENA_SIZE
+        self.position[1] = (self.position[1] + self.velocity[1]) % GameConstants.ARENA_SIZE
+
+    def update(self):
+        """Main update function for game loop."""
+        self.update_physics()
+        if self.can_expire:
+            return self.expiration_timer > 0
+        return True
+
+
 class ThrustMarker(GameObject):
     def __init__(self, x, y):
         super().__init__(
-            player_num=0,  # Markers don't belong to a player
+            player_num=0,
             max_hp=1,
             start_hp=1,
             inertia=False,
             sprite_location=None,
             sprite_scale=1.0,
-            size=[6, 6]  # Diameter of marker
+            size=[6, 6]
         )
         self.position = [x, y]
-        self.life = 30  # frames
+        self.life = 30
         self.can_collide = False
         self.can_expire = True
         self.expiration_timer = self.life
 
     def update(self):
+        super().update()
         self.expiration_timer -= 1
         return self.expiration_timer > 0
 
     def get_color(self):
         fade_ratio = self.expiration_timer / 30
-        start_color = (255, 255, 0)  # Yellow
-        end_color = (150, 0, 0)      # Red
+        start_color = (255, 255, 0)
+        end_color = (150, 0, 0)
         r = int(start_color[0] * fade_ratio + end_color[0] * (1 - fade_ratio))
         g = int(start_color[1] * fade_ratio + end_color[1] * (1 - fade_ratio))
         b = int(start_color[2] * fade_ratio + end_color[2] * (1 - fade_ratio))
         return (r, g, b)
 
+
 class SpaceShip(GameObject):
     def __init__(self, ship_name, player_num):
         self.name = ship_name
 
-        # Load ship data
         with open('Ships/Ships.json', 'r') as f:
             ships_data = json.load(f)
             ship_data = ships_data[ship_name]
 
-        # Initialize parent PlayerObject with values from ship_data
         super().__init__(
             player_num=player_num,
             max_hp=ship_data['MaxHP'],
@@ -75,7 +112,7 @@ class SpaceShip(GameObject):
             size=[ship_data['Size']['width'], ship_data['Size']['height']]
         )
 
-        # Spaceship-specific attributes
+        # Ship-specific attributes
         self.ship_type = ship_data['ShipType']
         self.cost = ship_data['Cost']
         self.max_energy = ship_data['MaxEnergy']
@@ -87,8 +124,9 @@ class SpaceShip(GameObject):
         self.thrust_wait = ship_data['ThrustWait']
         self.turn_wait = ship_data['TurnWait']
         self.ship_mass = ship_data['ShipMass']
+        self.max_speed = self.max_thrust * GameConstants.SPEED_SCALE
 
-        # Spaceship-specific situational variables
+        # Ship state variables
         self.current_energy = self.start_energy
         self.heading = 0
         self.rotation = 0.0
@@ -104,19 +142,14 @@ class SpaceShip(GameObject):
         self.status4 = 0
         self.status5 = 0
         self.status6 = 0
-
-        # Game state
         self.in_battle = False
 
-        # Load ship-specific module if it exists
-        self.module_name = f"Ships.{ship_name}.{ship_name}"
         try:
-            self.ship_module = __import__(self.module_name, fromlist=[''])
+            self.ship_module = __import__(f"Ships.{ship_name}.{ship_name}", fromlist=[''])
         except ImportError:
             self.ship_module = None
 
     def initialize_in_battle(self, position, heading):
-        """Initialize battle-specific state, such as position and heading."""
         self.position = list(position)
         self.heading = heading % 16
         self.rotation = self.heading * 22.5
@@ -132,8 +165,6 @@ class SpaceShip(GameObject):
         return self.turn_timer == 0
 
     def update_timers(self, forward_pressed: bool):
-        """Update thrust and turn timers. If inertia is off and no forward key is pressed,
-        velocity drops to zero when thrust is not applied."""
         if self.thrust_timer > 0:
             self.thrust_timer -= 1
         if self.turn_timer > 0:
@@ -143,40 +174,32 @@ class SpaceShip(GameObject):
             self.velocity = [0.0, 0.0]
 
     def apply_thrust(self):
-        """Apply thrust if allowed."""
         if self.can_thrust():
             angle_rad = math.radians(self.rotation)
-            if self.inertia:
-                self.velocity[0] += math.sin(angle_rad) * self.thrust_increment * SPEED_SCALE
-                self.velocity[1] -= math.cos(angle_rad) * self.thrust_increment * SPEED_SCALE
-            else:
-                speed = self.max_thrust * SPEED_SCALE
-                self.velocity[0] = math.sin(angle_rad) * speed
-                self.velocity[1] = -math.cos(angle_rad) * speed
+            thrust_x = math.sin(angle_rad) * self.thrust_increment * GameConstants.SPEED_SCALE
+            thrust_y = -math.cos(angle_rad) * self.thrust_increment * GameConstants.SPEED_SCALE
 
-            self.thrust_timer = int(self.thrust_wait * THRUST_WAIT_SCALE)
+            self.add_impulse(thrust_x, thrust_y)
+            self.thrust_timer = int(self.thrust_wait * GameConstants.THRUST_WAIT_SCALE)
 
     def get_thrust_marker_position(self):
-        """Calculate position for a new thrust marker."""
         angle_rad = math.radians(self.rotation)
-        offset = (self.size[1] / 2) + 6  # size + marker diameter
+        offset = (self.size[1] / 2) + 6
         marker_x = self.position[0] - math.sin(angle_rad) * offset
         marker_y = self.position[1] + math.cos(angle_rad) * offset
         return marker_x, marker_y
 
     def turn_left(self):
-        """Turn the ship to the left if allowed."""
         if self.can_turn():
             self.heading = (self.heading - 1) % 16
             self.rotation = self.heading * 22.5
-            self.turn_timer = int(self.turn_wait * TURN_WAIT_SCALE)
+            self.turn_timer = int(self.turn_wait * GameConstants.TURN_WAIT_SCALE)
 
     def turn_right(self):
-        """Turn the ship to the right if allowed."""
         if self.can_turn():
             self.heading = (self.heading + 1) % 16
             self.rotation = self.heading * 22.5
-            self.turn_timer = int(self.turn_wait * TURN_WAIT_SCALE)
+            self.turn_timer = int(self.turn_wait * GameConstants.TURN_WAIT_SCALE)
 
     def perform_action1(self):
         if self.ship_module and hasattr(self.ship_module, 'action1'):
@@ -192,3 +215,7 @@ class SpaceShip(GameObject):
         if self.ship_module and hasattr(self.ship_module, 'action3'):
             return self.ship_module.action3(self)
         return False
+
+    def update(self):
+        super().update()
+        return True

@@ -4,6 +4,7 @@ import os
 import sys
 import random
 from src.UI import UI, UIButton, UIBox
+import src.GameConstants as GameConstants
 
 from src.Ships.Arilou.Arilou import Arilou
 from src.Ships.Druuge.Druuge import Druuge
