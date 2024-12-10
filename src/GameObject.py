@@ -47,15 +47,16 @@ class GameObject:
                 self.velocity[0] += self.accumulated_impulses[0]
                 self.velocity[1] += self.accumulated_impulses[1]
 
-                if GameConstants.SPEED_LIMIT < float('inf'):
-                    speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
-                    if speed > GameConstants.SPEED_LIMIT:
-                        scale = GameConstants.SPEED_LIMIT / speed
-                        self.velocity[0] *= scale
-                        self.velocity[1] *= scale
 
             else:
                 self.velocity = self.accumulated_impulses.copy()
+
+            if GameConstants.SPEED_LIMIT < float('inf'):
+                speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
+                if speed > GameConstants.SPEED_LIMIT:
+                    scale = GameConstants.SPEED_LIMIT / speed
+                    self.velocity[0] *= scale
+                    self.velocity[1] *= scale
 
             self.accumulated_impulses = [0.0, 0.0]
             self.position[0] = (self.position[0] + 0.5 * (
