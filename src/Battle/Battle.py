@@ -14,11 +14,7 @@ SPEED_SCALE = 0.75  # Adjust this to tune all velocities
 MIN_SHIP_SEPARATION = ARENA_SIZE // 4
 CENTER_BUFFER = ARENA_SIZE // 4  # Ships won't spawn in center quarter of arena
 
-# Thrust marker constants
-THRUST_MARKER_RADIUS = 3
-THRUST_MARKER_LIFE = 30  # frames
-THRUST_MARKER_START_COLOR = (255, 255, 0)  # Yellow
-THRUST_MARKER_END_COLOR = (150, 0, 0)  # Red
+THRUST_MARKER_RADIUS = 3  # Needed for drawing markers
 
 def load_settings():
     """Load control settings."""
@@ -63,20 +59,6 @@ def get_valid_ship_positions():
         if validate_ship_positions(pos1, pos2):
             return pos1, pos2
 
-class ThrustMarker:
-    def __init__(self, x, y):
-        self.position = [x, y]
-        self.life = THRUST_MARKER_LIFE
-
-    def update(self):
-        self.life -= 1
-        return self.life > 0
-
-    def get_color(self):
-        fade_ratio = self.life / THRUST_MARKER_LIFE
-        return tuple(int(start * fade_ratio + end * (1 - fade_ratio))
-                     for start, end in zip(THRUST_MARKER_START_COLOR, THRUST_MARKER_END_COLOR))
-
 def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     """Run the battle simulation."""
     clock = pygame.time.Clock()
@@ -101,11 +83,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         sprite_path = f'Ships/{player2.name}/{player2.name}{i:02d}.png'
         player2_sprites.append(pygame.image.load(sprite_path).convert_alpha())
 
-    # Calculate thrust offset based on the upward-facing sprite (index 0)
-    # This is needed for placing thrust markers.
-    player1_thrust_offset = (player1_sprites[0].get_rect().height / 2) + (THRUST_MARKER_RADIUS * 2)
-    player2_thrust_offset = (player2_sprites[0].get_rect().height / 2) + (THRUST_MARKER_RADIUS * 2)
-
     # Initialize planet at arena center
     planet = Planet()
     planet.position = [ARENA_SIZE / 2, ARENA_SIZE / 2]
@@ -117,11 +94,84 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     border_rect = pygame.Rect(0, 0, UI.SCREEN_HEIGHT, UI.SCREEN_HEIGHT)
     border_color = (50, 50, 50)  # Dark gray
 
-    # Thrust markers lists
-    player1_thrust_markers = []
-    player2_thrust_markers = []
-
     running = True
+
+    def draw_markers(player):
+        """Draw the thrust markers for a given player."""
+        for marker in player.thrust_markers:
+            screen_x = int(marker.position[0] * scale_factor)
+            screen_y = int(marker.position[1] * scale_factor)
+
+            positions = [(screen_x, screen_y)]
+
+            # Handle horizontal wrapping
+            if screen_x < THRUST_MARKER_RADIUS * 2:
+                positions.append((screen_x + UI.SCREEN_HEIGHT, screen_y))
+            elif screen_x > UI.SCREEN_HEIGHT - THRUST_MARKER_RADIUS * 2:
+                positions.append((screen_x - UI.SCREEN_HEIGHT, screen_y))
+
+            # Handle vertical wrapping
+            if screen_y < THRUST_MARKER_RADIUS * 2:
+                positions.append((screen_x, screen_y + UI.SCREEN_HEIGHT))
+            elif screen_y > UI.SCREEN_HEIGHT - THRUST_MARKER_RADIUS * 2:
+                positions.append((screen_x, screen_y - UI.SCREEN_HEIGHT))
+
+            # Add corner position if both horizontally and vertically wrapping
+            if len(positions) > 2:
+                positions.append((
+                    screen_x + (UI.SCREEN_HEIGHT if screen_x < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT),
+                    screen_y + (UI.SCREEN_HEIGHT if screen_y < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT)
+                ))
+
+            for pos_x, pos_y in positions:
+                pygame.draw.circle(
+                    screen, marker.get_color(), (pos_x, pos_y),
+                    max(1, int(THRUST_MARKER_RADIUS * scale_factor))
+                )
+
+    def draw_ship(player, sprites):
+        sprite = sprites[player.heading]
+        sprite_rect = sprite.get_rect()
+
+        # Apply both SpriteScale and screen scale factor
+        total_scale = scale_factor * player.sprite_scale
+        scaled_sprite = pygame.transform.scale(
+            sprite,
+            (int(sprite_rect.width * total_scale),
+             int(sprite_rect.height * total_scale))
+        )
+        scaled_rect = scaled_sprite.get_rect()
+
+        screen_x = int(player.position[0] * scale_factor)
+        screen_y = int(player.position[1] * scale_factor)
+
+        positions = [(screen_x, screen_y)]
+
+        # Handle horizontal wrapping
+        if screen_x < scaled_rect.width // 2:
+            positions.append((screen_x + UI.SCREEN_HEIGHT, screen_y))
+        elif screen_x > UI.SCREEN_HEIGHT - scaled_rect.width // 2:
+            positions.append((screen_x - UI.SCREEN_HEIGHT, screen_y))
+
+        # Handle vertical wrapping
+        if screen_y < scaled_rect.height // 2:
+            positions.append((screen_x, screen_y + UI.SCREEN_HEIGHT))
+        elif screen_y > UI.SCREEN_HEIGHT - scaled_rect.height // 2:
+            positions.append((screen_x, screen_y - UI.SCREEN_HEIGHT))
+
+        # Add corner position if both horizontally and vertically wrapping
+        if len(positions) > 2:
+            positions.append((
+                screen_x + (UI.SCREEN_HEIGHT if screen_x < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT),
+                screen_y + (UI.SCREEN_HEIGHT if screen_y < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT)
+            ))
+
+        for pos_x, pos_y in positions:
+            screen.blit(scaled_sprite, (
+                pos_x - scaled_rect.width // 2,
+                pos_y - scaled_rect.height // 2
+            ))
+
     while running:
         clock.tick(UI.FPS)
 
@@ -136,7 +186,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         keys = pygame.key.get_pressed()
 
         # Update timers for each player
-        # Check if forward key is pressed for inertia logic
         player1_forward_pressed = keys[settings[f"Player {player1.player}: Forward"]]
         player2_forward_pressed = keys[settings[f"Player {player2.player}: Forward"]]
 
@@ -149,14 +198,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         if keys[settings["Player 1: Right"]]:
             player1.turn_right()
         if player1_forward_pressed:
-            can_before = player1.can_thrust()
             player1.apply_thrust()
-            # If thrust was applied, add a thrust marker
-            if can_before:
-                angle_rad = math.radians(player1.rotation)
-                marker_x = player1.position[0] - math.sin(angle_rad) * player1_thrust_offset
-                marker_y = player1.position[1] + math.cos(angle_rad) * player1_thrust_offset
-                player1_thrust_markers.append(ThrustMarker(marker_x, marker_y))
 
         # Player 2 controls
         if keys[settings["Player 2: Left"]]:
@@ -164,13 +206,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         if keys[settings["Player 2: Right"]]:
             player2.turn_right()
         if player2_forward_pressed:
-            can_before = player2.can_thrust()
             player2.apply_thrust()
-            if can_before:
-                angle_rad = math.radians(player2.rotation)
-                marker_x = player2.position[0] - math.sin(angle_rad) * player2_thrust_offset
-                marker_y = player2.position[1] + math.cos(angle_rad) * player2_thrust_offset
-                player2_thrust_markers.append(ThrustMarker(marker_x, marker_y))
 
         # Apply speed capping and gravity
         for player in [player1, player2]:
@@ -182,7 +218,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                 player.velocity[1] *= max_speed / speed
 
             # Apply planet gravity
-
             dx = planet.position[0] - player.position[0]
             dy = planet.position[1] - player.position[1]
             distance = math.sqrt(dx * dx + dy * dy)
@@ -196,10 +231,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
             player.position[0] = (player.position[0] + player.velocity[0]) % ARENA_SIZE
             player.position[1] = (player.position[1] + player.velocity[1]) % ARENA_SIZE
 
-        # Update thrust markers
-        player1_thrust_markers = [m for m in player1_thrust_markers if m.update()]
-        player2_thrust_markers = [m for m in player2_thrust_markers if m.update()]
-
         # Drawing
         screen.fill(UI.BLACK)
         screen.set_clip(border_rect)
@@ -212,79 +243,11 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
             planet_y - planet_size // 2
         ))
 
-        # Draw thrust markers
-        def draw_markers(player, markers):
-            for marker in markers:
-                screen_x = int(marker.position[0] * scale_factor)
-                screen_y = int(marker.position[1] * scale_factor)
-
-                positions = [(screen_x, screen_y)]
-
-                if screen_x < THRUST_MARKER_RADIUS * 2:
-                    positions.append((screen_x + UI.SCREEN_HEIGHT, screen_y))
-                elif screen_x > UI.SCREEN_HEIGHT - THRUST_MARKER_RADIUS * 2:
-                    positions.append((screen_x - UI.SCREEN_HEIGHT, screen_y))
-
-                if screen_y < THRUST_MARKER_RADIUS * 2:
-                    positions.append((screen_x, screen_y + UI.SCREEN_HEIGHT))
-                elif screen_y > UI.SCREEN_HEIGHT - THRUST_MARKER_RADIUS * 2:
-                    positions.append((screen_x, screen_y - UI.SCREEN_HEIGHT))
-
-                # Add corner positions when wrapping both horizontally and vertically
-                if len(positions) > 2:
-                    positions.append((
-                        screen_x + (UI.SCREEN_HEIGHT if screen_x < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT),
-                        screen_y + (UI.SCREEN_HEIGHT if screen_y < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT)
-                    ))
-
-                for pos_x, pos_y in positions:
-                    pygame.draw.circle(screen, marker.get_color(), (pos_x, pos_y),
-                                       max(1, int(THRUST_MARKER_RADIUS * scale_factor)))
-
-        draw_markers(player1, player1_thrust_markers)
-        draw_markers(player2, player2_thrust_markers)
+        # Draw thrust markers for both players
+        draw_markers(player1)
+        draw_markers(player2)
 
         # Draw ships
-        def draw_ship(player, sprites):
-            sprite = sprites[player.heading]
-            sprite_rect = sprite.get_rect()
-
-            # Apply both SpriteScale and screen scale factor
-            total_scale = scale_factor * player.sprite_scale
-            scaled_sprite = pygame.transform.scale(
-                sprite,
-                (int(sprite_rect.width * total_scale),
-                 int(sprite_rect.height * total_scale))
-            )
-            scaled_rect = scaled_sprite.get_rect()
-
-            screen_x = int(player.position[0] * scale_factor)
-            screen_y = int(player.position[1] * scale_factor)
-
-            positions = [(screen_x, screen_y)]
-
-            if screen_x < scaled_rect.width // 2:
-                positions.append((screen_x + UI.SCREEN_HEIGHT, screen_y))
-            elif screen_x > UI.SCREEN_HEIGHT - scaled_rect.width // 2:
-                positions.append((screen_x - UI.SCREEN_HEIGHT, screen_y))
-
-            if screen_y < scaled_rect.height // 2:
-                positions.append((screen_x, screen_y + UI.SCREEN_HEIGHT))
-            elif screen_y > UI.SCREEN_HEIGHT - scaled_rect.height // 2:
-                positions.append((screen_x, screen_y - UI.SCREEN_HEIGHT))
-
-            if len(positions) > 2:
-                positions.append((
-                    screen_x + (UI.SCREEN_HEIGHT if screen_x < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT),
-                    screen_y + (UI.SCREEN_HEIGHT if screen_y < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT)
-                ))
-
-            for pos_x, pos_y in positions:
-                screen.blit(scaled_sprite, (
-                    pos_x - scaled_rect.width // 2,
-                    pos_y - scaled_rect.height // 2
-                ))
-
         draw_ship(player1, player1_sprites)
         draw_ship(player2, player2_sprites)
 
