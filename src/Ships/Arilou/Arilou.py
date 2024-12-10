@@ -1,4 +1,4 @@
-from src.Ships.GameObject import SpaceShip
+from src.GameObject import SpaceShip
 import src.Ships.Arilou.ArilouA1 as A1
 import src.Ships.Arilou.ArilouA2 as A2
 

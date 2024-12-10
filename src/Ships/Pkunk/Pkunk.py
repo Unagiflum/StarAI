@@ -1,5 +1,5 @@
 # Pkunk.py
-from src.Ships.GameObject import SpaceShip
+from src.GameObject import SpaceShip
 import src.Ships.Pkunk.PkunkA1 as A1
 import src.Ships.Pkunk.PkunkA2 as A2
 

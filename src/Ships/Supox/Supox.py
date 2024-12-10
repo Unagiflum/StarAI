@@ -1,5 +1,5 @@
 # Supox.py
-from src.Ships.GameObject import SpaceShip
+from src.GameObject import SpaceShip
 import src.Ships.Supox.SupoxA1 as A1
 import src.Ships.Supox.SupoxA2 as A2
 

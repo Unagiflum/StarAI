@@ -1,5 +1,5 @@
 # Orz.py
-from src.Ships.GameObject import SpaceShip
+from src.GameObject import SpaceShip
 import src.Ships.Orz.OrzA1 as A1
 import src.Ships.Orz.OrzA2 as A2
 

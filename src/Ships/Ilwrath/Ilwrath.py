@@ -1,5 +1,5 @@
 # Ilwrath.py
-from src.Ships.GameObject import SpaceShip
+from src.GameObject import SpaceShip
 import src.Ships.Ilwrath.IlwrathA1 as A1
 import src.Ships.Ilwrath.IlwrathA2 as A2
 

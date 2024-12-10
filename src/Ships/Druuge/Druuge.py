@@ -1,5 +1,5 @@
 # Druuge.py
-from src.Ships.GameObject import SpaceShip
+from src.GameObject import SpaceShip
 import src.Ships.Druuge.DruugeA1 as A1
 import src.Ships.Druuge.DruugeA2 as A2
 

@@ -2,7 +2,7 @@ import pygame
 import json
 import os
 import random
-from src.Ships.GameObject import GameObject
+from src.GameObject import GameObject
 
 class Planet(GameObject):
     def __init__(self):

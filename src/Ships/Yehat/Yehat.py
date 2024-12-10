@@ -1,5 +1,5 @@
 # Yehat.py
-from src.Ships.GameObject import SpaceShip
+from src.GameObject import SpaceShip
 import src.Ships.Yehat.YehatA1 as A1
 import src.Ships.Yehat.YehatA2 as A2
 
