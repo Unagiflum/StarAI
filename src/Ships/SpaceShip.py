@@ -1,17 +1,11 @@
 import json
 import math
 
-# Constants for thrust markers
-THRUST_MARKER_RADIUS = 3
-THRUST_MARKER_LIFE = 30  # frames
-THRUST_MARKER_START_COLOR = (255, 255, 0)  # Yellow
-THRUST_MARKER_END_COLOR = (150, 0, 0)      # Red
-
 SPEED_SCALE = 0.75
 TURN_WAIT_SCALE = 2.0
 THRUST_WAIT_SCALE = 2.0
 
-class PlayerObject:
+class GameObject:
     def __init__(self, player_num, max_hp, start_hp, inertia, sprite_location, sprite_scale, size):
         # Intrinsic characteristics
         self.player = player_num
@@ -31,25 +25,37 @@ class PlayerObject:
         self.can_expire = False
         self.expiration_timer = 0
 
-
-class ThrustMarker:
+class ThrustMarker(GameObject):
     def __init__(self, x, y):
+        super().__init__(
+            player_num=0,  # Markers don't belong to a player
+            max_hp=1,
+            start_hp=1,
+            inertia=False,
+            sprite_location=None,
+            sprite_scale=1.0,
+            size=[6, 6]  # Diameter of marker
+        )
         self.position = [x, y]
-        self.life = THRUST_MARKER_LIFE
+        self.life = 30  # frames
+        self.can_collide = False
+        self.can_expire = True
+        self.expiration_timer = self.life
 
     def update(self):
-        self.life -= 1
-        return self.life > 0
+        self.expiration_timer -= 1
+        return self.expiration_timer > 0
 
     def get_color(self):
-        fade_ratio = self.life / THRUST_MARKER_LIFE
-        r = int(THRUST_MARKER_START_COLOR[0] * fade_ratio + THRUST_MARKER_END_COLOR[0] * (1 - fade_ratio))
-        g = int(THRUST_MARKER_START_COLOR[1] * fade_ratio + THRUST_MARKER_END_COLOR[1] * (1 - fade_ratio))
-        b = int(THRUST_MARKER_START_COLOR[2] * fade_ratio + THRUST_MARKER_END_COLOR[2] * (1 - fade_ratio))
+        fade_ratio = self.expiration_timer / 30
+        start_color = (255, 255, 0)  # Yellow
+        end_color = (150, 0, 0)      # Red
+        r = int(start_color[0] * fade_ratio + end_color[0] * (1 - fade_ratio))
+        g = int(start_color[1] * fade_ratio + end_color[1] * (1 - fade_ratio))
+        b = int(start_color[2] * fade_ratio + end_color[2] * (1 - fade_ratio))
         return (r, g, b)
 
-
-class SpaceShip(PlayerObject):
+class SpaceShip(GameObject):
     def __init__(self, ship_name, player_num):
         self.name = ship_name
 
@@ -102,9 +108,6 @@ class SpaceShip(PlayerObject):
         # Game state
         self.in_battle = False
 
-        # Thrust markers
-        self.thrust_markers = []
-
         # Load ship-specific module if it exists
         self.module_name = f"Ships.{ship_name}.{ship_name}"
         try:
@@ -136,21 +139,13 @@ class SpaceShip(PlayerObject):
         if self.turn_timer > 0:
             self.turn_timer -= 1
 
-        # Update thrust markers
-        self.update_markers()
-
         if not self.inertia and self.thrust_timer == 0 and not forward_pressed:
             self.velocity = [0.0, 0.0]
 
-    def update_markers(self):
-        """Update thrust markers, removing expired ones."""
-        self.thrust_markers = [m for m in self.thrust_markers if m.update()]
-
     def apply_thrust(self):
-        """Apply thrust if allowed, and create a thrust marker when thrust is applied."""
+        """Apply thrust if allowed."""
         if self.can_thrust():
             angle_rad = math.radians(self.rotation)
-            can_before = True
             if self.inertia:
                 self.velocity[0] += math.sin(angle_rad) * self.thrust_increment * SPEED_SCALE
                 self.velocity[1] -= math.cos(angle_rad) * self.thrust_increment * SPEED_SCALE
@@ -161,19 +156,13 @@ class SpaceShip(PlayerObject):
 
             self.thrust_timer = int(self.thrust_wait * THRUST_WAIT_SCALE)
 
-            # Create a thrust marker behind the ship
-            if can_before:
-                # The marker is placed behind the ship, based on ship's size
-                # We'll use the ship height as a reference for offset.
-                # Marker goes opposite the forward direction:
-                # forward (velocity) is (sin(angle), -cos(angle))
-                # behind is negative that direction, so we add sin(angle)*offset
-                # in the negative direction of our forward vector, which means we
-                # use the same trig as before but reversed sign.
-                offset = (self.size[1] / 2) + (THRUST_MARKER_RADIUS * 2)
-                marker_x = self.position[0] - math.sin(angle_rad) * offset
-                marker_y = self.position[1] + math.cos(angle_rad) * offset
-                self.thrust_markers.append(ThrustMarker(marker_x, marker_y))
+    def get_thrust_marker_position(self):
+        """Calculate position for a new thrust marker."""
+        angle_rad = math.radians(self.rotation)
+        offset = (self.size[1] / 2) + 6  # size + marker diameter
+        marker_x = self.position[0] - math.sin(angle_rad) * offset
+        marker_y = self.position[1] + math.cos(angle_rad) * offset
+        return marker_x, marker_y
 
     def turn_left(self):
         """Turn the ship to the left if allowed."""
