@@ -1,5 +1,5 @@
 # Spathi.py
-from src.Ships.SpaceShip import SpaceShip
+from src.Ships.GameObject import SpaceShip
 import src.Ships.Spathi.SpathiA1 as A1
 import src.Ships.Spathi.SpathiA2 as A2
 

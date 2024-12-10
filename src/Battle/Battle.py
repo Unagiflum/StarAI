@@ -5,7 +5,7 @@ import random
 import math
 from src.UI import UI
 from src.Battle.SpaceObject import Planet
-from src.Ships.SpaceShip import SpaceShip, ThrustMarker
+from src.Ships.GameObject import SpaceShip, ThrustMarker
 
 # Constants
 ARENA_SIZE = 3000
