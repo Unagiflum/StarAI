@@ -7,7 +7,7 @@ TURN_WAIT_SCALE = 2.0
 THRUST_WAIT_SCALE = 2.0
 
 class PlayerObject:
-    def __init__(self, player_num, max_hp, start_hp, inertia, sprite_location, sprite_scale):
+    def __init__(self, player_num, max_hp, start_hp, inertia, sprite_location, sprite_scale, size):
         # Intrinsic characteristics
         self.player = player_num
         self.max_hp = max_hp
@@ -15,6 +15,7 @@ class PlayerObject:
         self.inertia = inertia
         self.sprite_location = sprite_location
         self.sprite_scale = sprite_scale
+        self.size = size
 
         # Situational variables
         self.currently_alive = True
@@ -42,7 +43,8 @@ class SpaceShip(PlayerObject):
             start_hp=ship_data['StartHP'],
             inertia=ship_data['Inertia'],
             sprite_location=ship_data['SpriteLocation'],
-            sprite_scale=ship_data['SpriteScale']
+            sprite_scale=ship_data['SpriteScale'],
+            size=[ship_data['Size']['width'], ship_data['Size']['height']]
         )
 
         # Spaceship-specific attributes
