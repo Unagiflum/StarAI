@@ -193,20 +193,16 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
             if marker:
                 game_objects.append(marker)
 
-        # Apply gravity and update objects
         for obj in game_objects[:]:
             if not obj.update():
                 game_objects.remove(obj)
 
             if isinstance(obj, SpaceShip):
-                dx = planet.position[0] - obj.position[0]
-                dy = planet.position[1] - obj.position[1]
-                distance = math.sqrt(dx * dx + dy * dy)
-
-                if obj.inertia and distance > planet.diameter / 2:
-                    gravity_force = GameConstants.GRAVITY_MULTIPLIER * planet.gravity / (distance * distance)
-                    obj.add_impulse(gravity_force * dx / distance,
-                                    gravity_force * dy / distance)
+                obj.apply_gravity(
+                    planet.position,
+                    planet.gravity,
+                    min_distance=planet.diameter / 2
+                )
 
 
 

@@ -43,26 +43,41 @@ class GameObject:
         if self.can_move:
             self.velocit0[0] = self.velocity[0]
             self.velocit0[1] = self.velocity[1]
+
             if self.inertia:
                 self.velocity[0] += self.accumulated_impulses[0]
                 self.velocity[1] += self.accumulated_impulses[1]
 
-
             else:
                 self.velocity = self.accumulated_impulses.copy()
 
-            if GameConstants.SPEED_LIMIT < float('inf'):
-                speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
-                if speed > GameConstants.SPEED_LIMIT:
-                    scale = GameConstants.SPEED_LIMIT / speed
-                    self.velocity[0] *= scale
-                    self.velocity[1] *= scale
+            speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
+            if speed > GameConstants.SPEED_LIMIT:
+                scale = GameConstants.SPEED_LIMIT / speed
+                self.velocity[0] *= scale
+                self.velocity[1] *= scale
 
             self.accumulated_impulses = [0.0, 0.0]
             self.position[0] = (self.position[0] + 0.5 * (
                     self.velocit0[0] + self.velocity[0])) % GameConstants.ARENA_SIZE
             self.position[1] = (self.position[1] + 0.5 * (
                     self.velocit0[1] + self.velocity[1])) % GameConstants.ARENA_SIZE
+
+    def apply_gravity(self, source_position, gravity_strength, min_distance=0):
+
+        if not self.can_move or not self.inertia:
+            return
+
+        dx = source_position[0] - self.position[0]
+        dy = source_position[1] - self.position[1]
+        distance = math.sqrt(dx * dx + dy * dy)
+
+        if distance > min_distance:
+            gravity_force = GameConstants.GRAVITY_MULTIPLIER * gravity_strength / (distance * distance)
+            self.add_impulse(
+                gravity_force * dx / distance,
+                gravity_force * dy / distance
+            )
 
     def update(self):
         """Main update function for game loop."""
