@@ -5,7 +5,7 @@ import random
 import math
 from src.UI import UI
 import src.GameConstants as GameConstants
-from src.Battle.SpaceObject import Planet
+from src.Battle.SpaceObject import Planet, Star
 from src.GameObject import SpaceShip, ThrustMarker
 
 def load_settings():
@@ -17,7 +17,6 @@ def load_settings():
         print(f"Error loading settings: {e}. Using default settings.")
         return UI.DEFAULT_KEYS
 
-
 def get_random_position():
     while True:
         x = random.randint(0, GameConstants.ARENA_SIZE)
@@ -28,14 +27,12 @@ def get_random_position():
         if dx > GameConstants.CENTER_BUFFER or dy > GameConstants.CENTER_BUFFER:
             return x, y
 
-
 def validate_ship_positions(pos1, pos2):
     dx = abs(pos1[0] - pos2[0])
     dy = abs(pos1[1] - pos2[1])
     dx = min(dx, GameConstants.ARENA_SIZE - dx)
     dy = min(dy, GameConstants.ARENA_SIZE - dy)
     return math.sqrt(dx * dx + dy * dy) >= GameConstants.MIN_SHIP_SEPARATION
-
 
 def get_valid_ship_positions():
     while True:
@@ -44,11 +41,20 @@ def get_valid_ship_positions():
         if validate_ship_positions(pos1, pos2):
             return pos1, pos2
 
-
 def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     clock = pygame.time.Clock()
     settings = load_settings()
     scale_factor = UI.SCREEN_HEIGHT / GameConstants.ARENA_SIZE
+
+    # Initialize game objects list with stars
+    game_objects = []
+    for _ in range(GameConstants.STAR_COUNT):
+        star = Star()
+        star.position = [
+            random.randint(0, GameConstants.ARENA_SIZE),
+            random.randint(0, GameConstants.ARENA_SIZE)
+        ]
+        game_objects.append(star)
 
     pos1, pos2 = get_valid_ship_positions()
 
@@ -57,7 +63,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     player2 = ship2
     player2.initialize_in_battle(pos2, random.randint(0, 15))
 
-    game_objects = []
     game_objects.append(player1)
     game_objects.append(player2)
 
@@ -175,18 +180,18 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         if keys[settings["Player 1: Right"]]:
             player1.turn_right()
         if player1_forward_pressed:
-            player1.apply_thrust()
-            marker_x, marker_y = player1.get_thrust_marker_position()
-            game_objects.append(ThrustMarker(marker_x, marker_y))
+            marker = player1.apply_thrust()
+            if marker:
+                game_objects.append(marker)
 
         if keys[settings["Player 2: Left"]]:
             player2.turn_left()
         if keys[settings["Player 2: Right"]]:
             player2.turn_right()
         if player2_forward_pressed:
-            player2.apply_thrust()
-            marker_x, marker_y = player2.get_thrust_marker_position()
-            game_objects.append(ThrustMarker(marker_x, marker_y))
+            marker = player2.apply_thrust()
+            if marker:
+                game_objects.append(marker)
 
         # Apply gravity and update objects
         for obj in game_objects[:]:
@@ -207,6 +212,16 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         screen.fill(UI.BLACK)
         screen.set_clip(border_rect)
 
+        # Draw stars first (background)
+        for obj in game_objects:
+            if isinstance(obj, Star):
+                star_size = int(obj.diameter * scale_factor)
+                scaled_star = pygame.transform.scale(obj.image, (star_size, star_size))
+                screen_x = int(obj.position[0] * scale_factor) - star_size // 2
+                screen_y = int(obj.position[1] * scale_factor) - star_size // 2
+                screen.blit(scaled_star, (screen_x, screen_y))
+
+        # Draw planet
         for obj in game_objects:
             if isinstance(obj, Planet):
                 screen.blit(obj.image, (

@@ -180,7 +180,11 @@ class SpaceShip(GameObject):
             thrust_y = -math.cos(angle_rad) * self.thrust_increment * GameConstants.SPEED_SCALE
 
             self.add_impulse(thrust_x, thrust_y)
+            marker_x, marker_y = self.get_thrust_marker_position()
+            marker = ThrustMarker(marker_x, marker_y)
             self.thrust_timer = int(self.thrust_wait * GameConstants.THRUST_WAIT_SCALE)
+            return marker
+        return None
 
     def get_thrust_marker_position(self):
         angle_rad = math.radians(self.rotation)
