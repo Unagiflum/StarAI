@@ -196,7 +196,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                 distance = math.sqrt(dx * dx + dy * dy)
 
                 if obj.inertia and distance > planet.diameter / 2:
-                    gravity_force = 1000 * planet.gravity / (distance * distance)
+                    gravity_force = GameConstants.GRAVITY_MULTIPLIER * planet.gravity / (distance * distance)
                     obj.add_impulse(gravity_force * dx / distance,
                                     gravity_force * dy / distance)
 

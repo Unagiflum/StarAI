@@ -14,7 +14,7 @@
         "TurnWait": 0,
         "ShipMass": 1,
         "Inertia": false,
-        "SpriteLocation": "/src/Ships/Arilou/",
+        "SpriteLocation": "Ships/Arilou/",
         "SpriteScale": 1.0,
 		"Size": {"width": 56,"height": 58}
     },
@@ -33,7 +33,7 @@
         "TurnWait": 4,
         "ShipMass": 5,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/Druuge/",
+        "SpriteLocation": "Ships/Druuge/",
         "SpriteScale": 1.0,
 		"Size": {"width": 39,"height": 136}
     },
@@ -52,7 +52,7 @@
         "TurnWait": 1,
         "ShipMass": 6,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/Earthling/",
+        "SpriteLocation": "Ships/Earthling/",
         "SpriteScale": 1.0,
 		"Size": {"width": 39,"height": 139}
     },
@@ -71,7 +71,7 @@
         "TurnWait": 2,
         "ShipMass": 7,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/Ilwrath/",
+        "SpriteLocation": "Ships/Ilwrath/",
         "SpriteScale": 1.0,
 		"Size": {"width": 126,"height": 124}
     },
@@ -90,7 +90,7 @@
         "TurnWait": 4,
         "ShipMass": 10,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/KohrAh/",
+        "SpriteLocation": "Ships/KohrAh/",
         "SpriteScale": 1.0,
 		"Size": {"width": 93,"height": 181}
     },
@@ -109,7 +109,7 @@
         "TurnWait": 4,
         "ShipMass": 10,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/KzerZa/",
+        "SpriteLocation": "Ships/KzerZa/",
         "SpriteScale": 0.87,
 		"Size": {"width": 115,"height": 181}
     },
@@ -128,7 +128,7 @@
         "TurnWait": 6,
         "ShipMass": 7,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/Mycon/",
+        "SpriteLocation": "Ships/Mycon/",
         "SpriteScale": 1.0,
 		"Size": {"width": 97,"height": 117}
     },
@@ -147,7 +147,7 @@
         "TurnWait": 1,
         "ShipMass": 4,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/Orz/",
+        "SpriteLocation": "Ships/Orz/",
         "SpriteScale": 1.0,
 		"Size": {"width": 138,"height": 110}
     },
@@ -166,7 +166,7 @@
         "TurnWait": 0,
         "ShipMass": 1,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/Pkunk/",
+        "SpriteLocation": "Ships/Pkunk/",
         "SpriteScale": 1.0,
 		"Size": {"width": 120,"height": 85}
     },
@@ -185,7 +185,7 @@
         "TurnWait": 1,
         "ShipMass": 1,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/Shofixti/",
+        "SpriteLocation": "Ships/Shofixti/",
         "SpriteScale": 1.0,
 		"Size": {"width": 72,"height": 72}
     },
@@ -204,7 +204,7 @@
         "TurnWait": 1,
         "ShipMass": 7,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/Spathi/",
+        "SpriteLocation": "Ships/Spathi/",
         "SpriteScale": 1.0,
 		"Size": {"width": 112,"height": 93}
     },
@@ -223,7 +223,7 @@
         "TurnWait": 1,
         "ShipMass": 4,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/Supox/",
+        "SpriteLocation": "Ships/Supox/",
         "SpriteScale": 1.0,
 		"Size": {"width": 53,"height": 120}
     },
@@ -242,7 +242,7 @@
         "TurnWait": 1,
         "ShipMass": 7,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/Thraddash/",
+        "SpriteLocation": "Ships/Thraddash/",
         "SpriteScale": 1.0,
 		"Size": {"width": 113,"height": 113}
     },
@@ -261,7 +261,7 @@
         "TurnWait": 2,
         "ShipMass": 3,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/Yehat/",
+        "SpriteLocation": "Ships/Yehat/",
         "SpriteScale": 1.0,
 		"Size": {"width": 80,"height": 52}
     },
@@ -280,7 +280,7 @@
         "TurnWait": 1,
         "ShipMass": 5,
         "Inertia": true,
-        "SpriteLocation": "/src/Ships/ZoqFot/",
+        "SpriteLocation": "Ships/ZoqFot/",
         "SpriteScale": 1.0,
 		"Size": {"width": 118,"height": 118}
     }
