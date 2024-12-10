@@ -195,6 +195,9 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
 
         # Apply gravity and update objects
         for obj in game_objects[:]:
+            if not obj.update():
+                game_objects.remove(obj)
+
             if isinstance(obj, SpaceShip):
                 dx = planet.position[0] - obj.position[0]
                 dy = planet.position[1] - obj.position[1]
@@ -205,8 +208,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                     obj.add_impulse(gravity_force * dx / distance,
                                     gravity_force * dy / distance)
 
-            if not obj.update():
-                game_objects.remove(obj)
+
 
         # Drawing
         screen.fill(UI.BLACK)

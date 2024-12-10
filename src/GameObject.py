@@ -1,5 +1,8 @@
 import json
 import math
+
+from tensorflow.python.ops.metrics_impl import false_positives
+
 import src.GameConstants as GameConstants
 
 class GameObject:
@@ -18,41 +21,47 @@ class GameObject:
         self.current_hp = self.start_hp
         self.position = [0.0, 0.0]
         self.velocity = [0.0, 0.0]
+        self.velocit0 = [0.0, 0.0]
         self.can_collide = True
         self.can_expire = False
         self.expiration_timer = 0
 
         # Physics attributes
         self.accumulated_impulses = [0.0, 0.0]
-        self.max_speed = float('inf')
+
+        # Behavior flags
+        self.can_move = False
+        self.can_die = False
 
     def add_impulse(self, dx, dy):
         """Add a physics impulse to the object."""
-        self.accumulated_impulses[0] += dx
-        self.accumulated_impulses[1] += dy
+        if self.can_move:
+            self.accumulated_impulses[0] += dx
+            self.accumulated_impulses[1] += dy
 
     def update_physics(self):
-        """Update physics state including velocity and position."""
-        if self.inertia:
-            self.velocity[0] += self.accumulated_impulses[0]
-            self.velocity[1] += self.accumulated_impulses[1]
+        if self.can_move:
+            self.velocit0[0] = self.velocity[0]
+            self.velocit0[1] = self.velocity[1]
+            if self.inertia:
+                self.velocity[0] += self.accumulated_impulses[0]
+                self.velocity[1] += self.accumulated_impulses[1]
 
-            if self.max_speed < float('inf'):
-                speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
-                if speed > self.max_speed:
-                    scale = self.max_speed / speed
-                    self.velocity[0] *= scale
-                    self.velocity[1] *= scale
-        else:
-            # For non-inertial objects, velocity directly matches impulses
-            if any(self.accumulated_impulses):
-                self.velocity = self.accumulated_impulses.copy()
+                if GameConstants.SPEED_LIMIT < float('inf'):
+                    speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
+                    if speed > GameConstants.SPEED_LIMIT:
+                        scale = GameConstants.SPEED_LIMIT / speed
+                        self.velocity[0] *= scale
+                        self.velocity[1] *= scale
+
             else:
-                self.velocity = [0.0, 0.0]
+                self.velocity = self.accumulated_impulses.copy()
 
-        self.accumulated_impulses = [0.0, 0.0]
-        self.position[0] = (self.position[0] + self.velocity[0]) % GameConstants.ARENA_SIZE
-        self.position[1] = (self.position[1] + self.velocity[1]) % GameConstants.ARENA_SIZE
+            self.accumulated_impulses = [0.0, 0.0]
+            self.position[0] = (self.position[0] + 0.5 * (
+                    self.velocit0[0] + self.velocity[0])) % GameConstants.ARENA_SIZE
+            self.position[1] = (self.position[1] + 0.5 * (
+                    self.velocit0[1] + self.velocity[1])) % GameConstants.ARENA_SIZE
 
     def update(self):
         """Main update function for game loop."""
@@ -124,7 +133,6 @@ class SpaceShip(GameObject):
         self.thrust_wait = ship_data['ThrustWait']
         self.turn_wait = ship_data['TurnWait']
         self.ship_mass = ship_data['ShipMass']
-        self.max_speed = self.max_thrust * GameConstants.SPEED_SCALE
 
         # Ship state variables
         self.current_energy = self.start_energy
@@ -144,6 +152,8 @@ class SpaceShip(GameObject):
         self.status6 = 0
         self.in_battle = False
 
+        self.can_move = True
+        self.can_die = True
         try:
             self.ship_module = __import__(f"Ships.{ship_name}.{ship_name}", fromlist=[''])
         except ImportError:
@@ -176,14 +186,28 @@ class SpaceShip(GameObject):
     def apply_thrust(self):
         if self.can_thrust():
             angle_rad = math.radians(self.rotation)
-            thrust_x = math.sin(angle_rad) * self.thrust_increment * GameConstants.SPEED_SCALE
-            thrust_y = -math.cos(angle_rad) * self.thrust_increment * GameConstants.SPEED_SCALE
+            target_x = math.sin(angle_rad) * self.max_thrust * GameConstants.SPEED_SCALE
+            target_y = -math.cos(angle_rad) * self.max_thrust * GameConstants.SPEED_SCALE
+
+            if self.inertia:
+                dx = target_x - self.velocity[0]
+                dy = target_y - self.velocity[1]
+
+                scale = self.thrust_increment / self.max_thrust
+                thrust_x = dx * scale
+                thrust_y = dy * scale
+
+            else:
+                thrust_x = target_x
+                thrust_y = target_y
 
             self.add_impulse(thrust_x, thrust_y)
+
             marker_x, marker_y = self.get_thrust_marker_position()
             marker = ThrustMarker(marker_x, marker_y)
             self.thrust_timer = int(self.thrust_wait * GameConstants.THRUST_WAIT_SCALE)
             return marker
+
         return None
 
     def get_thrust_marker_position(self):
