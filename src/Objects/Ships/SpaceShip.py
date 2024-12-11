@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import math
 import pygame
 
@@ -72,12 +73,14 @@ class SpaceShip(Object):
             ships_data = json.load(f)
             ship_data = ships_data[ship_name]
 
+        sprite_location = Path(ship_data['SpriteLocation'])
+
         super().__init__(
             player_num=player_num,
             max_hp=ship_data['MaxHP'],
             start_hp=ship_data['StartHP'],
             inertia=ship_data['Inertia'],
-            sprite_location=ship_data['SpriteLocation'],
+            sprite_location=sprite_location,
             sprite_scale=ship_data['SpriteScale'],
             size=[ship_data['Size']['width'], ship_data['Size']['height']]
         )
@@ -85,8 +88,8 @@ class SpaceShip(Object):
         # Load sprites
         self.sprites = []
         for i in range(16):
-            sprite_path = f'{self.sprite_location}{self.name}{i:02d}.png'
-            self.sprites.append(pygame.image.load(sprite_path).convert_alpha())
+            sprite_path = self.sprite_location.joinpath(f'{self.name}{i:02d}.png')
+            self.sprites.append(pygame.image.load(str(sprite_path)).convert_alpha())
 
         # Ship-specific attributes
         self.ship_type = ship_data['ShipType']

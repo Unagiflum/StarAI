@@ -1,4 +1,5 @@
 import pygame
+from pathlib import Path
 import json
 import random
 
@@ -32,7 +33,7 @@ class Planet(Object):
         self.can_die = False
 
         # Load and scale image
-        self.image = pygame.image.load(planet_data['Image']).convert_alpha()
+        self.image = pygame.image.load(str(Path(planet_data['Image']))).convert_alpha()
 
         # Initialize parent PlayerObject
         super().__init__(
@@ -80,7 +81,7 @@ class Star(Object):
         star_data = stars[star_name]
 
         self.diameter = star_data['Diameter']
-        self.image = pygame.image.load(star_data['Image']).convert_alpha()
+        self.image = pygame.image.load(str(Path(star_data['Image']))).convert_alpha()
 
         super().__init__(
             player_num=0,
