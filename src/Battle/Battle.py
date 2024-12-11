@@ -89,34 +89,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
 
     running = True
 
-    def draw_marker(marker):
-        screen_x = int(marker.position[0] * scale_factor)
-        screen_y = int(marker.position[1] * scale_factor)
-
-        positions = [(screen_x, screen_y)]
-
-        if screen_x < 6:
-            positions.append((screen_x + UI.SCREEN_HEIGHT, screen_y))
-        elif screen_x > UI.SCREEN_HEIGHT - 6:
-            positions.append((screen_x - UI.SCREEN_HEIGHT, screen_y))
-
-        if screen_y < 6:
-            positions.append((screen_x, screen_y + UI.SCREEN_HEIGHT))
-        elif screen_y > UI.SCREEN_HEIGHT - 6:
-            positions.append((screen_x, screen_y - UI.SCREEN_HEIGHT))
-
-        if len(positions) > 2:
-            positions.append((
-                screen_x + (UI.SCREEN_HEIGHT if screen_x < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT),
-                screen_y + (UI.SCREEN_HEIGHT if screen_y < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT)
-            ))
-
-        for pos_x, pos_y in positions:
-            pygame.draw.circle(
-                screen, marker.get_color(), (pos_x, pos_y),
-                max(1, int(3 * scale_factor))
-            )
-
     def draw_ship(player, sprites):
         sprite = sprites[player.heading]
         sprite_rect = sprite.get_rect()
@@ -230,7 +202,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
 
         for obj in game_objects:
             if isinstance(obj, ThrustMarker):
-                draw_marker(obj)
+                obj.draw(screen, scale_factor, [0, 0])
 
         for obj in game_objects:
             if isinstance(obj, SpaceShip):

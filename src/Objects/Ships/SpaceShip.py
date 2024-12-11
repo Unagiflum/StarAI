@@ -1,5 +1,6 @@
 import json
 import math
+import pygame
 
 import src.Const as Const
 from src.Objects.Object import Object
@@ -34,6 +35,34 @@ class ThrustMarker(Object):
         g = int(start_color[1] * fade_ratio + end_color[1] * (1 - fade_ratio))
         b = int(start_color[2] * fade_ratio + end_color[2] * (1 - fade_ratio))
         return (r, g, b)
+
+    def draw(self, screen, scale_factor, translation):
+        screen_x = int((self.position[0] + translation[0]) * scale_factor)
+        screen_y = int((self.position[1] + translation[1]) * scale_factor)
+
+        positions = [(screen_x, screen_y)]
+
+        if screen_x < 6:
+            positions.append((screen_x + screen.get_height(), screen_y))
+        elif screen_x > screen.get_height() - 6:
+            positions.append((screen_x - screen.get_height(), screen_y))
+
+        if screen_y < 6:
+            positions.append((screen_x, screen_y + screen.get_height()))
+        elif screen_y > screen.get_height() - 6:
+            positions.append((screen_x, screen_y - screen.get_height()))
+
+        if len(positions) > 2:
+            positions.append((
+                screen_x + (screen.get_height() if screen_x < screen.get_height() // 2 else -screen.get_height()),
+                screen_y + (screen.get_height() if screen_y < screen.get_height() // 2 else -screen.get_height())
+            ))
+
+        for pos_x, pos_y in positions:
+            pygame.draw.circle(
+                screen, self.get_color(), (pos_x, pos_y),
+                max(1, int(3 * scale_factor))
+            )
 
 class SpaceShip(Object):
     def __init__(self, ship_name, player_num):
