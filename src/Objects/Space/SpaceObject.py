@@ -12,8 +12,15 @@ class Planet(Object):
         with open(Const.PLANETS_JSON_PATH, 'r') as f:
             planets = json.load(f)
 
-        # Select random planet
-        planet_name = random.choice(list(planets.keys()))
+        # Weight planets by category
+        weights = {
+            name: Const.PLANET_WEIGHTS[0] if 'Gas' in name
+            else Const.PLANET_WEIGHTS[1] if 'Ice' in name
+            else Const.PLANET_WEIGHTS[2] if 'Life' in name
+            else Const.PLANET_WEIGHTS[3] if 'Rocky' in name
+            else 0 for name in planets.keys()
+        }
+        planet_name = random.choices(list(planets.keys()), weights=list(weights.values()), k=1)[0]
         planet_data = planets[planet_name]
 
         # Get planet properties
@@ -61,9 +68,14 @@ class Star(Object):
             stars = json.load(f)
 
         # Weight stars by size class (a=largest=weight 1, e=smallest=weight 5)
-        weights = {name: 25 if 'e' in name else 25 if 'd' in name else
-        5 if 'c' in name else 0 if 'b' in name else 0
-                   for name in stars.keys()}
+        weights = {
+            name: Const.STAR_WEIGHTS[0] if 'e' in name
+            else Const.STAR_WEIGHTS[1] if 'd' in name
+            else Const.STAR_WEIGHTS[2] if 'c' in name
+            else Const.STAR_WEIGHTS[3] if 'b' in name
+            else Const.STAR_WEIGHTS[4] if 'a' in name
+            else 0 for name in stars.keys()
+        }
         star_name = random.choices(list(stars.keys()), weights=list(weights.values()), k=1)[0]
         star_data = stars[star_name]
 

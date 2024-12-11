@@ -14,6 +14,9 @@ STAR_COUNT = int(ARENA_SIZE*ARENA_SIZE*0.00001)
 
 SPEED_LIMIT = 500
 
+STAR_WEIGHTS = [45,45,10,0,0]
+PLANET_WEIGHTS = [25,25,25,25]
+
 GAME_JSON_PATH = os.path.join("Config","Gamesettings.json")
 TRAINING_JSON_PATH = os.path.join("Config","Trainingsettings.json")
 FLEETS_JSON_PATH = os.path.join("Config","Fleets.json")
