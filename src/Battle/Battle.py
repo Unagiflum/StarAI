@@ -67,16 +67,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     game_objects.append(player1)
     game_objects.append(player2)
 
-    player1_sprites = []
-    for i in range(16):
-        sprite_path = f'{player1.sprite_location}{player1.name}{i:02d}.png'
-        player1_sprites.append(pygame.image.load(sprite_path).convert_alpha())
-
-    player2_sprites = []
-    for i in range(16):
-        sprite_path = f'{player2.sprite_location}{player2.name}{i:02d}.png'
-        player2_sprites.append(pygame.image.load(sprite_path).convert_alpha())
-
     planet = Planet()
     planet.position = [Const.ARENA_SIZE / 2, Const.ARENA_SIZE / 2]
     game_objects.append(planet)
@@ -88,45 +78,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     border_color = (50, 50, 50)
 
     running = True
-
-    def draw_ship(player, sprites):
-        sprite = sprites[player.heading]
-        sprite_rect = sprite.get_rect()
-
-        total_scale = scale_factor * player.sprite_scale
-        scaled_sprite = pygame.transform.scale(
-            sprite,
-            (int(sprite_rect.width * total_scale),
-             int(sprite_rect.height * total_scale))
-        )
-        scaled_rect = scaled_sprite.get_rect()
-
-        screen_x = int(player.position[0] * scale_factor)
-        screen_y = int(player.position[1] * scale_factor)
-
-        positions = [(screen_x, screen_y)]
-
-        if screen_x < scaled_rect.width // 2:
-            positions.append((screen_x + UI.SCREEN_HEIGHT, screen_y))
-        elif screen_x > UI.SCREEN_HEIGHT - scaled_rect.width // 2:
-            positions.append((screen_x - UI.SCREEN_HEIGHT, screen_y))
-
-        if screen_y < scaled_rect.height // 2:
-            positions.append((screen_x, screen_y + UI.SCREEN_HEIGHT))
-        elif screen_y > UI.SCREEN_HEIGHT - scaled_rect.height // 2:
-            positions.append((screen_x, screen_y - UI.SCREEN_HEIGHT))
-
-        if len(positions) > 2:
-            positions.append((
-                screen_x + (UI.SCREEN_HEIGHT if screen_x < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT),
-                screen_y + (UI.SCREEN_HEIGHT if screen_y < UI.SCREEN_HEIGHT // 2 else -UI.SCREEN_HEIGHT)
-            ))
-
-        for pos_x, pos_y in positions:
-            screen.blit(scaled_sprite, (
-                pos_x - scaled_rect.width // 2,
-                pos_y - scaled_rect.height // 2
-            ))
 
     while running:
         clock.tick(UI.FPS)
@@ -178,7 +129,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                 )
 
 
-
         # Drawing
         screen.fill(UI.BLACK)
         screen.set_clip(border_rect)
@@ -206,7 +156,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
 
         for obj in game_objects:
             if isinstance(obj, SpaceShip):
-                draw_ship(obj, player1_sprites if obj == player1 else player2_sprites)
+                obj.draw(screen, scale_factor, [0, 0])
 
         pygame.draw.rect(screen, border_color, border_rect, 2)
         screen.set_clip(None)

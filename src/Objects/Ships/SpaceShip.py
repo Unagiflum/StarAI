@@ -65,9 +65,9 @@ class ThrustMarker(Object):
             )
 
 class SpaceShip(Object):
+
     def __init__(self, ship_name, player_num):
         self.name = ship_name
-
         with open(Const.SHIPS_JSON_PATH, 'r') as f:
             ships_data = json.load(f)
             ship_data = ships_data[ship_name]
@@ -81,6 +81,12 @@ class SpaceShip(Object):
             sprite_scale=ship_data['SpriteScale'],
             size=[ship_data['Size']['width'], ship_data['Size']['height']]
         )
+
+        # Load sprites
+        self.sprites = []
+        for i in range(16):
+            sprite_path = f'{self.sprite_location}{self.name}{i:02d}.png'
+            self.sprites.append(pygame.image.load(sprite_path).convert_alpha())
 
         # Ship-specific attributes
         self.ship_type = ship_data['ShipType']
@@ -225,3 +231,43 @@ class SpaceShip(Object):
     def update(self):
         super().update()
         return True
+
+    def draw(self, screen, scale_factor, translation):
+        sprite = self.sprites[self.heading]
+        sprite_rect = sprite.get_rect()
+
+        total_scale = scale_factor * self.sprite_scale
+        scaled_sprite = pygame.transform.scale(
+            sprite,
+            (int(sprite_rect.width * total_scale),
+             int(sprite_rect.height * total_scale))
+        )
+        scaled_rect = scaled_sprite.get_rect()
+
+        screen_x = int((self.position[0] + translation[0]) * scale_factor)
+        screen_y = int((self.position[1] + translation[1]) * scale_factor)
+
+        positions = [(screen_x, screen_y)]
+        screen_height = screen.get_height()
+
+        if screen_x < scaled_rect.width // 2:
+            positions.append((screen_x + screen_height, screen_y))
+        elif screen_x > screen_height - scaled_rect.width // 2:
+            positions.append((screen_x - screen_height, screen_y))
+
+        if screen_y < scaled_rect.height // 2:
+            positions.append((screen_x, screen_y + screen_height))
+        elif screen_y > screen_height - scaled_rect.height // 2:
+            positions.append((screen_x, screen_y - screen_height))
+
+        if len(positions) > 2:
+            positions.append((
+                screen_x + (screen_height if screen_x < screen_height // 2 else -screen_height),
+                screen_y + (screen_height if screen_y < screen_height // 2 else -screen_height)
+            ))
+
+        for pos_x, pos_y in positions:
+            screen.blit(scaled_sprite, (
+                pos_x - scaled_rect.width // 2,
+                pos_y - scaled_rect.height // 2
+            ))
