@@ -49,13 +49,8 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
 
     # Initialize game objects list with stars
     game_objects = []
-    for _ in range(Const.STAR_COUNT):
-        star = Star()
-        star.position = [
-            random.randint(0, Const.ARENA_SIZE),
-            random.randint(0, Const.ARENA_SIZE)
-        ]
-        game_objects.append(star)
+
+    game_objects.extend(Star.create_random_stars(Const.STAR_COUNT))
 
     pos1, pos2 = get_valid_ship_positions()
 
@@ -67,12 +62,8 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     game_objects.append(player1)
     game_objects.append(player2)
 
-    planet = Planet()
-    planet.position = [Const.ARENA_SIZE / 2, Const.ARENA_SIZE / 2]
+    planet = Planet.create_center()
     game_objects.append(planet)
-
-    planet_size = int(planet.diameter * scale_factor)
-    planet.image = pygame.transform.scale(planet.image, (planet_size, planet_size))
 
     border_rect = pygame.Rect(0, 0, UI.SCREEN_HEIGHT, UI.SCREEN_HEIGHT)
     border_color = (50, 50, 50)
@@ -128,7 +119,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                     min_distance=planet.diameter / 2
                 )
 
-
         # Drawing
         screen.fill(UI.BLACK)
         screen.set_clip(border_rect)
@@ -136,19 +126,12 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         # Draw stars first (background)
         for obj in game_objects:
             if isinstance(obj, Star):
-                star_size = int(obj.diameter * scale_factor)
-                scaled_star = pygame.transform.scale(obj.image, (star_size, star_size))
-                screen_x = int(obj.position[0] * scale_factor) - star_size // 2
-                screen_y = int(obj.position[1] * scale_factor) - star_size // 2
-                screen.blit(scaled_star, (screen_x, screen_y))
+                obj.draw(screen, scale_factor, [0, 0])
 
         # Draw planet
         for obj in game_objects:
             if isinstance(obj, Planet):
-                screen.blit(obj.image, (
-                    int(obj.position[0] * scale_factor) - planet_size // 2,
-                    int(obj.position[1] * scale_factor) - planet_size // 2
-                ))
+                obj.draw(screen, scale_factor, [0, 0])
 
         for obj in game_objects:
             if isinstance(obj, ThrustMarker):

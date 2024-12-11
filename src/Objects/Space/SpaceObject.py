@@ -6,6 +6,7 @@ from src.Objects.Object import Object
 import src.Const as Const
 
 class Planet(Object):
+
     def __init__(self):
         # Load planet data from json
         with open(Const.PLANETS_JSON_PATH, 'r') as f:
@@ -23,7 +24,7 @@ class Planet(Object):
         self.can_move = False
         self.can_die = False
 
-        # Load image
+        # Load and scale image
         self.image = pygame.image.load(planet_data['Image']).convert_alpha()
 
         # Initialize parent PlayerObject
@@ -37,8 +38,24 @@ class Planet(Object):
             size=[self.diameter, self.diameter]
         )
 
+    @staticmethod
+    def create_center():
+        planet = Planet()
+        planet.position = [Const.ARENA_SIZE / 2, Const.ARENA_SIZE / 2]
+        return planet
+
+    def draw(self, screen, scale_factor, translation):
+        planet_size = int(self.diameter * scale_factor)
+        scaled_image = pygame.transform.scale(self.image, (planet_size, planet_size))
+        screen_x = int((self.position[0] + translation[0]) * scale_factor)
+        screen_y = int((self.position[1] + translation[1]) * scale_factor)
+        screen.blit(scaled_image, (
+            screen_x - planet_size // 2,
+            screen_y - planet_size // 2
+        ))
 
 class Star(Object):
+
     def __init__(self):
         with open(Const.STARS_JSON_PATH, 'r') as f:
             stars = json.load(f)
@@ -67,3 +84,25 @@ class Star(Object):
         self.can_move = False
         self.can_die = False
         self.can_collide = False
+
+    @staticmethod
+    def create_random_stars(count):
+        stars = []
+        for _ in range(count):
+            star = Star()
+            star.position = [
+                random.randint(0, Const.ARENA_SIZE),
+                random.randint(0, Const.ARENA_SIZE)
+            ]
+            stars.append(star)
+        return stars
+
+    def draw(self, screen, scale_factor, translation):
+        star_size = int(self.diameter * scale_factor)
+        scaled_image = pygame.transform.scale(self.image, (star_size, star_size))
+        screen_x = int((self.position[0] + translation[0]) * scale_factor)
+        screen_y = int((self.position[1] + translation[1]) * scale_factor)
+        screen.blit(scaled_image, (
+            screen_x - star_size // 2,
+            screen_y - star_size // 2
+        ))
