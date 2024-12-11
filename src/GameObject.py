@@ -58,9 +58,9 @@ class GameObject:
                 self.velocity[1] *= scale
 
             self.accumulated_impulses = [0.0, 0.0]
-            self.position[0] = (self.position[0] + 0.5 * (
+            self.position[0] = (self.position[0] + GameConstants.SPEED_SCALE * 0.5 * (
                     self.velocit0[0] + self.velocity[0])) % GameConstants.ARENA_SIZE
-            self.position[1] = (self.position[1] + 0.5 * (
+            self.position[1] = (self.position[1] + GameConstants.SPEED_SCALE * 0.5 * (
                     self.velocit0[1] + self.velocity[1])) % GameConstants.ARENA_SIZE
 
     def apply_gravity(self, source_position, gravity_strength, min_distance=0):
@@ -202,22 +202,39 @@ class SpaceShip(GameObject):
     def apply_thrust(self):
         if self.can_thrust():
             angle_rad = math.radians(self.rotation)
-            target_x = math.sin(angle_rad) * self.max_thrust * GameConstants.SPEED_SCALE
-            target_y = -math.cos(angle_rad) * self.max_thrust * GameConstants.SPEED_SCALE
+            thrust_direction = [math.sin(angle_rad), -math.cos(angle_rad)]
 
             if self.inertia:
-                dx = target_x - self.velocity[0]
-                dy = target_y - self.velocity[1]
+                # Add thrust_increment in facing direction to current velocity
+                new_velocity = [
+                    self.velocity[0] + thrust_direction[0] * self.thrust_increment,
+                    self.velocity[1] + thrust_direction[1] * self.thrust_increment
+                ]
 
-                scale = self.thrust_increment / self.max_thrust
-                thrust_x = dx * scale
-                thrust_y = dy * scale
+                # Normalize to max_thrust
+                speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
+                scale = 1.0
+                if speed > self.max_thrust:
+                    scale = self.max_thrust / speed
+                target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
 
+                # Calculate difference vector
+                diff_vector = [
+                    target_velocity[0] - self.velocity[0],
+                    target_velocity[1] - self.velocity[1]
+                ]
+
+                # Normalize difference to thrust_increment
+                diff_magnitude = math.sqrt(diff_vector[0] ** 2 + diff_vector[1] ** 2)
+                if diff_magnitude > 0:
+                    scale = self.thrust_increment / diff_magnitude
+                    self.add_impulse(diff_vector[0] * scale, diff_vector[1] * scale)
             else:
-                thrust_x = target_x
-                thrust_y = target_y
-
-            self.add_impulse(thrust_x, thrust_y)
+                # Non-inertial ships behavior unchanged
+                self.add_impulse(
+                    thrust_direction[0] * self.max_thrust,
+                    thrust_direction[1] * self.max_thrust
+                )
 
             marker_x, marker_y = self.get_thrust_marker_position()
             marker = ThrustMarker(marker_x, marker_y)
