@@ -1,5 +1,5 @@
 # Mycon.py
-from src.Objects.GameObject import SpaceShip
+from src.Objects.Ships.SpaceShip import SpaceShip
 import src.Objects.Ships.Mycon.MyconA1 as A1
 import src.Objects.Ships.Mycon.MyconA2 as A2
 

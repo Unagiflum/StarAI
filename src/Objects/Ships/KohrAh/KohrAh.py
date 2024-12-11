@@ -1,5 +1,5 @@
 # KohrAh.py
-from src.Objects.GameObject import SpaceShip
+from src.Objects.Ships.SpaceShip import SpaceShip
 import src.Objects.Ships.KohrAh.KohrAhA1 as A1
 import src.Objects.Ships.KohrAh.KohrAhA2 as A2
 

@@ -1,10 +1,11 @@
 import pygame
 import json
 import random
-from src.Objects.GameObject import GameObject
+
+from src.Objects.Object import Object
 import src.Const as Const
 
-class Planet(GameObject):
+class Planet(Object):
     def __init__(self):
         # Load planet data from json
         with open(Const.PLANETS_JSON_PATH, 'r') as f:
@@ -37,7 +38,7 @@ class Planet(GameObject):
         )
 
 
-class Star(GameObject):
+class Star(Object):
     def __init__(self):
         with open(Const.STARS_JSON_PATH, 'r') as f:
             stars = json.load(f)

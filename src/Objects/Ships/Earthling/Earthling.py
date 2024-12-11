@@ -1,4 +1,4 @@
-from src.Objects.GameObject import SpaceShip
+from src.Objects.Ships.SpaceShip import SpaceShip
 import src.Objects.Ships.Earthling.EarthlingA1 as A1
 import src.Objects.Ships.Earthling.EarthlingA2 as A2
 
