@@ -32,17 +32,26 @@ def load_ships() -> Dict:
         print(f"Error loading Ships.json: {e}")
         return {}
 
-def load_ship_sprite(ship_name: str, ships_data: Dict) -> Tuple[pygame.Surface, Tuple[int, int]]:
-    """Load the ship sprite without scaling and return its surface and size."""
+
+def load_ship_sprite(ship_name: str, ships_data: Dict) -> pygame.Surface:
+    """Load a single ship sprite without scaling."""
     try:
         sprite_path = os.path.join(ships_data[ship_name]['SpriteLocation'], f'{ship_name}00.png')
-        sprite = pygame.image.load(sprite_path).convert_alpha()
-        return sprite, sprite.get_size()
+        return pygame.image.load(sprite_path).convert_alpha()
     except Exception as e:
         print(f"Error loading sprite for {ship_name}: {e}")
         surface = pygame.Surface(SELECTION_ICON_SIZE, pygame.SRCALPHA)
         surface.fill(UI.GREY)
-        return surface, SELECTION_ICON_SIZE
+        return surface
+
+def create_sprite_sets(ships_data: Dict) -> Tuple[Dict[str, pygame.Surface], Dict[str, pygame.Surface]]:
+    """Create two sets of sprites at different scales from a single load."""
+    original_sprites = {name: load_ship_sprite(name, ships_data) for name in ships_data}
+
+    selection_sprites = scale_sprites(original_sprites, SELECTION_ICON_SIZE[0], ships_data)
+    fleet_sprites = scale_sprites(original_sprites, UI.FLEET_ICON_SIZE[0], ships_data)
+
+    return selection_sprites, fleet_sprites
 
 def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int, ships_data: Dict) -> Dict[str, pygame.Surface]:
     # Find the maximum dimension across all sprites after applying SpriteScale
@@ -134,11 +143,9 @@ def run(screen: pygame.Surface):
 
     # Load ships data and sprites
     ships_data = load_ships()
-    original_sprites = {ship_name: load_ship_sprite(ship_name, ships_data)[0] for ship_name in ships_data}
 
     # Scale sprites for selection and fleet views, maintaining proportions
-    selection_sprites = scale_sprites(original_sprites, SELECTION_ICON_SIZE[0], ships_data)
-    fleet_sprites = scale_sprites(original_sprites, UI.FLEET_ICON_SIZE[0], ships_data)
+    selection_sprites, fleet_sprites = create_sprite_sets(ships_data)
 
     # Create UI components
 
