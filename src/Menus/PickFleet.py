@@ -3,7 +3,7 @@ import sys
 import json
 import os
 from src.UI import UI, UIButton, UIBox
-import src.GameConstants as GameConstants
+import src.Const as GameConstants
 from src.Menus import PickShip
 from typing import Dict, Tuple
 

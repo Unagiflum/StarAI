@@ -1,7 +1,7 @@
 import json
 import math
 
-import src.GameConstants as GameConstants
+import src.Const as GameConstants
 
 class GameObject:
     def __init__(self, player_num, max_hp, start_hp, inertia, sprite_location, sprite_scale, size):

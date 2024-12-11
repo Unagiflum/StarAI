@@ -4,7 +4,7 @@ import os
 import sys
 import random
 from src.UI import UI, UIButton, UIBox
-import src.GameConstants as GameConstants
+import src.Const as GameConstants
 
 from src.Battle import Battle
 

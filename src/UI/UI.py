@@ -1,5 +1,5 @@
 import pygame
-import src.GameConstants as GameConstants
+import src.Const as GameConstants
 
 SCREEN_HEIGHT = 960
 SCREEN_WIDTH = int(SCREEN_HEIGHT*1.3)

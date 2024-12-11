@@ -2,7 +2,7 @@ import pygame
 import sys
 from src.Menus import PickFleet, TrainSettings, GameSettings
 from src.UI import UI, UIButton
-import src.GameConstants as GameConstants
+import src.Const as GameConstants
 
 def handle_menu_selection(module, screen):
     """Handle the selected menu item."""

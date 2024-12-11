@@ -4,7 +4,7 @@ import json
 import random
 import math
 from src.UI import UI
-import src.GameConstants as GameConstants
+import src.Const as GameConstants
 from src.Battle.SpaceObject import Planet, Star
 from src.GameObject import SpaceShip, ThrustMarker
 

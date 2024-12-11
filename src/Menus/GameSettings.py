@@ -3,7 +3,7 @@ import json
 import os
 import sys
 from src.UI import UI, UIButton
-import src.GameConstants as GameConstants
+import src.Const as GameConstants
 
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)
 SETTINGS_FILE = GameConstants.GAME_JSON_PATH
