@@ -40,7 +40,7 @@ def load_fleet_data():
            fleet_data = json.load(f)
 
        def get_ship_class(ship_name, player_num):
-           module = __import__(f"src.Ships.{ship_name}.{ship_name}", fromlist=[''])
+           module = __import__(f"src.Objects.Ships.{ship_name}.{ship_name}", fromlist=[''])
            return getattr(module, ship_name)(ship_name, player_num)
 
        player1_ships = [get_ship_class(ship_name, 1) for ship_name in fleet_data["Player1"]["ships"]]

@@ -18,7 +18,7 @@ GAME_JSON_PATH = os.path.join("Config","Gamesettings.json")
 TRAINING_JSON_PATH = os.path.join("Config","Trainingsettings.json")
 FLEETS_JSON_PATH = os.path.join("Config","Fleets.json")
 
-SHIPS_JSON_PATH = os.path.join("Ships","Ships.json")
+SHIPS_JSON_PATH = os.path.join("Objects", "Ships", "Ships.json")
 PLANETS_JSON_PATH = os.path.join("Battle","Resources","planets.json")
 STARS_JSON_PATH = os.path.join("Battle","Resources","stars.json")
 

@@ -1,14 +1,13 @@
 import pygame
 import json
-import os
 import random
-from src.GameObject import GameObject
+from src.Objects.GameObject import GameObject
+import src.Const as Const
 
 class Planet(GameObject):
     def __init__(self):
         # Load planet data from json
-        json_path = os.path.join(os.path.dirname(__file__), 'Resources', 'planets.json')
-        with open(json_path, 'r') as f:
+        with open(Const.PLANETS_JSON_PATH, 'r') as f:
             planets = json.load(f)
 
         # Select random planet
@@ -18,10 +17,13 @@ class Planet(GameObject):
         # Get planet properties
         self.gravity = planet_data['Gravity']
         self.diameter = planet_data['Diameter']
+        self.can_expire = False
+        self.expiration_timer = 0
+        self.can_move = False
+        self.can_die = False
 
         # Load image
-        image_path = os.path.join('Battle', 'Resources', 'Planets', f'{planet_name}.png')
-        self.image = pygame.image.load(image_path).convert_alpha()
+        self.image = pygame.image.load(planet_data['Image']).convert_alpha()
 
         # Initialize parent PlayerObject
         super().__init__(
@@ -37,7 +39,7 @@ class Planet(GameObject):
 
 class Star(GameObject):
     def __init__(self):
-        with open('Battle/Resources/stars.json', 'r') as f:
+        with open(Const.STARS_JSON_PATH, 'r') as f:
             stars = json.load(f)
 
         # Weight stars by size class (a=largest=weight 1, e=smallest=weight 5)
@@ -59,5 +61,8 @@ class Star(GameObject):
             sprite_scale=1.0,
             size=[self.diameter, self.diameter]
         )
-
+        self.can_expire = False
+        self.expiration_timer = 0
+        self.can_move = False
+        self.can_die = False
         self.can_collide = False

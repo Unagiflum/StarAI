@@ -6,7 +6,7 @@ import math
 from src.UI import UI
 import src.Const as Const
 from src.Battle.SpaceObject import Planet, Star
-from src.GameObject import SpaceShip, ThrustMarker
+from src.Objects.GameObject import SpaceShip, ThrustMarker
 
 def load_settings():
     try:
@@ -68,12 +68,12 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
 
     player1_sprites = []
     for i in range(16):
-        sprite_path = f'Ships/{player1.name}/{player1.name}{i:02d}.png'
+        sprite_path = f'{player1.sprite_location}{player1.name}{i:02d}.png'
         player1_sprites.append(pygame.image.load(sprite_path).convert_alpha())
 
     player2_sprites = []
     for i in range(16):
-        sprite_path = f'Ships/{player2.name}/{player2.name}{i:02d}.png'
+        sprite_path = f'{player2.sprite_location}{player2.name}{i:02d}.png'
         player2_sprites.append(pygame.image.load(sprite_path).convert_alpha())
 
     planet = Planet()
