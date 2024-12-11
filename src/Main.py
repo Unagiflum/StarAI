@@ -2,7 +2,7 @@ import pygame
 import sys
 from src.Menus import PickFleet, TrainSettings, GameSettings
 from src.UI import UI, UIButton
-import src.Const as GameConstants
+import src.Const as Const
 
 def handle_menu_selection(module, screen):
     """Handle the selected menu item."""
@@ -27,7 +27,7 @@ def main():
     screen = pygame.display.set_mode((UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT))
     pygame.display.set_caption("StarAI")
     clock = pygame.time.Clock()
-    background = UI.load_background(GameConstants.MAIN_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    background = UI.load_background(Const.MAIN_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     # Create menu buttons
     button_width = int(0.3*UI.SCREEN_WIDTH)

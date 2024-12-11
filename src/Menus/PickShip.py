@@ -4,11 +4,11 @@ import os
 import sys
 import random
 from src.UI import UI, UIButton, UIBox
-import src.Const as GameConstants
+import src.Const as Const
 
 from src.Battle import Battle
 
-with open(GameConstants.SHIPS_JSON_PATH, 'r') as f:
+with open(Const.SHIPS_JSON_PATH, 'r') as f:
     SHIPS_DATA = json.load(f)
 
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT * 0.08)
@@ -36,7 +36,7 @@ def draw_x(surface, rect):
 
 def load_fleet_data():
    try:
-       with open(GameConstants.FLEETS_JSON_PATH, 'r') as f:
+       with open(Const.FLEETS_JSON_PATH, 'r') as f:
            fleet_data = json.load(f)
 
        def get_ship_class(ship_name, player_num):
@@ -105,7 +105,7 @@ def load_ships_data(ships_data):
 def run(screen):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(UI.SCREEN_HEIGHT * 0.03))
-    background = UI.load_background(GameConstants.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    background = UI.load_background(Const.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     fleet_data, player1_ships, player2_ships = load_fleet_data()
     ships_data, original_sprites = load_ships_data(SHIPS_DATA)

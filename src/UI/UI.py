@@ -1,5 +1,5 @@
 import pygame
-import src.Const as GameConstants
+import src.Const as Const
 
 SCREEN_HEIGHT = 960
 SCREEN_WIDTH = int(SCREEN_HEIGHT*1.3)
@@ -92,7 +92,7 @@ class SoundManager:
 
     def load_sounds(self):
         sound_files = {
-            'menu': GameConstants.MENU_WAV_PATH,
+            'menu': Const.MENU_WAV_PATH,
         }
         for sound_name, path in sound_files.items():
             try:

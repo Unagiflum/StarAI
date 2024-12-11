@@ -4,13 +4,13 @@ import json
 import random
 import math
 from src.UI import UI
-import src.Const as GameConstants
+import src.Const as Const
 from src.Battle.SpaceObject import Planet, Star
 from src.GameObject import SpaceShip, ThrustMarker
 
 def load_settings():
     try:
-        with open(GameConstants.GAME_JSON_PATH, 'r') as f:
+        with open(Const.GAME_JSON_PATH, 'r') as f:
             loaded_settings = json.load(f)
             return {key: value for key, value in loaded_settings.items()}
     except Exception as e:
@@ -19,20 +19,20 @@ def load_settings():
 
 def get_random_position():
     while True:
-        x = random.randint(0, GameConstants.ARENA_SIZE)
-        y = random.randint(0, GameConstants.ARENA_SIZE)
-        center = GameConstants.ARENA_SIZE // 2
+        x = random.randint(0, Const.ARENA_SIZE)
+        y = random.randint(0, Const.ARENA_SIZE)
+        center = Const.ARENA_SIZE // 2
         dx = abs(x - center)
         dy = abs(y - center)
-        if dx > GameConstants.CENTER_BUFFER or dy > GameConstants.CENTER_BUFFER:
+        if dx > Const.CENTER_BUFFER or dy > Const.CENTER_BUFFER:
             return x, y
 
 def validate_ship_positions(pos1, pos2):
     dx = abs(pos1[0] - pos2[0])
     dy = abs(pos1[1] - pos2[1])
-    dx = min(dx, GameConstants.ARENA_SIZE - dx)
-    dy = min(dy, GameConstants.ARENA_SIZE - dy)
-    return math.sqrt(dx * dx + dy * dy) >= GameConstants.MIN_SHIP_SEPARATION
+    dx = min(dx, Const.ARENA_SIZE - dx)
+    dy = min(dy, Const.ARENA_SIZE - dy)
+    return math.sqrt(dx * dx + dy * dy) >= Const.MIN_SHIP_SEPARATION
 
 def get_valid_ship_positions():
     while True:
@@ -44,15 +44,15 @@ def get_valid_ship_positions():
 def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     clock = pygame.time.Clock()
     settings = load_settings()
-    scale_factor = UI.SCREEN_HEIGHT / GameConstants.ARENA_SIZE
+    scale_factor = UI.SCREEN_HEIGHT / Const.ARENA_SIZE
 
     # Initialize game objects list with stars
     game_objects = []
-    for _ in range(GameConstants.STAR_COUNT):
+    for _ in range(Const.STAR_COUNT):
         star = Star()
         star.position = [
-            random.randint(0, GameConstants.ARENA_SIZE),
-            random.randint(0, GameConstants.ARENA_SIZE)
+            random.randint(0, Const.ARENA_SIZE),
+            random.randint(0, Const.ARENA_SIZE)
         ]
         game_objects.append(star)
 
@@ -77,7 +77,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         player2_sprites.append(pygame.image.load(sprite_path).convert_alpha())
 
     planet = Planet()
-    planet.position = [GameConstants.ARENA_SIZE / 2, GameConstants.ARENA_SIZE / 2]
+    planet.position = [Const.ARENA_SIZE / 2, Const.ARENA_SIZE / 2]
     game_objects.append(planet)
 
     planet_size = int(planet.diameter * scale_factor)

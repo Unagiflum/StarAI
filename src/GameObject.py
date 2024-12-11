@@ -1,7 +1,7 @@
 import json
 import math
 
-import src.Const as GameConstants
+import src.Const as Const
 
 class GameObject:
     def __init__(self, player_num, max_hp, start_hp, inertia, sprite_location, sprite_scale, size):
@@ -50,16 +50,16 @@ class GameObject:
                 self.velocity = self.accumulated_impulses.copy()
 
             speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
-            if speed > GameConstants.SPEED_LIMIT:
-                scale = GameConstants.SPEED_LIMIT / speed
+            if speed > Const.SPEED_LIMIT:
+                scale = Const.SPEED_LIMIT / speed
                 self.velocity[0] *= scale
                 self.velocity[1] *= scale
 
             self.accumulated_impulses = [0.0, 0.0]
-            self.position[0] = (self.position[0] + GameConstants.SPEED_SCALE * 0.5 * (
-                    self.velocit0[0] + self.velocity[0])) % GameConstants.ARENA_SIZE
-            self.position[1] = (self.position[1] + GameConstants.SPEED_SCALE * 0.5 * (
-                    self.velocit0[1] + self.velocity[1])) % GameConstants.ARENA_SIZE
+            self.position[0] = (self.position[0] + Const.SPEED_SCALE * 0.5 * (
+                    self.velocit0[0] + self.velocity[0])) % Const.ARENA_SIZE
+            self.position[1] = (self.position[1] + Const.SPEED_SCALE * 0.5 * (
+                    self.velocit0[1] + self.velocity[1])) % Const.ARENA_SIZE
 
     def apply_gravity(self, source_position, gravity_strength, min_distance=0):
 
@@ -71,7 +71,7 @@ class GameObject:
         distance = math.sqrt(dx * dx + dy * dy)
 
         if distance > min_distance:
-            gravity_force = GameConstants.GRAVITY_MULTIPLIER * gravity_strength / (distance * distance)
+            gravity_force = Const.GRAVITY_MULTIPLIER * gravity_strength / (distance * distance)
             self.add_impulse(
                 gravity_force * dx / distance,
                 gravity_force * dy / distance
@@ -121,7 +121,7 @@ class SpaceShip(GameObject):
     def __init__(self, ship_name, player_num):
         self.name = ship_name
 
-        with open('Ships/Ships.json', 'r') as f:
+        with open(Const.SHIPS_JSON_PATH, 'r') as f:
             ships_data = json.load(f)
             ship_data = ships_data[ship_name]
 
@@ -236,7 +236,7 @@ class SpaceShip(GameObject):
 
             marker_x, marker_y = self.get_thrust_marker_position()
             marker = ThrustMarker(marker_x, marker_y)
-            self.thrust_timer = int(self.thrust_wait * GameConstants.THRUST_WAIT_SCALE)
+            self.thrust_timer = int(self.thrust_wait * Const.THRUST_WAIT_SCALE)
             return marker
 
         return None
@@ -252,13 +252,13 @@ class SpaceShip(GameObject):
         if self.can_turn():
             self.heading = (self.heading - 1) % 16
             self.rotation = self.heading * 22.5
-            self.turn_timer = int(self.turn_wait * GameConstants.TURN_WAIT_SCALE)
+            self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
 
     def turn_right(self):
         if self.can_turn():
             self.heading = (self.heading + 1) % 16
             self.rotation = self.heading * 22.5
-            self.turn_timer = int(self.turn_wait * GameConstants.TURN_WAIT_SCALE)
+            self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
 
     def perform_action1(self):
         if self.ship_module and hasattr(self.ship_module, 'action1'):

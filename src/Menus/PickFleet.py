@@ -3,7 +3,7 @@ import sys
 import json
 import os
 from src.UI import UI, UIButton, UIBox
-import src.Const as GameConstants
+import src.Const as Const
 from src.Menus import PickShip
 from typing import Dict, Tuple
 
@@ -16,7 +16,7 @@ PLAYER_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.03)
 
 def load_ships() -> Dict:
     try:
-        with open(GameConstants.SHIPS_JSON_PATH, 'r') as f:
+        with open(Const.SHIPS_JSON_PATH, 'r') as f:
             ships_data = json.load(f)
 
         simplified_data = {}
@@ -91,8 +91,8 @@ def save_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, left_ai: bool
         }
     }
     try:
-        os.makedirs(os.path.dirname(GameConstants.FLEETS_JSON_PATH), exist_ok=True)
-        with open(GameConstants.FLEETS_JSON_PATH, 'w') as f:
+        os.makedirs(os.path.dirname(Const.FLEETS_JSON_PATH), exist_ok=True)
+        with open(Const.FLEETS_JSON_PATH, 'w') as f:
             json.dump(fleets_data, f, indent=4)
         print("Fleets and AI settings saved to Fleets.json")
     except Exception as e:
@@ -101,12 +101,12 @@ def save_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, left_ai: bool
 
 def load_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, fleet_sprites: Dict[str, pygame.Surface], ships_data: Dict):
     """Load fleets and AI settings from Fleets.json if it exists."""
-    if not os.path.exists(GameConstants.FLEETS_JSON_PATH):
+    if not os.path.exists(Const.FLEETS_JSON_PATH):
         print("Fleets.json does not exist. Starting with empty fleets.")
         return False, False
 
     try:
-        with open(GameConstants.FLEETS_JSON_PATH, 'r') as f:
+        with open(Const.FLEETS_JSON_PATH, 'r') as f:
             fleets_data = json.load(f)
 
         # Load Player 1 fleet
@@ -140,7 +140,7 @@ def run(screen: pygame.Surface):
     font = pygame.font.SysFont(None, COST_FONT_SIZE)
     title_font = pygame.font.SysFont(None, TITLE_FONT_SIZE)
     player_font = pygame.font.SysFont(None, PLAYER_FONT_SIZE)
-    background = UI.load_background(GameConstants.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    background = UI.load_background(Const.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     # Load ships data and sprites
     ships_data = load_ships()
