@@ -6,22 +6,6 @@ import random
 from src.UI import UI, UIButton, UIBox
 import src.GameConstants as GameConstants
 
-from src.Ships.Arilou.Arilou import Arilou
-from src.Ships.Druuge.Druuge import Druuge
-from src.Ships.Earthling.Earthling import Earthling
-from src.Ships.Ilwrath.Ilwrath import Ilwrath
-from src.Ships.KohrAh.KohrAh import KohrAh
-from src.Ships.KzerZa.KzerZa import KzerZa
-from src.Ships.Mycon.Mycon import Mycon
-from src.Ships.Orz.Orz import Orz
-from src.Ships.Pkunk.Pkunk import Pkunk
-from src.Ships.Shofixti.Shofixti import Shofixti
-from src.Ships.Spathi.Spathi import Spathi
-from src.Ships.Supox.Supox import Supox
-from src.Ships.Thraddash.Thraddash import Thraddash
-from src.Ships.Yehat.Yehat import Yehat
-from src.Ships.ZoqFot.ZoqFot import ZoqFot
-
 from src.Battle import Battle
 
 with open(GameConstants.SHIPS_JSON_PATH, 'r') as f:
@@ -32,7 +16,6 @@ HIGHLIGHT_COLOR = (50, 50, 75)
 FLEET_ICON_SIZE = UI.FLEET_ICON_SIZE
 X_COLOR = (255, 100, 100, 100)
 X_THICKNESS = int(0.2*UI.FLEET_ICON_SIZE[0])
-
 
 def draw_x(surface, rect):
     """Draw a red X in a square box sized to the largest ship dimension."""
@@ -52,37 +35,21 @@ def draw_x(surface, rect):
 
 
 def load_fleet_data():
-    try:
-        with open(GameConstants.FLEETS_JSON_PATH, 'r') as f:
-            fleet_data = json.load(f)
+   try:
+       with open(GameConstants.FLEETS_JSON_PATH, 'r') as f:
+           fleet_data = json.load(f)
 
-        # Create SpaceShip objects
+       def get_ship_class(ship_name, player_num):
+           module = __import__(f"src.Ships.{ship_name}.{ship_name}", fromlist=[''])
+           return getattr(module, ship_name)(ship_name, player_num)
 
-        ship_classes = {
-            "Arilou": Arilou,
-            "Druuge": Druuge,
-            "Earthling": Earthling,
-            "Ilwrath": Ilwrath,
-            "KohrAh": KohrAh,
-            "KzerZa": KzerZa,
-            "Mycon": Mycon,
-            "Orz": Orz,
-            "Pkunk": Pkunk,
-            "Shofixti": Shofixti,
-            "Spathi": Spathi,
-            "Supox": Supox,
-            "Thraddash": Thraddash,
-            "Yehat": Yehat,
-            "ZoqFot": ZoqFot
-        }
+       player1_ships = [get_ship_class(ship_name, 1) for ship_name in fleet_data["Player1"]["ships"]]
+       player2_ships = [get_ship_class(ship_name, 2) for ship_name in fleet_data["Player2"]["ships"]]
+       return fleet_data, player1_ships, player2_ships
 
-        player1_ships = [ship_classes[ship_name](ship_name, 1) for ship_name in fleet_data["Player1"]["ships"]]
-        player2_ships = [ship_classes[ship_name](ship_name, 2) for ship_name in fleet_data["Player2"]["ships"]]
-        return fleet_data, player1_ships, player2_ships
-
-    except Exception as e:
-        print(f"Error loading Fleets.json: {e}")
-        return None, [], []
+   except Exception as e:
+       print(f"Error loading Fleets.json: {e}")
+       return None, [], []
 
 
 def load_ship_sprite(ship_name):

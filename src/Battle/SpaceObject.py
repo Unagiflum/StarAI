@@ -41,7 +41,7 @@ class Star(GameObject):
             stars = json.load(f)
 
         # Weight stars by size class (a=largest=weight 1, e=smallest=weight 5)
-        weights = {name: 150 if 'e' in name else 90 if 'd' in name else
+        weights = {name: 25 if 'e' in name else 25 if 'd' in name else
         5 if 'c' in name else 0 if 'b' in name else 0
                    for name in stars.keys()}
         star_name = random.choices(list(stars.keys()), weights=list(weights.values()), k=1)[0]

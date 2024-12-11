@@ -11,14 +11,7 @@ SETTINGS_FILE = GameConstants.TRAINING_JSON_PATH
 
 def load_settings():
     """Load settings from file or use defaults."""
-    default_settings = {
-        "learning_rate": 0.001,
-        "discount_factor": 0.99,
-        "epsilon": 1.0,
-        "number_of_hidden_layers": 3,
-        "layer_size": 128,
-        "batch_size": 64,
-    }
+    default_settings = GameConstants.DEFAULT_TRAINING
     if os.path.isfile(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, 'r') as f:

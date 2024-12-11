@@ -1,6 +1,6 @@
 import pygame
 import sys
-from src.Menus import PickFleet, TrainSettings, PlaySettings
+from src.Menus import PickFleet, TrainSettings, GameSettings
 from src.UI import UI, UIButton
 import src.GameConstants as GameConstants
 
@@ -37,7 +37,7 @@ def main():
 
     menu_items = [
         ("Play Game", PickFleet),
-        ("Game Settings", PlaySettings),
+        ("Game Settings", GameSettings),
         ("Training Settings", TrainSettings),
         ("Quit", None)
     ]

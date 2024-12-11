@@ -68,7 +68,6 @@ def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int,
 
     return scaled_sprites
 
-
 def save_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, left_ai: bool, right_ai: bool):
     """Save the current fleets and AI settings to Fleets.json."""
     fleets_data = {
@@ -82,7 +81,7 @@ def save_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, left_ai: bool
         }
     }
     try:
-        os.makedirs('Config', exist_ok=True)
+        os.makedirs(os.path.dirname(GameConstants.FLEETS_JSON_PATH), exist_ok=True)
         with open(GameConstants.FLEETS_JSON_PATH, 'w') as f:
             json.dump(fleets_data, f, indent=4)
         print("Fleets and AI settings saved to Fleets.json")

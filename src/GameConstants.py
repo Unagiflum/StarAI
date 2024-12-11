@@ -10,7 +10,7 @@ TURN_WAIT_SCALE = 2
 THRUST_WAIT_SCALE = 2
 
 GRAVITY_MULTIPLIER = 1000
-STAR_COUNT = int(ARENA_SIZE*ARENA_SIZE*0.00005)
+STAR_COUNT = int(ARENA_SIZE*ARENA_SIZE*0.00001)
 
 SPEED_LIMIT = 500
 
@@ -24,3 +24,13 @@ STARS_JSON_PATH = os.path.join("Battle","Resources","stars.json")
 
 MAIN_BG_PATH = os.path.join("UI","Main.png")
 MENU_BG_PATH = os.path.join("UI","Menu.png")
+MENU_WAV_PATH = os.path.join("UI","Menu.wav")
+
+DEFAULT_TRAINING = {
+    "learning_rate": 0.001,
+    "discount_factor": 0.99,
+    "epsilon": 1.0,
+    "number_of_hidden_layers": 3,
+    "layer_size": 128,
+    "batch_size": 64,
+}
