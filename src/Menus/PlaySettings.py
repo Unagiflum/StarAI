@@ -3,9 +3,10 @@ import json
 import os
 import sys
 from src.UI import UI, UIButton
+import src.GameConstants as GameConstants
 
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)
-SETTINGS_FILE = "Config/Gamesettings.json"
+SETTINGS_FILE = GameConstants.GAME_JSON_PATH
 
 def load_settings():
     """Load settings from file or use defaults."""
@@ -45,7 +46,7 @@ def run(screen):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(0.03*UI.SCREEN_HEIGHT))
     settings = load_settings()
-    background = UI.load_background("UI/Menu.png", UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    background = UI.load_background(GameConstants.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     # Create key bindings
     key_bindings = []

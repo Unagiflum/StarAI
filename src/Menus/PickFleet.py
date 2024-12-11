@@ -16,15 +16,15 @@ PLAYER_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.03)
 
 def load_ships() -> Dict:
     try:
-        with open('Ships/Ships.json', 'r') as f:
+        with open(GameConstants.SHIPS_JSON_PATH, 'r') as f:
             ships_data = json.load(f)
 
-        # Convert to the format expected by the rest of the code
         simplified_data = {}
         for ship_name, stats in ships_data.items():
             simplified_data[ship_name] = {
                 stats['ShipType']: stats['Cost'],
-                'SpriteScale': stats['SpriteScale']
+                'SpriteScale': stats['SpriteScale'],
+                'SpriteLocation': stats['SpriteLocation']
             }
 
         return simplified_data
@@ -32,10 +32,10 @@ def load_ships() -> Dict:
         print(f"Error loading Ships.json: {e}")
         return {}
 
-def load_ship_sprite(ship_name: str) -> Tuple[pygame.Surface, Tuple[int, int]]:
+def load_ship_sprite(ship_name: str, ships_data: Dict) -> Tuple[pygame.Surface, Tuple[int, int]]:
     """Load the ship sprite without scaling and return its surface and size."""
     try:
-        sprite_path = os.path.join('Ships', ship_name, f'{ship_name}00.png')
+        sprite_path = os.path.join(ships_data[ship_name]['SpriteLocation'], f'{ship_name}00.png')
         sprite = pygame.image.load(sprite_path).convert_alpha()
         return sprite, sprite.get_size()
     except Exception as e:
@@ -83,7 +83,7 @@ def save_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, left_ai: bool
     }
     try:
         os.makedirs('Config', exist_ok=True)
-        with open('Config/Fleets.json', 'w') as f:
+        with open(GameConstants.FLEETS_JSON_PATH, 'w') as f:
             json.dump(fleets_data, f, indent=4)
         print("Fleets and AI settings saved to Fleets.json")
     except Exception as e:
@@ -92,12 +92,12 @@ def save_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, left_ai: bool
 
 def load_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, fleet_sprites: Dict[str, pygame.Surface], ships_data: Dict):
     """Load fleets and AI settings from Fleets.json if it exists."""
-    if not os.path.exists('Config/Fleets.json'):
+    if not os.path.exists(GameConstants.FLEETS_JSON_PATH):
         print("Fleets.json does not exist. Starting with empty fleets.")
         return False, False
 
     try:
-        with open('Config/Fleets.json', 'r') as f:
+        with open(GameConstants.FLEETS_JSON_PATH, 'r') as f:
             fleets_data = json.load(f)
 
         # Load Player 1 fleet
@@ -131,11 +131,11 @@ def run(screen: pygame.Surface):
     font = pygame.font.SysFont(None, COST_FONT_SIZE)
     title_font = pygame.font.SysFont(None, TITLE_FONT_SIZE)
     player_font = pygame.font.SysFont(None, PLAYER_FONT_SIZE)
-    background = UI.load_background("UI/Menu.png", UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    background = UI.load_background(GameConstants.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     # Load ships data and sprites
     ships_data = load_ships()
-    original_sprites = {ship_name: load_ship_sprite(ship_name)[0] for ship_name in ships_data}
+    original_sprites = {ship_name: load_ship_sprite(ship_name, ships_data)[0] for ship_name in ships_data}
 
     # Scale sprites for selection and fleet views, maintaining proportions
     selection_sprites = scale_sprites(original_sprites, SELECTION_ICON_SIZE[0], ships_data)

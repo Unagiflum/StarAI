@@ -1,4 +1,5 @@
 # Constants for game mechanics
+import os
 
 ARENA_SIZE = 3000
 MIN_SHIP_SEPARATION = ARENA_SIZE // 4
@@ -9,6 +10,17 @@ TURN_WAIT_SCALE = 2
 THRUST_WAIT_SCALE = 2
 
 GRAVITY_MULTIPLIER = 1000
-STAR_COUNT = int(ARENA_SIZE*ARENA_SIZE*0.00001)
+STAR_COUNT = int(ARENA_SIZE*ARENA_SIZE*0.00005)
 
 SPEED_LIMIT = 500
+
+GAME_JSON_PATH = os.path.join("Config","Gamesettings.json")
+TRAINING_JSON_PATH = os.path.join("Config","Trainingsettings.json")
+FLEETS_JSON_PATH = os.path.join("Config","Fleets.json")
+
+SHIPS_JSON_PATH = os.path.join("Ships","Ships.json")
+PLANETS_JSON_PATH = os.path.join("Battle","Resources","planets.json")
+STARS_JSON_PATH = os.path.join("Battle","Resources","stars.json")
+
+MAIN_BG_PATH = os.path.join("UI","Main.png")
+MENU_BG_PATH = os.path.join("UI","Menu.png")

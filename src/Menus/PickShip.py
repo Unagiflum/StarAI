@@ -24,6 +24,9 @@ from src.Ships.ZoqFot.ZoqFot import ZoqFot
 
 from src.Battle import Battle
 
+with open(GameConstants.SHIPS_JSON_PATH, 'r') as f:
+    SHIPS_DATA = json.load(f)
+
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT * 0.08)
 HIGHLIGHT_COLOR = (50, 50, 75)
 FLEET_ICON_SIZE = UI.FLEET_ICON_SIZE
@@ -50,7 +53,7 @@ def draw_x(surface, rect):
 
 def load_fleet_data():
     try:
-        with open('Config/Fleets.json', 'r') as f:
+        with open(GameConstants.FLEETS_JSON_PATH, 'r') as f:
             fleet_data = json.load(f)
 
         # Create SpaceShip objects
@@ -84,7 +87,7 @@ def load_fleet_data():
 
 def load_ship_sprite(ship_name):
     try:
-        sprite_path = os.path.join('Ships', ship_name, f'{ship_name}00.png')
+        sprite_path = os.path.join(SHIPS_DATA[ship_name]['SpriteLocation'], f'{ship_name}00.png')
         sprite = pygame.image.load(sprite_path).convert_alpha()
         return sprite, sprite.get_size()
     except Exception as e:
@@ -92,14 +95,11 @@ def load_ship_sprite(ship_name):
         return None, None
 
 
-def scale_sprites(original_sprites, target_size):
+def scale_sprites(original_sprites, target_size, ships_data):
     # First find max dimension after applying sprite_scale
     max_dim = 1
     for name, sprite in original_sprites.items():
-        with open('Ships/Ships.json', 'r') as f:
-            ships_data = json.load(f)
-            sprite_scale = ships_data[name]['SpriteScale']
-
+        sprite_scale = ships_data[name]['SpriteScale']
         width, height = sprite.get_size()
         scaled_width = width * sprite_scale
         scaled_height = height * sprite_scale
@@ -110,10 +110,7 @@ def scale_sprites(original_sprites, target_size):
 
     # Now scale each sprite by both its SpriteScale and the base_scale_factor
     for name, sprite in original_sprites.items():
-        with open('Ships/Ships.json', 'r') as f:
-            ships_data = json.load(f)
-            sprite_scale = ships_data[name]['SpriteScale']
-
+        sprite_scale = ships_data[name]['SpriteScale']
         width, height = sprite.get_size()
         new_width = int(width * sprite_scale * base_scale_factor)
         new_height = int(height * sprite_scale * base_scale_factor)
@@ -122,32 +119,29 @@ def scale_sprites(original_sprites, target_size):
     return scaled_sprites
 
 
-def load_ships_data():
-    try:
-        with open('Ships/Ships.json', 'r') as f:
-            ships_data = json.load(f)
+def load_ships_data(ships_data):
+   try:
+       simplified_data = {}
+       original_sprites = {}
+       for ship_name, stats in ships_data.items():
+           simplified_data[ship_name] = {stats['ShipType']: stats['Cost']}
+           sprite, _ = load_ship_sprite(ship_name)
+           if sprite:
+               original_sprites[ship_name] = sprite
 
-        original_sprites = {}
-        simplified_data = {}
-        for ship_name, stats in ships_data.items():
-            simplified_data[ship_name] = {stats['ShipType']: stats['Cost']}
-            sprite, _ = load_ship_sprite(ship_name)
-            if sprite:
-                original_sprites[ship_name] = sprite
-
-        return simplified_data, original_sprites
-    except Exception as e:
-        print(f"Error loading Ships.json: {e}")
-        return None, None
+       return simplified_data, original_sprites
+   except Exception as e:
+       print(f"Error loading ships data: {e}")
+       return None, None
 
 
 def run(screen):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(UI.SCREEN_HEIGHT * 0.03))
-    background = UI.load_background("UI/Menu.png", UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    background = UI.load_background(GameConstants.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     fleet_data, player1_ships, player2_ships = load_fleet_data()
-    ships_data, original_sprites = load_ships_data()
+    ships_data, original_sprites = load_ships_data(SHIPS_DATA)
     if not fleet_data or not ships_data or not original_sprites:
         return
 
@@ -162,8 +156,8 @@ def run(screen):
     SELECTION_R_LEFT = RIGHT_COLUMN_START + int(0.5 * (UI.SELECTION_WIDTH - SELECTION_BOX_SIZE))
     RAND_TOP = SELECTION_TOP + SELECTION_BOX_SIZE + int(0.01 * UI.SCREEN_HEIGHT)
 
-    fleet_sprites = scale_sprites(original_sprites, UI.FLEET_ICON_SIZE[0])
-    selection_sprites = scale_sprites(original_sprites, SELECTION_BOX_SIZE)
+    fleet_sprites = scale_sprites(original_sprites, UI.FLEET_ICON_SIZE[0], SHIPS_DATA)
+    selection_sprites = scale_sprites(original_sprites, SELECTION_BOX_SIZE, SHIPS_DATA)
 
     left_fleet = UIBox.Fleet(
         LEFT_COLUMN_START,

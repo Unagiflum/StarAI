@@ -3,10 +3,11 @@ import json
 import os
 import sys
 from src.UI import UI, UISlider, UIButton
+import src.GameConstants as GameConstants
 
 # Define constants
 TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)
-SETTINGS_FILE = "Config/Trainingsettings.json"
+SETTINGS_FILE = GameConstants.TRAINING_JSON_PATH
 
 def load_settings():
     """Load settings from file or use defaults."""
@@ -42,7 +43,7 @@ def run(screen):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(0.03*UI.SCREEN_HEIGHT))
     settings = load_settings()
-    background = UI.load_background("UI/Menu.png", UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    background = UI.load_background(GameConstants.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
 
     slider_left = int(UI.SCREEN_WIDTH*0.25)
     slider_width = int(UI.SCREEN_WIDTH*0.5)

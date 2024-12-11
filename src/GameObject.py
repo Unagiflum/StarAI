@@ -1,8 +1,6 @@
 import json
 import math
 
-from tensorflow.python.ops.metrics_impl import false_positives
-
 import src.GameConstants as GameConstants
 
 class GameObject:

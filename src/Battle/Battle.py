@@ -10,7 +10,7 @@ from src.GameObject import SpaceShip, ThrustMarker
 
 def load_settings():
     try:
-        with open('Config/Gamesettings.json', 'r') as f:
+        with open(GameConstants.GAME_JSON_PATH, 'r') as f:
             loaded_settings = json.load(f)
             return {key: value for key, value in loaded_settings.items()}
     except Exception as e:
