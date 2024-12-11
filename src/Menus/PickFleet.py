@@ -33,24 +33,25 @@ def load_ships() -> Dict:
         return {}
 
 
-def load_ship_sprite(ship_name: str, ships_data: Dict) -> pygame.Surface:
-    """Load a single ship sprite without scaling."""
-    try:
-        sprite_path = os.path.join(ships_data[ship_name]['SpriteLocation'], f'{ship_name}00.png')
-        return pygame.image.load(sprite_path).convert_alpha()
-    except Exception as e:
-        print(f"Error loading sprite for {ship_name}: {e}")
-        surface = pygame.Surface(SELECTION_ICON_SIZE, pygame.SRCALPHA)
-        surface.fill(UI.GREY)
-        return surface
+def load_ship_sprites(ships_data: Dict) -> Dict[str, pygame.Surface]:
+    """Load all ship sprites once."""
+    sprites = {}
+    for ship_name in ships_data:
+        try:
+            sprite_path = os.path.join(ships_data[ship_name]['SpriteLocation'], f'{ship_name}00.png')
+            sprites[ship_name] = pygame.image.load(sprite_path).convert_alpha()
+        except Exception as e:
+            print(f"Error loading sprite for {ship_name}: {e}")
+            surface = pygame.Surface(SELECTION_ICON_SIZE, pygame.SRCALPHA)
+            surface.fill(UI.GREY)
+            sprites[ship_name] = surface
+    return sprites
 
 def create_sprite_sets(ships_data: Dict) -> Tuple[Dict[str, pygame.Surface], Dict[str, pygame.Surface]]:
-    """Create two sets of sprites at different scales from a single load."""
-    original_sprites = {name: load_ship_sprite(name, ships_data) for name in ships_data}
-
+    """Create selection and fleet sprites from a single load."""
+    original_sprites = load_ship_sprites(ships_data)
     selection_sprites = scale_sprites(original_sprites, SELECTION_ICON_SIZE[0], ships_data)
     fleet_sprites = scale_sprites(original_sprites, UI.FLEET_ICON_SIZE[0], ships_data)
-
     return selection_sprites, fleet_sprites
 
 def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int, ships_data: Dict) -> Dict[str, pygame.Surface]:
