@@ -5,7 +5,7 @@ import random
 import math
 from src.UI import UI
 import src.Const as Const
-from src.Battle.SpaceObject import Planet, Star
+from src.Objects.SpaceObject import Planet, Star
 from src.Objects.GameObject import SpaceShip, ThrustMarker
 
 def load_settings():

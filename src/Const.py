@@ -19,8 +19,8 @@ TRAINING_JSON_PATH = os.path.join("Config","Trainingsettings.json")
 FLEETS_JSON_PATH = os.path.join("Config","Fleets.json")
 
 SHIPS_JSON_PATH = os.path.join("Objects", "Ships", "Ships.json")
-PLANETS_JSON_PATH = os.path.join("Battle","Resources","planets.json")
-STARS_JSON_PATH = os.path.join("Battle","Resources","stars.json")
+PLANETS_JSON_PATH = os.path.join("Objects", "Space", "planets.json")
+STARS_JSON_PATH = os.path.join("Objects", "Space", "stars.json")
 
 MAIN_BG_PATH = os.path.join("UI","Main.png")
 MENU_BG_PATH = os.path.join("UI","Menu.png")

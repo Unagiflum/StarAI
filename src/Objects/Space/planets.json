@@ -1,106 +1,106 @@
 {
     "Gas01": {
-        "Image":"Battle/Resources/Planets/Gas01.png",
+        "Image":"Objects/Space/Planets/Gas01.png",
         "Gravity": 100,
         "Diameter": 400
     },
     "Gas02": {
-        "Image":"Battle/Resources/Planets/Gas02.png",
+        "Image":"Objects/Space/Planets/Gas02.png",
         "Gravity": 125,
         "Diameter": 400
     },
     "Gas03": {
-        "Image":"Battle/Resources/Planets/Gas03.png",
+        "Image":"Objects/Space/Planets/Gas03.png",
         "Gravity": 150,
         "Diameter": 400
     },
     "Gas04": {
-        "Image":"Battle/Resources/Planets/Gas04.png",
+        "Image":"Objects/Space/Planets/Gas04.png",
         "Gravity": 200,
         "Diameter": 400
     },
     "Ice01": {
-        "Image":"Battle/Resources/Planets/Ice01.png",
+        "Image":"Objects/Space/Planets/Ice01.png",
         "Gravity": 50,
         "Diameter": 250
     },
     "Ice02": {
-        "Image":"Battle/Resources/Planets/Ice02.png",
+        "Image":"Objects/Space/Planets/Ice02.png",
         "Gravity": 50,
         "Diameter": 250
     },
     "Ice03": {
-        "Image":"Battle/Resources/Planets/Ice03.png",
+        "Image":"Objects/Space/Planets/Ice03.png",
         "Gravity": 50,
         "Diameter": 250
     },
     "Ice04": {
-        "Image":"Battle/Resources/Planets/Ice04.png",
+        "Image":"Objects/Space/Planets/Ice04.png",
         "Gravity": 50,
         "Diameter": 250
     },
     "Ice05": {
-        "Image":"Battle/Resources/Planets/Ice05.png",
+        "Image":"Objects/Space/Planets/Ice05.png",
         "Gravity": 50,
         "Diameter": 250
     },
     "Life01": {
-        "Image":"Battle/Resources/Planets/Life01.png",
+        "Image":"Objects/Space/Planets/Life01.png",
         "Gravity": 75,
         "Diameter": 300
     },
     "Life02": {
-        "Image":"Battle/Resources/Planets/Life02.png",
+        "Image":"Objects/Space/Planets/Life02.png",
         "Gravity": 75,
         "Diameter": 300
     },
     "Rocky01": {
-        "Image":"Battle/Resources/Planets/Rocky01.png",
+        "Image":"Objects/Space/Planets/Rocky01.png",
         "Gravity": 75,
         "Diameter": 300
     },
     "Rocky02": {
-        "Image":"Battle/Resources/Planets/Rocky02.png",
+        "Image":"Objects/Space/Planets/Rocky02.png",
         "Gravity": 75,
         "Diameter": 300
     },
     "Rocky03": {
-        "Image":"Battle/Resources/Planets/Rocky03.png",
+        "Image":"Objects/Space/Planets/Rocky03.png",
         "Gravity": 75,
         "Diameter": 300
     },
     "Rocky04": {
-        "Image":"Battle/Resources/Planets/Rocky04.png",
+        "Image":"Objects/Space/Planets/Rocky04.png",
         "Gravity": 75,
         "Diameter": 300
     },
     "Rocky05": {
-        "Image":"Battle/Resources/Planets/Rocky05.png",
+        "Image":"Objects/Space/Planets/Rocky05.png",
         "Gravity": 75,
         "Diameter": 300
     },
     "Rocky06": {
-        "Image":"Battle/Resources/Planets/Rocky06.png",
+        "Image":"Objects/Space/Planets/Rocky06.png",
         "Gravity": 75,
         "Diameter": 300
     },
     "Rocky07": {
-        "Image":"Battle/Resources/Planets/Rocky07.png",
+        "Image":"Objects/Space/Planets/Rocky07.png",
         "Gravity": 75,
         "Diameter": 300
     },
     "Rocky08": {
-        "Image":"Battle/Resources/Planets/Rocky08.png",
+        "Image":"Objects/Space/Planets/Rocky08.png",
         "Gravity": 75,
         "Diameter": 300
     },
     "Rocky09": {
-        "Image":"Battle/Resources/Planets/Rocky09.png",
+        "Image":"Objects/Space/Planets/Rocky09.png",
         "Gravity": 75,
         "Diameter": 300
     },
     "Rocky10": {
-        "Image":"Battle/Resources/Planets/Rocky10.png",
+        "Image":"Objects/Space/Planets/Rocky10.png",
         "Gravity": 75,
         "Diameter": 300
     }
