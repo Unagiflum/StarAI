@@ -7,8 +7,7 @@ import math
 from src.UI import UI
 import src.Const as Const
 from src.Objects.Space.SpaceObject import Planet, Star
-from src.Objects.Ships.SpaceShip import SpaceShip
-from src.Objects.Ships.Projectiles import ThrustMarker
+from src.Objects.Ships.SpaceShip import SpaceShip, ThrustMarker
 
 def load_settings():
     try:
