@@ -2,35 +2,65 @@ import math
 import src.Const as Const
 
 class Object:
-    def __init__(self, player_num, max_hp, start_hp, inertia, sprite_location, sprite_scale, size):
-        # Intrinsic characteristics
-        self.player = player_num
-        self.max_hp = max_hp
-        self.start_hp = start_hp
-        self.inertia = inertia
+    def __init__(self, name, sprite_location, size, sprite_scale=1.0):
+        self.name = name
         self.sprite_location = sprite_location
-        self.sprite_scale = sprite_scale
         self.size = size
+        self.sprite_scale = sprite_scale
 
-        # Situational variables
-        self.currently_alive = True
-        self.current_hp = self.start_hp
+        # Position and state
         self.position = [0.0, 0.0]
-        self.velocity = [0.0, 0.0]
-        self.velocit0 = [0.0, 0.0]
+        self.currently_alive = True
+
+        # Collision and expiration
         self.can_collide = True
         self.can_expire = False
         self.expiration_timer = 0
-
-        # Physics attributes
-        self.accumulated_impulses = [0.0, 0.0]
 
         # Behavior flags
         self.can_move = False
         self.can_die = False
 
+        # Sprite handling
+        self.sprites = []
+        self.image = None
+
+
+class MovableObject(Object):
+    def __init__(self, name, sprite_location, size, player, max_hp, start_hp, inertia, sprite_scale,
+                 max_thrust, thrust_increment, thrust_wait, turn_wait, mass):
+        super().__init__(name, sprite_location, size, sprite_scale)
+
+        # Player attributes
+        self.player = player
+        self.max_hp = max_hp
+        self.start_hp = start_hp
+        self.current_hp = start_hp
+
+        # Movement properties
+        self.inertia = inertia
+        self.mass = mass
+        self.max_thrust = max_thrust
+        self.thrust_increment = thrust_increment
+        self.thrust_wait = thrust_wait
+        self.turn_wait = turn_wait
+
+        # Physics state
+        self.velocity = [0.0, 0.0]
+        self.velocit0 = [0.0, 0.0]
+        self.accumulated_impulses = [0.0, 0.0]
+        self.heading = 0
+        self.rotation = 0.0
+
+        # Timers
+        self.thrust_timer = 0
+        self.turn_timer = 0
+
+        # Battle state
+        self.in_battle = False
+        self.can_move = True
+
     def add_impulse(self, dx, dy):
-        """Add a physics impulse to the object."""
         if self.can_move:
             self.accumulated_impulses[0] += dx
             self.accumulated_impulses[1] += dy
@@ -43,7 +73,6 @@ class Object:
             if self.inertia:
                 self.velocity[0] += self.accumulated_impulses[0]
                 self.velocity[1] += self.accumulated_impulses[1]
-
             else:
                 self.velocity = self.accumulated_impulses.copy()
 
@@ -60,7 +89,6 @@ class Object:
                     self.velocit0[1] + self.velocity[1])) % Const.ARENA_SIZE
 
     def apply_gravity(self, source_position, gravity_strength, min_distance=0):
-
         if not self.can_move or not self.inertia:
             return
 
@@ -74,10 +102,3 @@ class Object:
                 gravity_force * dx / distance,
                 gravity_force * dy / distance
             )
-
-    def update(self):
-        """Main update function for game loop."""
-        self.update_physics()
-        if self.can_expire:
-            return self.expiration_timer > 0
-        return True

@@ -1,20 +1,15 @@
-import json
-from pathlib import Path
+from src.Objects.Object import Object, MovableObject
+import src.Const as Const
 import math
 import pygame
-
-import src.Const as Const
-from src.Objects.Object import Object
+import json
+from pathlib import Path
 
 class ThrustMarker(Object):
     def __init__(self, x, y):
         super().__init__(
-            player_num=0,
-            max_hp=1,
-            start_hp=1,
-            inertia=False,
+            name="ThrustMarker",
             sprite_location=None,
-            sprite_scale=1.0,
             size=[6, 6]
         )
         self.position = [x, y]
@@ -24,7 +19,6 @@ class ThrustMarker(Object):
         self.expiration_timer = self.life
 
     def update(self):
-        super().update()
         self.expiration_timer -= 1
         return self.expiration_timer > 0
 
@@ -65,8 +59,8 @@ class ThrustMarker(Object):
                 max(1, int(3 * scale_factor))
             )
 
-class SpaceShip(Object):
 
+class SpaceShip(MovableObject):
     def __init__(self, ship_name, player_num):
         self.name = ship_name
         with open(Const.SHIPS_JSON_PATH, 'r') as f:
@@ -76,13 +70,19 @@ class SpaceShip(Object):
         sprite_location = Path(ship_data['SpriteLocation'])
 
         super().__init__(
-            player_num=player_num,
+            name=ship_name,
+            sprite_location=sprite_location,
+            size=[ship_data['Size']['width'], ship_data['Size']['height']],
+            player=player_num,
             max_hp=ship_data['MaxHP'],
             start_hp=ship_data['StartHP'],
             inertia=ship_data['Inertia'],
-            sprite_location=sprite_location,
             sprite_scale=ship_data['SpriteScale'],
-            size=[ship_data['Size']['width'], ship_data['Size']['height']]
+            max_thrust=ship_data['MaxThrust'],
+            thrust_increment=ship_data['ThrustIncrement'],
+            thrust_wait=ship_data['ThrustWait'],
+            turn_wait=ship_data['TurnWait'],
+            mass=ship_data['ShipMass']
         )
 
         # Load sprites
@@ -98,19 +98,10 @@ class SpaceShip(Object):
         self.start_energy = ship_data['StartEnergy']
         self.energy_regen = ship_data['EnergyRegen']
         self.energy_wait = ship_data['EnergyWait']
-        self.max_thrust = ship_data['MaxThrust']
-        self.thrust_increment = ship_data['ThrustIncrement']
-        self.thrust_wait = ship_data['ThrustWait']
-        self.turn_wait = ship_data['TurnWait']
-        self.ship_mass = ship_data['ShipMass']
 
         # Ship state variables
         self.current_energy = self.start_energy
-        self.heading = 0
-        self.rotation = 0.0
         self.energy_timer = 0
-        self.thrust_timer = 0
-        self.turn_timer = 0
         self.action1_timer = 0
         self.action2_timer = 0
         self.action3_timer = 0
@@ -120,10 +111,8 @@ class SpaceShip(Object):
         self.status4 = 0
         self.status5 = 0
         self.status6 = 0
-        self.in_battle = False
-
-        self.can_move = True
         self.can_die = True
+
         try:
             self.ship_module = __import__(f"Objects.Ships.{ship_name}.{ship_name}", fromlist=[''])
         except ImportError:
@@ -159,32 +148,27 @@ class SpaceShip(Object):
             thrust_direction = [math.sin(angle_rad), -math.cos(angle_rad)]
 
             if self.inertia:
-                # Add thrust_increment in facing direction to current velocity
                 new_velocity = [
                     self.velocity[0] + thrust_direction[0] * self.thrust_increment,
                     self.velocity[1] + thrust_direction[1] * self.thrust_increment
                 ]
 
-                # Normalize to max_thrust
                 speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
                 scale = 1.0
                 if speed > self.max_thrust:
                     scale = self.max_thrust / speed
                 target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
 
-                # Calculate difference vector
                 diff_vector = [
                     target_velocity[0] - self.velocity[0],
                     target_velocity[1] - self.velocity[1]
                 ]
 
-                # Normalize difference to thrust_increment
                 diff_magnitude = math.sqrt(diff_vector[0] ** 2 + diff_vector[1] ** 2)
                 if diff_magnitude > 0:
                     scale = self.thrust_increment / diff_magnitude
                     self.add_impulse(diff_vector[0] * scale, diff_vector[1] * scale)
             else:
-                # Non-inertial ships behavior unchanged
                 self.add_impulse(
                     thrust_direction[0] * self.max_thrust,
                     thrust_direction[1] * self.max_thrust
@@ -232,7 +216,7 @@ class SpaceShip(Object):
         return False
 
     def update(self):
-        super().update()
+        self.update_physics()
         return True
 
     def draw(self, screen, scale_factor, translation):
