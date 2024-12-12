@@ -82,7 +82,7 @@ class SpaceShip(MovableObject):
             thrust_increment=ship_data['ThrustIncrement'],
             thrust_wait=ship_data['ThrustWait'],
             turn_wait=ship_data['TurnWait'],
-            mass=ship_data['ShipMass']
+            mass=ship_data['Mass']
         )
 
         # Load sprites
