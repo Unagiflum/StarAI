@@ -16,6 +16,7 @@ SPEED_LIMIT = 500
 
 STAR_WEIGHTS = [45,45,10,0,0] # Smallest to largest
 PLANET_WEIGHTS = [25,25,25,25] # Gas, Ice, Life, Rocky
+STAR_ALPHA = 175
 
 GAME_JSON_PATH = Path("Config/Gamesettings.json")
 TRAINING_JSON_PATH = Path("Config/Trainingsettings.json")

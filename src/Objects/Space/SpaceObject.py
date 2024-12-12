@@ -113,6 +113,7 @@ class Star(Object):
     def draw(self, screen, scale_factor, translation):
         star_size = int(self.diameter * scale_factor)
         scaled_image = pygame.transform.scale(self.image, (star_size, star_size))
+        scaled_image.set_alpha(Const.STAR_ALPHA)
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_y = int((self.position[1] + translation[1]) * scale_factor)
         screen.blit(scaled_image, (
