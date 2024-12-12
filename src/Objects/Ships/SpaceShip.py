@@ -1,64 +1,8 @@
-from src.Objects.Object import Object, MovableObject
+from src.Objects.Object import MovableObject
 import src.Const as Const
-import math
 import pygame
 import json
 from pathlib import Path
-
-class ThrustMarker(Object):
-    def __init__(self, x, y):
-        super().__init__(
-            name="ThrustMarker",
-            sprite_location=None,
-            size=[6, 6]
-        )
-        self.position = [x, y]
-        self.life = 30
-        self.can_collide = False
-        self.can_expire = True
-        self.expiration_timer = self.life
-
-    def update(self):
-        self.expiration_timer -= 1
-        return self.expiration_timer > 0
-
-    def get_color(self):
-        fade_ratio = self.expiration_timer / 30
-        start_color = (255, 255, 0)
-        end_color = (150, 0, 0)
-        r = int(start_color[0] * fade_ratio + end_color[0] * (1 - fade_ratio))
-        g = int(start_color[1] * fade_ratio + end_color[1] * (1 - fade_ratio))
-        b = int(start_color[2] * fade_ratio + end_color[2] * (1 - fade_ratio))
-        return (r, g, b)
-
-    def draw(self, screen, scale_factor, translation):
-        screen_x = int((self.position[0] + translation[0]) * scale_factor)
-        screen_y = int((self.position[1] + translation[1]) * scale_factor)
-
-        positions = [(screen_x, screen_y)]
-
-        if screen_x < 6:
-            positions.append((screen_x + screen.get_height(), screen_y))
-        elif screen_x > screen.get_height() - 6:
-            positions.append((screen_x - screen.get_height(), screen_y))
-
-        if screen_y < 6:
-            positions.append((screen_x, screen_y + screen.get_height()))
-        elif screen_y > screen.get_height() - 6:
-            positions.append((screen_x, screen_y - screen.get_height()))
-
-        if len(positions) > 2:
-            positions.append((
-                screen_x + (screen.get_height() if screen_x < screen.get_height() // 2 else -screen.get_height()),
-                screen_y + (screen.get_height() if screen_y < screen.get_height() // 2 else -screen.get_height())
-            ))
-
-        for pos_x, pos_y in positions:
-            pygame.draw.circle(
-                screen, self.get_color(), (pos_x, pos_y),
-                max(1, int(3 * scale_factor))
-            )
-
 
 class SpaceShip(MovableObject):
     def __init__(self, ship_name, player_num):
@@ -127,79 +71,6 @@ class SpaceShip(MovableObject):
         self.turn_timer = 0
         self.in_battle = True
 
-    def can_thrust(self):
-        return self.thrust_timer == 0
-
-    def can_turn(self):
-        return self.turn_timer == 0
-
-    def update_timers(self, forward_pressed: bool):
-        if self.thrust_timer > 0:
-            self.thrust_timer -= 1
-        if self.turn_timer > 0:
-            self.turn_timer -= 1
-
-        if not self.inertia and self.thrust_timer == 0 and not forward_pressed:
-            self.velocity = [0.0, 0.0]
-
-    def apply_thrust(self):
-        if self.can_thrust():
-            angle_rad = math.radians(self.rotation)
-            thrust_direction = [math.sin(angle_rad), -math.cos(angle_rad)]
-
-            if self.inertia:
-                new_velocity = [
-                    self.velocity[0] + thrust_direction[0] * self.thrust_increment,
-                    self.velocity[1] + thrust_direction[1] * self.thrust_increment
-                ]
-
-                speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
-                scale = 1.0
-                if speed > self.max_thrust:
-                    scale = self.max_thrust / speed
-                target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
-
-                diff_vector = [
-                    target_velocity[0] - self.velocity[0],
-                    target_velocity[1] - self.velocity[1]
-                ]
-
-                diff_magnitude = math.sqrt(diff_vector[0] ** 2 + diff_vector[1] ** 2)
-                if diff_magnitude > 0:
-                    scale = self.thrust_increment / diff_magnitude
-                    self.add_impulse(diff_vector[0] * scale, diff_vector[1] * scale)
-            else:
-                self.add_impulse(
-                    thrust_direction[0] * self.max_thrust,
-                    thrust_direction[1] * self.max_thrust
-                )
-
-            marker_x, marker_y = self.get_thrust_marker_position()
-            marker = ThrustMarker(marker_x, marker_y)
-            self.thrust_timer = int(self.thrust_wait * Const.THRUST_WAIT_SCALE)
-            return marker
-
-        return None
-
-    def get_thrust_marker_position(self):
-        angle_rad = math.radians(self.rotation)
-        offset = (self.size[1] / 2) + 6
-        marker_x = self.position[0] - math.sin(angle_rad) * offset
-        marker_y = self.position[1] + math.cos(angle_rad) * offset
-        return marker_x, marker_y
-
-    def turn_left(self):
-        if self.can_turn():
-            self.heading = (self.heading - 1) % 16
-            self.rotation = self.heading * 22.5
-            self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
-
-    def turn_right(self):
-        if self.can_turn():
-            self.heading = (self.heading + 1) % 16
-            self.rotation = self.heading * 22.5
-            self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
-
     def perform_action1(self):
         if self.ship_module and hasattr(self.ship_module, 'action1'):
             return self.ship_module.action1(self)
@@ -214,10 +85,6 @@ class SpaceShip(MovableObject):
         if self.ship_module and hasattr(self.ship_module, 'action3'):
             return self.ship_module.action3(self)
         return False
-
-    def update(self):
-        self.update_physics()
-        return True
 
     def draw(self, screen, scale_factor, translation):
         sprite = self.sprites[self.heading]
