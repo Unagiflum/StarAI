@@ -162,6 +162,7 @@ class MovableObject(Object):
                 gravity_force * dx / distance,
                 gravity_force * dy / distance
             )
+
     def can_thrust(self):
         return self.thrust_timer == 0
 
@@ -173,7 +174,6 @@ class MovableObject(Object):
             self.thrust_timer -= 1
         if self.turn_timer > 0:
             self.turn_timer -= 1
-
         if not self.inertia and self.thrust_timer == 0 and not forward_pressed:
             self.velocity = [0.0, 0.0]
 

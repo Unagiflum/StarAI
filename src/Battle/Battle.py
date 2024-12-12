@@ -2,7 +2,7 @@ import pygame
 import sys
 
 from src.UI import UI
-from src.Objects.Object import ThrustMarker
+from src.Objects.Object import ThrustMarker, MovableObject
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Space.SpaceObject import Planet, Star
 from src.Battle.BattleInit import initialize_battle
@@ -59,15 +59,16 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                 game_objects.append(marker)
 
         for obj in game_objects[:]:
-            if not obj.update():
-                game_objects.remove(obj)
-
-            if isinstance(obj, SpaceShip):
+            if isinstance(obj, MovableObject):
                 obj.apply_gravity(
                     planet.position,
                     planet.gravity,
                     min_distance=planet.diameter / 2
                 )
+
+            if not obj.update():
+                game_objects.remove(obj)
+
 
         # Drawing
         screen.fill(UI.BLACK)
