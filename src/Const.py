@@ -1,5 +1,5 @@
 # Constants for game mechanics
-import os
+from pathlib import Path
 
 ARENA_SIZE = 3000
 MIN_SHIP_SEPARATION = ARENA_SIZE // 4
@@ -17,17 +17,17 @@ SPEED_LIMIT = 500
 STAR_WEIGHTS = [45,45,10,0,0] # Smallest to largest
 PLANET_WEIGHTS = [25,25,25,25] # Gas, Ice, Life, Rocky
 
-GAME_JSON_PATH = os.path.join("Config","Gamesettings.json")
-TRAINING_JSON_PATH = os.path.join("Config","Trainingsettings.json")
-FLEETS_JSON_PATH = os.path.join("Config","Fleets.json")
+GAME_JSON_PATH = Path("Config/Gamesettings.json")
+TRAINING_JSON_PATH = Path("Config/Trainingsettings.json")
+FLEETS_JSON_PATH = Path("Config/Fleets.json") #os.path.join("Config","Fleets.json")
 
-SHIPS_JSON_PATH = os.path.join("Objects", "Ships", "Ships.json")
-PLANETS_JSON_PATH = os.path.join("Objects", "Space", "planets.json")
-STARS_JSON_PATH = os.path.join("Objects", "Space", "stars.json")
+SHIPS_JSON_PATH = Path("Objects/Ships/Ships.json")
+PLANETS_JSON_PATH = Path("Objects/Space/planets.json")
+STARS_JSON_PATH = Path("Objects/Space/stars.json")
 
-MAIN_BG_PATH = os.path.join("UI","Main.png")
-MENU_BG_PATH = os.path.join("UI","Menu.png")
-MENU_WAV_PATH = os.path.join("UI","Menu.wav")
+MAIN_BG_PATH = Path("UI/Resources/Main.png")
+MENU_BG_PATH = Path("UI/Resources/Menu.png")
+MENU_WAV_PATH = Path("UI/Resources/Menu.wav")
 
 DEFAULT_TRAINING = {
     "learning_rate": 0.001,
