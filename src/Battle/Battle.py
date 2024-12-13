@@ -1,9 +1,7 @@
 import pygame
 import sys
 
-from src.Objects.Object import MovableObject
 from src.Objects.Ships.SpaceShip import SpaceShip
-from src.Objects.Space.SpaceObject import Planet
 from src.Battle.BattleInit import initialize_battle
 from src.Battle.BattleDraw import draw_battle
 import src.Const as Const
@@ -22,7 +20,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     border_color = battle_state['border_color']
     player1 = battle_state['player1']
     player2 = battle_state['player2']
-    planet = next(obj for obj in game_objects if isinstance(obj, Planet))
 
     running = True
     while running:
