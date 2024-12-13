@@ -92,11 +92,7 @@ class SpaceShip(MovableObject):
         sprite_rect = sprite.get_rect()
 
         total_scale = scale_factor * self.sprite_scale
-        scaled_sprite = pygame.transform.scale(
-            sprite,
-            (int(sprite_rect.width * total_scale),
-             int(sprite_rect.height * total_scale))
-        )
+        scaled_sprite = pygame.transform.smoothscale_by(sprite, total_scale)
         scaled_rect = scaled_sprite.get_rect()
 
         # Calculate screen position with translation

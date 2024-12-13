@@ -55,8 +55,8 @@ class Planet(Object):
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-                if (0 <= pos_x <= UI.SCREEN_HEIGHT and
-                        0 <= pos_y <= UI.SCREEN_HEIGHT):
+                if (-planet_size <= pos_x <= UI.SCREEN_HEIGHT + planet_size and
+                        -planet_size <= pos_y <= UI.SCREEN_HEIGHT + planet_size):
                     screen.blit(scaled_image, (
                         pos_x - planet_size // 2,
                         pos_y - planet_size // 2
@@ -104,7 +104,6 @@ class Star(Object):
             stars.append(star)
         return stars
 
-
     def draw(self, screen, scale_factor, translation):
         star_size = int(self.diameter * scale_factor)
         scaled_image = pygame.transform.scale(self.image, (star_size, star_size))
@@ -117,8 +116,8 @@ class Star(Object):
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-                if (0 <= pos_x <= UI.SCREEN_HEIGHT and
-                        0 <= pos_y <= UI.SCREEN_HEIGHT):
+                if (-star_size <= pos_x <= UI.SCREEN_HEIGHT + star_size and
+                        -star_size <= pos_y <= UI.SCREEN_HEIGHT + star_size):
                     screen.blit(scaled_image, (
                         pos_x - star_size // 2,
                         pos_y - star_size // 2
