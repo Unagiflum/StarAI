@@ -45,8 +45,8 @@ class Planet(Object):
         return planet
 
     def draw(self, screen, scale_factor, translation):
-        planet_size = int(self.diameter * scale_factor)
-        scaled_image = pygame.transform.scale(self.image, (planet_size, planet_size))
+        scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)
+        planet_size = scaled_image.get_width()
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_y = int((self.position[1] + translation[1]) * scale_factor)
 
@@ -105,9 +105,9 @@ class Star(Object):
         return stars
 
     def draw(self, screen, scale_factor, translation):
-        star_size = int(self.diameter * scale_factor)
-        scaled_image = pygame.transform.scale(self.image, (star_size, star_size))
+        scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)
         scaled_image.set_alpha(Const.STAR_ALPHA)
+        star_size = scaled_image.get_width()
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_y = int((self.position[1] + translation[1]) * scale_factor)
 
