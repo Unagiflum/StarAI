@@ -40,14 +40,29 @@ class Planet(Object):
     @staticmethod
     def create_center():
         planet = Planet()
-        planet.position = [Const.ARENA_SIZE / 2, Const.ARENA_SIZE / 2]
+        planet.position = Const.PLANET_POSITION
         return planet
 
     def draw(self, screen, scale_factor, translation):
-        scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)
-        planet_size = scaled_image.get_width()
+        # Draw gravity range circle
+        range_color = (255, 255, 255, 16)  # Light blue, semi-transparent
+        gravity_range_surface = pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA)
+
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_y = int((self.position[1] + translation[1]) * scale_factor)
+        range_radius = int(Const.GRAVITY_RANGE * scale_factor)
+
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
+                pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
+                pygame.draw.circle(gravity_range_surface, range_color, (pos_x, pos_y), range_radius, int(15*scale_factor))
+
+        screen.blit(gravity_range_surface, (0, 0))
+
+        # Draw planet sprite
+        scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)
+        planet_size = scaled_image.get_width()
 
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:

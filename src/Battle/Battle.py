@@ -68,7 +68,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         for obj in game_objects[:]:
             if isinstance(obj, MovableObject):
                 obj.apply_gravity(
-                    planet.position,
                     planet.gravity,
                     min_distance=planet.diameter / 2
                 )

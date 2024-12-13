@@ -133,10 +133,10 @@ class MovableObject(Object):
             self.position[1] = (self.position[1] + Const.SPEED_SCALE * 0.5 * (
                     self.velocit0[1] + self.velocity[1])) % Const.ARENA_SIZE
 
-    def apply_gravity(self, source_position, gravity_strength, min_distance=0):
+    def apply_gravity(self, gravity_strength, min_distance=0):
         if not self.can_move or not self.inertia:
             return
-
+        source_position = Const.PLANET_POSITION
         dx = source_position[0] - self.position[0]
         dy = source_position[1] - self.position[1]
         distance = math.sqrt(dx * dx + dy * dy)
