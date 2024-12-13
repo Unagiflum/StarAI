@@ -64,7 +64,7 @@ class ThrustMarker(Object):
 
                 if (0 <= pos_x <= UI.SCREEN_HEIGHT and
                         0 <= pos_y <= UI.SCREEN_HEIGHT):
-                    pygame.draw.circle(screen, self.get_color(), (pos_x, pos_y), 1 + 2*scale_factor)
+                    pygame.draw.circle(screen, self.get_color(), (pos_x, pos_y), 1.0 + 2.0*scale_factor)
 
 class MovableObject(Object):
     def __init__(self, name, sprite_location, size, player, max_hp, start_hp, inertia, sprite_scale,
