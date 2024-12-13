@@ -66,12 +66,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                 game_objects.append(marker)
 
         for obj in game_objects[:]:
-            if isinstance(obj, MovableObject):
-                obj.apply_gravity(
-                    planet.gravity,
-                    min_distance=planet.diameter / 2
-                )
-
             if not obj.update():
                 game_objects.remove(obj)
 

@@ -104,6 +104,23 @@ class MovableObject(Object):
     def set_planet(self, planet):
         self.planet = planet
 
+    def get_gravity(self):
+        if not self.can_move or not self.inertia or not self.planet:
+            return [0.0, 0.0]
+
+        dx = self.planet.position[0] - self.position[0]
+        dy = self.planet.position[1] - self.position[1]
+        distance = math.sqrt(dx * dx + dy * dy)
+
+        if distance < self.planet.diameter / 2 or distance > Const.GRAVITY_RANGE:
+            return [0.0, 0.0]
+
+        gravity_force = Const.GRAVITY_MULTIPLIER * self.planet.gravity / (distance * distance)
+        return [
+            gravity_force * dx / distance,
+            gravity_force * dy / distance
+        ]
+
     def add_impulse(self, dx, dy):
         if self.can_move:
             self.accumulated_impulses[0] += dx
@@ -117,6 +134,9 @@ class MovableObject(Object):
         if self.can_move:
             self.velocit0[0] = self.velocity[0]
             self.velocit0[1] = self.velocity[1]
+
+            gravity_impulse = self.get_gravity()
+            self.add_impulse(gravity_impulse[0], gravity_impulse[1])
 
             if self.inertia:
                 self.velocity[0] += self.accumulated_impulses[0]
