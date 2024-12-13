@@ -31,6 +31,9 @@ SHIPS_JSON_PATH = Path("Objects/Ships/Ships.json")
 PLANETS_JSON_PATH = Path("Objects/Space/planets.json")
 STARS_JSON_PATH = Path("Objects/Space/stars.json")
 
+BATTLE_MUSIC_PATH = Path("Battle/Resources/battle.ogg")
+BATTLE_MUSIC_VOLUME = 0.3
+
 MAIN_BG_PATH = Path("UI/Resources/Main.png")
 MENU_BG_PATH = Path("UI/Resources/Menu.png")
 MENU_WAV_PATH = Path("UI/Resources/Menu.wav")

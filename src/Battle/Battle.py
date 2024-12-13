@@ -10,6 +10,11 @@ import src.Const as Const
 
 def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     clock = pygame.time.Clock()
+
+    pygame.mixer.music.load(Const.BATTLE_MUSIC_PATH)
+    pygame.mixer.music.play(-1)  # -1 means loop indefinitely
+    pygame.mixer.music.set_volume(Const.BATTLE_MUSIC_VOLUME)
+
     battle_state = initialize_battle(screen, ship1, ship2)
     settings = battle_state['settings']
     scale_factor = battle_state['scale_factor']
@@ -30,6 +35,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
+                    pygame.mixer.music.stop()
                     running = False
 
         keys = pygame.key.get_pressed()
