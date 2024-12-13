@@ -69,6 +69,9 @@ def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
     planet = Planet.create_center()
     game_objects.append(planet)
 
+    player1.set_planet(planet)
+    player2.set_planet(planet)
+
     # Create border
     border_rect = pygame.Rect(0, 0, Const.SCREEN_HEIGHT, Const.SCREEN_HEIGHT)
     border_color = (50, 50, 50)

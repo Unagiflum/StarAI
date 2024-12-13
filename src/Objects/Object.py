@@ -99,7 +99,10 @@ class MovableObject(Object):
 
         # Battle state
         self.in_battle = False
+        self.planet = None
 
+    def set_planet(self, planet):
+        self.planet = planet
 
     def add_impulse(self, dx, dy):
         if self.can_move:
