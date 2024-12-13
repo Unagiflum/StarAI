@@ -1,5 +1,6 @@
 from src.Objects.Object import Object
 import src.Const as Const
+from src.UI import UI
 import pygame
 from pathlib import Path
 import json
@@ -48,10 +49,18 @@ class Planet(Object):
         scaled_image = pygame.transform.scale(self.image, (planet_size, planet_size))
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_y = int((self.position[1] + translation[1]) * scale_factor)
-        screen.blit(scaled_image, (
-            screen_x - planet_size // 2,
-            screen_y - planet_size // 2
-        ))
+
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
+                pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
+
+                if (0 <= pos_x <= UI.SCREEN_HEIGHT and
+                        0 <= pos_y <= UI.SCREEN_HEIGHT):
+                    screen.blit(scaled_image, (
+                        pos_x - planet_size // 2,
+                        pos_y - planet_size // 2
+                    ))
 
 
 class Star(Object):
@@ -95,16 +104,25 @@ class Star(Object):
             stars.append(star)
         return stars
 
+
     def draw(self, screen, scale_factor, translation):
         star_size = int(self.diameter * scale_factor)
         scaled_image = pygame.transform.scale(self.image, (star_size, star_size))
         scaled_image.set_alpha(Const.STAR_ALPHA)
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_y = int((self.position[1] + translation[1]) * scale_factor)
-        screen.blit(scaled_image, (
-            screen_x - star_size // 2,
-            screen_y - star_size // 2
-        ))
+
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
+                pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
+
+                if (0 <= pos_x <= UI.SCREEN_HEIGHT and
+                        0 <= pos_y <= UI.SCREEN_HEIGHT):
+                    screen.blit(scaled_image, (
+                        pos_x - star_size // 2,
+                        pos_y - star_size // 2
+                    ))
 
     def update(self):
         return True

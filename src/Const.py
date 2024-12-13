@@ -1,7 +1,7 @@
 # Constants for game mechanics
 from pathlib import Path
 
-ARENA_SIZE = 3000
+ARENA_SIZE = 10000
 MIN_SHIP_SEPARATION = ARENA_SIZE // 4
 CENTER_BUFFER = ARENA_SIZE // 4
 

@@ -70,9 +70,5 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
             if not obj.update():
                 game_objects.remove(obj)
 
-
         # Drawing
-        screen.fill(UI.BLACK)
-        screen.set_clip(border_rect)
-
         draw_battle(screen, game_objects, border_rect, border_color)

@@ -1,6 +1,7 @@
 import pygame
 import math
 import src.Const as Const
+from src.UI import UI
 
 class Object:
     def __init__(self, name, sprite_location, size, sprite_scale=1.0):
@@ -34,7 +35,7 @@ class ThrustMarker(Object):
             size=[6, 6]
         )
         self.position = [x, y]
-        self.life = 30
+        self.life = 20
         self.can_collide = False
         self.can_expire = True
         self.expiration_timer = self.life
@@ -56,29 +57,14 @@ class ThrustMarker(Object):
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_y = int((self.position[1] + translation[1]) * scale_factor)
 
-        positions = [(screen_x, screen_y)]
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
+                pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-        if screen_x < 6:
-            positions.append((screen_x + screen.get_height(), screen_y))
-        elif screen_x > screen.get_height() - 6:
-            positions.append((screen_x - screen.get_height(), screen_y))
-
-        if screen_y < 6:
-            positions.append((screen_x, screen_y + screen.get_height()))
-        elif screen_y > screen.get_height() - 6:
-            positions.append((screen_x, screen_y - screen.get_height()))
-
-        if len(positions) > 2:
-            positions.append((
-                screen_x + (screen.get_height() if screen_x < screen.get_height() // 2 else -screen.get_height()),
-                screen_y + (screen.get_height() if screen_y < screen.get_height() // 2 else -screen.get_height())
-            ))
-
-        for pos_x, pos_y in positions:
-            pygame.draw.circle(
-                screen, self.get_color(), (pos_x, pos_y),
-                max(1, int(3 * scale_factor))
-            )
+                if (0 <= pos_x <= UI.SCREEN_HEIGHT and
+                        0 <= pos_y <= UI.SCREEN_HEIGHT):
+                    pygame.draw.circle(screen, self.get_color(), (pos_x, pos_y), 1 + 2*scale_factor)
 
 class MovableObject(Object):
     def __init__(self, name, sprite_location, size, player, max_hp, start_hp, inertia, sprite_scale,

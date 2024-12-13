@@ -3,6 +3,7 @@ import src.Const as Const
 import pygame
 import json
 from pathlib import Path
+from src.UI import UI
 
 class SpaceShip(MovableObject):
     def __init__(self, ship_name, player_num):
@@ -98,30 +99,20 @@ class SpaceShip(MovableObject):
         )
         scaled_rect = scaled_sprite.get_rect()
 
+        # Calculate screen position with translation
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_y = int((self.position[1] + translation[1]) * scale_factor)
 
-        positions = [(screen_x, screen_y)]
-        screen_height = screen.get_height()
+        # Draw the ship at all potential wrap-around positions
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
+                pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-        if screen_x < scaled_rect.width // 2:
-            positions.append((screen_x + screen_height, screen_y))
-        elif screen_x > screen_height - scaled_rect.width // 2:
-            positions.append((screen_x - screen_height, screen_y))
-
-        if screen_y < scaled_rect.height // 2:
-            positions.append((screen_x, screen_y + screen_height))
-        elif screen_y > screen_height - scaled_rect.height // 2:
-            positions.append((screen_x, screen_y - screen_height))
-
-        if len(positions) > 2:
-            positions.append((
-                screen_x + (screen_height if screen_x < screen_height // 2 else -screen_height),
-                screen_y + (screen_height if screen_y < screen_height // 2 else -screen_height)
-            ))
-
-        for pos_x, pos_y in positions:
-            screen.blit(scaled_sprite, (
-                pos_x - scaled_rect.width // 2,
-                pos_y - scaled_rect.height // 2
-            ))
+                # Only draw if the position would be visible
+                if (0 <= pos_x <= UI.SCREEN_HEIGHT and
+                        0 <= pos_y <= UI.SCREEN_HEIGHT):
+                    screen.blit(scaled_sprite, (
+                        pos_x - scaled_rect.width // 2,
+                        pos_y - scaled_rect.height // 2
+                    ))
