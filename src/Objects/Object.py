@@ -141,7 +141,7 @@ class MovableObject(Object):
         dy = source_position[1] - self.position[1]
         distance = math.sqrt(dx * dx + dy * dy)
 
-        if distance > min_distance:
+        if min_distance < distance < Const.GRAVITY_RANGE:
             gravity_force = Const.GRAVITY_MULTIPLIER * gravity_strength / (distance * distance)
             self.add_impulse(
                 gravity_force * dx / distance,

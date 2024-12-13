@@ -43,28 +43,43 @@ def calculate_view_parameters(game_objects):
 
     return scale_factor, translation
 
+
 def draw_battle(screen, game_objects, border_rect, border_color):
     scale_factor, translation = calculate_view_parameters(game_objects)
+
+    # Calculate midpoint between ships
+    players = [obj for obj in game_objects if isinstance(obj, SpaceShip)]
+    if len(players) == 2:
+        p1_pos, p2_pos = players[0].position, players[1].position
+        dx = p2_pos[0] - p1_pos[0]
+        dy = p2_pos[1] - p1_pos[1]
+
+        # Adjust for wrap-around
+        if abs(dx) > Const.ARENA_SIZE / 2:
+            dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
+        if abs(dy) > Const.ARENA_SIZE / 2:
+            dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+
+        midpoint = [(p1_pos[0] + dx / 2) % Const.ARENA_SIZE,
+                    (p1_pos[1] + dy / 2) % Const.ARENA_SIZE]
+    else:
+        midpoint = [Const.ARENA_SIZE / 2, Const.ARENA_SIZE / 2]
 
     screen.fill(UI.BLACK)
     screen.set_clip(border_rect)
 
-    # Draw stars first (background)
+    # Draw stars with midpoint
     for obj in game_objects:
         if isinstance(obj, Star):
-            obj.draw(screen, scale_factor, translation)
+            obj.draw(screen, scale_factor, translation, midpoint)
 
-    # Draw planet
+    # Draw other objects normally
     for obj in game_objects:
         if isinstance(obj, Planet):
             obj.draw(screen, scale_factor, translation)
-
-    # Draw thrust markers
     for obj in game_objects:
         if isinstance(obj, ThrustMarker):
             obj.draw(screen, scale_factor, translation)
-
-    # Draw spaceships
     for obj in game_objects:
         if isinstance(obj, SpaceShip):
             obj.draw(screen, scale_factor, translation)

@@ -79,6 +79,7 @@ class Star(Object):
         star_data = stars[star_name]
 
         self.diameter = star_data['Diameter']
+        self.depth = random.randint(0, 2)
 
         super().__init__(
             name=star_name,
@@ -103,12 +104,29 @@ class Star(Object):
             stars.append(star)
         return stars
 
-    def draw(self, screen, scale_factor, translation):
+    def draw(self, screen, scale_factor, translation, midpoint):
         scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)
         scaled_image.set_alpha(Const.STAR_ALPHA)
         star_size = scaled_image.get_width()
-        screen_x = int((self.position[0] + translation[0]) * scale_factor)
-        screen_y = int((self.position[1] + translation[1]) * scale_factor)
+
+        # Calculate position relative to midpoint
+        dx = self.position[0] - midpoint[0]
+        dy = self.position[1] - midpoint[1]
+
+        # Adjust for wrap-around
+        if abs(dx) > Const.ARENA_SIZE / 2:
+            dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
+        if abs(dy) > Const.ARENA_SIZE / 2:
+            dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+
+        # Apply parallax based on depth
+        parallax_factor = 0.5 + self.depth / 4
+        relative_x = midpoint[0] + dx * parallax_factor
+        relative_y = midpoint[1] + dy * parallax_factor
+
+        # Apply view translation
+        screen_x = int((relative_x + translation[0]) * scale_factor)
+        screen_y = int((relative_y + translation[1]) * scale_factor)
 
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:
