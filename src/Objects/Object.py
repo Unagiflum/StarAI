@@ -104,18 +104,21 @@ class MovableObject(Object):
     def set_planet(self, planet):
         self.planet = planet
 
-    def get_gravity(self):
-        if not self.can_move or not self.inertia or not self.planet:
-            return [0.0, 0.0]
-
+    def planet_distance(self):
         dx = self.planet.position[0] - self.position[0]
         dy = self.planet.position[1] - self.position[1]
         distance = math.sqrt(dx * dx + dy * dy)
+        return [dx, dy], distance
+
+    def get_gravity(self):
+        if not self.can_move or not self.inertia or not self.planet:
+            return [0.0, 0.0]
+        [dx, dy], distance = self.planet_distance()
 
         if distance < self.planet.diameter / 2 or distance > Const.GRAVITY_RANGE:
             return [0.0, 0.0]
 
-        gravity_force = Const.GRAVITY_MULTIPLIER * self.planet.gravity / (distance * distance)
+        gravity_force = Const.GRAVITY_MULTIPLIER * self.planet.gravity
         return [
             gravity_force * dx / distance,
             gravity_force * dy / distance
@@ -156,21 +159,6 @@ class MovableObject(Object):
             self.position[1] = (self.position[1] + Const.SPEED_SCALE * 0.5 * (
                     self.velocit0[1] + self.velocity[1])) % Const.ARENA_SIZE
 
-    def apply_gravity(self, gravity_strength, min_distance=0):
-        if not self.can_move or not self.inertia:
-            return
-        source_position = Const.PLANET_POSITION
-        dx = source_position[0] - self.position[0]
-        dy = source_position[1] - self.position[1]
-        distance = math.sqrt(dx * dx + dy * dy)
-
-        if min_distance < distance < Const.GRAVITY_RANGE:
-            gravity_force = Const.GRAVITY_MULTIPLIER * gravity_strength / (distance * distance)
-            self.add_impulse(
-                gravity_force * dx / distance,
-                gravity_force * dy / distance
-            )
-
     def can_thrust(self):
         return self.thrust_timer == 0
 
@@ -198,14 +186,14 @@ class MovableObject(Object):
 
                 speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
                 scale = 1.0
-                if speed > self.max_thrust:
+
+                _, distance = self.planet_distance()
+                if speed > self.max_thrust and distance > Const.GRAVITY_RANGE:
                     scale = self.max_thrust / speed
+
                 target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
 
-                diff_vector = [
-                    target_velocity[0] - self.velocity[0],
-                    target_velocity[1] - self.velocity[1]
-                ]
+                diff_vector = [target_velocity[0] - self.velocity[0], target_velocity[1] - self.velocity[1]]
 
                 diff_magnitude = math.sqrt(diff_vector[0] ** 2 + diff_vector[1] ** 2)
                 if diff_magnitude > 0:

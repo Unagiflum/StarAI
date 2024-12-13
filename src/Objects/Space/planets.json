@@ -1,107 +1,107 @@
 {
     "Gas01": {
         "Image":"Objects/Space/Planets/Gas01.png",
-        "Gravity": 100,
+        "Gravity": 1.0,
         "Diameter": 400
     },
     "Gas02": {
         "Image":"Objects/Space/Planets/Gas02.png",
-        "Gravity": 125,
+        "Gravity": 1.25,
         "Diameter": 400
     },
     "Gas03": {
         "Image":"Objects/Space/Planets/Gas03.png",
-        "Gravity": 150,
+        "Gravity": 1.50,
         "Diameter": 400
     },
     "Gas04": {
         "Image":"Objects/Space/Planets/Gas04.png",
-        "Gravity": 200,
+        "Gravity": 2.00,
         "Diameter": 400
     },
     "Ice01": {
         "Image":"Objects/Space/Planets/Ice01.png",
-        "Gravity": 50,
+        "Gravity": 0.5,
         "Diameter": 250
     },
     "Ice02": {
         "Image":"Objects/Space/Planets/Ice02.png",
-        "Gravity": 50,
+        "Gravity": 0.5,
         "Diameter": 250
     },
     "Ice03": {
         "Image":"Objects/Space/Planets/Ice03.png",
-        "Gravity": 50,
+        "Gravity": 0.5,
         "Diameter": 250
     },
     "Ice04": {
         "Image":"Objects/Space/Planets/Ice04.png",
-        "Gravity": 50,
+        "Gravity": 0.5,
         "Diameter": 250
     },
     "Ice05": {
         "Image":"Objects/Space/Planets/Ice05.png",
-        "Gravity": 50,
+        "Gravity": 0.5,
         "Diameter": 250
     },
     "Life01": {
         "Image":"Objects/Space/Planets/Life01.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     },
     "Life02": {
         "Image":"Objects/Space/Planets/Life02.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     },
     "Rocky01": {
         "Image":"Objects/Space/Planets/Rocky01.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     },
     "Rocky02": {
         "Image":"Objects/Space/Planets/Rocky02.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     },
     "Rocky03": {
         "Image":"Objects/Space/Planets/Rocky03.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     },
     "Rocky04": {
         "Image":"Objects/Space/Planets/Rocky04.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     },
     "Rocky05": {
         "Image":"Objects/Space/Planets/Rocky05.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     },
     "Rocky06": {
         "Image":"Objects/Space/Planets/Rocky06.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     },
     "Rocky07": {
         "Image":"Objects/Space/Planets/Rocky07.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     },
     "Rocky08": {
         "Image":"Objects/Space/Planets/Rocky08.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     },
     "Rocky09": {
         "Image":"Objects/Space/Planets/Rocky09.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     },
     "Rocky10": {
         "Image":"Objects/Space/Planets/Rocky10.png",
-        "Gravity": 75,
+        "Gravity": 0.75,
         "Diameter": 300
     }
 }
