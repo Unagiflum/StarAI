@@ -6,6 +6,7 @@ from src.Objects.Object import ThrustMarker, MovableObject
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Space.SpaceObject import Planet, Star
 from src.Battle.BattleInit import initialize_battle
+from src.Battle.BattleDraw import draw_battle
 
 def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     clock = pygame.time.Clock()
@@ -74,24 +75,4 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         screen.fill(UI.BLACK)
         screen.set_clip(border_rect)
 
-        # Draw stars first (background)
-        for obj in game_objects:
-            if isinstance(obj, Star):
-                obj.draw(screen, scale_factor, [0, 0])
-
-        # Draw planet
-        for obj in game_objects:
-            if isinstance(obj, Planet):
-                obj.draw(screen, scale_factor, [0, 0])
-
-        for obj in game_objects:
-            if isinstance(obj, ThrustMarker):
-                obj.draw(screen, scale_factor, [0, 0])
-
-        for obj in game_objects:
-            if isinstance(obj, SpaceShip):
-                obj.draw(screen, scale_factor, [0, 0])
-
-        pygame.draw.rect(screen, border_color, border_rect, 2)
-        screen.set_clip(None)
-        pygame.display.flip()
+        draw_battle(screen, game_objects, border_rect, border_color)
