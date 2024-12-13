@@ -1,4 +1,5 @@
 # Constants for game mechanics
+import pygame
 from pathlib import Path
 
 SCREEN_HEIGHT = 960
@@ -33,6 +34,19 @@ STARS_JSON_PATH = Path("Objects/Space/stars.json")
 MAIN_BG_PATH = Path("UI/Resources/Main.png")
 MENU_BG_PATH = Path("UI/Resources/Menu.png")
 MENU_WAV_PATH = Path("UI/Resources/Menu.wav")
+
+DEFAULT_KEYS = {
+    "Player 1: Left": pygame.K_a,
+    "Player 1: Right": pygame.K_d,
+    "Player 1: Forward": pygame.K_w,
+    "Player 1: Action 1": pygame.K_TAB,
+    "Player 1: Action 2": pygame.K_BACKQUOTE,
+    "Player 2: Left": pygame.K_LEFT,
+    "Player 2: Right": pygame.K_RIGHT,
+    "Player 2: Forward": pygame.K_UP,
+    "Player 2: Action 1": pygame.K_RCTRL,
+    "Player 2: Action 2": pygame.K_RSHIFT,
+}
 
 DEFAULT_TRAINING = {
     "learning_rate": 0.001,

@@ -1,9 +1,9 @@
 import pygame
 import sys
 
-from src.Objects.Object import ThrustMarker, MovableObject
+from src.Objects.Object import MovableObject
 from src.Objects.Ships.SpaceShip import SpaceShip
-from src.Objects.Space.SpaceObject import Planet, Star
+from src.Objects.Space.SpaceObject import Planet
 from src.Battle.BattleInit import initialize_battle
 from src.Battle.BattleDraw import draw_battle
 import src.Const as Const

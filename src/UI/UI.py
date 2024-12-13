@@ -54,18 +54,6 @@ SLIDER_LINE = (100,100,100)
 HANDLE_COLOR = (255, 0, 0)
 BG_COLOR = (0, 0, 20)
 
-DEFAULT_KEYS = {
-    "Player 1: Left": pygame.K_a,
-    "Player 1: Right": pygame.K_d,
-    "Player 1: Forward": pygame.K_w,
-    "Player 1: Action 1": pygame.K_TAB,
-    "Player 1: Action 2": pygame.K_BACKQUOTE,
-    "Player 2: Left": pygame.K_LEFT,
-    "Player 2: Right": pygame.K_RIGHT,
-    "Player 2: Forward": pygame.K_UP,
-    "Player 2: Action 1": pygame.K_RCTRL,
-    "Player 2: Action 2": pygame.K_RSHIFT,
-}
 
 def load_background(path, screen_width, screen_height):
     """Load and scale the background image to fit the screen."""

@@ -16,7 +16,7 @@ def load_settings():
             return {key: value for key, value in loaded_settings.items()}
     except Exception as e:
         print(f"Error loading settings: {e}. Using default settings.")
-        return UI.DEFAULT_KEYS
+        return Const.DEFAULT_KEYS
 
 
 def get_random_position():

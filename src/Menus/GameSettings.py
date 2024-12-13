@@ -10,7 +10,7 @@ SETTINGS_FILE = Const.GAME_JSON_PATH
 
 def load_settings():
     """Load settings from file or use defaults."""
-    default_settings = UI.DEFAULT_KEYS
+    default_settings = Const.DEFAULT_KEYS
     if os.path.isfile(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, 'r') as f:
