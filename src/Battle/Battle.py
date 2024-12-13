@@ -17,7 +17,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
 
     battle_state = initialize_battle(screen, ship1, ship2)
     settings = battle_state['settings']
-    scale_factor = battle_state['scale_factor']
     game_objects = battle_state['game_objects']
     border_rect = battle_state['border_rect']
     border_color = battle_state['border_color']

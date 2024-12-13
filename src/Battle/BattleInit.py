@@ -48,7 +48,6 @@ def get_valid_ship_positions():
 
 def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
     settings = load_settings()
-    scale_factor = Const.SCREEN_HEIGHT / Const.ARENA_SIZE
     game_objects = []
 
     # Create stars
@@ -78,7 +77,6 @@ def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
 
     return {
         'settings': settings,
-        'scale_factor': scale_factor,
         'game_objects': game_objects,
         'border_rect': border_rect,
         'border_color': border_color,
