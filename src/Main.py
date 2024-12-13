@@ -24,16 +24,16 @@ def main():
     UI.sound_manager.load_sounds()
     UI.sound_manager.set_volume(0.30)
 
-    screen = pygame.display.set_mode((UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT))
+    screen = pygame.display.set_mode((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT))
     pygame.display.set_caption("StarAI")
     clock = pygame.time.Clock()
-    background = UI.load_background(Const.MAIN_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    background = UI.load_background(Const.MAIN_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
     # Create menu buttons
-    button_width = int(0.3*UI.SCREEN_WIDTH)
-    button_height = int(0.0625*UI.SCREEN_HEIGHT)
-    start_y = int(UI.SCREEN_HEIGHT *0.35)
-    y_spacing = int(0.075 * UI.SCREEN_HEIGHT)
+    button_width = int(0.3*Const.SCREEN_WIDTH)
+    button_height = int(0.0625*Const.SCREEN_HEIGHT)
+    start_y = int(Const.SCREEN_HEIGHT *0.35)
+    y_spacing = int(0.075 * Const.SCREEN_HEIGHT)
 
     menu_items = [
         ("Play Game", PickFleet),
@@ -45,7 +45,7 @@ def main():
     buttons = []
     for i, (text, module) in enumerate(menu_items):
         button = UIButton.Button(
-            x=int(UI.SCREEN_WIDTH // 2 - button_width // 2),
+            x=int(Const.SCREEN_WIDTH // 2 - button_width // 2),
             y=start_y + i * y_spacing,
             width=button_width,
             height=button_height,
@@ -58,7 +58,7 @@ def main():
 
     running = True
     while running:
-        clock.tick(UI.FPS)
+        clock.tick(Const.FPS)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -74,11 +74,11 @@ def main():
             screen.fill(UI.BG_COLOR)
 
         # Draw title
-        #title_font = pygame.font.SysFont(None, int(UI.SCREEN_HEIGHT * 0.1))
-        UI.draw_title(screen, "StarAI", int(UI.SCREEN_HEIGHT * 0.15), UI.SCREEN_HEIGHT // 6)
+        #title_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.1))
+        UI.draw_title(screen, "StarAI", int(Const.SCREEN_HEIGHT * 0.15), Const.SCREEN_HEIGHT // 6)
 
         # Draw buttons
-        button_font = pygame.font.SysFont(None, int(UI.SCREEN_HEIGHT * 0.05))
+        button_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.05))
         for button in buttons:
             button.draw(screen, button_font)
 

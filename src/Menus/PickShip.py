@@ -12,7 +12,7 @@ from src.Battle import Battle
 with open(Const.SHIPS_JSON_PATH, 'r') as f:
     SHIPS_DATA = json.load(f)
 
-TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT * 0.08)
+TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT * 0.08)
 HIGHLIGHT_COLOR = (50, 50, 75)
 FLEET_ICON_SIZE = UI.FLEET_ICON_SIZE
 X_COLOR = (255, 100, 100, 100)
@@ -105,24 +105,24 @@ def load_ships_data(ships_data):
 
 def run(screen):
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont(None, int(UI.SCREEN_HEIGHT * 0.03))
-    background = UI.load_background(Const.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.03))
+    background = UI.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
     fleet_data, player1_ships, player2_ships = load_fleet_data()
     ships_data, original_sprites = load_ships_data(SHIPS_DATA)
     if not fleet_data or not ships_data or not original_sprites:
         return
 
-    LEFT_COLUMN_START = int(0.033 * UI.SCREEN_WIDTH)
-    RIGHT_COLUMN_START = int(UI.SCREEN_WIDTH // 2 + (0.016 * UI.SCREEN_WIDTH))
+    LEFT_COLUMN_START = int(0.033 * Const.SCREEN_WIDTH)
+    RIGHT_COLUMN_START = int(Const.SCREEN_WIDTH // 2 + (0.016 * Const.SCREEN_WIDTH))
 
-    FLEET_TOP = int(0.15 * UI.SCREEN_HEIGHT)
+    FLEET_TOP = int(0.15 * Const.SCREEN_HEIGHT)
 
-    SELECTION_BOX_SIZE = int(UI.SCREEN_WIDTH * 0.165)
-    SELECTION_TOP = FLEET_TOP + UI.FLEET_HEIGHT + int(0.05 * UI.SCREEN_HEIGHT)
+    SELECTION_BOX_SIZE = int(Const.SCREEN_WIDTH * 0.165)
+    SELECTION_TOP = FLEET_TOP + UI.FLEET_HEIGHT + int(0.05 * Const.SCREEN_HEIGHT)
     SELECTION_L_LEFT = LEFT_COLUMN_START + int(0.5 * (UI.SELECTION_WIDTH - SELECTION_BOX_SIZE))
     SELECTION_R_LEFT = RIGHT_COLUMN_START + int(0.5 * (UI.SELECTION_WIDTH - SELECTION_BOX_SIZE))
-    RAND_TOP = SELECTION_TOP + SELECTION_BOX_SIZE + int(0.01 * UI.SCREEN_HEIGHT)
+    RAND_TOP = SELECTION_TOP + SELECTION_BOX_SIZE + int(0.01 * Const.SCREEN_HEIGHT)
 
     fleet_sprites = scale_sprites(original_sprites, UI.FLEET_ICON_SIZE[0], SHIPS_DATA)
     selection_sprites = scale_sprites(original_sprites, SELECTION_BOX_SIZE, SHIPS_DATA)
@@ -199,7 +199,7 @@ def run(screen):
         SELECTION_L_LEFT,
         RAND_TOP,
         SELECTION_BOX_SIZE,
-        int(0.05 * UI.SCREEN_HEIGHT),
+        int(0.05 * Const.SCREEN_HEIGHT),
         "Pick Random",
         pick_random_left,
         bg_color=UI.MENU_BUTTON_COLOR,
@@ -210,7 +210,7 @@ def run(screen):
         SELECTION_R_LEFT,
         RAND_TOP,
         SELECTION_BOX_SIZE,
-        int(0.05 * UI.SCREEN_HEIGHT),
+        int(0.05 * Const.SCREEN_HEIGHT),
         "Pick Random",
         pick_random_right,
         bg_color=UI.MENU_BUTTON_COLOR,
@@ -249,7 +249,7 @@ def run(screen):
 
     running = True
     while running:
-        clock.tick(UI.FPS)
+        clock.tick(Const.FPS)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -308,7 +308,7 @@ def run(screen):
         else:
             screen.fill(UI.BG_COLOR)
 
-        UI.draw_title(screen, "Players: Pick your Ship", TITLE_FONT_SIZE, int(0.05 * UI.SCREEN_HEIGHT))
+        UI.draw_title(screen, "Players: Pick your Ship", TITLE_FONT_SIZE, int(0.05 * Const.SCREEN_HEIGHT))
 
         # Draw fleets
         left_fleet.draw(screen, font)

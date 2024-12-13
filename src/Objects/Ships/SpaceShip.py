@@ -3,7 +3,6 @@ import src.Const as Const
 import pygame
 import json
 from pathlib import Path
-from src.UI import UI
 
 class SpaceShip(MovableObject):
     def __init__(self, ship_name, player_num):
@@ -106,8 +105,8 @@ class SpaceShip(MovableObject):
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
                 # Only draw if the position would be visible
-                if (0 <= pos_x <= UI.SCREEN_HEIGHT and
-                        0 <= pos_y <= UI.SCREEN_HEIGHT):
+                if (0 <= pos_x <= Const.SCREEN_HEIGHT and
+                        0 <= pos_y <= Const.SCREEN_HEIGHT):
                     screen.blit(scaled_sprite, (
                         pos_x - scaled_rect.width // 2,
                         pos_y - scaled_rect.height // 2

@@ -3,8 +3,7 @@ from src.UI import UI
 from src.Objects.Object import ThrustMarker
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Space.SpaceObject import Planet, Star
-from src.Const import ARENA_SIZE
-from src.UI.UI import SCREEN_HEIGHT
+import src.Const as Const
 
 
 def calculate_view_parameters(game_objects):
@@ -20,26 +19,26 @@ def calculate_view_parameters(game_objects):
     dy = p2_pos[1] - p1_pos[1]
 
     # Adjust for wrap-around
-    if abs(dx) > ARENA_SIZE / 2:
-        dx = dx - ARENA_SIZE if dx > 0 else dx + ARENA_SIZE
-    if abs(dy) > ARENA_SIZE / 2:
-        dy = dy - ARENA_SIZE if dy > 0 else dy + ARENA_SIZE
+    if abs(dx) > Const.ARENA_SIZE / 2:
+        dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
+    if abs(dy) > Const.ARENA_SIZE / 2:
+        dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
 
     # Midpoint between ships (considering wrap-around)
-    mid_x = (p1_pos[0] + dx / 2) % ARENA_SIZE
-    mid_y = (p1_pos[1] + dy / 2) % ARENA_SIZE
+    mid_x = (p1_pos[0] + dx / 2) % Const.ARENA_SIZE
+    mid_y = (p1_pos[1] + dy / 2) % Const.ARENA_SIZE
 
     # Calculate required view size (with 10% margin)
     distance = (dx ** 2 + dy ** 2) ** 0.5
-    view_size = min(distance / 0.8, ARENA_SIZE/2)  # 10% margin on each side
+    view_size = min(distance / 0.8, Const.ARENA_SIZE/2)  # 10% margin on each side
 
     # Calculate scale factor
-    scale_factor = min(1.0, UI.SCREEN_HEIGHT / view_size)
+    scale_factor = min(1.0, Const.SCREEN_HEIGHT / view_size)
 
     # Calculate translation to center the view
     translation = [
-        UI.SCREEN_HEIGHT / (2 * scale_factor) - mid_x,
-        UI.SCREEN_HEIGHT / (2 * scale_factor) - mid_y
+        Const.SCREEN_HEIGHT / (2 * scale_factor) - mid_x,
+        Const.SCREEN_HEIGHT / (2 * scale_factor) - mid_y
     ]
 
     return scale_factor, translation

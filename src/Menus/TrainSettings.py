@@ -6,7 +6,7 @@ from src.UI import UI, UISlider, UIButton
 import src.Const as Const
 
 # Define constants
-TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)
+TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT*.08)
 SETTINGS_FILE = Const.TRAINING_JSON_PATH
 
 def load_settings():
@@ -34,16 +34,16 @@ def save_settings(settings):
 def run(screen):
     """Run the Training Settings menu."""
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont(None, int(0.03*UI.SCREEN_HEIGHT))
+    font = pygame.font.SysFont(None, int(0.03*Const.SCREEN_HEIGHT))
     settings = load_settings()
-    background = UI.load_background(Const.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    background = UI.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
-    slider_left = int(UI.SCREEN_WIDTH*0.25)
-    slider_width = int(UI.SCREEN_WIDTH*0.5)
+    slider_left = int(Const.SCREEN_WIDTH*0.25)
+    slider_width = int(Const.SCREEN_WIDTH*0.5)
 
     HH = [0] * 6
     for ii in range(6):
-        HH[ii] = int(0.25*UI.SCREEN_HEIGHT+(ii * 0.09*UI.SCREEN_HEIGHT))
+        HH[ii] = int(0.25*Const.SCREEN_HEIGHT+(ii * 0.09*Const.SCREEN_HEIGHT))
 
     sliders = [
         UISlider.Slider(slider_left, HH[0], slider_width, 0.0001, 0.01,
@@ -98,7 +98,7 @@ def run(screen):
 
     running = True
     while running:
-        clock.tick(UI.FPS)
+        clock.tick(Const.FPS)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -117,7 +117,7 @@ def run(screen):
             screen.fill(UI.BG_COLOR)
 
         # Draw title using shared function
-        UI.draw_title(screen, "Training Settings", TITLE_FONT_SIZE, int(0.1*UI.SCREEN_HEIGHT))
+        UI.draw_title(screen, "Training Settings", TITLE_FONT_SIZE, int(0.1*Const.SCREEN_HEIGHT))
 
         # Draw UI elements
         for slider in sliders:

@@ -1,12 +1,12 @@
 import pygame
 import sys
 
-from src.UI import UI
 from src.Objects.Object import ThrustMarker, MovableObject
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Space.SpaceObject import Planet, Star
 from src.Battle.BattleInit import initialize_battle
 from src.Battle.BattleDraw import draw_battle
+import src.Const as Const
 
 def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     clock = pygame.time.Clock()
@@ -22,7 +22,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
 
     running = True
     while running:
-        clock.tick(UI.FPS)
+        clock.tick(Const.FPS)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:

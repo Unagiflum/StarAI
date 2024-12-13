@@ -1,6 +1,10 @@
 # Constants for game mechanics
 from pathlib import Path
 
+SCREEN_HEIGHT = 960
+SCREEN_WIDTH = int(SCREEN_HEIGHT*1.3)
+FPS = 30
+
 ARENA_SIZE = 8000
 MIN_SHIP_SEPARATION = ARENA_SIZE // 4
 CENTER_BUFFER = ARENA_SIZE // 4

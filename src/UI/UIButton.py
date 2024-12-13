@@ -1,5 +1,6 @@
 import pygame
 from . import UI
+import src.Const as Const
 
 class Button:
     def __init__(self, x, y, width, height, text, callback, bg_color=UI.GREY, hover_color=UI.LIGHT_GREY, text_color=UI.WHITE):
@@ -44,11 +45,11 @@ class ToggleButton(Button):
         self.is_on = initial_state
         self.active_color = (*active_color, 255) if len(active_color) == 3 else active_color
 
-        self.switch_width = int(0.02 * UI.SCREEN_WIDTH)
-        self.switch_height = int(0.02 * UI.SCREEN_WIDTH)
+        self.switch_width = int(0.02 * Const.SCREEN_WIDTH)
+        self.switch_height = int(0.02 * Const.SCREEN_WIDTH)
         self.switch_rect = pygame.Rect(
-            self.rect.right - self.switch_width - int(0.005 * UI.SCREEN_WIDTH),
-            self.rect.y + int(0.005 * UI.SCREEN_WIDTH),
+            self.rect.right - self.switch_width - int(0.005 * Const.SCREEN_WIDTH),
+            self.rect.y + int(0.005 * Const.SCREEN_WIDTH),
             self.switch_width,
             self.switch_height
         )
@@ -135,9 +136,9 @@ class KeyBinding(Button):
 
     def draw(self, surface, font):
         # Draw the label
-        label_font = pygame.font.SysFont(None, int(0.03*UI.SCREEN_HEIGHT))
+        label_font = pygame.font.SysFont(None, int(0.03*Const.SCREEN_HEIGHT))
         label_surf = label_font.render(self.label, True, UI.WHITE)
-        label_rect = label_surf.get_rect(midright=(self.rect.x - int(0.01*UI.SCREEN_WIDTH), self.rect.y + self.rect.height // 2))
+        label_rect = label_surf.get_rect(midright=(self.rect.x - int(0.01*Const.SCREEN_WIDTH), self.rect.y + self.rect.height // 2))
         surface.blit(label_surf, label_rect)
 
         # Determine button color based on hover state

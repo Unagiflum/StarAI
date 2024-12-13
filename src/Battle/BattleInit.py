@@ -48,7 +48,7 @@ def get_valid_ship_positions():
 
 def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
     settings = load_settings()
-    scale_factor = UI.SCREEN_HEIGHT / Const.ARENA_SIZE
+    scale_factor = Const.SCREEN_HEIGHT / Const.ARENA_SIZE
     game_objects = []
 
     # Create stars
@@ -70,7 +70,7 @@ def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
     game_objects.append(planet)
 
     # Create border
-    border_rect = pygame.Rect(0, 0, UI.SCREEN_HEIGHT, UI.SCREEN_HEIGHT)
+    border_rect = pygame.Rect(0, 0, Const.SCREEN_HEIGHT, Const.SCREEN_HEIGHT)
     border_color = (50, 50, 50)
 
     return {

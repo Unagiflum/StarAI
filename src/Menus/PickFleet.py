@@ -8,10 +8,10 @@ from src.Menus import PickShip
 from typing import Dict, Tuple
 
 # Display settings
-SELECTION_ICON_SIZE = (int(UI.SCREEN_WIDTH*0.075), int(UI.SCREEN_WIDTH*0.075))
-COST_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.03)
-TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.08)
-PLAYER_FONT_SIZE = int(UI.SCREEN_HEIGHT*0.03)
+SELECTION_ICON_SIZE = (int(Const.SCREEN_WIDTH*0.075), int(Const.SCREEN_WIDTH*0.075))
+COST_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.03)
+TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.08)
+PLAYER_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.03)
 
 
 def load_ships() -> Dict:
@@ -140,7 +140,7 @@ def run(screen: pygame.Surface):
     font = pygame.font.SysFont(None, COST_FONT_SIZE)
     title_font = pygame.font.SysFont(None, TITLE_FONT_SIZE)
     player_font = pygame.font.SysFont(None, PLAYER_FONT_SIZE)
-    background = UI.load_background(Const.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    background = UI.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
     # Load ships data and sprites
     ships_data = load_ships()
@@ -150,13 +150,13 @@ def run(screen: pygame.Surface):
 
     # Create UI components
 
-    left_column_start =  int(0.033*UI.SCREEN_WIDTH)
-    top_button_start = int(0.1*UI.SCREEN_HEIGHT)
-    AI_toggle_width = int(0.075*UI.SCREEN_WIDTH)
-    top_button_height = int(0.0375*UI.SCREEN_HEIGHT)
+    left_column_start =  int(0.033*Const.SCREEN_WIDTH)
+    top_button_start = int(0.1*Const.SCREEN_HEIGHT)
+    AI_toggle_width = int(0.075*Const.SCREEN_WIDTH)
+    top_button_height = int(0.0375*Const.SCREEN_HEIGHT)
     each_button_width = int(0.5*(UI.SELECTION_WIDTH-AI_toggle_width-2*UI.button_spaceH))
 
-    right_column_start = int(UI.SCREEN_WIDTH//2+(0.016*UI.SCREEN_WIDTH))
+    right_column_start = int(Const.SCREEN_WIDTH//2+(0.016*Const.SCREEN_WIDTH))
 
     # Create AI toggle buttons
     left_ai_toggle = UIButton.ToggleButton(
@@ -310,7 +310,7 @@ def run(screen: pygame.Surface):
     )
 
     while running:
-        clock.tick(UI.FPS)
+        clock.tick(Const.FPS)
         mouse_pos = pygame.mouse.get_pos()
 
         for event in pygame.event.get():
@@ -378,7 +378,7 @@ def run(screen: pygame.Surface):
         else:
             screen.fill(UI.BG_COLOR)
 
-        UI.draw_title(screen, "Pick Fleets", TITLE_FONT_SIZE, int(0.05*UI.SCREEN_HEIGHT))
+        UI.draw_title(screen, "Pick Fleets", TITLE_FONT_SIZE, int(0.05*Const.SCREEN_HEIGHT))
 
         # Draw AI toggles
         left_ai_toggle.draw(screen, font)

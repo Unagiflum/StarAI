@@ -1,9 +1,9 @@
 import pygame
 import src.Const as Const
 
-SCREEN_HEIGHT = 960
-SCREEN_WIDTH = int(SCREEN_HEIGHT*1.3)
-FPS = 30
+SCREEN_HEIGHT = Const.SCREEN_HEIGHT
+SCREEN_WIDTH = Const.SCREEN_WIDTH
+FPS = Const.FPS
 
 button_spaceH = int(SCREEN_WIDTH * 0.005)
 button_spaceV = int(SCREEN_HEIGHT * 0.00625)

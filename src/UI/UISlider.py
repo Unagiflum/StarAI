@@ -1,10 +1,11 @@
 import pygame
 from . import UI
+import src.Const as Const
 
 class Slider:
     def __init__(self, x, y, width, min_val, max_val, start_val, label, is_int=False, step=1,
                  bg_color=UI.SLIDER_BG, hover_color=UI.SLIDER_BG_HI):
-        self.bg_rect_height = int(0.08 * UI.SCREEN_HEIGHT)
+        self.bg_rect_height = int(0.08 * Const.SCREEN_HEIGHT)
         self.rect = pygame.Rect(x, y, width, self.bg_rect_height)
         self.line_width = int(self.bg_rect_height/15)
         self.padding_x = int(self.bg_rect_height/5)

@@ -5,7 +5,7 @@ import sys
 from src.UI import UI, UIButton
 import src.Const as Const
 
-TITLE_FONT_SIZE = int(UI.SCREEN_HEIGHT*.08)
+TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT*.08)
 SETTINGS_FILE = Const.GAME_JSON_PATH
 
 def load_settings():
@@ -44,14 +44,14 @@ def save_settings(settings):
 def run(screen):
     """Run the Play Settings menu."""
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont(None, int(0.03*UI.SCREEN_HEIGHT))
+    font = pygame.font.SysFont(None, int(0.03*Const.SCREEN_HEIGHT))
     settings = load_settings()
-    background = UI.load_background(Const.MENU_BG_PATH, UI.SCREEN_WIDTH, UI.SCREEN_HEIGHT)
+    background = UI.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
     # Create key bindings
     key_bindings = []
-    start_y = int(0.25*UI.SCREEN_HEIGHT)
-    y_spacing = int(0.08*UI.SCREEN_HEIGHT)
+    start_y = int(0.25*Const.SCREEN_HEIGHT)
+    y_spacing = int(0.08*Const.SCREEN_HEIGHT)
 
     # Player 1 settings (left column)
     player1_labels = ["Player 1: Left", "Player 1: Right", "Player 1: Forward", "Player 1: Action 1",
@@ -59,10 +59,10 @@ def run(screen):
     for i, label in enumerate(player1_labels):
         key_bindings.append(
             UIButton.KeyBinding(
-                int(0.25*UI.SCREEN_WIDTH),
+                int(0.25*Const.SCREEN_WIDTH),
                 start_y + i * y_spacing,
-                int(0.2*UI.SCREEN_WIDTH),
-                int(0.05*UI.SCREEN_HEIGHT),
+                int(0.2*Const.SCREEN_WIDTH),
+                int(0.05*Const.SCREEN_HEIGHT),
                 label,
                 settings[label]
             )
@@ -74,10 +74,10 @@ def run(screen):
     for i, label in enumerate(player2_labels):
         key_bindings.append(
             UIButton.KeyBinding(
-                int(0.65*UI.SCREEN_WIDTH),
+                int(0.65*Const.SCREEN_WIDTH),
                 start_y + i * y_spacing,
-                int(0.2*UI.SCREEN_WIDTH),
-                int(0.05*UI.SCREEN_HEIGHT),
+                int(0.2*Const.SCREEN_WIDTH),
+                int(0.05*Const.SCREEN_HEIGHT),
                 label,
                 settings[label]
             )
@@ -121,7 +121,7 @@ def run(screen):
 
     running = True
     while running:
-        clock.tick(UI.FPS)
+        clock.tick(Const.FPS)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -144,7 +144,7 @@ def run(screen):
             screen.fill(UI.BG_COLOR)
 
         # Draw title
-        UI.draw_title(screen, "Game Settings", TITLE_FONT_SIZE, 0.1*UI.SCREEN_HEIGHT)
+        UI.draw_title(screen, "Game Settings", TITLE_FONT_SIZE, 0.1*Const.SCREEN_HEIGHT)
 
         # Draw key bindings
         for binding in key_bindings:

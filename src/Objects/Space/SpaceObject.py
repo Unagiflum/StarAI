@@ -1,6 +1,5 @@
 from src.Objects.Object import Object
 import src.Const as Const
-from src.UI import UI
 import pygame
 from pathlib import Path
 import json
@@ -55,8 +54,8 @@ class Planet(Object):
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-                if (-planet_size <= pos_x <= UI.SCREEN_HEIGHT + planet_size and
-                        -planet_size <= pos_y <= UI.SCREEN_HEIGHT + planet_size):
+                if (-planet_size <= pos_x <= Const.SCREEN_HEIGHT + planet_size and
+                        -planet_size <= pos_y <= Const.SCREEN_HEIGHT + planet_size):
                     screen.blit(scaled_image, (
                         pos_x - planet_size // 2,
                         pos_y - planet_size // 2
@@ -116,8 +115,8 @@ class Star(Object):
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-                if (-star_size <= pos_x <= UI.SCREEN_HEIGHT + star_size and
-                        -star_size <= pos_y <= UI.SCREEN_HEIGHT + star_size):
+                if (-star_size <= pos_x <= Const.SCREEN_HEIGHT + star_size and
+                        -star_size <= pos_y <= Const.SCREEN_HEIGHT + star_size):
                     screen.blit(scaled_image, (
                         pos_x - star_size // 2,
                         pos_y - star_size // 2

@@ -1,7 +1,6 @@
 import pygame
 import math
 import src.Const as Const
-from src.UI import UI
 
 class Object:
     def __init__(self, name, sprite_location, size, sprite_scale=1.0):
@@ -62,8 +61,8 @@ class ThrustMarker(Object):
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-                if (0 <= pos_x <= UI.SCREEN_HEIGHT and
-                        0 <= pos_y <= UI.SCREEN_HEIGHT):
+                if (0 <= pos_x <= Const.SCREEN_HEIGHT and
+                        0 <= pos_y <= Const.SCREEN_HEIGHT):
                     pygame.draw.circle(screen, self.get_color(), (pos_x, pos_y), 1.0 + 2.0*scale_factor)
 
 class MovableObject(Object):
