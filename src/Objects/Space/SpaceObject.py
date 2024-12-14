@@ -45,7 +45,7 @@ class Planet(Object):
 
     def draw(self, screen, scale_factor, translation):
         # Draw gravity range circle
-        range_color = (255, 255, 255, 16)  # Light blue, semi-transparent
+        range_color = (255, 255, 255, 8)  # Light blue, semi-transparent
         gravity_range_surface = pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA)
 
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
@@ -56,7 +56,7 @@ class Planet(Object):
             for dy in [-1, 0, 1]:
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
-                pygame.draw.circle(gravity_range_surface, range_color, (pos_x, pos_y), range_radius, int(15*scale_factor))
+                pygame.draw.circle(gravity_range_surface, range_color, (pos_x, pos_y), range_radius, Const.GRAVITY_RANGE)
 
         screen.blit(gravity_range_surface, (0, 0))
 

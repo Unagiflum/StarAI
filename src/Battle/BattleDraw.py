@@ -33,7 +33,7 @@ def calculate_view_parameters(game_objects):
     view_size = min(distance / 0.8, Const.ARENA_SIZE/2)  # 10% margin on each side
 
     # Calculate scale factor
-    scale_factor = min(1.0, Const.SCREEN_HEIGHT / view_size)
+    scale_factor = min(Const.MAX_ZOOM, Const.SCREEN_HEIGHT / view_size)
 
     # Calculate translation to center the view
     translation = [
