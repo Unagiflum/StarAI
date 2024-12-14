@@ -47,7 +47,7 @@ class Planet(Object):
         # Draw gravity range circle
 
         range_color = (255, 255, 255, 8)  # Light blue, semi-transparent
-        border_color = (255, 0, 0, 75)  # Red, semi-transparent
+        border_color = (255, 0, 0, 150)  # Red, semi-transparent
         gravity_range_surface = pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA)
 
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
@@ -62,13 +62,13 @@ class Planet(Object):
                 # pygame.draw.circle(gravity_range_surface, range_color, (pos_x, pos_y), range_radius, 0)
 
                 # Draw dashed outer circle
-                num_segments = 32
+                num_segments = 64
                 for i in range(0, num_segments, 2):
                     start_angle = i * (2 * math.pi / num_segments)
-                    end_angle = (i + 0.25) * (2 * math.pi / num_segments)
+                    end_angle = (i + 0.2) * (2 * math.pi / num_segments)
                     pygame.draw.arc(gravity_range_surface, border_color,
-                                    (pos_x - range_radius * 2, pos_y - range_radius * 2,
-                                     range_radius * 4, range_radius * 4), start_angle, end_angle, int(10*scale_factor))
+                                    (pos_x - range_radius, pos_y - range_radius,
+                                     range_radius * 2, range_radius * 2), start_angle, end_angle, int(20*scale_factor))
 
         screen.blit(gravity_range_surface, (0, 0))
 
