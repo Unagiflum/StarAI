@@ -5,7 +5,6 @@ from pathlib import Path
 import json
 import random
 
-
 class Planet(Object):
     def __init__(self):
         with open(Const.PLANETS_JSON_PATH, 'r') as f:
@@ -75,7 +74,6 @@ class Planet(Object):
                         pos_x - planet_size // 2,
                         pos_y - planet_size // 2
                     ))
-
 
 class Star(Object):
     def __init__(self):
