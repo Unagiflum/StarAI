@@ -47,7 +47,7 @@ class Planet(Object):
         # Draw gravity range circle
 
         range_color = (255, 255, 255, 8)  # Light blue, semi-transparent
-        border_color = (255, 0, 0, 50)  # Red, semi-transparent
+        border_color = (255, 0, 0, 75)  # Red, semi-transparent
         gravity_range_surface = pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA)
 
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
