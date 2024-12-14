@@ -34,7 +34,7 @@ class ThrustMarker(Object):
             size=[6, 6]
         )
         self.position = [x, y]
-        self.life = 20
+        self.life = 15
         self.can_collide = False
         self.can_expire = True
         self.expiration_timer = self.life
@@ -46,7 +46,7 @@ class ThrustMarker(Object):
     def get_color(self):
         fade_ratio = self.expiration_timer / 30
         start_color = (255, 255, 0)
-        end_color = (150, 0, 0)
+        end_color = (200, 0, 0)
         r = int(start_color[0] * fade_ratio + end_color[0] * (1 - fade_ratio))
         g = int(start_color[1] * fade_ratio + end_color[1] * (1 - fade_ratio))
         b = int(start_color[2] * fade_ratio + end_color[2] * (1 - fade_ratio))
@@ -63,7 +63,7 @@ class ThrustMarker(Object):
 
                 if (0 <= pos_x <= Const.SCREEN_HEIGHT and
                         0 <= pos_y <= Const.SCREEN_HEIGHT):
-                    pygame.draw.circle(screen, self.get_color(), (pos_x, pos_y), 1.0 + 2.0*scale_factor)
+                    pygame.draw.circle(screen, self.get_color(), (pos_x, pos_y), 1.0 + 3.0*scale_factor)
 
 class MovableObject(Object):
     def __init__(self, name, sprite_location, size, player, max_hp, start_hp, inertia, sprite_scale,
