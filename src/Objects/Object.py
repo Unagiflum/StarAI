@@ -46,7 +46,7 @@ class ThrustMarker(Object):
     def get_color(self):
         fade_ratio = self.expiration_timer / 30
         start_color = (255, 255, 0)
-        end_color = (200, 0, 0)
+        end_color = (100, 0, 0)
         r = int(start_color[0] * fade_ratio + end_color[0] * (1 - fade_ratio))
         g = int(start_color[1] * fade_ratio + end_color[1] * (1 - fade_ratio))
         b = int(start_color[2] * fade_ratio + end_color[2] * (1 - fade_ratio))
@@ -134,31 +134,35 @@ class MovableObject(Object):
 
     def update_physics(self):
         if self.can_move:
-
-            gravity_impulse = self.get_gravity()
-            acc0 = [gravity_impulse[0] + self.accumulated_impulses[0],
-                    gravity_impulse[1] + self.accumulated_impulses[1]]
-
-            self.position[0] = (self.position[0] + (self.velocity[0]
-                              + 0.5 * acc0[0]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
-            self.position[1] = (self.position[1] + (self.velocity[1]
-                              + 0.5 * acc0[1]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
-
-            gravity_impulse = self.get_gravity()
-            acc1 = [gravity_impulse[0] + self.accumulated_impulses[0],
-                    gravity_impulse[1] + self.accumulated_impulses[1]]
-
             if self.inertia:
+                gravity_impulse = self.get_gravity()
+                acc0 = [gravity_impulse[0] + self.accumulated_impulses[0],
+                        gravity_impulse[1] + self.accumulated_impulses[1]]
+
+                self.position[0] = (self.position[0] + (self.velocity[0]
+                                  + 0.5 * acc0[0]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
+                self.position[1] = (self.position[1] + (self.velocity[1]
+                                  + 0.5 * acc0[1]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
+
+                gravity_impulse = self.get_gravity()
+                acc1 = [gravity_impulse[0] + self.accumulated_impulses[0],
+                        gravity_impulse[1] + self.accumulated_impulses[1]]
                 self.velocity[0] += (acc0[0] +acc1[0]) * 0.5
                 self.velocity[1] += (acc0[1] +acc1[1]) * 0.5
+                speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
+                if speed > Const.SPEED_LIMIT:
+                    scale = Const.SPEED_LIMIT / speed
+                    self.velocity[0] *= scale
+                    self.velocity[1] *= scale
             else:
                 self.velocity = self.accumulated_impulses.copy()
-
-            speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
-            if speed > Const.SPEED_LIMIT:
-                scale = Const.SPEED_LIMIT / speed
-                self.velocity[0] *= scale
-                self.velocity[1] *= scale
+                speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
+                if speed > Const.SPEED_LIMIT:
+                    scale = Const.SPEED_LIMIT / speed
+                    self.velocity[0] *= scale
+                    self.velocity[1] *= scale
+                self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+                self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
 
             self.accumulated_impulses = [0.0, 0.0]
 

@@ -1,3 +1,4 @@
+import math
 from src.Objects.Object import Object
 import src.Const as Const
 import pygame
@@ -44,7 +45,9 @@ class Planet(Object):
 
     def draw(self, screen, scale_factor, translation):
         # Draw gravity range circle
+
         range_color = (255, 255, 255, 8)  # Light blue, semi-transparent
+        border_color = (255, 0, 0, 50)  # Red, semi-transparent
         gravity_range_surface = pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA)
 
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
@@ -55,9 +58,20 @@ class Planet(Object):
             for dy in [-1, 0, 1]:
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
-                pygame.draw.circle(gravity_range_surface, range_color, (pos_x, pos_y), range_radius, Const.GRAVITY_RANGE)
+                # Draw solid inner circle
+                # pygame.draw.circle(gravity_range_surface, range_color, (pos_x, pos_y), range_radius, 0)
+
+                # Draw dashed outer circle
+                num_segments = 32
+                for i in range(0, num_segments, 2):
+                    start_angle = i * (2 * math.pi / num_segments)
+                    end_angle = (i + 0.25) * (2 * math.pi / num_segments)
+                    pygame.draw.arc(gravity_range_surface, border_color,
+                                    (pos_x - range_radius * 2, pos_y - range_radius * 2,
+                                     range_radius * 4, range_radius * 4), start_angle, end_angle, int(10*scale_factor))
 
         screen.blit(gravity_range_surface, (0, 0))
+
 
         # Draw planet sprite
         scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)
