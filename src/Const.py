@@ -16,7 +16,7 @@ PLANET_POSITION = [ARENA_SIZE/2, ARENA_SIZE/2]
 SPEED_SCALE = 0.75
 TURN_WAIT_SCALE = 2
 THRUST_WAIT_SCALE = 2
-SPEED_LIMIT = 150*SPEED_SCALE
+SPEED_LIMIT = 100*SPEED_SCALE
 
 STAR_COUNT = int(ARENA_SIZE*ARENA_SIZE*0.00001)
 
@@ -33,7 +33,7 @@ PLANETS_JSON_PATH = Path("Objects/Space/planets.json")
 STARS_JSON_PATH = Path("Objects/Space/stars.json")
 
 BATTLE_MUSIC_PATH = Path("Battle/Resources/battle.ogg")
-BATTLE_MUSIC_VOLUME = 0.3
+BATTLE_MUSIC_VOLUME = 0.7
 
 MAIN_BG_PATH = Path("UI/Resources/Main.png")
 MENU_BG_PATH = Path("UI/Resources/Menu.png")

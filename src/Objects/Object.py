@@ -88,7 +88,6 @@ class MovableObject(Object):
 
         # Physics state
         self.velocity = [0.0, 0.0]
-        self.velocit0 = [0.0, 0.0]
         self.accumulated_impulses = [0.0, 0.0]
         self.heading = 0
         self.rotation = 0.0
@@ -135,15 +134,23 @@ class MovableObject(Object):
 
     def update_physics(self):
         if self.can_move:
-            self.velocit0[0] = self.velocity[0]
-            self.velocit0[1] = self.velocity[1]
 
             gravity_impulse = self.get_gravity()
-            self.add_impulse(gravity_impulse[0], gravity_impulse[1])
+            acc0 = [gravity_impulse[0] + self.accumulated_impulses[0],
+                    gravity_impulse[1] + self.accumulated_impulses[1]]
+
+            self.position[0] = (self.position[0] + (self.velocity[0]
+                              + 0.5 * acc0[0]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
+            self.position[1] = (self.position[1] + (self.velocity[1]
+                              + 0.5 * acc0[1]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
+
+            gravity_impulse = self.get_gravity()
+            acc1 = [gravity_impulse[0] + self.accumulated_impulses[0],
+                    gravity_impulse[1] + self.accumulated_impulses[1]]
 
             if self.inertia:
-                self.velocity[0] += self.accumulated_impulses[0]
-                self.velocity[1] += self.accumulated_impulses[1]
+                self.velocity[0] += (acc0[0] +acc1[0]) * 0.5
+                self.velocity[1] += (acc0[1] +acc1[1]) * 0.5
             else:
                 self.velocity = self.accumulated_impulses.copy()
 
@@ -154,10 +161,7 @@ class MovableObject(Object):
                 self.velocity[1] *= scale
 
             self.accumulated_impulses = [0.0, 0.0]
-            self.position[0] = (self.position[0] + Const.SPEED_SCALE * 0.5 * (
-                    self.velocit0[0] + self.velocity[0])) % Const.ARENA_SIZE
-            self.position[1] = (self.position[1] + Const.SPEED_SCALE * 0.5 * (
-                    self.velocit0[1] + self.velocity[1])) % Const.ARENA_SIZE
+
 
     def can_thrust(self):
         return self.thrust_timer == 0
