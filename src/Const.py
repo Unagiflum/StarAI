@@ -2,30 +2,31 @@
 import pygame
 from pathlib import Path
 
+# Screen
 SCREEN_HEIGHT = 960
 SCREEN_WIDTH = int(SCREEN_HEIGHT*1.3)
 FPS = 30
 
+#Arena
 ARENA_SIZE = 8000
 MIN_SHIP_SEPARATION = ARENA_SIZE // 4
 CENTER_BUFFER = ARENA_SIZE // 4
 PLANET_POSITION = [ARENA_SIZE/2, ARENA_SIZE/2]
 MAX_ZOOM = 0.8
+STAR_COUNT = int(ARENA_SIZE*ARENA_SIZE*0.000005)
+STAR_WEIGHTS = [45,45,10,0,0] # Smallest to largest
+PLANET_WEIGHTS = [25,25,25,25] # Gas, Ice, Life, Rocky
+STAR_ALPHA = 128
 
+#Game Physics
 GRAVITY_MULTIPLIER = 1.0
 GRAVITY_RANGE = CENTER_BUFFER // 2
-
 SPEED_SCALE = 0.75
 TURN_WAIT_SCALE = 2
 THRUST_WAIT_SCALE = 2
 SPEED_LIMIT = 100*SPEED_SCALE
 
-STAR_COUNT = int(ARENA_SIZE*ARENA_SIZE*0.000005)
-
-STAR_WEIGHTS = [45,45,10,0,0] # Smallest to largest
-PLANET_WEIGHTS = [25,25,25,25] # Gas, Ice, Life, Rocky
-STAR_ALPHA = 128
-
+#File Paths
 GAME_JSON_PATH = Path("Config/Gamesettings.json")
 TRAINING_JSON_PATH = Path("Config/Trainingsettings.json")
 FLEETS_JSON_PATH = Path("Config/Fleets.json") #os.path.join("Config","Fleets.json")
@@ -41,6 +42,7 @@ MAIN_BG_PATH = Path("UI/Resources/Main.png")
 MENU_BG_PATH = Path("UI/Resources/Menu.png")
 MENU_WAV_PATH = Path("UI/Resources/Menu.wav")
 
+# Default settings
 DEFAULT_KEYS = {
     "Player 1: Left": pygame.K_a,
     "Player 1: Right": pygame.K_d,

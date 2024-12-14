@@ -1,23 +1,19 @@
 import pygame
 import src.Const as Const
 
-SCREEN_HEIGHT = Const.SCREEN_HEIGHT
-SCREEN_WIDTH = Const.SCREEN_WIDTH
-FPS = Const.FPS
+button_spaceH = int(Const.SCREEN_WIDTH * 0.005)
+button_spaceV = int(Const.SCREEN_HEIGHT * 0.00625)
 
-button_spaceH = int(SCREEN_WIDTH * 0.005)
-button_spaceV = int(SCREEN_HEIGHT * 0.00625)
+ok_button_width = int(0.150 * Const.SCREEN_WIDTH)
+ok_button_height = int(0.05 * Const.SCREEN_HEIGHT)
+ok_button_left = Const.SCREEN_WIDTH // 2 - ok_button_width - int(0.0167*Const.SCREEN_WIDTH)
+can_button_left = Const.SCREEN_WIDTH // 2 + int(0.0167*Const.SCREEN_WIDTH)
+ok_button_top = Const.SCREEN_HEIGHT-ok_button_height-button_spaceV*4
 
-ok_button_width = int(0.150 * SCREEN_WIDTH)
-ok_button_height = int(0.05 * SCREEN_HEIGHT)
-ok_button_left = SCREEN_WIDTH // 2 - ok_button_width - int(0.0167*SCREEN_WIDTH)
-can_button_left = SCREEN_WIDTH // 2 + int(0.0167*SCREEN_WIDTH)
-ok_button_top = SCREEN_HEIGHT-ok_button_height-button_spaceV*4
-
-FLEET_ICON_SIZE = (int(SCREEN_WIDTH*0.060), int(SCREEN_WIDTH*0.060))
-SELECTION_WIDTH = int(0.45 * SCREEN_WIDTH)
-SELECTION_HEIGHT = int(.35 * SCREEN_HEIGHT)
-FLEET_HEIGHT = int(.40 * SCREEN_HEIGHT)
+FLEET_ICON_SIZE = (int(Const.SCREEN_WIDTH*0.060), int(Const.SCREEN_WIDTH*0.060))
+SELECTION_WIDTH = int(0.45 * Const.SCREEN_WIDTH)
+SELECTION_HEIGHT = int(.35 * Const.SCREEN_HEIGHT)
+FLEET_HEIGHT = int(.40 * Const.SCREEN_HEIGHT)
 
 # Colors
 WHITE = (255, 255, 255)
