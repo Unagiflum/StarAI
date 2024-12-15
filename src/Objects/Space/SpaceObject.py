@@ -219,6 +219,27 @@ class Asteroid(Object):
             x = random.randint(0, Const.ARENA_SIZE)
             y = random.randint(0, Const.ARENA_SIZE)
 
+            # Calculate view center (midpoint between ships)
+            p1_pos, p2_pos = ship_positions
+            dx = p2_pos[0] - p1_pos[0]
+            dy = p2_pos[1] - p1_pos[1]
+
+            if abs(dx) > Const.ARENA_SIZE / 2:
+                dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
+            if abs(dy) > Const.ARENA_SIZE / 2:
+                dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+
+            view_center_x = (p1_pos[0] + dx / 2) % Const.ARENA_SIZE
+            view_center_y = (p1_pos[1] + dy / 2) % Const.ARENA_SIZE
+
+            # Check if asteroid is within view
+            dx = abs(x - view_center_x)
+            dy = abs(y - view_center_y)
+            dx = min(dx, Const.ARENA_SIZE - dx)
+            dy = min(dy, Const.ARENA_SIZE - dy)
+            if dx <= Const.ARENA_SIZE / 4 and dy <= Const.ARENA_SIZE / 4:
+                continue
+
             # Check planet distance
             dx = x - planet_pos[0]
             dy = y - planet_pos[1]
@@ -245,7 +266,7 @@ class Asteroid(Object):
                 dy = abs(y - ast_pos[1])
                 dx = min(dx, Const.ARENA_SIZE - dx)
                 dy = min(dy, Const.ARENA_SIZE - dy)
-                if math.sqrt(dx * dx + dy * dy) < self.size[0]+self.size[1]:
+                if math.sqrt(dx * dx + dy * dy) < self.size[0] + self.size[1]:
                     too_close = True
                     break
 
