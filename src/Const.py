@@ -30,7 +30,7 @@ PLANET_WEIGHTS = [25,25,25,25] # Gas, Ice, Life, Rocky
 STAR_ALPHA = 200
 
 #Asteroids
-ASTEROID_COUNT = 100
+ASTEROID_COUNT = 10
 ASTEROID_PATH = Path("Objects/Space/Asteroid")
 ASTEROID_V = 30
 

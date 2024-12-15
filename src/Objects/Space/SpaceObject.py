@@ -178,19 +178,32 @@ class Star(Object):
 
 
 class Asteroid(Object):
+    shared_sprites = None
+    shared_death_animation = None
+
     def __init__(self):
         super().__init__(
             name="Asteroid",
             sprite_location=None,
             size=[0, 0]
         )
-        self.sprites = [pygame.image.load(str(Const.ASTEROID_PATH / f"asteroid{i:02d}.png")).convert_alpha()
-                       for i in range(30)]
+        # Load shared sprites if not already loaded
+        if Asteroid.shared_sprites is None:
+            Asteroid.shared_sprites = [
+                pygame.image.load(str(Const.ASTEROID_PATH / f"asteroid{i:02d}.png")).convert_alpha()
+                for i in range(30)]
+
+        # Load shared death animation if not already loaded
+        if Asteroid.shared_death_animation is None:
+            Asteroid.shared_death_animation = [
+                pygame.image.load(str(Const.ASTEROID_PATH / f"asteroiddie{i:02d}.png")).convert_alpha()
+                for i in range(4)]
+
+        self.sprites = Asteroid.shared_sprites
+        self.death_animation = Asteroid.shared_death_animation
+
         self.current_sprite = random.randint(0, 29)
         self.size = [self.sprites[self.current_sprite].get_width(), self.sprites[self.current_sprite].get_height()]
-
-        self.death_animation = [pygame.image.load(str(Const.ASTEROID_PATH / f"asteroiddie{i:02d}.png")).convert_alpha()
-                       for i in range(4)]
 
         self.rotation_delay = 2
         self.rotation_timer = 0
