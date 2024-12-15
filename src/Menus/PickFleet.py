@@ -378,7 +378,7 @@ def run(screen: pygame.Surface):
         else:
             screen.fill(UI.BG_COLOR)
 
-        UI.draw_title(screen, "Pick Fleets", TITLE_FONT_SIZE, int(0.05*Const.SCREEN_HEIGHT))
+        UI.draw_title(screen, "Players: Pick your Fleets", TITLE_FONT_SIZE, int(0.05*Const.SCREEN_HEIGHT))
 
         # Draw AI toggles
         left_ai_toggle.draw(screen, font)
