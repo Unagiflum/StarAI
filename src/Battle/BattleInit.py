@@ -5,7 +5,7 @@ import math
 
 from src.UI import UI
 import src.Const as Const
-from src.Objects.Space.SpaceObject import Planet, Star
+from src.Objects.Space.SpaceObject import Planet, Star, Asteroid
 from src.Objects.Ships.SpaceShip import SpaceShip
 
 
@@ -67,6 +67,15 @@ def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
     # Create planet
     planet = Planet.create_center()
     game_objects.append(planet)
+
+    asteroid_positions = []
+    for _ in range(Const.ASTEROID_COUNT):
+        asteroid = Asteroid()
+        asteroid.set_planet(planet)
+        pos = asteroid.get_valid_asteroid_position(planet.position, [pos1, pos2], asteroid_positions)
+        asteroid.position = pos
+        asteroid_positions.append(pos)
+        game_objects.append(asteroid)
 
     player1.set_planet(planet)
     player2.set_planet(planet)

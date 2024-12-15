@@ -2,7 +2,7 @@ import pygame
 from src.UI import UI
 from src.Objects.Object import ThrustMarker
 from src.Objects.Ships.SpaceShip import SpaceShip
-from src.Objects.Space.SpaceObject import Planet, Star
+from src.Objects.Space.SpaceObject import Star, Planet, Asteroid
 import src.Const as Const
 
 def calculate_view_parameters(game_objects):
@@ -68,9 +68,15 @@ def draw_battle(screen, game_objects, border_rect, border_color):
     for obj in game_objects:
         if isinstance(obj, Planet):
             obj.draw(screen, scale_factor, translation)
+
     for obj in game_objects:
         if isinstance(obj, ThrustMarker):
             obj.draw(screen, scale_factor, translation)
+
+    for obj in game_objects:
+        if isinstance(obj, Asteroid):
+            obj.draw(screen, scale_factor, translation)
+
     for obj in game_objects:
         if isinstance(obj, SpaceShip):
             obj.draw(screen, scale_factor, translation)
