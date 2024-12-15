@@ -29,12 +29,6 @@ class SpaceShip(MovableObject):
             mass=ship_data['Mass']
         )
 
-        # Load sprites
-        #self.sprites = []
-        #for i in range(16):
-        #    sprite_path = self.sprite_location.joinpath(f'{self.name}{i:02d}.png')
-        #    self.sprites.append(pygame.image.load(str(sprite_path)).convert_alpha())
-
         # Ship-specific attributes
         self.ship_type = ship_data['ShipType']
         self.cost = ship_data['Cost']
