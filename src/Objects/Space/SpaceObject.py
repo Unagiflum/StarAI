@@ -305,7 +305,7 @@ class Asteroid(Object):
             self.image = self.sprites[self.current_sprite]
 
         scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)
-        size = scaled_image.get_width()
+        size = [scaled_image.get_width(),scaled_image.get_height()]
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_y = int((self.position[1] + translation[1]) * scale_factor)
 
@@ -314,9 +314,9 @@ class Asteroid(Object):
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-                if (-size <= pos_x <= Const.SCREEN_HEIGHT + size and
-                        -size <= pos_y <= Const.SCREEN_HEIGHT + size):
+                if (-size[0] <= pos_x <= Const.SCREEN_HEIGHT + size[0] and
+                        -size[1] <= pos_y <= Const.SCREEN_HEIGHT + size[1]):
                     screen.blit(scaled_image, (
-                        pos_x - size // 2,
-                        pos_y - size // 2
+                        pos_x - size[0] // 2,
+                        pos_y - size[1] // 2
                     ))
