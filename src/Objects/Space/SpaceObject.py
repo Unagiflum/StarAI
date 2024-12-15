@@ -262,7 +262,7 @@ class Asteroid(Object):
             # Check planet distance
             dx = x - planet_pos[0]
             dy = y - planet_pos[1]
-            if math.sqrt(dx * dx + dy * dy) < Const.CENTER_BUFFER+self.size[0]+self.size[1]:
+            if math.sqrt(dx * dx + dy * dy) < Const.CENTER_BUFFER+max(self.size[0],self.size[1]):
                 continue
 
             too_close = False
@@ -273,7 +273,7 @@ class Asteroid(Object):
                 dy = abs(y - ast_pos[1])
                 dx = min(dx, Const.ARENA_SIZE - dx)
                 dy = min(dy, Const.ARENA_SIZE - dy)
-                if math.sqrt(dx * dx + dy * dy) < self.size[0] + self.size[1]:
+                if math.sqrt(dx * dx + dy * dy) < max(self.size[0],self.size[1]):
                     too_close = True
                     break
 
