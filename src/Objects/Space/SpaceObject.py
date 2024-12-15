@@ -199,7 +199,13 @@ class Asteroid(Object):
                 pygame.image.load(str(Const.ASTEROID_PATH / f"asteroiddie{i:02d}.png")).convert_alpha()
                 for i in range(4)]
 
-        self.sprites = Asteroid.shared_sprites
+        # Randomly rotate sprites for this instance
+        if random.random() < 1.0:
+            sprite_rot = random.random()*360
+            self.sprites = [pygame.transform.rotate(sprite, sprite_rot) for sprite in Asteroid.shared_sprites]
+        else:
+            self.sprites = Asteroid.shared_sprites
+
         self.death_animation = Asteroid.shared_death_animation
 
         self.current_sprite = random.randint(0, 29)
@@ -256,22 +262,10 @@ class Asteroid(Object):
             # Check planet distance
             dx = x - planet_pos[0]
             dy = y - planet_pos[1]
-            if math.sqrt(dx * dx + dy * dy) < planet_pos[1]:
+            if math.sqrt(dx * dx + dy * dy) < Const.CENTER_BUFFER+self.size[0]+self.size[1]:
                 continue
 
-            # Check ship distances
             too_close = False
-            for ship_pos in ship_positions:
-                dx = abs(x - ship_pos[0])
-                dy = abs(y - ship_pos[1])
-                dx = min(dx, Const.ARENA_SIZE - dx)
-                dy = min(dy, Const.ARENA_SIZE - dy)
-                if math.sqrt(dx * dx + dy * dy) < Const.MIN_SHIP_SEPARATION / 2:
-                    too_close = True
-                    break
-
-            if too_close:
-                continue
 
             # Check other asteroid distances
             for ast_pos in existing_asteroid_positions:
