@@ -34,7 +34,7 @@ class ThrustMarker(Object):
             size=[6, 6]
         )
         self.position = [x, y]
-        self.life = 15
+        self.life = Const.FPS/2
         self.can_collide = False
         self.can_expire = True
         self.expiration_timer = self.life
