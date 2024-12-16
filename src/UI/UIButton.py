@@ -45,8 +45,8 @@ class ToggleButton(Button):
         self.is_on = initial_state
         self.active_color = (*active_color, 255) if len(active_color) == 3 else active_color
 
-        self.switch_width = int(0.02 * Const.SCREEN_WIDTH)
-        self.switch_height = int(0.02 * Const.SCREEN_WIDTH)
+        self.switch_width = int(0.025 * Const.SCREEN_HEIGHT)
+        self.switch_height = int(0.025 * Const.SCREEN_HEIGHT)
         self.switch_rect = pygame.Rect(
             self.rect.right - self.switch_width - int(0.005 * Const.SCREEN_WIDTH),
             self.rect.y + int(0.005 * Const.SCREEN_WIDTH),
