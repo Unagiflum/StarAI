@@ -2,6 +2,7 @@ import pygame
 import sys
 import json
 import os
+
 from src.UI import UI, UIButton, UIBox
 import src.Const as Const
 from src.Menus import PickShip
@@ -9,6 +10,7 @@ from typing import Dict, Tuple
 
 # Display settings
 SELECTION_ICON_SIZE = Const.SELECTION_ICON_SIZE
+FLEET_ICON_SIZE = Const.FLEET_ICON_SIZE
 COST_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.03)
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.08)
 PLAYER_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.03)
@@ -51,7 +53,7 @@ def create_sprite_sets(ships_data: Dict) -> Tuple[Dict[str, pygame.Surface], Dic
     """Create selection and fleet sprites from a single load."""
     original_sprites = load_ship_sprites(ships_data)
     selection_sprites = scale_sprites(original_sprites, SELECTION_ICON_SIZE[0], ships_data)
-    fleet_sprites = scale_sprites(original_sprites, Const.FLEET_ICON_SIZE[0], ships_data)
+    fleet_sprites = scale_sprites(original_sprites, FLEET_ICON_SIZE[0], ships_data)
     return selection_sprites, fleet_sprites
 
 def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int, ships_data: Dict) -> Dict[str, pygame.Surface]:
@@ -247,7 +249,7 @@ def run(screen: pygame.Surface):
         UI.SELECTION_WIDTH,
         UI.FLEET_HEIGHT,
         "Player 1 Fleet",
-        Const.FLEET_ICON_SIZE
+        FLEET_ICON_SIZE
     )
     right_fleet = UIBox.Fleet(
         right_column_start,
@@ -255,7 +257,7 @@ def run(screen: pygame.Surface):
         UI.SELECTION_WIDTH,
         UI.FLEET_HEIGHT,
         "Player 2 Fleet",
-        Const.FLEET_ICON_SIZE
+        FLEET_ICON_SIZE
     )
 
     # Add ships to selection lists
