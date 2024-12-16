@@ -1,5 +1,6 @@
-from src.Objects.Object import MovableObject
+from src.Objects.Object import MovableObject, ThrustMarker
 import src.Const as Const
+import math
 import pygame
 import json
 from pathlib import Path
@@ -64,6 +65,123 @@ class SpaceShip(MovableObject):
         self.thrust_timer = 0
         self.turn_timer = 0
         self.in_battle = True
+    def add_impulse(self, dx, dy):
+        if self.can_move:
+            self.accumulated_impulses[0] += dx
+            self.accumulated_impulses[1] += dy
+
+    def update(self):
+        self.update_physics()
+        return True
+
+    def update_physics(self):
+        if self.can_move:
+            if self.inertia:
+                gravity_impulse = self.get_gravity()
+                acc0 = [gravity_impulse[0] + self.accumulated_impulses[0],
+                        gravity_impulse[1] + self.accumulated_impulses[1]]
+
+                self.position[0] = (self.position[0] + (self.velocity[0]
+                                  + 0.5 * acc0[0]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
+                self.position[1] = (self.position[1] + (self.velocity[1]
+                                  + 0.5 * acc0[1]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
+
+                gravity_impulse = self.get_gravity()
+                acc1 = [gravity_impulse[0] + self.accumulated_impulses[0],
+                        gravity_impulse[1] + self.accumulated_impulses[1]]
+                self.velocity[0] += (acc0[0] +acc1[0]) * 0.5
+                self.velocity[1] += (acc0[1] +acc1[1]) * 0.5
+                speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
+                if speed > Const.SPEED_LIMIT:
+                    scale = Const.SPEED_LIMIT / speed
+                    self.velocity[0] *= scale
+                    self.velocity[1] *= scale
+            else:
+                self.velocity = self.accumulated_impulses.copy()
+
+                speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
+                if speed > Const.SPEED_LIMIT:
+                    scale = Const.SPEED_LIMIT / speed
+                    self.velocity[0] *= scale
+                    self.velocity[1] *= scale
+
+                self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+                self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+
+            self.accumulated_impulses = [0.0, 0.0]
+
+
+    def can_thrust(self):
+        return self.thrust_timer == 0
+
+    def can_turn(self):
+        return self.turn_timer == 0
+
+    def update_timers(self, forward_pressed: bool):
+        if self.thrust_timer > 0:
+            self.thrust_timer -= 1
+        if self.turn_timer > 0:
+            self.turn_timer -= 1
+        if not self.inertia and self.thrust_timer == 0 and not forward_pressed:
+            self.velocity = [0.0, 0.0]
+
+    def apply_thrust(self):
+        if self.can_thrust():
+            angle_rad = math.radians(self.rotation)
+            thrust_direction = [math.sin(angle_rad), -math.cos(angle_rad)]
+
+            if self.inertia:
+                new_velocity = [
+                    self.velocity[0] + thrust_direction[0] * self.thrust_increment,
+                    self.velocity[1] + thrust_direction[1] * self.thrust_increment
+                ]
+
+                speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
+                scale = 1.0
+
+                _, distance = self.planet_distance()
+                if speed > self.max_thrust and distance > Const.GRAVITY_RANGE:
+                    scale = self.max_thrust / speed
+
+                target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
+
+                diff_vector = [target_velocity[0] - self.velocity[0], target_velocity[1] - self.velocity[1]]
+
+                diff_magnitude = math.sqrt(diff_vector[0] ** 2 + diff_vector[1] ** 2)
+                if diff_magnitude > 0:
+                    scale = self.thrust_increment / diff_magnitude
+                    self.add_impulse(diff_vector[0] * scale, diff_vector[1] * scale)
+            else:
+                self.add_impulse(
+                    thrust_direction[0] * self.max_thrust,
+                    thrust_direction[1] * self.max_thrust
+                )
+
+            self.thrust_timer = int(self.thrust_wait * Const.THRUST_WAIT_SCALE)
+            marker_x, marker_y = self.get_thrust_marker_position()
+            marker = ThrustMarker(marker_x, marker_y)
+            return marker
+
+        return None
+
+    def get_thrust_marker_position(self):
+        angle_rad = math.radians(self.rotation)
+        offset = (self.size[1] / 2) + 6
+        marker_x = self.position[0] - math.sin(angle_rad) * offset
+        marker_y = self.position[1] + math.cos(angle_rad) * offset
+        return marker_x, marker_y
+
+    def turn_left(self):
+        if self.can_turn():
+            self.heading = (self.heading - 1) % 16
+            self.rotation = self.heading * 22.5
+            self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
+
+    def turn_right(self):
+        if self.can_turn():
+            self.heading = (self.heading + 1) % 16
+            self.rotation = self.heading * 22.5
+            self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
 
     def perform_action1(self):
         if self.ship_module and hasattr(self.ship_module, 'action1'):
