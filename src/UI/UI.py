@@ -10,7 +10,6 @@ ok_button_left = Const.SCREEN_WIDTH // 2 - ok_button_width - int(0.0167*Const.SC
 can_button_left = Const.SCREEN_WIDTH // 2 + int(0.0167*Const.SCREEN_WIDTH)
 ok_button_top = Const.SCREEN_HEIGHT-ok_button_height-button_spaceV*4
 
-FLEET_ICON_SIZE = (int(Const.SCREEN_WIDTH*0.060), int(Const.SCREEN_WIDTH*0.060))
 SELECTION_WIDTH = int(0.45 * Const.SCREEN_WIDTH)
 SELECTION_HEIGHT = int(.35 * Const.SCREEN_HEIGHT)
 FLEET_HEIGHT = int(.40 * Const.SCREEN_HEIGHT)
