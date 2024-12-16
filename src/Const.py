@@ -4,7 +4,7 @@ from pathlib import Path
 
 # Screen
 SCREEN_HEIGHT = 960
-SCREEN_WIDTH = int(SCREEN_HEIGHT*1.3)
+SCREEN_WIDTH = int(SCREEN_HEIGHT*1.6)
 SCREEN_LEFT = int((SCREEN_WIDTH - SCREEN_HEIGHT)/2)
 FPS = 30
 
@@ -31,14 +31,14 @@ PLANET_WEIGHTS = [25,25,25,25] # Gas, Ice, Life, Rocky
 STAR_ALPHA = 200
 
 #Asteroids
-ASTEROID_COUNT = 25 # Asteroid placing function will get stuck if you have too many
+ASTEROID_COUNT = 250 # Asteroid placing function will get stuck if you have too many
 ASTEROID_PATH = Path("Objects/Space/Asteroid")
 ASTEROID_V = 30
 
 #Ships
 SHIP_DIRECTIONS = 16
-FLEET_ICON_SIZE = (int(SCREEN_WIDTH*0.060), int(SCREEN_WIDTH*0.060))
-SELECTION_ICON_SIZE = (int(SCREEN_WIDTH*0.075), int(SCREEN_WIDTH*0.075))
+FLEET_ICON_SIZE = (int(SCREEN_HEIGHT*0.078), int(SCREEN_HEIGHT*0.078))
+SELECTION_ICON_SIZE = (int(SCREEN_HEIGHT*0.09755), int(SCREEN_HEIGHT*0.0975))
 
 #File Paths
 GAME_JSON_PATH = Path("Config/Gamesettings.json")

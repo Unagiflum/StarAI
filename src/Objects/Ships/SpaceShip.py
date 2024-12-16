@@ -102,6 +102,6 @@ class SpaceShip(MovableObject):
                 if (0 <= pos_x <= Const.SCREEN_HEIGHT and
                         0 <= pos_y <= Const.SCREEN_HEIGHT):
                     screen.blit(scaled_sprite, (
-                        pos_x - scaled_rect.width // 2,
+                        Const.SCREEN_LEFT +  pos_x - scaled_rect.width // 2,
                         pos_y - scaled_rect.height // 2
                     ))

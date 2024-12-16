@@ -67,7 +67,7 @@ class Planet(Object):
                     start_angle = i * (2 * math.pi / num_segments)
                     end_angle = (i + 0.2) * (2 * math.pi / num_segments)
                     pygame.draw.arc(gravity_range_surface, border_color,
-                                    (pos_x - range_radius, pos_y - range_radius,
+                                    (Const.SCREEN_LEFT+pos_x - range_radius, pos_y - range_radius,
                                      range_radius * 2, range_radius * 2), start_angle, end_angle, int(20*scale_factor))
 
         screen.blit(gravity_range_surface, (0, 0))
@@ -85,7 +85,7 @@ class Planet(Object):
                 if (-planet_size <= pos_x <= Const.SCREEN_HEIGHT + planet_size and
                         -planet_size <= pos_y <= Const.SCREEN_HEIGHT + planet_size):
                     screen.blit(scaled_image, (
-                        pos_x - planet_size // 2,
+                        Const.SCREEN_LEFT + pos_x - planet_size // 2,
                         pos_y - planet_size // 2
                     ))
 
@@ -169,7 +169,7 @@ class Star(Object):
                     if (-star_size <= pos_x <= Const.SCREEN_HEIGHT + star_size and
                             -star_size <= pos_y <= Const.SCREEN_HEIGHT + star_size):
                         surface.blit(scaled_image, (
-                            pos_x - star_size // 2,
+                            Const.SCREEN_LEFT + pos_x - star_size // 2,
                             pos_y - star_size // 2
                         ))
 
@@ -345,6 +345,6 @@ class Asteroid(Object):
                 if (-size[0] <= pos_x <= Const.SCREEN_HEIGHT + size[0] and
                         -size[1] <= pos_y <= Const.SCREEN_HEIGHT + size[1]):
                     screen.blit(scaled_image, (
-                        pos_x - size[0] // 2,
+                        Const.SCREEN_LEFT + pos_x - size[0] // 2,
                         pos_y - size[1] // 2
                     ))

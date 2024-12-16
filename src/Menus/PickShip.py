@@ -175,6 +175,7 @@ def run(screen):
                        "sprite": None,
                        "ship_obj": None,
                        "index": None}
+
     def pick_random_left():
         alive_ships = [(i, ship) for i, ship in enumerate(player1_ships) if ship.currently_alive]
         if alive_ships:
