@@ -7,51 +7,61 @@ from pathlib import Path
 
 class SpaceShip(PlayerObject):
     def __init__(self, ship_name, player_num):
-        self.name = ship_name
+        # Load ship-specific data from Ships.json
         with open(Const.SHIPS_JSON_PATH, 'r') as f:
             ships_data = json.load(f)
             ship_data = ships_data[ship_name]
 
         sprite_location = Path(ship_data['SpriteLocation'])
 
+        # Initialize the PlayerObject base class
         super().__init__(
             name=ship_name,
             sprite_location=sprite_location,
             size=[ship_data['Size']['width'], ship_data['Size']['height']],
             player=player_num,
-            max_hp=ship_data['MaxHP'],
-            start_hp=ship_data['StartHP'],
-            inertia=ship_data['Inertia'],
-            sprite_scale=ship_data['SpriteScale'],
-            max_thrust=ship_data['MaxThrust'],
-            thrust_increment=ship_data['ThrustIncrement'],
-            thrust_wait=ship_data['ThrustWait'],
-            turn_wait=ship_data['TurnWait'],
-            mass=ship_data['Mass']
+            sprite_scale=ship_data['SpriteScale']
         )
 
         # Ship-specific attributes
         self.ship_type = ship_data['ShipType']
         self.cost = ship_data['Cost']
+        self.max_hp = ship_data['MaxHP']
+        self.start_hp = ship_data['StartHP']
         self.max_energy = ship_data['MaxEnergy']
         self.start_energy = ship_data['StartEnergy']
         self.energy_regen = ship_data['EnergyRegen']
         self.energy_wait = ship_data['EnergyWait']
+        self.max_thrust = ship_data['MaxThrust']
+        self.thrust_increment = ship_data['ThrustIncrement']
+        self.thrust_wait = ship_data['ThrustWait']
+        self.turn_wait = ship_data['TurnWait']
+        self.a1_cost = ship_data['A1Cost']
+        self.a2_cost = ship_data['A3Cost']
+        self.a3_cost = ship_data['A3Cost']
+        self.a1_wait = ship_data['A3Wait']
+        self.a2_wait = ship_data['A3Wait']
+        self.a3_wait = ship_data['A3Wait']
+        self.mass = ship_data['Mass']
+        self.inertia = ship_data['Inertia']
 
-        # Ship state variables
-        self.current_energy = self.start_energy
+        self.current_hp = ship_data['StartHP']
+        self.current_energy = ship_data['StartEnergy']
         self.energy_timer = 0
         self.action1_timer = 0
         self.action2_timer = 0
         self.action3_timer = 0
+
         self.status1 = False
         self.status2 = False
         self.status3 = False
         self.status4 = 0
         self.status5 = 0
         self.status6 = 0
+
         self.can_die = True
 
+        # Load optional ship module
         try:
             self.ship_module = __import__(f"Objects.Ships.{ship_name}.{ship_name}", fromlist=[''])
         except ImportError:

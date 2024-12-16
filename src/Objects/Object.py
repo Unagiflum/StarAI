@@ -66,31 +66,18 @@ class ThrustMarker(Object):
                     pygame.draw.circle(screen, self.get_color(), (Const.SCREEN_LEFT + pos_x, pos_y), 1.0 + 3.0*scale_factor)
 
 class PlayerObject(Object):
-    def __init__(self, name, sprite_location, size, player, max_hp, start_hp, inertia, sprite_scale,
-                 max_thrust, thrust_increment, thrust_wait, turn_wait, mass):
+    def __init__(self, name, sprite_location, size, player, sprite_scale):
         super().__init__(name, sprite_location, size, sprite_scale)
 
-
-        # Player attributes
+        # Player-specific attributes
         self.player = player
-        self.max_hp = max_hp
-        self.start_hp = start_hp
-        self.current_hp = start_hp
 
-        # Movement properties
-        self.inertia = inertia
-        self.mass = mass
-        self.max_thrust = max_thrust
-        self.thrust_increment = thrust_increment
-        self.thrust_wait = thrust_wait
-        self.turn_wait = turn_wait
-        self.can_move = True
-
-        # Physics state
+        # Movement and physics state
         self.velocity = [0.0, 0.0]
         self.accumulated_impulses = [0.0, 0.0]
         self.heading = 0
         self.rotation = 0.0
+        self.can_move = True
 
         # Timers
         self.thrust_timer = 0
