@@ -5,6 +5,7 @@ from pathlib import Path
 # Screen
 SCREEN_HEIGHT = 960
 SCREEN_WIDTH = int(SCREEN_HEIGHT*1.3)
+SCREEN_LEFT = int((SCREEN_WIDTH - SCREEN_HEIGHT)/2)
 FPS = 30
 
 #Arena
