@@ -70,6 +70,7 @@ class MovableObject(Object):
                  max_thrust, thrust_increment, thrust_wait, turn_wait, mass):
         super().__init__(name, sprite_location, size, sprite_scale)
 
+
         # Player attributes
         self.player = player
         self.max_hp = max_hp
