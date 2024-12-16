@@ -65,7 +65,7 @@ class ThrustMarker(Object):
                         0 <= pos_y <= Const.SCREEN_HEIGHT):
                     pygame.draw.circle(screen, self.get_color(), (Const.SCREEN_LEFT + pos_x, pos_y), 1.0 + 3.0*scale_factor)
 
-class MovableObject(Object):
+class PlayerObject(Object):
     def __init__(self, name, sprite_location, size, player, max_hp, start_hp, inertia, sprite_scale,
                  max_thrust, thrust_increment, thrust_wait, turn_wait, mass):
         super().__init__(name, sprite_location, size, sprite_scale)

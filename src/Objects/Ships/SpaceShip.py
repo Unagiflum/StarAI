@@ -1,11 +1,11 @@
-from src.Objects.Object import MovableObject, ThrustMarker
+from src.Objects.Object import PlayerObject, ThrustMarker
 import src.Const as Const
 import math
 import pygame
 import json
 from pathlib import Path
 
-class SpaceShip(MovableObject):
+class SpaceShip(PlayerObject):
     def __init__(self, ship_name, player_num):
         self.name = ship_name
         with open(Const.SHIPS_JSON_PATH, 'r') as f:
