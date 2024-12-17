@@ -80,6 +80,46 @@ class SpaceShip(PlayerObject):
         self.turn_timer = 0
         self.in_battle = True
 
+    def handle_actions(self, thrust: bool, turn_left: bool, turn_right: bool,
+                       action1: bool, action2: bool) -> list:
+        new_objects = []
+
+        # Update timers
+        self.update_timers(thrust)
+
+        # Handle movement
+        if turn_left:
+            self.turn_left()
+        if turn_right:
+            self.turn_right()
+        if thrust:
+            marker = self.apply_thrust()
+            if marker:
+                new_objects.append(marker)
+
+        # Handle actions
+        if action1 and action2:
+            result, is_valid = self.perform_action3()
+            if result:
+                new_objects.append(result)
+            elif not is_valid:
+                result = self.perform_action1()
+                if result:
+                    new_objects.append(result)
+                result = self.perform_action2()
+                if result:
+                    new_objects.append(result)
+        elif action1:
+            result = self.perform_action1()
+            if result:
+                new_objects.append(result)
+        elif action2:
+            result = self.perform_action2()
+            if result:
+                new_objects.append(result)
+
+        return new_objects
+
     def add_impulse(self, dx, dy):
         if self.can_move:
             self.accumulated_impulses[0] += dx
