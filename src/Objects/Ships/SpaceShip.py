@@ -56,6 +56,13 @@ class SpaceShip(PlayerObject):
         self.action2_timer = 0
         self.action3_timer = 0
 
+        # action states
+        self.thrust_active = False
+        self.turn_left_active = False
+        self.turn_right_active = False
+        self.action1_active = False
+        self.action2_active = False
+
         self.status1 = False
         self.status2 = False
         self.status3 = False
@@ -80,43 +87,58 @@ class SpaceShip(PlayerObject):
         self.turn_timer = 0
         self.in_battle = True
 
-    def handle_actions(self, thrust: bool, turn_left: bool, turn_right: bool,
-                       action1: bool, action2: bool) -> list:
+    def handle_actions(self, key, pressed, forward_key, left_key, right_key, action1_key, action2_key):
         new_objects = []
 
-        # Update timers
-        self.update_timers(thrust)
+        # Update internal key state based on event
+        if key == forward_key:
+            self.thrust_active = pressed
+        elif key == left_key:
+            self.turn_left_active = pressed
+        elif key == right_key:
+            self.turn_right_active = pressed
+        elif key == action1_key:
+            self.action1_active = pressed
+        elif key == action2_key:
+            self.action2_active = pressed
 
-        # Handle movement
-        if turn_left:
+        # Update timers and check if actions can be performed
+        self.update_timers(self.thrust_active)
+        can_act = (key is None)  # Allow action checks on non-event updates
+
+        # Handle movement based on active states
+        if self.turn_left_active:
             self.turn_left()
-        if turn_right:
+        if self.turn_right_active:
             self.turn_right()
-        if thrust:
+        if self.thrust_active:
             marker = self.apply_thrust()
             if marker:
                 new_objects.append(marker)
 
-        # Handle actions
-        if action1 and action2:
+        # Handle actions based on active states
+        if self.action1_active and self.action2_active and (can_act or key in [action1_key, action2_key]):
             result, is_valid = self.perform_action3()
             if result:
                 new_objects.append(result)
             elif not is_valid:
+                if self.action1_active:
+                    result = self.perform_action1()
+                    if result:
+                        new_objects.append(result)
+                if self.action2_active:
+                    result = self.perform_action2()
+                    if result:
+                        new_objects.append(result)
+        else:
+            if self.action1_active and (can_act or key == action1_key):
                 result = self.perform_action1()
                 if result:
                     new_objects.append(result)
+            if self.action2_active and (can_act or key == action2_key):
                 result = self.perform_action2()
                 if result:
                     new_objects.append(result)
-        elif action1:
-            result = self.perform_action1()
-            if result:
-                new_objects.append(result)
-        elif action2:
-            result = self.perform_action2()
-            if result:
-                new_objects.append(result)
 
         return new_objects
 

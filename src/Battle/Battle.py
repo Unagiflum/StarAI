@@ -22,6 +22,35 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     player2 = battle_state['player2']
 
     running = True
+    # Track key states
+    key_states = {
+        settings["Player 1: Forward"]: False,
+        settings["Player 1: Left"]: False,
+        settings["Player 1: Right"]: False,
+        settings["Player 1: Action 1"]: False,
+        settings["Player 1: Action 2"]: False,
+        settings["Player 2: Forward"]: False,
+        settings["Player 2: Left"]: False,
+        settings["Player 2: Right"]: False,
+        settings["Player 2: Action 1"]: False,
+        settings["Player 2: Action 2"]: False,
+    }
+
+    running = True
+    # Track key states
+    key_states = {
+        settings["Player 1: Forward"]: False,
+        settings["Player 1: Left"]: False,
+        settings["Player 1: Right"]: False,
+        settings["Player 1: Action 1"]: False,
+        settings["Player 1: Action 2"]: False,
+        settings["Player 2: Forward"]: False,
+        settings["Player 2: Left"]: False,
+        settings["Player 2: Right"]: False,
+        settings["Player 2: Action 1"]: False,
+        settings["Player 2: Action 2"]: False,
+    }
+
     while running:
         clock.tick(Const.FPS)
 
@@ -33,30 +62,78 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                 if event.key == pygame.K_ESCAPE:
                     pygame.mixer.music.stop()
                     running = False
+                elif event.key in key_states:
+                    key_states[event.key] = True
+                    if event.key in [settings["Player 1: Forward"], settings["Player 1: Left"],
+                                     settings["Player 1: Right"], settings["Player 1: Action 1"],
+                                     settings["Player 1: Action 2"]]:
+                        p1_objects = player1.handle_actions(
+                            event.key, True,
+                            settings["Player 1: Forward"],
+                            settings["Player 1: Left"],
+                            settings["Player 1: Right"],
+                            settings["Player 1: Action 1"],
+                            settings["Player 1: Action 2"]
+                        )
+                        game_objects.extend(p1_objects)
+                    else:
+                        p2_objects = player2.handle_actions(
+                            event.key, True,
+                            settings["Player 2: Forward"],
+                            settings["Player 2: Left"],
+                            settings["Player 2: Right"],
+                            settings["Player 2: Action 1"],
+                            settings["Player 2: Action 2"]
+                        )
+                        game_objects.extend(p2_objects)
+            elif event.type == pygame.KEYUP:
+                if event.key in key_states:
+                    key_states[event.key] = False
+                    if event.key in [settings["Player 1: Forward"], settings["Player 1: Left"],
+                                     settings["Player 1: Right"], settings["Player 1: Action 1"],
+                                     settings["Player 1: Action 2"]]:
+                        p1_objects = player1.handle_actions(
+                            event.key, False,
+                            settings["Player 1: Forward"],
+                            settings["Player 1: Left"],
+                            settings["Player 1: Right"],
+                            settings["Player 1: Action 1"],
+                            settings["Player 1: Action 2"]
+                        )
+                        game_objects.extend(p1_objects)
+                    else:
+                        p2_objects = player2.handle_actions(
+                            event.key, False,
+                            settings["Player 2: Forward"],
+                            settings["Player 2: Left"],
+                            settings["Player 2: Right"],
+                            settings["Player 2: Action 1"],
+                            settings["Player 2: Action 2"]
+                        )
+                        game_objects.extend(p2_objects)
 
-        keys = pygame.key.get_pressed()
-
-        # Convert key presses to actions for player 1
+        # Call handle_actions with no key for repeating actions
         p1_objects = player1.handle_actions(
-            thrust=keys[settings["Player 1: Forward"]],
-            turn_left=keys[settings["Player 1: Left"]],
-            turn_right=keys[settings["Player 1: Right"]],
-            action1=keys[settings["Player 1: Action 1"]],
-            action2=keys[settings["Player 1: Action 2"]]
+            None, False,
+            settings["Player 1: Forward"],
+            settings["Player 1: Left"],
+            settings["Player 1: Right"],
+            settings["Player 1: Action 1"],
+            settings["Player 1: Action 2"]
         )
-
-        # Convert key presses to actions for player 2
-        p2_objects = player2.handle_actions(
-            thrust=keys[settings["Player 2: Forward"]],
-            turn_left=keys[settings["Player 2: Left"]],
-            turn_right=keys[settings["Player 2: Right"]],
-            action1=keys[settings["Player 2: Action 1"]],
-            action2=keys[settings["Player 2: Action 2"]]
-        )
-
         game_objects.extend(p1_objects)
+
+        p2_objects = player2.handle_actions(
+            None, False,
+            settings["Player 2: Forward"],
+            settings["Player 2: Left"],
+            settings["Player 2: Right"],
+            settings["Player 2: Action 1"],
+            settings["Player 2: Action 2"]
+        )
         game_objects.extend(p2_objects)
 
+        # Update all objects
         for obj in game_objects[:]:
             if not obj.update():
                 game_objects.remove(obj)
