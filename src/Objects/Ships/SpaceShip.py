@@ -289,24 +289,17 @@ class SpaceShip(PlayerObject):
         if self.can_action1():
             self.current_energy -= self.a1_cost
             self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
-            if self.ship_module and hasattr(self.ship_module, 'action1'):
-                return self.ship_module.action1(self)
+            return None
         return None
 
     def perform_action2(self):
         if self.can_action2():
             self.current_energy -= self.a2_cost
             self.action2_timer = int(self.a2_wait * Const.ACTION_WAIT_SCALE)
-            if self.ship_module and hasattr(self.ship_module, 'action2'):
-                return self.ship_module.action2(self)
+            return None
         return None
 
     def perform_action3(self):
-        if self.can_action3():
-            self.current_energy -= self.a3_cost
-            self.action3_timer = int(self.a3_wait * Const.ACTION_WAIT_SCALE)
-            if self.ship_module and hasattr(self.ship_module, 'action3'):
-                return self.ship_module.action3(self), True
         return None, False
 
     def draw(self, screen, scale_factor, translation):
