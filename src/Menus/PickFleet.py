@@ -53,7 +53,12 @@ def create_sprite_sets(ships_data: Dict) -> Tuple[Dict[str, pygame.Surface], Dic
     """Create selection and fleet sprites from a single load."""
     original_sprites = load_ship_sprites(ships_data)
     selection_sprites = scale_sprites(original_sprites, SELECTION_ICON_SIZE[0], ships_data)
-    fleet_sprites = scale_sprites(original_sprites, FLEET_ICON_SIZE[0], ships_data)
+
+    # Calculate fleet icon size first
+    fleet = UIBox.Fleet(0, 0, UI.SELECTION_WIDTH, UI.FLEET_HEIGHT, "", (0, 0))
+    fleet_size = fleet.icon_size[0]
+    fleet_sprites = scale_sprites(original_sprites, fleet_size, ships_data)
+
     return selection_sprites, fleet_sprites
 
 def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int, ships_data: Dict) -> Dict[str, pygame.Surface]:

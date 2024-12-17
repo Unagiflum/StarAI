@@ -113,6 +113,15 @@ def run(screen):
     if not fleet_data or not ships_data or not original_sprites:
         return
 
+    # Create temporary fleet to get icon size
+    temp_fleet = UIBox.Fleet(0, 0, UI.SELECTION_WIDTH, UI.FLEET_HEIGHT, "", (0, 0))
+    fleet_size = temp_fleet.icon_size[0]
+
+    # Update globals that use fleet size
+    global X_THICKNESS
+    X_THICKNESS = int(0.2 * fleet_size)
+
+
     LEFT_COLUMN_START = int(0.033 * Const.SCREEN_WIDTH)
     RIGHT_COLUMN_START = int(Const.SCREEN_WIDTH // 2 + (0.016 * Const.SCREEN_WIDTH))
 
@@ -123,9 +132,6 @@ def run(screen):
     SELECTION_L_LEFT = LEFT_COLUMN_START + UI.SELECTION_WIDTH - SELECTION_BOX_SIZE
     SELECTION_R_LEFT = RIGHT_COLUMN_START
     RAND_TOP = SELECTION_TOP + SELECTION_BOX_SIZE + int(0.01 * Const.SCREEN_HEIGHT)
-
-    fleet_sprites = scale_sprites(original_sprites, FLEET_ICON_SIZE[0], SHIPS_DATA)
-    selection_sprites = scale_sprites(original_sprites, SELECTION_BOX_SIZE, SHIPS_DATA)
 
     left_fleet = UIBox.Fleet(
         LEFT_COLUMN_START,
@@ -144,6 +150,9 @@ def run(screen):
         "Player 2 Fleet",
         FLEET_ICON_SIZE
     )
+
+    fleet_sprites = scale_sprites(original_sprites, fleet_size, SHIPS_DATA)
+    selection_sprites = scale_sprites(original_sprites, SELECTION_BOX_SIZE, SHIPS_DATA)
 
     # Load ships into fleets
     for ship, ship_name in zip(player1_ships, fleet_data["Player1"]["ships"]):

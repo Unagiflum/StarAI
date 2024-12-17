@@ -206,8 +206,20 @@ class Fleet(ShipContainer):
         self.calculate_tiling()
 
     def calculate_tiling(self):
-        super().calculate_tiling()
-        self.max_fleet_size = self.icons_per_row * ((self.rect.height - 40) // self.icon_total_height)
+        # Subtract margins from available space
+        available_width = self.rect.width - (2 * SPACING)
+        available_height = self.rect.height - 40 - (2 * SPACING)  # 40 for title space
+
+        # Calculate icon sizes to fit the grid with spacing between icons
+        icon_width = (available_width - (Const.SHIP_COLS - 1) * SPACING) // Const.SHIP_COLS
+        icon_height = (available_height - (Const.SHIP_ROWS - 1) * SPACING) // Const.SHIP_ROWS
+
+        # Use smaller dimension to maintain square icons
+        self.icon_size = (min(icon_width, icon_height), min(icon_width, icon_height))
+        self.spacing = SPACING
+        self.icons_per_row = Const.SHIP_COLS
+        self.icon_total_height = self.icon_size[1] + SPACING + 5
+        self.max_fleet_size = Const.SHIP_COLS * Const.SHIP_ROWS
 
     def add_ship(self, sprite, name, cost):
         if len(self.ships) < self.max_fleet_size:
