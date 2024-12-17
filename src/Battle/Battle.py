@@ -3,7 +3,6 @@ import sys
 
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Battle.BattleInit import initialize_battle
-from src.Battle.BattleInput import handle_player_input
 from src.Battle.BattleDraw import draw_battle
 import src.Const as Const
 
@@ -35,7 +34,28 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                     pygame.mixer.music.stop()
                     running = False
 
-        handle_player_input(settings, player1, player2, game_objects)
+        keys = pygame.key.get_pressed()
+
+        # Convert key presses to actions for player 1
+        p1_objects = player1.handle_actions(
+            thrust=keys[settings["Player 1: Forward"]],
+            turn_left=keys[settings["Player 1: Left"]],
+            turn_right=keys[settings["Player 1: Right"]],
+            action1=keys[settings["Player 1: Action 1"]],
+            action2=keys[settings["Player 1: Action 2"]]
+        )
+
+        # Convert key presses to actions for player 2
+        p2_objects = player2.handle_actions(
+            thrust=keys[settings["Player 2: Forward"]],
+            turn_left=keys[settings["Player 2: Left"]],
+            turn_right=keys[settings["Player 2: Right"]],
+            action1=keys[settings["Player 2: Action 1"]],
+            action2=keys[settings["Player 2: Action 2"]]
+        )
+
+        game_objects.extend(p1_objects)
+        game_objects.extend(p2_objects)
 
         for obj in game_objects[:]:
             if not obj.update():
