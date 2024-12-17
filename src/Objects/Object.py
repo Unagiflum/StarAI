@@ -97,7 +97,7 @@ class PlayerObject(Object):
         return [dx, dy], distance
 
     def get_gravity(self):
-        if not self.can_move or not self.inertia or not self.planet:
+        if not self.can_move or not self.planet:
             return [0.0, 0.0]
         [dx, dy], distance = self.planet_distance()
 
