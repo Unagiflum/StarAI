@@ -36,22 +36,8 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         settings["Player 2: Action 2"]: False,
     }
 
-    running = True
-    # Track key states
-    key_states = {
-        settings["Player 1: Forward"]: False,
-        settings["Player 1: Left"]: False,
-        settings["Player 1: Right"]: False,
-        settings["Player 1: Action 1"]: False,
-        settings["Player 1: Action 2"]: False,
-        settings["Player 2: Forward"]: False,
-        settings["Player 2: Left"]: False,
-        settings["Player 2: Right"]: False,
-        settings["Player 2: Action 1"]: False,
-        settings["Player 2: Action 2"]: False,
-    }
-
     while running:
+
         clock.tick(Const.FPS)
 
         for event in pygame.event.get():
@@ -86,6 +72,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                             settings["Player 2: Action 2"]
                         )
                         game_objects.extend(p2_objects)
+
             elif event.type == pygame.KEYUP:
                 if event.key in key_states:
                     key_states[event.key] = False
