@@ -211,7 +211,7 @@ class Asteroid(Object):
         self.current_sprite = random.randint(0, 29)
         self.size = [self.sprites[self.current_sprite].get_width(), self.sprites[self.current_sprite].get_height()]
 
-        self.rotation_delay = 2
+        self.rotation_delay = random.randint(0, 3)
         self.rotation_timer = 0
 
         speed = random.uniform(Const.ASTEROID_V / 2, Const.ASTEROID_V)
@@ -265,7 +265,13 @@ class Asteroid(Object):
             if math.sqrt(dx * dx + dy * dy) < Const.CENTER_BUFFER+max(self.size[0],self.size[1]):
                 continue
 
-            too_close = False
+            for ship_pos in ship_positions:
+                dx = abs(x - ship_pos[0])
+                dy = abs(y - ship_pos[1])
+                dx = min(dx, Const.ARENA_SIZE - dx)
+                dy = min(dy, Const.ARENA_SIZE - dy)
+                if math.sqrt(dx * dx + dy * dy) < Const.MAX_SHIP_SIZE + max(self.size[0], self.size[1]):
+                    break
 
             # Check other asteroid distances
             for ast_pos in existing_asteroid_positions:
@@ -273,12 +279,10 @@ class Asteroid(Object):
                 dy = abs(y - ast_pos[1])
                 dx = min(dx, Const.ARENA_SIZE - dx)
                 dy = min(dy, Const.ARENA_SIZE - dy)
-                if math.sqrt(dx * dx + dy * dy) < max(self.size[0],self.size[1]):
-                    too_close = True
+                if math.sqrt(dx * dx + dy * dy) < 2*max(self.size[0],self.size[1]):
                     break
 
-            if not too_close:
-                return [x, y]
+            return [x, y]
 
     def get_gravity(self):
         if not self.can_move or not self.planet:

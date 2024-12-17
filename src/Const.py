@@ -32,7 +32,7 @@ PLANET_WEIGHTS = [25,25,25,25] # Gas, Ice, Life, Rocky
 STAR_ALPHA = 200
 
 #Asteroids
-ASTEROID_COUNT = 25 # Asteroid placing function will get stuck if you have too many
+ASTEROID_COUNT = 15 # Asteroid placing function will get stuck if you have too many
 ASTEROID_PATH = Path("Objects/Space/Asteroid")
 ASTEROID_V = 30
 
@@ -40,6 +40,7 @@ ASTEROID_V = 30
 SHIP_DIRECTIONS = 16
 FLEET_ICON_SIZE = (int(SCREEN_HEIGHT*0.078), int(SCREEN_HEIGHT*0.078))
 SELECTION_ICON_SIZE = (int(SCREEN_HEIGHT*0.09755), int(SCREEN_HEIGHT*0.0975))
+MAX_SHIP_SIZE = 200
 
 #File Paths
 GAME_JSON_PATH = Path("Config/Gamesettings.json")
