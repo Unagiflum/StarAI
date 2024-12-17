@@ -85,6 +85,9 @@ class SpaceShip(PlayerObject):
         self.velocity = [0.0, 0.0]
         self.thrust_timer = 0
         self.turn_timer = 0
+        self.action1_timer = 0
+        self.action2_timer = 0
+        self.action3_timer = 0
         self.in_battle = True
 
     def handle_actions(self, key, pressed, forward_key, left_key, right_key, action1_key, action2_key):
@@ -103,7 +106,7 @@ class SpaceShip(PlayerObject):
             self.action2_active = pressed
 
         # Update timers and check if actions can be performed
-        self.update_timers(self.thrust_active)
+        self.update_timers()
         can_act = (key is None)  # Allow action checks on non-event updates
 
         # Handle movement based on active states
@@ -203,7 +206,7 @@ class SpaceShip(PlayerObject):
     def can_action3(self):
         return self.action3_timer == 0 and self.current_energy >= self.a3_cost
 
-    def update_timers(self, forward_pressed: bool):
+    def update_timers(self):
         if self.thrust_timer > 0:
             self.thrust_timer -= 1
         if self.turn_timer > 0:
@@ -214,7 +217,7 @@ class SpaceShip(PlayerObject):
             self.action2_timer -= 1
         if self.action3_timer > 0:
             self.action3_timer -= 1
-        if not self.inertia and self.thrust_timer == 0 and not forward_pressed:
+        if not self.inertia and self.thrust_timer == 0 and not self.thrust_active:
             self.velocity = [0.0, 0.0]
 
         self.energy_timer += 1
