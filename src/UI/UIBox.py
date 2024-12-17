@@ -208,17 +208,29 @@ class Fleet(ShipContainer):
     def calculate_tiling(self):
         # Subtract margins from available space
         available_width = self.rect.width - (2 * SPACING)
-        available_height = self.rect.height - 40 - (2 * SPACING)  # 40 for title space
+        available_height = self.rect.height - 40 - (3 * SPACING)  # 40 for title, extra SPACING for bottom margin
 
-        # Calculate icon sizes to fit the grid with spacing between icons
-        icon_width = (available_width - (Const.SHIP_COLS - 1) * SPACING) // Const.SHIP_COLS
-        icon_height = (available_height - (Const.SHIP_ROWS - 1) * SPACING) // Const.SHIP_ROWS
+        # Calculate maximum space we can use for each icon including spacing
+        total_vertical_space = available_height // Const.SHIP_ROWS
+        total_horizontal_space = available_width // Const.SHIP_COLS
 
-        # Use smaller dimension to maintain square icons
-        self.icon_size = (min(icon_width, icon_height), min(icon_width, icon_height))
+        # Subtract spacing to get actual icon size, ensuring square icons
+        icon_size = min(
+            total_horizontal_space - SPACING,
+            total_vertical_space - SPACING
+        )
+
+        self.icon_size = (icon_size, icon_size)
+
+        # Calculate grid dimensions
+        grid_width = (Const.SHIP_COLS * icon_size) + ((Const.SHIP_COLS - 1) * SPACING)
+
+        # Center the grid horizontally
+        self.left_offset = (available_width - grid_width) // 2 + SPACING
+
         self.spacing = SPACING
         self.icons_per_row = Const.SHIP_COLS
-        self.icon_total_height = self.icon_size[1] + SPACING + 5
+        self.icon_total_height = self.icon_size[1] + SPACING
         self.max_fleet_size = Const.SHIP_COLS * Const.SHIP_ROWS
 
     def add_ship(self, sprite, name, cost):
@@ -226,7 +238,7 @@ class Fleet(ShipContainer):
             row = len(self.ships) // self.icons_per_row
             col = len(self.ships) % self.icons_per_row
 
-            slot_x = self.rect.x + SPACING + col * (self.icon_size[0] + self.spacing)
+            slot_x = self.rect.x + self.left_offset + col * (self.icon_size[0] + self.spacing)
             slot_y = self.rect.y + 40 + row * self.icon_total_height
 
             ship_rect = pygame.Rect(slot_x, slot_y, self.icon_size[0], self.icon_size[1])

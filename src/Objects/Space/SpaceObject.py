@@ -200,7 +200,7 @@ class Asteroid(Object):
                 for i in range(4)]
 
         # Randomly rotate sprites for this instance
-        if random.random() < 1.0:
+        if random.random() < 0.0: # if 0 then no rotation will be applied
             sprite_rot = random.random()*360
             self.sprites = [pygame.transform.rotate(sprite, sprite_rot) for sprite in Asteroid.shared_sprites]
         else:
@@ -215,7 +215,7 @@ class Asteroid(Object):
         self.rotation_timer = 0
 
         speed = random.uniform(Const.ASTEROID_V / 2, Const.ASTEROID_V)
-        angle = random.uniform(0, 2 * math.pi)
+        angle = random.uniform(0, 2*math.pi)
         self.velocity = [speed * math.cos(angle), speed * math.sin(angle)]
 
         self.planet = None
