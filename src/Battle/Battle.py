@@ -99,6 +99,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                         )
                         game_objects.extend(p2_objects)
 
+
         # Call handle_actions with no key for repeating actions
         p1_objects = player1.handle_actions(
             None, False,
