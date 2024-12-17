@@ -23,10 +23,13 @@ class Ilwrath(SpaceShip):
         self.sprites = Ilwrath.shared_sprites
 
     def perform_action1(self):
+        print("Action1")
         return A1.action(self)
 
     def perform_action2(self):
+        print("Action2")
         return A2.action(self)
-		
-    def perform_action3(self):
-        return A3.action(self)
+
+    #def perform_action3(self):
+    #    print("Action3")
+    #    return A3.action(self), True

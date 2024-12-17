@@ -132,13 +132,35 @@ class SpaceShip(PlayerObject):
     def can_turn(self):
         return self.turn_timer == 0
 
+    def can_action1(self):
+        return self.action1_timer == 0 and self.current_energy >= self.a1_cost
+
+    def can_action2(self):
+        return self.action2_timer == 0 and self.current_energy >= self.a2_cost
+
+    def can_action3(self):
+        return self.action3_timer == 0 and self.current_energy >= self.a3_cost
+
     def update_timers(self, forward_pressed: bool):
         if self.thrust_timer > 0:
             self.thrust_timer -= 1
         if self.turn_timer > 0:
             self.turn_timer -= 1
+        if self.action1_timer > 0:
+            self.action1_timer -= 1
+        if self.action2_timer > 0:
+            self.action2_timer -= 1
+        if self.action3_timer > 0:
+            self.action3_timer -= 1
         if not self.inertia and self.thrust_timer == 0 and not forward_pressed:
             self.velocity = [0.0, 0.0]
+
+        self.energy_timer += 1
+        if self.energy_timer >= self.energy_wait:
+            self.energy_timer = 0
+            if self.current_energy < self.max_energy:
+                self.current_energy = min(self.max_energy,
+                                          self.current_energy + self.energy_regen)
 
     def apply_thrust(self):
         if self.can_thrust():
@@ -199,19 +221,28 @@ class SpaceShip(PlayerObject):
             self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
 
     def perform_action1(self):
-        if self.ship_module and hasattr(self.ship_module, 'action1'):
-            return self.ship_module.action1(self)
-        return False
+        if self.can_action1():
+            self.current_energy -= self.a1_cost
+            self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
+            if self.ship_module and hasattr(self.ship_module, 'action1'):
+                return self.ship_module.action1(self)
+        return None
 
     def perform_action2(self):
-        if self.ship_module and hasattr(self.ship_module, 'action2'):
-            return self.ship_module.action2(self)
-        return False
+        if self.can_action2():
+            self.current_energy -= self.a2_cost
+            self.action2_timer = int(self.a2_wait * Const.ACTION_WAIT_SCALE)
+            if self.ship_module and hasattr(self.ship_module, 'action2'):
+                return self.ship_module.action2(self)
+        return None
 
     def perform_action3(self):
-        if self.ship_module and hasattr(self.ship_module, 'action3'):
-            return self.ship_module.action3(self)
-        return False
+        if self.can_action3():
+            self.current_energy -= self.a3_cost
+            self.action3_timer = int(self.a3_wait * Const.ACTION_WAIT_SCALE)
+            if self.ship_module and hasattr(self.ship_module, 'action3'):
+                return self.ship_module.action3(self), True
+        return None, False
 
     def draw(self, screen, scale_factor, translation):
         sprite = self.sprites[self.heading]
