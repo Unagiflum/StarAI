@@ -48,6 +48,10 @@ class SpaceShip(PlayerObject):
         self.current_hp = ship_data['StartHP']
         self.current_energy = ship_data['StartEnergy']
         self.energy_timer = 0
+
+        # Timers
+        self.thrust_timer = 0
+        self.turn_timer = 0
         self.action1_timer = 0
         self.action2_timer = 0
         self.action3_timer = 0
@@ -75,6 +79,7 @@ class SpaceShip(PlayerObject):
         self.thrust_timer = 0
         self.turn_timer = 0
         self.in_battle = True
+
     def add_impulse(self, dx, dy):
         if self.can_move:
             self.accumulated_impulses[0] += dx

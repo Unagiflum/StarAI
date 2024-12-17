@@ -79,9 +79,6 @@ class PlayerObject(Object):
         self.rotation = 0.0
         self.can_move = True
 
-        # Timers
-        self.thrust_timer = 0
-        self.turn_timer = 0
 
         # Battle state
         self.in_battle = False
