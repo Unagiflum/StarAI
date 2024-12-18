@@ -25,9 +25,10 @@ class Earthling(SpaceShip):
             self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
 
             angle_rad = math.radians(self.rotation)
-            spawn_distance = (self.size[1] + 107) / 2  # Ship height + projectile height
 
             projectile = Projectile("EarthlingA1", self)
+            
+            spawn_distance = (self.size[1] + projectile.size[1]) / 2  # Ship height + projectile height
             projectile.position = [
                 self.position[0] + math.sin(angle_rad) * spawn_distance,
                 self.position[1] - math.cos(angle_rad) * spawn_distance
