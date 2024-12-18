@@ -27,7 +27,7 @@ class Earthling(SpaceShip):
             angle_rad = math.radians(self.rotation)
 
             projectile = Projectile("EarthlingA1", self)
-            
+
             spawn_distance = (self.size[1] + projectile.size[1]) / 2  # Ship height + projectile height
             projectile.position = [
                 self.position[0] + math.sin(angle_rad) * spawn_distance,
@@ -36,6 +36,11 @@ class Earthling(SpaceShip):
             projectile.heading = self.heading
             projectile.rotation = self.rotation
             projectile.opponent = self.opponent
+            angle_rad = math.radians(self.rotation)
+            projectile.velocity = [
+                math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
+                -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
+            ]
 
             if projectile.launch_sound: projectile.launch_sound.play()
             return projectile

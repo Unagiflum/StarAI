@@ -88,6 +88,8 @@ class Projectile(PlayerObject):
         self.can_expire = True
         self.expiration_timer = self.life_time
 
+
+
         # Load projectile-specific module
         try:
             module_path = f"{projectile_data['Path']}{projectile_data['ShipName']}{projectile_data['Action']}"
@@ -140,10 +142,7 @@ class Projectile(PlayerObject):
 
             # Move in current direction at constant speed
             angle_rad = math.radians(self.rotation)
-            self.velocity = [
-                math.sin(angle_rad) * self.speed,
-                -math.cos(angle_rad) * self.speed
-            ]
+            self.velocity = [math.sin(angle_rad) * self.speed,-math.cos(angle_rad) * self.speed]
 
         # Update position based on velocity
         self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
