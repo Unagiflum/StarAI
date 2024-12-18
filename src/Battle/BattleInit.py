@@ -60,6 +60,8 @@ def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
     player1.initialize_in_battle(pos1, random.randint(0, 15))
     player2 = ship2
     player2.initialize_in_battle(pos2, random.randint(0, 15))
+    player1.opponent = player2
+    player2.opponent = player1
 
     game_objects.append(player1)
     game_objects.append(player2)
