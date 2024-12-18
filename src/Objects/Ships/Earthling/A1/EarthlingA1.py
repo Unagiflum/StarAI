@@ -1,24 +1,17 @@
+from src.Objects.Ships.Projectile import Projectile
 import pygame
-from pathlib import Path
+import src.Const as Const
 
+class EarthlingA1(Projectile):
+    shared_sprites = None
 
-class EarthlingA1:
-    sprites = []
-    death_sprites = []
+    def __init__(self, parent):
+        super().__init__("EarthlingA1", parent)
 
-    @classmethod
-    def load_sprites(cls, path, num_directions, num_death_frames):
-        # Load directional sprites
-        for i in range(num_directions):
-            sprite_path = path / f"EarthlingA1{i:02d}.png"
-            cls.sprites.append(pygame.image.load(sprite_path))
+        if EarthlingA1.shared_sprites is None:
+            EarthlingA1.shared_sprites = []
+            for i in range(Const.SHIP_DIRECTIONS):
+                sprite_path = self.sprite_location.joinpath(f'EarthlingA1{i:02d}.png')
+                EarthlingA1.shared_sprites.append(pygame.image.load(str(sprite_path)).convert_alpha())
 
-        # Load death animation sprites if they exist
-        if num_death_frames > 0:
-            for i in range(num_death_frames):
-                death_path = path / f"EarthlingA1die{i:02d}.png"
-                cls.death_sprites.append(pygame.image.load(death_path))
-
-    def __init__(self, path, num_directions, num_death_frames):
-        if not self.sprites:
-            self.load_sprites(Path(path), num_directions, num_death_frames)
+        self.sprites = EarthlingA1.shared_sprites
