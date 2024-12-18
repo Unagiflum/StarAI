@@ -5,13 +5,14 @@ import pygame
 import json
 from pathlib import Path
 
+# Load ship data once at module level
+with open(Const.SHIPS_JSON_PATH, 'r') as f:
+    SHIPS_DATA = json.load(f)
+
 class SpaceShip(PlayerObject):
     def __init__(self, ship_name, player_num):
-        # Load ship-specific data from Ships.json
-        with open(Const.SHIPS_JSON_PATH, 'r') as f:
-            ships_data = json.load(f)
-            ship_data = ships_data[ship_name]
-
+        # Get ship-specific data from cached data
+        ship_data = SHIPS_DATA[ship_name]
         sprite_location = Path(ship_data['SpriteLocation'])
 
         # Initialize the PlayerObject base class

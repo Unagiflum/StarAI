@@ -7,19 +7,20 @@ import json
 import random
 
 class Planet(Object):
-    def __init__(self):
-        with open(Const.PLANETS_JSON_PATH, 'r') as f:
-            planets = json.load(f)
+    # Load planet data once at module level
+    with open(Const.PLANETS_JSON_PATH, 'r') as f:
+        _planet_data = json.load(f)
 
+    def __init__(self):
         weights = {
             name: Const.PLANET_WEIGHTS[0] if 'Gas' in name
             else Const.PLANET_WEIGHTS[1] if 'Ice' in name
             else Const.PLANET_WEIGHTS[2] if 'Life' in name
             else Const.PLANET_WEIGHTS[3] if 'Rocky' in name
-            else 0 for name in planets.keys()
+            else 0 for name in Planet._planet_data.keys()
         }
-        planet_name = random.choices(list(planets.keys()), weights=list(weights.values()), k=1)[0]
-        planet_data = planets[planet_name]
+        planet_name = random.choices(list(Planet._planet_data.keys()), weights=list(weights.values()), k=1)[0]
+        planet_data = Planet._planet_data[planet_name]
 
         self.gravity = planet_data['Gravity']
         self.diameter = planet_data['Diameter']
@@ -45,7 +46,6 @@ class Planet(Object):
 
     def draw(self, screen, scale_factor, translation):
         # Draw gravity range circle
-
         range_color = (255, 255, 255, 8)  # Light blue, semi-transparent
         border_color = (255, 0, 0, 150)  # Red, semi-transparent
         gravity_range_surface = pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA)
@@ -58,8 +58,6 @@ class Planet(Object):
             for dy in [-1, 0, 1]:
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
-                # Draw solid inner circle
-                # pygame.draw.circle(gravity_range_surface, range_color, (pos_x, pos_y), range_radius, 0)
 
                 # Draw dashed outer circle
                 num_segments = 64
@@ -71,7 +69,6 @@ class Planet(Object):
                                      range_radius * 2, range_radius * 2), start_angle, end_angle, int(20*scale_factor))
 
         screen.blit(gravity_range_surface, (0, 0))
-
 
         # Draw planet sprite
         scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)
@@ -90,24 +87,24 @@ class Planet(Object):
                     ))
 
 class Star(Object):
-    depth_surfaces = [pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA) for _ in
-                      range(Const.STAR_DEPTHS)]
+    # Load star data once at module level
+    with open(Const.STARS_JSON_PATH, 'r') as f:
+        _star_data = json.load(f)
+
+    depth_surfaces = [pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA) for _ in range(Const.STAR_DEPTHS)]
     stars_by_depth = [[] for _ in range(Const.STAR_DEPTHS)]
 
     def __init__(self):
-        with open(Const.STARS_JSON_PATH, 'r') as f:
-            stars = json.load(f)
-
         weights = {
             name: Const.STAR_WEIGHTS[0] if 'e' in name
             else Const.STAR_WEIGHTS[1] if 'd' in name
             else Const.STAR_WEIGHTS[2] if 'c' in name
             else Const.STAR_WEIGHTS[3] if 'b' in name
             else Const.STAR_WEIGHTS[4] if 'a' in name
-            else 0 for name in stars.keys()
+            else 0 for name in Star._star_data.keys()
         }
-        star_name = random.choices(list(stars.keys()), weights=list(weights.values()), k=1)[0]
-        star_data = stars[star_name]
+        star_name = random.choices(list(Star._star_data.keys()), weights=list(weights.values()), k=1)[0]
+        star_data = Star._star_data[star_name]
 
         self.diameter = star_data['Diameter']
         self.depth = random.randint(0, Const.STAR_DEPTHS-1)

@@ -6,15 +6,16 @@ import json
 from pathlib import Path
 
 
+# Load projectile data once at module level
+with open(Const.PROJECTILES_JSON_PATH, 'r') as f:
+    PROJECTILES_DATA = json.load(f)
+
 class Projectile(PlayerObject):
     # Class-level sprite storage
     _sprites = {}
 
     def __init__(self, projectile_name, parent):
-        # Load projectile data from JSON
-        with open(Const.PROJECTILES_JSON_PATH, 'r') as f:
-            projectiles_data = json.load(f)
-            projectile_data = projectiles_data[projectile_name]
+        projectile_data = PROJECTILES_DATA[projectile_name]
 
         # Initialize PlayerObject
         super().__init__(
@@ -33,11 +34,8 @@ class Projectile(PlayerObject):
                 self._sprites[projectile_name].append(pygame.image.load(str(sprite_path)).convert_alpha())
 
         self.sprites = self._sprites[projectile_name]
-        for i in range(projectile_data['Directions']):
-            sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
-            self.sprites.append(pygame.image.load(str(sprite_path)).convert_alpha())
 
-        # Rest of initialization code remains the same
+        # Rest of initialization code
         self.parent = parent
         self.opponent = None
 
