@@ -51,7 +51,7 @@ class Projectile(PlayerObject):
         self.shot_angles = projectile_data['ShotAngles']
 
         # State flags
-        self.turn_timer = 0
+        self.turn_timer = self.turn_wait
         self.can_move = True
         self.can_die = True
         self.can_expire = True
@@ -70,7 +70,7 @@ class Projectile(PlayerObject):
             dx = self.opponent.position[0] - self.position[0]
             dy = self.opponent.position[1] - self.position[1]
 
-            # Account for arena wrapping to find shortest path
+            # Account for arena wrapping
             if abs(dx) > Const.ARENA_SIZE / 2:
                 dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
             if abs(dy) > Const.ARENA_SIZE / 2:
@@ -81,8 +81,11 @@ class Projectile(PlayerObject):
             if target_angle < 0:
                 target_angle += 360
 
-            # Current angle
+            # Quantize to nearest available direction
+            direction_step = 360 / self.directions
             current_angle = self.rotation
+            target_direction = round(target_angle / direction_step)
+            target_angle = (target_direction * direction_step) % 360
 
             # Find shortest turning direction
             angle_diff = target_angle - current_angle
@@ -93,14 +96,16 @@ class Projectile(PlayerObject):
 
             # Turn if timer allows
             if self.turn_timer <= 0:
-                turn_amount = 22.5  # One step in 16-direction system
-                if abs(angle_diff) >= turn_amount:
-                    self.rotation = (current_angle + (turn_amount if angle_diff > 0 else -turn_amount)) % 360
+                if abs(angle_diff) >= direction_step:
+                    self.rotation = (current_angle + (direction_step if angle_diff > 0 else -direction_step)) % 360
                     self.turn_timer = self.turn_wait
                 else:
                     self.rotation = target_angle
+
             else:
                 self.turn_timer -= 1
+
+            self.heading = int((self.rotation % 360) / direction_step) % self.directions
 
             # Move in current direction at constant speed
             angle_rad = math.radians(self.rotation)
