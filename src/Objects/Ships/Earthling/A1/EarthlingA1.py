@@ -1,7 +1,6 @@
 from src.Objects.Ships.Projectile import Projectile
 import pygame
 import src.Const as Const
-from pathlib import Path
 
 class EarthlingA1(Projectile):
     shared_sprites = None
@@ -34,5 +33,3 @@ class EarthlingA1(Projectile):
                 EarthlingA1.launch_sound = pygame.mixer.Sound(str(sound_path))
             except pygame.error:
                 EarthlingA1.launch_sound = None
-
-        self.sprites = EarthlingA1.shared_sprites
