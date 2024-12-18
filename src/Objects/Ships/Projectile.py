@@ -5,14 +5,16 @@ import pygame
 import json
 from pathlib import Path
 
-
 # Load projectile data once at module level
 with open(Const.PROJECTILES_JSON_PATH, 'r') as f:
     PROJECTILES_DATA = json.load(f)
 
+
 class Projectile(PlayerObject):
-    # Class-level sprite storage
+    # Class-level storage
     _sprites = {}
+    _death_anims = {}
+    _launch_sounds = {}
 
     def __init__(self, projectile_name, parent):
         projectile_data = PROJECTILES_DATA[projectile_name]
@@ -26,14 +28,36 @@ class Projectile(PlayerObject):
             sprite_scale=projectile_data.get('SpriteScale', 1.0)
         )
 
-        # Use class sprites if already loaded
+        # Load shared resources if not already loaded
         if projectile_name not in self._sprites:
             self._sprites[projectile_name] = []
+            self._death_anims[projectile_name] = []
+
+            # Load sprites
             for i in range(projectile_data['Directions']):
                 sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
                 self._sprites[projectile_name].append(pygame.image.load(str(sprite_path)).convert_alpha())
 
+            # Load death animation if it exists
+            if projectile_data.get('DeathAnim', 0) > 0:
+                for i in range(projectile_data['DeathAnim']):
+                    try:
+                        death_path = Path(projectile_data['Path']) / f"{projectile_name}die{i:02d}.png"
+                        self._death_anims[projectile_name].append(pygame.image.load(str(death_path)).convert_alpha())
+                    except pygame.error:
+                        break
+
+            # Load sound if it exists
+            try:
+                sound_path = Path(projectile_data['Path']) / f"{projectile_name}.wav"
+                self._launch_sounds[projectile_name] = pygame.mixer.Sound(str(sound_path))
+            except pygame.error:
+                self._launch_sounds[projectile_name] = None
+
         self.sprites = self._sprites[projectile_name]
+        self.death_anim = self._death_anims[projectile_name]
+        self.launch_sound = self._launch_sounds[projectile_name]
+        self.launch_sound.set_volume(Const.SOUND_EFFECT_VOLUME)
 
         # Rest of initialization code
         self.parent = parent

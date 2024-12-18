@@ -36,6 +36,7 @@ class Earthling(SpaceShip):
             projectile.rotation = self.rotation
             projectile.opponent = self.opponent
 
+            if projectile.launch_sound: projectile.launch_sound.play()
             return projectile
         return None
 
