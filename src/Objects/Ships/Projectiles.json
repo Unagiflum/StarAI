@@ -1,0 +1,24 @@
+{
+    "EarthlingA1": {
+		"ShipName" : "Earthling",
+		"Action" : "A1",
+        "StartHP": 1,
+		"Damage": 4,
+        "Tracking": true,
+        "ParentVel": 0.0,
+		"Speed": 40,
+		"LifeTime": 60
+        "TurnWait": 3,
+        "Mass": 0,
+		"HitParent": true,
+		"HitSelf": true,
+        "Inertia": false,
+		"Directions": 16,
+        "Path": "Objects/Ships/Earthling/A1/",
+		"DeathAnim": 9,
+        "SpriteScale": 1.0,
+		"NumPerShot":1,
+		"ShotAngles":[0],
+		"Size": {"width": 16,"height": 107}
+    }
+}
