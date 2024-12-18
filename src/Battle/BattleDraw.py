@@ -2,6 +2,7 @@ import pygame
 from src.UI import UI
 from src.Objects.Object import ThrustMarker
 from src.Objects.Ships.SpaceShip import SpaceShip
+from src.Objects.Ships.Projectile import Projectile
 from src.Objects.Space.SpaceObject import Star, Planet, Asteroid
 import src.Const as Const
 
@@ -75,6 +76,10 @@ def draw_battle(screen, game_objects, border_rect, border_color):
 
     for obj in game_objects:
         if isinstance(obj, Asteroid):
+            obj.draw(screen, scale_factor, translation)
+
+    for obj in game_objects:
+        if isinstance(obj, Projectile):
             obj.draw(screen, scale_factor, translation)
 
     for obj in game_objects:

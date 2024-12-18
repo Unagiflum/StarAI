@@ -1,0 +1,151 @@
+from src.Objects.Object import PlayerObject
+import src.Const as Const
+import math
+import pygame
+import json
+from pathlib import Path
+
+
+class Projectile(PlayerObject):
+    def __init__(self, projectile_name, parent):
+        # Load projectile data from JSON
+        with open(Const.PROJECTILES_JSON_PATH, 'r') as f:
+            projectiles_data = json.load(f)
+            projectile_data = projectiles_data[projectile_name]
+
+        # Initialize PlayerObject
+        super().__init__(
+            name=projectile_name,
+            sprite_location=Path(projectile_data['Path']),
+            size=[projectile_data['Size']['width'], projectile_data['Size']['height']],
+            player=parent.player,
+            sprite_scale=projectile_data.get('SpriteScale', 1.0)
+        )
+
+        # Initialize sprites
+        self.sprites = []
+        for i in range(projectile_data['Directions']):
+            sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
+            self.sprites.append(pygame.image.load(str(sprite_path)).convert_alpha())
+
+        # Rest of initialization code remains the same
+        self.parent = parent
+
+        # Basic properties
+        self.start_hp = projectile_data['StartHP']
+        self.current_hp = self.start_hp
+        self.damage = projectile_data['Damage']
+        self.tracking = projectile_data['Tracking']
+        self.parent_vel = projectile_data['ParentVel']
+        self.speed = projectile_data['Speed']
+        self.life_time = projectile_data['LifeTime']
+        self.turn_wait = projectile_data.get('TurnWait', 0)
+        self.mass = projectile_data['Mass']
+        self.hit_parent = projectile_data['HitParent']
+        self.hit_self = projectile_data['HitSelf']
+        self.inertia = projectile_data['Inertia']
+        self.directions = projectile_data['Directions']
+        self.death_anim = projectile_data.get('DeathAnim', 0)
+        self.num_per_shot = projectile_data['NumPerShot']
+        self.shot_angles = projectile_data['ShotAngles']
+
+        # State flags
+        self.turn_timer = 0
+        self.can_move = True
+        self.can_die = True
+        self.can_expire = True
+        self.expiration_timer = self.life_time
+
+        # Load projectile-specific module
+        try:
+            module_path = f"{projectile_data['Path']}{projectile_data['ShipName']}{projectile_data['Action']}"
+            self.projectile_module = __import__(module_path, fromlist=[''])
+        except ImportError:
+            self.projectile_module = None
+
+    def update_physics(self):
+        if self.tracking:
+            # Find opponent
+            dx = self.parent.position[0] - self.position[0]
+            dy = self.parent.position[1] - self.position[1]
+
+            # Account for arena wrapping to find shortest path
+            if abs(dx) > Const.ARENA_SIZE / 2:
+                dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
+            if abs(dy) > Const.ARENA_SIZE / 2:
+                dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+
+            # Calculate target angle
+            target_angle = math.degrees(math.atan2(dx, -dy))
+            if target_angle < 0:
+                target_angle += 360
+
+            # Current angle
+            current_angle = self.rotation
+
+            # Find shortest turning direction
+            angle_diff = target_angle - current_angle
+            if angle_diff > 180:
+                angle_diff -= 360
+            elif angle_diff < -180:
+                angle_diff += 360
+
+            # Turn if timer allows
+            if self.turn_timer <= 0:
+                turn_amount = 22.5  # One step in 16-direction system
+                if abs(angle_diff) >= turn_amount:
+                    self.rotation = (current_angle + (turn_amount if angle_diff > 0 else -turn_amount)) % 360
+                    self.turn_timer = self.turn_wait
+                else:
+                    self.rotation = target_angle
+            else:
+                self.turn_timer -= 1
+
+            # Move in current direction at constant speed
+            angle_rad = math.radians(self.rotation)
+            self.velocity = [
+                math.sin(angle_rad) * self.speed,
+                -math.cos(angle_rad) * self.speed
+            ]
+
+        # Update position based on velocity
+        self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+        self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+
+    def update(self):
+        if not self.currently_alive:
+            return False
+
+        self.update_physics()
+        self.expiration_timer -= 1
+        return self.expiration_timer > 0
+
+    def on_collide(self, target):
+        if not self.hit_parent and target == self.parent:
+            return False
+
+        if target.current_hp is not None:
+            target.current_hp = max(0, target.current_hp - self.damage)
+
+        return True
+
+    def draw(self, screen, scale_factor, translation):
+       sprite = self.sprites[self.heading]
+       total_scale = scale_factor * self.sprite_scale
+       scaled_sprite = pygame.transform.smoothscale_by(sprite, total_scale)
+       scaled_rect = scaled_sprite.get_rect()
+
+       screen_x = int((self.position[0] + translation[0]) * scale_factor)
+       screen_y = int((self.position[1] + translation[1]) * scale_factor)
+
+       for dx in [-1, 0, 1]:
+           for dy in [-1, 0, 1]:
+               pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
+               pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
+
+               if (0 <= pos_x <= Const.SCREEN_HEIGHT and
+                       0 <= pos_y <= Const.SCREEN_HEIGHT):
+                   screen.blit(scaled_sprite, (
+                       Const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
+                       pos_y - scaled_rect.height // 2
+                   ))

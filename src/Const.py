@@ -50,6 +50,7 @@ TRAINING_JSON_PATH = Path("Config/Trainingsettings.json")
 FLEETS_JSON_PATH = Path("Config/Fleets.json") #os.path.join("Config","Fleets.json")
 
 SHIPS_JSON_PATH = Path("Objects/Ships/Ships.json")
+PROJECTILES_JSON_PATH = Path("Objects/Ships/Projectiles.json")
 PLANETS_JSON_PATH = Path("Objects/Space/planets.json")
 STARS_JSON_PATH = Path("Objects/Space/stars.json")
 

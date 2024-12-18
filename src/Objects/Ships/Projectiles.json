@@ -7,7 +7,7 @@
         "Tracking": true,
         "ParentVel": 0.0,
 		"Speed": 40,
-		"LifeTime": 60
+		"LifeTime": 60,
         "TurnWait": 3,
         "Mass": 0,
 		"HitParent": true,
