@@ -63,6 +63,8 @@ class SpaceShip(PlayerObject):
         self.action1_active = False
         self.action2_active = False
 
+        self.opponent = None
+
         self.status1 = False
         self.status2 = False
         self.status3 = False
