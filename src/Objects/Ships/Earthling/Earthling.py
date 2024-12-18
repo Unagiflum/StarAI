@@ -34,6 +34,7 @@ class Earthling(SpaceShip):
             ]
             projectile.heading = self.heading
             projectile.rotation = self.rotation
+            projectile.opponent = self.opponent
 
             return projectile
         return None

@@ -30,6 +30,7 @@ class Projectile(PlayerObject):
 
         # Rest of initialization code remains the same
         self.parent = parent
+        self.opponent = None
 
         # Basic properties
         self.start_hp = projectile_data['StartHP']
@@ -66,8 +67,8 @@ class Projectile(PlayerObject):
     def update_physics(self):
         if self.tracking:
             # Find opponent
-            dx = self.parent.position[0] - self.position[0]
-            dy = self.parent.position[1] - self.position[1]
+            dx = self.opponent.position[0] - self.position[0]
+            dy = self.opponent.position[1] - self.position[1]
 
             # Account for arena wrapping to find shortest path
             if abs(dx) > Const.ARENA_SIZE / 2:
