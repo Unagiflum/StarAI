@@ -33,10 +33,16 @@ class Projectile(PlayerObject):
             self._sprites[projectile_name] = []
             self._death_anims[projectile_name] = []
 
-            # Load sprites
-            for i in range(projectile_data['Directions']):
-                sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
-                self._sprites[projectile_name].append(pygame.image.load(str(sprite_path)).convert_alpha())
+            # Load base sprite
+            base_sprite = pygame.image.load(
+                str(Path(projectile_data['Path']) / f"{projectile_name}00.png")).convert_alpha()
+            self._sprites[projectile_name].append(base_sprite)
+
+            # Load additional directional sprites only if needed
+            if projectile_data['Directions'] > 1:
+                for i in range(1, projectile_data['Directions']):
+                    sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
+                    self._sprites[projectile_name].append(pygame.image.load(str(sprite_path)).convert_alpha())
 
             # Load death animation if it exists
             if projectile_data.get('DeathAnim', 0) > 0:
@@ -88,8 +94,6 @@ class Projectile(PlayerObject):
         self.can_expire = True
         self.expiration_timer = self.life_time
 
-
-
         # Load projectile-specific module
         try:
             module_path = f"{projectile_data['Path']}{projectile_data['ShipName']}{projectile_data['Action']}"
@@ -98,6 +102,10 @@ class Projectile(PlayerObject):
             self.projectile_module = None
 
     def update_physics(self):
+        # Set default heading for single-direction projectiles
+        if self.directions == 1:
+            self.heading = 0
+
         if self.tracking:
             # Find opponent
             dx = self.opponent.position[0] - self.position[0]
@@ -138,11 +146,11 @@ class Projectile(PlayerObject):
             else:
                 self.turn_timer -= 1
 
-            self.heading = int((self.rotation % 360) / direction_step) % self.directions
+            self.heading = 0 if self.directions == 1 else int((self.rotation % 360) / direction_step) % self.directions
 
             # Move in current direction at constant speed
             angle_rad = math.radians(self.rotation)
-            self.velocity = [math.sin(angle_rad) * self.speed,-math.cos(angle_rad) * self.speed]
+            self.velocity = [math.sin(angle_rad) * self.speed, -math.cos(angle_rad) * self.speed]
 
         # Update position based on velocity
         self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
@@ -166,22 +174,22 @@ class Projectile(PlayerObject):
         return True
 
     def draw(self, screen, scale_factor, translation):
-       sprite = self.sprites[self.heading]
-       total_scale = scale_factor * self.sprite_scale
-       scaled_sprite = pygame.transform.smoothscale_by(sprite, total_scale)
-       scaled_rect = scaled_sprite.get_rect()
+        sprite = self.sprites[self.heading]
+        total_scale = scale_factor * self.sprite_scale
+        scaled_sprite = pygame.transform.smoothscale_by(sprite, total_scale)
+        scaled_rect = scaled_sprite.get_rect()
 
-       screen_x = int((self.position[0] + translation[0]) * scale_factor)
-       screen_y = int((self.position[1] + translation[1]) * scale_factor)
+        screen_x = int((self.position[0] + translation[0]) * scale_factor)
+        screen_y = int((self.position[1] + translation[1]) * scale_factor)
 
-       for dx in [-1, 0, 1]:
-           for dy in [-1, 0, 1]:
-               pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
-               pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
+                pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-               if (0 <= pos_x <= Const.SCREEN_HEIGHT and
-                       0 <= pos_y <= Const.SCREEN_HEIGHT):
-                   screen.blit(scaled_sprite, (
-                       Const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
-                       pos_y - scaled_rect.height // 2
-                   ))
+                if (0 <= pos_x <= Const.SCREEN_HEIGHT and
+                        0 <= pos_y <= Const.SCREEN_HEIGHT):
+                    screen.blit(scaled_sprite, (
+                        Const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
+                        pos_y - scaled_rect.height // 2
+                    ))
