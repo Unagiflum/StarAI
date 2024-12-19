@@ -84,8 +84,6 @@ class Projectile(PlayerObject):
         self.inertia = projectile_data['Inertia']
         self.directions = projectile_data['Directions']
         self.death_anim = projectile_data.get('DeathAnim', 0)
-        self.num_per_shot = projectile_data['NumPerShot']
-        self.shot_angles = projectile_data['ShotAngles']
 
         # State flags
         self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)

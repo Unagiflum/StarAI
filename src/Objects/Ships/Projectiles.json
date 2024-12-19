@@ -17,8 +17,6 @@
         "Path": "Objects/Ships/Earthling/A1/",
 		"DeathAnim": 9,
         "SpriteScale": 1.0,
-		"NumPerShot":1,
-		"ShotAngles":[0],
 		"Size": {"width": 16,"height": 107}
     },
 	    "DruugeA1": {
@@ -39,8 +37,6 @@
         "Path": "Objects/Ships/Druuge/A1/",
 		"DeathAnim": 8,
         "SpriteScale": 1.0,
-		"NumPerShot":1,
-		"ShotAngles":[0],
 		"Size": {"width": 18,"height": 34}
     },
 		"KzerZaA1": {
@@ -61,8 +57,6 @@
         "Path": "Objects/Ships/KzerZa/A1/",
 		"DeathAnim": 8,
         "SpriteScale": 1.0,
-		"NumPerShot":1,
-		"ShotAngles":[0],
 		"Size": {"width": 22,"height": 63}
     },
 		"PkunkA1": {
@@ -83,8 +77,6 @@
         "Path": "Objects/Ships/Pkunk/A1/",
 		"DeathAnim": 0,
         "SpriteScale": 1.0,
-		"NumPerShot":3,
-		"ShotAngles":[-90, 0, 90],
 		"Size": {"width": 26,"height": 26}
     }
 }
