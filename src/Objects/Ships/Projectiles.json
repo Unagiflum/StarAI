@@ -96,7 +96,7 @@
 		"Directions": 16,
         "Path": "Objects/Ships/Shofixti/A1/",
 		"DeathAnim": 0,
-        "SpriteScale": 1.0,
+        "SpriteScale": 1.5,
 		"Size": {"width": 12,"height": 21}
     }
 }

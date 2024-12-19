@@ -23,11 +23,12 @@ class Projectile(PlayerObject):
         super().__init__(
             name=projectile_name,
             sprite_location=Path(projectile_data['Path']),
+            sprite_scale=projectile_data.get('SpriteScale', 1.0),
             size=[projectile_data['Size']['width'], projectile_data['Size']['height']],
-            player=parent.player,
-            sprite_scale=projectile_data.get('SpriteScale', 1.0)
+            player=parent.player
         )
-
+        self.size[0] *= self.sprite_scale
+        self.size[1] *= self.sprite_scale
         # Load shared resources if not already loaded
         if projectile_name not in self._sprites:
             self._sprites[projectile_name] = []
