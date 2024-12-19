@@ -75,7 +75,7 @@ class Projectile(PlayerObject):
         self.damage = projectile_data['Damage']
         self.tracking = projectile_data['Tracking']
         self.parent_vel = projectile_data['ParentVel']
-        self.speed = projectile_data['Speed']
+        self.speed = projectile_data['Speed'] * Const.PROJ_SPEED_SCALE
         self.life_time = projectile_data['LifeTime']
         self.turn_wait = projectile_data.get('TurnWait', 0)
         self.mass = projectile_data['Mass']
@@ -88,11 +88,11 @@ class Projectile(PlayerObject):
         self.shot_angles = projectile_data['ShotAngles']
 
         # State flags
-        self.turn_timer = self.turn_wait
+        self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
         self.can_move = True
         self.can_die = True
         self.can_expire = True
-        self.expiration_timer = self.life_time
+        self.expiration_timer = int(self.life_time*Const.PROJ_LIFE_SCALE)
 
         # Load projectile-specific module
         try:
@@ -139,7 +139,7 @@ class Projectile(PlayerObject):
             if self.turn_timer <= 0:
                 if abs(angle_diff) >= direction_step:
                     self.rotation = (current_angle + (direction_step if angle_diff > 0 else -direction_step)) % 360
-                    self.turn_timer = self.turn_wait
+                    self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
                 else:
                     self.rotation = target_angle
 

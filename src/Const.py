@@ -45,6 +45,10 @@ SHIP_COLS = 8
 SHIP_ROWS = 4
 SOUND_EFFECT_VOLUME = 0.5
 
+#Projectiles
+PROJ_LIFE_SCALE = 1
+PROJ_SPEED_SCALE = 1.25
+
 #File Paths
 GAME_JSON_PATH = Path("Config/Gamesettings.json")
 TRAINING_JSON_PATH = Path("Config/Trainingsettings.json")
