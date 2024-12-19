@@ -1,6 +1,4 @@
 from src.Objects.Ships.Projectile import Projectile
-import pygame
-import src.Const as Const
 
 class DruugeA1(Projectile):
     shared_sprites = None

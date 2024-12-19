@@ -206,7 +206,7 @@
         "StartHP": 8,
         "MaxEnergy": 12,
         "StartEnergy": 12,
-        "EnergyRegen": 2,
+        "EnergyRegen": 0,
         "EnergyWait": 0,
         "MaxThrust": 64,
         "ThrustIncrement": 16,
