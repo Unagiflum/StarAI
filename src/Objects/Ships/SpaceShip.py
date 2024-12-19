@@ -126,25 +126,40 @@ class SpaceShip(PlayerObject):
         if self.action1_active and self.action2_active and (can_act or key in [action1_key, action2_key]):
             result, is_valid = self.perform_action3()
             if result:
-                new_objects.append(result)
+                if isinstance(result, list):
+                    new_objects.extend(result)
+                else:
+                    new_objects.append(result)
             elif not is_valid:
                 if self.action1_active:
                     result = self.perform_action1()
                     if result:
-                        new_objects.append(result)
+                        if isinstance(result, list):
+                            new_objects.extend(result)
+                        else:
+                            new_objects.append(result)
                 if self.action2_active:
                     result = self.perform_action2()
                     if result:
-                        new_objects.append(result)
+                        if isinstance(result, list):
+                            new_objects.extend(result)
+                        else:
+                            new_objects.append(result)
         else:
             if self.action1_active and (can_act or key == action1_key):
                 result = self.perform_action1()
                 if result:
-                    new_objects.append(result)
+                    if isinstance(result, list):
+                        new_objects.extend(result)
+                    else:
+                        new_objects.append(result)
             if self.action2_active and (can_act or key == action2_key):
                 result = self.perform_action2()
                 if result:
-                    new_objects.append(result)
+                    if isinstance(result, list):
+                        new_objects.extend(result)
+                    else:
+                        new_objects.append(result)
 
         return new_objects
 

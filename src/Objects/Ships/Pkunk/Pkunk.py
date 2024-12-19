@@ -24,26 +24,29 @@ class Pkunk(SpaceShip):
             self.current_energy -= self.a1_cost
             self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
 
-            angle_rad = math.radians(self.rotation)
+            projectiles = []
+            spawn_distance = (self.size[1] + Projectile("PkunkA1", self).size[1]) / 2
 
-            projectile = Projectile("PkunkA1", self)
+            for angle_offset in [-90, 0, 90]:
+                angle_rad = math.radians(self.rotation + angle_offset)
 
-            spawn_distance = (self.size[1] + projectile.size[1]) / 2  # Ship height + projectile height
-            projectile.position = [
-                self.position[0] + math.sin(angle_rad) * spawn_distance,
-                self.position[1] - math.cos(angle_rad) * spawn_distance
-            ]
-            projectile.heading = self.heading
-            projectile.rotation = self.rotation
-            projectile.opponent = self.opponent
-            angle_rad = math.radians(self.rotation)
-            projectile.velocity = [
-                math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
-                -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
-            ]
+                projectile = Projectile("PkunkA1", self)
+                projectile.position = [
+                    self.position[0] + math.sin(angle_rad) * spawn_distance,
+                    self.position[1] - math.cos(angle_rad) * spawn_distance
+                ]
+                projectile.heading = (self.heading + angle_offset // 22.5) % 16
+                projectile.rotation = projectile.heading * 22.5
+                projectile.opponent = self.opponent
+                projectile.velocity = [
+                    math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
+                    -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
+                ]
 
-            if projectile.launch_sound: projectile.launch_sound.play()
-            return projectile
+                if projectile.launch_sound: projectile.launch_sound.play()
+                projectiles.append(projectile)
+
+            return projectiles
         return None
 
     def perform_action2(self):
