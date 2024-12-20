@@ -39,9 +39,9 @@ class Projectile(PlayerObject):
                 str(Path(projectile_data['Path']) / f"{projectile_name}00.png")).convert_alpha()
             self._sprites[projectile_name].append(base_sprite)
 
-            # Load additional directional sprites only if needed
-            if projectile_data['Directions'] > 1:
-                for i in range(1, projectile_data['Directions']):
+            # Load additional directional sprites only if not omnidirectional
+            if not projectile_data['omnidirectional']:
+                for i in range(1, Const.SHIP_DIRECTIONS):
                     sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
                     self._sprites[projectile_name].append(pygame.image.load(str(sprite_path)).convert_alpha())
 
@@ -83,7 +83,7 @@ class Projectile(PlayerObject):
         self.hit_parent = projectile_data['HitParent']
         self.hit_self = projectile_data['HitSelf']
         self.inertia = projectile_data['Inertia']
-        self.directions = projectile_data['Directions']
+        self.omnidirectional = projectile_data['omnidirectional']
         self.death_anim = projectile_data.get('DeathAnim', 0)
 
         # State flags
@@ -101,9 +101,13 @@ class Projectile(PlayerObject):
             self.projectile_module = None
 
     def update_physics(self):
-        # Set default heading for single-direction projectiles
-        if self.directions == 1:
+        # Set sprite index based on whether projectile is omnidirectional
+        if self.omnidirectional:
             self.heading = 0
+        else:
+            # Quantize rotation to nearest available direction
+            direction_step = 360 / Const.SHIP_DIRECTIONS
+            self.heading = int((self.rotation % 360) / direction_step) % Const.SHIP_DIRECTIONS
 
         if self.tracking:
             # Find opponent
@@ -122,7 +126,7 @@ class Projectile(PlayerObject):
                 target_angle += 360
 
             # Quantize to nearest available direction
-            direction_step = 360 / self.directions
+            direction_step = 360 / Const.SHIP_DIRECTIONS
             current_angle = self.rotation
             target_direction = round(target_angle / direction_step)
             target_angle = (target_direction * direction_step) % 360
@@ -144,8 +148,6 @@ class Projectile(PlayerObject):
 
             else:
                 self.turn_timer -= 1
-
-            self.heading = 0 if self.directions == 1 else int((self.rotation % 360) / direction_step) % self.directions
 
             # Move in current direction at constant speed
             angle_rad = math.radians(self.rotation)

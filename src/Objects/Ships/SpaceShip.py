@@ -239,7 +239,7 @@ class SpaceShip(PlayerObject):
             self.velocity = [0.0, 0.0]
 
         self.energy_timer += 1
-        if self.energy_timer >= self.energy_wait:
+        if self.energy_timer >= self.energy_wait*Const.RECHARGE_DELAY_SCALE:
             self.energy_timer = 0
             if self.current_energy < self.max_energy:
                 self.current_energy = min(self.max_energy,
