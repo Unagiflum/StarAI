@@ -129,7 +129,7 @@ class Projectile(PlayerObject):
             direction_step = 360 / Const.SHIP_DIRECTIONS
             self.heading = int((self.rotation % 360) / direction_step) % Const.SHIP_DIRECTIONS
 
-        if self.tracking:
+        if self.tracking and self.opponent:
             # Find opponent
             dx = self.opponent.position[0] - self.position[0]
             dy = self.opponent.position[1] - self.position[1]
@@ -218,7 +218,7 @@ class Projectile(PlayerObject):
         if len(self.hp_array) > 1:
             damage_taken = self.current_hp - new_hp
             if damage_taken > 0:
-                frame_advance = damage_taken * 13
+                frame_advance = damage_taken * self.frame_delay
                 self.frame_timer -= frame_advance
 
         self.current_hp = new_hp
