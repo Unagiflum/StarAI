@@ -256,13 +256,12 @@ class Fleet(ShipContainer):
                 return True
         return False
 
-
     def _update_ship_positions(self):
         for i, (sprite, name, cost, _) in enumerate(self.ships):
             row = i // self.icons_per_row
             col = i % self.icons_per_row
 
-            slot_x = self.rect.x + SPACING + col * (self.icon_size[0] + self.spacing)
+            slot_x = self.rect.x + self.left_offset + col * (self.icon_size[0] + self.spacing)
             slot_y = self.rect.y + 40 + row * self.icon_total_height
 
             slot_rect = pygame.Rect(slot_x, slot_y, self.icon_size[0], self.icon_size[1])
