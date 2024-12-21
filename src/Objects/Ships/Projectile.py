@@ -78,6 +78,7 @@ class Projectile(PlayerObject):
         # Rest of initialization code
         self.parent = parent
         self.opponent = None
+        self.planet = self.parent.planet
         self.projectile_name = projectile_name
 
         # Basic properties
