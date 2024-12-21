@@ -107,3 +107,7 @@ class PlayerObject(Object):
             gravity_force * dx / distance,
             gravity_force * dy / distance
         ]
+
+    def update_position(self):
+        self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+        self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE

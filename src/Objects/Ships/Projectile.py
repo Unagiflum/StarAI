@@ -175,8 +175,7 @@ class Projectile(PlayerObject):
 
     def update_physics(self):
         self.update_heading()
-        self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
-        self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+        self.update_position()
 
     def update(self):
         if not self.currently_alive:
