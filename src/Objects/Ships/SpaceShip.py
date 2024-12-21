@@ -188,20 +188,10 @@ class SpaceShip(PlayerObject):
                     gravity_impulse[1] + self.accumulated_impulses[1]]
             self.velocity[0] += (acc0[0] +acc1[0]) * 0.5
             self.velocity[1] += (acc0[1] +acc1[1]) * 0.5
-            speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
-            if speed > Const.SPEED_LIMIT:
-                scale = Const.SPEED_LIMIT / speed
-                self.velocity[0] *= scale
-                self.velocity[1] *= scale
+            self.apply_speed_limit()
         else:
             self.velocity = self.accumulated_impulses.copy()
-
-            speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
-            if speed > Const.SPEED_LIMIT:
-                scale = Const.SPEED_LIMIT / speed
-                self.velocity[0] *= scale
-                self.velocity[1] *= scale
-
+            self.apply_speed_limit()
             self.update_position()
 
         self.accumulated_impulses = [0.0, 0.0]

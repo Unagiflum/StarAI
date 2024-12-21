@@ -175,6 +175,7 @@ class Projectile(PlayerObject):
 
     def update_physics(self):
         self.update_heading()
+        self.apply_speed_limit()
         self.update_position()
 
     def update(self):

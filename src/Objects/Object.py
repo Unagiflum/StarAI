@@ -111,3 +111,10 @@ class PlayerObject(Object):
     def update_position(self):
         self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
         self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+
+    def apply_speed_limit(self):
+        speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
+        if speed > Const.SPEED_LIMIT:
+            scale = Const.SPEED_LIMIT / speed
+            self.velocity[0] *= scale
+            self.velocity[1] *= scale
