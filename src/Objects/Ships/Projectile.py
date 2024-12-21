@@ -90,7 +90,7 @@ class Projectile(PlayerObject):
         self.speed = projectile_data['Speed'] * Const.PROJ_SPEED_SCALE
         self.life_time = projectile_data['LifeTime']
         self.turn_wait = projectile_data.get('TurnWait', 0)
-        self.mass = projectile_data['Mass']
+        self.inertia = projectile_data['Inertia']
         self.hit_parent = projectile_data['HitParent']
         self.hit_self = projectile_data['HitSelf']
         self.omnidirectional = projectile_data['omnidirectional']

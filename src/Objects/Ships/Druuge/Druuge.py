@@ -5,7 +5,7 @@ import src.Const as Const
 import math
 
 MAX_RECOIL = 96
-INC_RECOIL = MAX_RECOIL / 4
+RECOIL_INCREMENT = MAX_RECOIL / 4
 
 class Druuge(SpaceShip):
     shared_sprites = None
@@ -43,16 +43,16 @@ class Druuge(SpaceShip):
                 math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
                 -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
             ]
-            recoil_target = [math.sin(angle_rad)*MAX_RECOIL, -math.cos(angle_rad)*MAX_RECOIL]
+            recoil_target = [-math.sin(angle_rad)*MAX_RECOIL, math.cos(angle_rad)*MAX_RECOIL]
             diff_vector = [recoil_target[0] - self.velocity[0], recoil_target[1] - self.velocity[1]]
             diff_magnitude = math.sqrt(diff_vector[0]**2 + diff_vector[1]**2)
             if diff_magnitude > 0:
-                if diff_magnitude < INC_RECOIL:
-                    self.velocity[0] = -diff_vector[0]
-                    self.velocity[1] = -diff_vector[1]
+                if diff_magnitude < RECOIL_INCREMENT:
+                    self.velocity[0] += diff_vector[0]
+                    self.velocity[1] += diff_vector[1]
                 else:
-                    self.velocity[0] -= diff_vector[0]*INC_RECOIL/diff_magnitude
-                    self.velocity[1] -= diff_vector[1]*INC_RECOIL/diff_magnitude
+                    self.velocity[0] += diff_vector[0] * RECOIL_INCREMENT / diff_magnitude
+                    self.velocity[1] += diff_vector[1] * RECOIL_INCREMENT / diff_magnitude
 
 
             if projectile.launch_sound: projectile.launch_sound.play()
