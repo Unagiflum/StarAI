@@ -35,7 +35,6 @@ class Earthling(SpaceShip):
             ]
             projectile.heading = self.heading
             projectile.rotation = self.rotation
-            projectile.opponent = self.opponent
             angle_rad = math.radians(self.rotation)
             projectile.velocity = [
                 math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
