@@ -93,7 +93,6 @@ class Projectile(PlayerObject):
         self.mass = projectile_data['Mass']
         self.hit_parent = projectile_data['HitParent']
         self.hit_self = projectile_data['HitSelf']
-        self.inertia = projectile_data['Inertia']
         self.omnidirectional = projectile_data['omnidirectional']
         self.death_anim = projectile_data.get('DeathAnim', 0)
 
@@ -211,13 +210,17 @@ class Projectile(PlayerObject):
         return True
 
     def set_hp(self, new_hp):
-        """Override hp setting for MyconA1 to handle damage-based evolution"""
+        """Override hp setting to handle evolution and death"""
+        if new_hp <= 0:
+            self.current_hp = 0
+            return
+
         if len(self.hp_array) > 1:
             damage_taken = self.current_hp - new_hp
             if damage_taken > 0:
-                frame_advance = damage_taken * self.frames  # Each point of damage advances 13 frames
+                frame_advance = damage_taken * 13
                 self.frame_timer -= frame_advance
-                # Let the normal update handle the frame advancement and associated changes
+
         self.current_hp = new_hp
 
     def draw(self, screen, scale_factor, translation):
