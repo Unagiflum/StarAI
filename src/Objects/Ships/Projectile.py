@@ -121,7 +121,7 @@ class Projectile(PlayerObject):
         except ImportError:
             self.projectile_module = None
 
-    def update_physics(self):
+    def update_heading(self):
         # Set sprite index based on whether projectile is omnidirectional
         if self.omnidirectional:
             self.heading = 0
@@ -173,7 +173,8 @@ class Projectile(PlayerObject):
             angle_rad = math.radians(self.rotation)
             self.velocity = [math.sin(angle_rad) * self.speed, -math.cos(angle_rad) * self.speed]
 
-        # Update position based on velocity
+    def update_physics(self):
+        self.update_heading()
         self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
         self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
 

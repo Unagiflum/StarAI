@@ -21,6 +21,7 @@ class Object:
         # Behavior flags
         self.can_move = False
         self.can_die = False
+        self.inertia = False
 
         # Sprite handling
         self.sprites = []
@@ -94,7 +95,7 @@ class PlayerObject(Object):
         return [dx, dy], distance
 
     def get_gravity(self):
-        if not self.can_move or not self.planet:
+        if not self.inertia or not self.planet:
             return [0.0, 0.0]
         [dx, dy], distance = self.planet_distance()
 
