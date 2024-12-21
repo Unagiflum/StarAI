@@ -78,9 +78,10 @@ class Projectile(PlayerObject):
         # Rest of initialization code
         self.parent = parent
         self.opponent = None
+        self.projectile_name = projectile_name
 
         # Basic properties
-        self.start_hp = projectile_data['StartHP']
+        self.start_hp = projectile_data['StartHP'][0]
         self.current_hp = self.start_hp
         self.damages = projectile_data['Damage']
         self.current_damage = self.damages[0]
@@ -102,6 +103,9 @@ class Projectile(PlayerObject):
         self.current_frame = 0
         self.frame_timer = self.frame_delay
         self.sizes = projectile_data['Size']
+
+        # Store HP array for evolution
+        self.hp_array = projectile_data['StartHP']
 
         # State flags
         self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
@@ -189,11 +193,13 @@ class Projectile(PlayerObject):
                     self.size = [self.sizes[self.current_frame]['width'] * self.sprite_scale,
                                self.sizes[self.current_frame]['height'] * self.sprite_scale]
                     self.current_damage = self.damages[self.current_frame]
+                    if len(self.hp_array) > 1:
+                        self.current_hp = self.hp_array[self.current_frame]
                     self.frame_timer = self.frame_delay
             else:
                 self.frame_timer -= 1
 
-        return self.expiration_timer > 0
+        return self.expiration_timer > 0 and self.current_hp > 0
 
     def on_collide(self, target):
         if not self.hit_parent and target == self.parent:
@@ -203,6 +209,16 @@ class Projectile(PlayerObject):
             target.current_hp = max(0, target.current_hp - self.current_damage)
 
         return True
+
+    def set_hp(self, new_hp):
+        """Override hp setting for MyconA1 to handle damage-based evolution"""
+        if len(self.hp_array) > 1:
+            damage_taken = self.current_hp - new_hp
+            if damage_taken > 0:
+                frame_advance = damage_taken * self.frames  # Each point of damage advances 13 frames
+                self.frame_timer -= frame_advance
+                # Let the normal update handle the frame advancement and associated changes
+        self.current_hp = new_hp
 
     def draw(self, screen, scale_factor, translation):
         if self.frames > 1:
