@@ -43,9 +43,8 @@ class Pkunk(SpaceShip):
                     -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
                 ]
 
-                if projectile.launch_sound: projectile.launch_sound.play()
                 projectiles.append(projectile)
-
+            if projectile.launch_sound: projectile.launch_sound.play()
             return projectiles
         return None
 
