@@ -259,8 +259,8 @@ class SpaceShip(PlayerObject):
                 speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
                 scale = 1.0
 
-                _, distance = self.planet_distance()
-                if speed > self.max_thrust and distance > Const.GRAVITY_RANGE:
+                _, planet_distance = self.planet_distance()
+                if speed > self.max_thrust and planet_distance > Const.GRAVITY_RANGE:
                     scale = self.max_thrust / speed
 
                 target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
