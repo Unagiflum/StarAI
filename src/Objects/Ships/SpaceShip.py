@@ -174,27 +174,17 @@ class SpaceShip(PlayerObject):
 
     def update_physics(self):
         if self.inertia:
-            gravity_impulse = self.get_gravity()
-            acc0 = [gravity_impulse[0] + self.accumulated_impulses[0],
-                    gravity_impulse[1] + self.accumulated_impulses[1]]
-
-            self.position[0] = (self.position[0] + (self.velocity[0]
-                              + 0.5 * acc0[0]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
-            self.position[1] = (self.position[1] + (self.velocity[1]
-                              + 0.5 * acc0[1]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
-
-            gravity_impulse = self.get_gravity()
-            acc1 = [gravity_impulse[0] + self.accumulated_impulses[0],
-                    gravity_impulse[1] + self.accumulated_impulses[1]]
-            self.velocity[0] += (acc0[0] +acc1[0]) * 0.5
-            self.velocity[1] += (acc0[1] +acc1[1]) * 0.5
+            self.velocity[0] += self.accumulated_impulses[0]
+            self.velocity[1] += self.accumulated_impulses[1]
+            self.accumulated_impulses = [0.0, 0.0]
+            self.apply_verlet()
             self.apply_speed_limit()
         else:
             self.velocity = self.accumulated_impulses.copy()
+            self.accumulated_impulses = [0.0, 0.0]
             self.apply_speed_limit()
-            self.update_position()
-
-        self.accumulated_impulses = [0.0, 0.0]
+            self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+            self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
 
 
     def can_thrust(self):
@@ -250,6 +240,8 @@ class SpaceShip(PlayerObject):
                 _, planet_distance = self.planet_distance()
                 if speed > self.max_thrust and planet_distance > Const.GRAVITY_RANGE:
                     scale = self.max_thrust / speed
+                if speed > Const.MAX_GRAV_WHIP:
+                    scale = Const.MAX_GRAV_WHIP / speed
 
                 target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
 

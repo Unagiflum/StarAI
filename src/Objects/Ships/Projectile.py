@@ -122,11 +122,10 @@ class Projectile(PlayerObject):
             self.projectile_module = None
 
     def update_heading(self):
-        # Set sprite index based on whether projectile is omnidirectional
+
         if self.omnidirectional:
             self.heading = 0
         else:
-            # Quantize rotation to nearest available direction
             direction_step = 360 / Const.SHIP_DIRECTIONS
             self.heading = int((self.rotation % 360) / direction_step) % Const.SHIP_DIRECTIONS
 
@@ -168,15 +167,18 @@ class Projectile(PlayerObject):
                     self.rotation = target_angle
             else:
                 self.turn_timer -= 1
-
-            # Move in current direction at constant speed
             angle_rad = math.radians(self.rotation)
             self.velocity = [math.sin(angle_rad) * self.speed, -math.cos(angle_rad) * self.speed]
+
 
     def update_physics(self):
         self.update_heading()
         self.apply_speed_limit()
-        self.update_position()
+        if self.inertia:
+            self.apply_verlet()
+        else:
+            self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+            self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
 
     def update(self):
         if not self.currently_alive:

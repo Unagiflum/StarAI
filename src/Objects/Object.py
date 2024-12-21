@@ -94,11 +94,23 @@ class PlayerObject(Object):
         distance = math.sqrt(dx * dx + dy * dy)
         return [dx, dy], distance
 
-    def get_gravity(self):
-        if not self.inertia or not self.planet:
-            return [0.0, 0.0]
-        [dx, dy], distance = self.planet_distance()
+    def apply_verlet(self):
+        gravity_impulse = self.get_gravity()
+        acc0 = [gravity_impulse[0], gravity_impulse[1]]
+        self.position[0] = (self.position[0] + (self.velocity[0]
+                                                + 0.5 * acc0[0]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
+        self.position[1] = (self.position[1] + (self.velocity[1]
+                                                + 0.5 * acc0[1]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
+        gravity_impulse = self.get_gravity()
+        acc1 = [gravity_impulse[0], gravity_impulse[1]]
+        self.velocity[0] += (acc0[0] + acc1[0]) * 0.5
+        self.velocity[1] += (acc0[1] + acc1[1]) * 0.5
 
+    def get_gravity(self):
+        if not self.planet:
+            return [0.0, 0.0]
+
+        [dx, dy], distance = self.planet_distance()
         if distance < self.planet.diameter / 2 or distance > Const.GRAVITY_RANGE:
             return [0.0, 0.0]
 
@@ -107,10 +119,6 @@ class PlayerObject(Object):
             gravity_force * dx / distance,
             gravity_force * dy / distance
         ]
-
-    def update_position(self):
-        self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
-        self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
 
     def apply_speed_limit(self):
         speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
