@@ -211,7 +211,7 @@ class Asteroid(Object):
         self.rotation_delay = random.randint(0, 3)
         self.rotation_timer = 0
 
-        speed = random.uniform(Const.ASTEROID_V / 2, Const.ASTEROID_V)
+        speed = random.uniform(Const.ASTEROID_SPEED / 2, Const.ASTEROID_SPEED)
         angle = random.uniform(0, 2*math.pi)
         self.velocity = [speed * math.cos(angle), speed * math.sin(angle)]
 

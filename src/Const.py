@@ -33,9 +33,9 @@ PLANET_WEIGHTS = [25,25,25,25] # Gas, Ice, Life, Rocky
 STAR_ALPHA = 200
 
 #Asteroids
-ASTEROID_COUNT = 15 # Asteroid placing function will get stuck if you have too many
+ASTEROID_COUNT = 5 # Asteroid placing function will get stuck if you have too many
 ASTEROID_PATH = Path("Objects/Space/Asteroid")
-ASTEROID_V = 30
+ASTEROID_SPEED = 30
 
 #Ships
 SHIP_DIRECTIONS = 16
