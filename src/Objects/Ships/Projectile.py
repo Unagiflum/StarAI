@@ -9,7 +9,6 @@ from pathlib import Path
 with open(Const.PROJECTILES_JSON_PATH, 'r') as f:
     PROJECTILES_DATA = json.load(f)
 
-
 class Projectile(PlayerObject):
     # Class-level storage
     _sprites = {}
@@ -19,31 +18,40 @@ class Projectile(PlayerObject):
     def __init__(self, projectile_name, parent):
         projectile_data = PROJECTILES_DATA[projectile_name]
 
-        # Initialize PlayerObject
+        # Initialize with first frame's size
         super().__init__(
             name=projectile_name,
             sprite_location=Path(projectile_data['Path']),
             sprite_scale=projectile_data.get('SpriteScale', 1.0),
-            size=[projectile_data['Size']['width'], projectile_data['Size']['height']],
+            size=[projectile_data['Size'][0]['width'], projectile_data['Size'][0]['height']],
             player=parent.player
         )
         self.size[0] *= self.sprite_scale
         self.size[1] *= self.sprite_scale
+
         # Load shared resources if not already loaded
         if projectile_name not in self._sprites:
             self._sprites[projectile_name] = []
             self._death_anims[projectile_name] = []
 
-            # Load base sprite
-            base_sprite = pygame.image.load(
-                str(Path(projectile_data['Path']) / f"{projectile_name}00.png")).convert_alpha()
-            self._sprites[projectile_name].append(base_sprite)
+            if projectile_data['omnidirectional'] and projectile_data.get('frames', 1) > 1:
+                # Load animation frames for evolving projectile
+                frames = []
+                for frame in range(projectile_data['frames']):
+                    frame_path = Path(projectile_data['Path']) / f"{projectile_name}00_{frame:02d}.png"
+                    frames.append(pygame.image.load(str(frame_path)).convert_alpha())
+                self._sprites[projectile_name].append(frames)
+            else:
+                # Load base sprite
+                base_sprite = pygame.image.load(
+                    str(Path(projectile_data['Path']) / f"{projectile_name}00.png")).convert_alpha()
+                self._sprites[projectile_name].append(base_sprite)
 
-            # Load additional directional sprites only if not omnidirectional
-            if not projectile_data['omnidirectional']:
-                for i in range(1, Const.SHIP_DIRECTIONS):
-                    sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
-                    self._sprites[projectile_name].append(pygame.image.load(str(sprite_path)).convert_alpha())
+                # Load additional directional sprites only if not omnidirectional
+                if not projectile_data['omnidirectional']:
+                    for i in range(1, Const.SHIP_DIRECTIONS):
+                        sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
+                        self._sprites[projectile_name].append(pygame.image.load(str(sprite_path)).convert_alpha())
 
             # Load death animation if it exists
             if projectile_data.get('DeathAnim', 0) > 0:
@@ -64,7 +72,8 @@ class Projectile(PlayerObject):
         self.sprites = self._sprites[projectile_name]
         self.death_anim = self._death_anims[projectile_name]
         self.launch_sound = self._launch_sounds[projectile_name]
-        self.launch_sound.set_volume(Const.SOUND_EFFECT_VOLUME)
+        if self.launch_sound:
+            self.launch_sound.set_volume(Const.SOUND_EFFECT_VOLUME)
 
         # Rest of initialization code
         self.parent = parent
@@ -73,7 +82,8 @@ class Projectile(PlayerObject):
         # Basic properties
         self.start_hp = projectile_data['StartHP']
         self.current_hp = self.start_hp
-        self.damage = projectile_data['Damage']
+        self.damages = projectile_data['Damage']
+        self.current_damage = self.damages[0]
         self.tracking = projectile_data['Tracking']
         self.parent_vel = projectile_data['ParentVel']
         self.speed = projectile_data['Speed'] * Const.PROJ_SPEED_SCALE
@@ -85,6 +95,13 @@ class Projectile(PlayerObject):
         self.inertia = projectile_data['Inertia']
         self.omnidirectional = projectile_data['omnidirectional']
         self.death_anim = projectile_data.get('DeathAnim', 0)
+
+        # Animation properties
+        self.frames = projectile_data.get('frames', 1)
+        self.frame_delay = projectile_data.get('frame_delay', 0)
+        self.current_frame = 0
+        self.frame_timer = self.frame_delay
+        self.sizes = projectile_data['Size']
 
         # State flags
         self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
@@ -145,7 +162,6 @@ class Projectile(PlayerObject):
                     self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
                 else:
                     self.rotation = target_angle
-
             else:
                 self.turn_timer -= 1
 
@@ -163,6 +179,20 @@ class Projectile(PlayerObject):
 
         self.update_physics()
         self.expiration_timer -= 1
+
+        # Handle frame animation if projectile evolves
+        if self.frames > 1:
+            if self.frame_timer <= 0:
+                if self.current_frame < self.frames - 1:
+                    self.current_frame += 1
+                    # Update properties for new frame
+                    self.size = [self.sizes[self.current_frame]['width'] * self.sprite_scale,
+                               self.sizes[self.current_frame]['height'] * self.sprite_scale]
+                    self.current_damage = self.damages[self.current_frame]
+                    self.frame_timer = self.frame_delay
+            else:
+                self.frame_timer -= 1
+
         return self.expiration_timer > 0
 
     def on_collide(self, target):
@@ -170,12 +200,16 @@ class Projectile(PlayerObject):
             return False
 
         if target.current_hp is not None:
-            target.current_hp = max(0, target.current_hp - self.damage)
+            target.current_hp = max(0, target.current_hp - self.current_damage)
 
         return True
 
     def draw(self, screen, scale_factor, translation):
-        sprite = self.sprites[self.heading]
+        if self.frames > 1:
+            sprite = self.sprites[0][self.current_frame]  # Get current animation frame
+        else:
+            sprite = self.sprites[self.heading]
+
         total_scale = scale_factor * self.sprite_scale
         scaled_sprite = pygame.transform.smoothscale_by(sprite, total_scale)
         scaled_rect = scaled_sprite.get_rect()
