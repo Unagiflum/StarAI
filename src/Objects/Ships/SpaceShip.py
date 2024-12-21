@@ -268,9 +268,11 @@ class SpaceShip(PlayerObject):
                 diff_vector = [target_velocity[0] - self.velocity[0], target_velocity[1] - self.velocity[1]]
 
                 diff_magnitude = math.sqrt(diff_vector[0] ** 2 + diff_vector[1] ** 2)
-                if diff_magnitude > 0:
+                if diff_magnitude > self.thrust_increment:
                     scale = self.thrust_increment / diff_magnitude
                     self.add_impulse(diff_vector[0] * scale, diff_vector[1] * scale)
+                else:
+                    self.add_impulse(diff_vector[0] , diff_vector[1] )
             else:
                 self.add_impulse(
                     thrust_direction[0] * self.max_thrust,
