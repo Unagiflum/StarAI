@@ -7,6 +7,7 @@ from src.Objects.Space.SpaceObject import Star, Planet, Asteroid
 from src.Battle.StatusBar import draw_player_status
 import src.Const as Const
 
+
 def calculate_view_parameters(game_objects):
     players = [obj for obj in game_objects if isinstance(obj, SpaceShip)]
     if len(players) != 2:
@@ -27,7 +28,7 @@ def calculate_view_parameters(game_objects):
     mid_y = (p1_pos[1] + dy / 2) % Const.ARENA_SIZE
 
     distance = (dx ** 2 + dy ** 2) ** 0.5
-    view_size = min(distance / 0.8, Const.ARENA_SIZE/2)
+    view_size = min(distance / 0.8, Const.ARENA_SIZE / 2)
 
     scale_factor = min(Const.MAX_ZOOM, Const.SCREEN_HEIGHT / view_size)
     translation = [
@@ -36,6 +37,7 @@ def calculate_view_parameters(game_objects):
     ]
 
     return scale_factor, translation
+
 
 def draw_battle(screen, game_objects, border_rect, border_color):
     scale_factor, translation = calculate_view_parameters(game_objects)
@@ -94,10 +96,18 @@ def draw_battle(screen, game_objects, border_rect, border_color):
     if len(players) == 2:
         BAR_WIDTH = 20
         BAR_SPACING = 5
-        # Player 1 status on left
-        draw_player_status(screen, players[0], Const.SCREEN_LEFT + 10, BAR_WIDTH, BAR_SPACING, True)
-        # Player 2 status on right
-        draw_player_status(screen, players[1], Const.SCREEN_LEFT + Const.SCREEN_HEIGHT - 30 - BAR_WIDTH,
-                          BAR_WIDTH, BAR_SPACING, False)
+        # Calculate base Y to align bottom of bars with mid-screen
+        max_height = max(players[0].max_hp, players[0].max_energy,
+                         players[1].max_hp, players[1].max_energy)
+        bar_height = ((max_height + 1) // 2) * (4 + 2) + 2  # Same calculation as in StatusBar
+        BASE_Y = (Const.SCREEN_HEIGHT // 2) - bar_height
+
+        # Player 1 status (left of arena)
+        P1_X = Const.SCREEN_LEFT - (2 * BAR_WIDTH + BAR_SPACING) - 10
+        draw_player_status(screen, players[0], P1_X, BASE_Y, BAR_WIDTH, BAR_SPACING)
+
+        # Player 2 status (right of arena)
+        P2_X = Const.SCREEN_LEFT + Const.SCREEN_HEIGHT + 10
+        draw_player_status(screen, players[1], P2_X, BASE_Y, BAR_WIDTH, BAR_SPACING)
 
     pygame.display.flip()
