@@ -96,7 +96,7 @@ def draw_battle(screen, game_objects, border_rect, border_color):
     if len(players) == 2:
         BAR_WIDTH = 30
         BAR_SPACING = 5
-        DASH_HEIGHT = 6
+        DASH_HEIGHT = 8
 
         # Calculate total width of both bars + spacing
         TOTAL_BAR_WIDTH = (BAR_WIDTH * 2) + BAR_SPACING
