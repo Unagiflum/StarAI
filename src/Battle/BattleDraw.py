@@ -4,6 +4,7 @@ from src.Objects.Object import ThrustMarker
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Ships.Projectile import Projectile
 from src.Objects.Space.SpaceObject import Star, Planet, Asteroid
+from src.Battle.StatusBar import draw_player_status
 import src.Const as Const
 
 def calculate_view_parameters(game_objects):
@@ -88,4 +89,15 @@ def draw_battle(screen, game_objects, border_rect, border_color):
 
     pygame.draw.rect(screen, border_color, border_rect, 2)
     screen.set_clip(None)
+
+    # Draw status bars for both players
+    if len(players) == 2:
+        BAR_WIDTH = 20
+        BAR_SPACING = 5
+        # Player 1 status on left
+        draw_player_status(screen, players[0], Const.SCREEN_LEFT + 10, BAR_WIDTH, BAR_SPACING, True)
+        # Player 2 status on right
+        draw_player_status(screen, players[1], Const.SCREEN_LEFT + Const.SCREEN_HEIGHT - 30 - BAR_WIDTH,
+                          BAR_WIDTH, BAR_SPACING, False)
+
     pygame.display.flip()
