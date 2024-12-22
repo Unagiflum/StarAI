@@ -35,8 +35,9 @@ class Pkunk(SpaceShip):
                     self.position[0] + math.sin(angle_rad) * spawn_distance,
                     self.position[1] - math.cos(angle_rad) * spawn_distance
                 ]
-                projectile.heading = (self.heading + angle_offset // 22.5) % 16
-                projectile.rotation = projectile.heading * 22.5
+
+                projectile.heading = (self.heading + angle_offset // Const.TURN_ANGLE) % Const.SHIP_DIRECTIONS
+                projectile.rotation = projectile.heading * Const.TURN_ANGLE
                 projectile.velocity = [
                     math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
                     -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel

@@ -83,8 +83,8 @@ class SpaceShip(PlayerObject):
 
     def initialize_in_battle(self, position, heading):
         self.position = list(position)
-        self.heading = heading % 16
-        self.rotation = self.heading * 22.5
+        self.heading = heading % Const.SHIP_DIRECTIONS
+        self.rotation = self.heading * Const.TURN_ANGLE
         self.velocity = [0.0, 0.0]
         self.thrust_timer = 0
         self.turn_timer = 0
@@ -275,14 +275,14 @@ class SpaceShip(PlayerObject):
 
     def turn_left(self):
         if self.can_turn():
-            self.heading = (self.heading - 1) % 16
-            self.rotation = self.heading * 22.5
+            self.heading = (self.heading - 1) % Const.SHIP_DIRECTIONS
+            self.rotation = self.heading * Const.TURN_ANGLE
             self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
 
     def turn_right(self):
         if self.can_turn():
-            self.heading = (self.heading + 1) % 16
-            self.rotation = self.heading * 22.5
+            self.heading = (self.heading + 1) % Const.SHIP_DIRECTIONS
+            self.rotation = self.heading * Const.TURN_ANGLE
             self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
 
     def perform_action1(self):

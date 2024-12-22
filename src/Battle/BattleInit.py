@@ -7,7 +7,6 @@ from src.UI import UI
 import src.Const as Const
 from src.Objects.Space.SpaceObject import Planet, Star, Asteroid
 from src.Objects.Ships.SpaceShip import SpaceShip
-from pathlib import Path
 
 
 def load_settings():
