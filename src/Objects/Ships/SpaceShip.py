@@ -65,14 +65,6 @@ class SpaceShip(PlayerObject):
         self.action2_active = False
 
         self.opponent = None
-
-        self.status1 = False
-        self.status2 = False
-        self.status3 = False
-        self.status4 = 0
-        self.status5 = 0
-        self.status6 = 0
-
         self.can_die = True
 
         # Load optional ship module
