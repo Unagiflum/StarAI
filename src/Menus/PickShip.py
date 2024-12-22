@@ -49,14 +49,15 @@ def load_fleet_data():
             ship_module = __import__(f"src.Objects.Ships.{ship_name}.{ship_name}", fromlist=[''])
             ship = getattr(ship_module, ship_name)(ship_name, player_num)
 
-            # Import associated projectiles
+            # Import and instantiate associated projectiles to load resources
             for proj_name, proj_data in projectiles_data.items():
                 if proj_data["ShipName"] == ship_name:
-                    action = proj_data["Action"]  # Get the action (A1, A2, etc)
-                    proj_module = __import__(f"src.Objects.Ships.{ship_name}.{action}.{proj_name}", fromlist=[''])
-                    getattr(proj_module, proj_name)  # Initialize class to load shared sprites
+                    proj_module = __import__(f"src.Objects.Ships.{ship_name}.{proj_data['Action']}.{proj_name}",
+                                             fromlist=[''])
+                    getattr(proj_module, proj_name)(ship)
 
             return ship
+
 
         player1_ships = [get_ship_class(ship_name, 1) for ship_name in fleet_data["Player1"]["ships"]]
         player2_ships = [get_ship_class(ship_name, 2) for ship_name in fleet_data["Player2"]["ships"]]
