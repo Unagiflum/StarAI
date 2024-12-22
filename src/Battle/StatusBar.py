@@ -3,7 +3,7 @@ import src.Const as Const
 
 
 class StatusBar:
-    def __init__(self, x, y, width, max_value, dash_height=4, dash_gap=2):
+    def __init__(self, x, y, width, max_value, dash_height=6, dash_gap=2):  # Increased dash_height
         self.x = x
         self.y = y
         self.width = width
@@ -11,11 +11,10 @@ class StatusBar:
         self.dash_height = dash_height
         self.dash_gap = dash_gap
 
-        # Calculate dimensions based on max_value and dash sizes
         self.columns = 2
         self.dash_width = (width - (self.columns + 1) * dash_gap) // self.columns
-        self.rows = max_value  # Show all values
-        self.height = ((self.rows + 1) // 2) * (dash_height + dash_gap) + dash_gap  # Ceiling division for height
+        self.rows = max_value
+        self.height = ((self.rows + 1) // 2) * (dash_height + dash_gap) + dash_gap
 
     def draw(self, screen, current_value, color):
         # Draw border

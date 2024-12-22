@@ -94,20 +94,31 @@ def draw_battle(screen, game_objects, border_rect, border_color):
 
     # Draw status bars for both players
     if len(players) == 2:
-        BAR_WIDTH = 20
+        BAR_WIDTH = 30  # Increased from 20
         BAR_SPACING = 5
-        # Calculate base Y to align bottom of bars with mid-screen
+
+        # Calculate total width of both bars + spacing
+        TOTAL_BAR_WIDTH = (BAR_WIDTH * 2) + BAR_SPACING
+
+        # Calculate bar height using same formula as StatusBar
         max_height = max(players[0].max_hp, players[0].max_energy,
                          players[1].max_hp, players[1].max_energy)
-        bar_height = ((max_height + 1) // 2) * (4 + 2) + 2  # Same calculation as in StatusBar
-        BASE_Y = (Const.SCREEN_HEIGHT // 2) - bar_height
+        bar_height = ((max_height + 1) // 2) * (6 + 2) + 2  # Using new dash_height of 6
 
-        # Player 1 status (left of arena)
-        P1_X = Const.SCREEN_LEFT - (2 * BAR_WIDTH + BAR_SPACING) - 10
+        # Calculate total width of both bars + spacing
+        TOTAL_BAR_WIDTH = (BAR_WIDTH * 2) + BAR_SPACING
+
+        # Calculate panel widths (space between arena edge and screen edge)
+        LEFT_PANEL_WIDTH = Const.SCREEN_LEFT
+        RIGHT_PANEL_WIDTH = Const.SCREEN_WIDTH - (Const.SCREEN_LEFT + Const.SCREEN_HEIGHT)
+
+        # Center bars in panels
+        P1_X = Const.SCREEN_LEFT - TOTAL_BAR_WIDTH - ((LEFT_PANEL_WIDTH - TOTAL_BAR_WIDTH) // 2)
+        P2_X = (Const.SCREEN_LEFT + Const.SCREEN_HEIGHT) + ((RIGHT_PANEL_WIDTH - TOTAL_BAR_WIDTH) // 2)
+
+        BASE_Y = Const.SCREEN_HEIGHT // 2
+
         draw_player_status(screen, players[0], P1_X, BASE_Y, BAR_WIDTH, BAR_SPACING)
-
-        # Player 2 status (right of arena)
-        P2_X = Const.SCREEN_LEFT + Const.SCREEN_HEIGHT + 10
         draw_player_status(screen, players[1], P2_X, BASE_Y, BAR_WIDTH, BAR_SPACING)
 
     pygame.display.flip()
