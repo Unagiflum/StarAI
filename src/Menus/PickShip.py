@@ -43,6 +43,7 @@ def load_fleet_data():
         with open(Const.PROJECTILES_JSON_PATH, 'r') as f:
             projectiles_data = json.load(f)
 
+
         def get_ship_class(ship_name, player_num):
             # Import and instantiate ship
             ship_module = __import__(f"src.Objects.Ships.{ship_name}.{ship_name}", fromlist=[''])
@@ -51,7 +52,8 @@ def load_fleet_data():
             # Import associated projectiles
             for proj_name, proj_data in projectiles_data.items():
                 if proj_data["ShipName"] == ship_name:
-                    proj_module = __import__(f"src.Objects.Ships.{ship_name}.A1.{proj_name}", fromlist=[''])
+                    action = proj_data["Action"]  # Get the action (A1, A2, etc)
+                    proj_module = __import__(f"src.Objects.Ships.{ship_name}.{action}.{proj_name}", fromlist=[''])
                     getattr(proj_module, proj_name)  # Initialize class to load shared sprites
 
             return ship
