@@ -110,7 +110,7 @@ class SpaceShip(PlayerObject):
         if self.turn_right_active:
             self.turn_right()
         if self.thrust_active:
-            marker = self.apply_thrust()
+            marker = self.apply_thrust(self.max_thrust, self.thrust_increment, 0)
             if marker:
                 new_objects.append(marker)
 
@@ -215,23 +215,23 @@ class SpaceShip(PlayerObject):
                 self.current_energy = min(self.max_energy,
                                           self.current_energy + self.energy_regen)
 
-    def apply_thrust(self):
+    def apply_thrust(self, max_thrust, thrust_increment, angle):
         if self.can_thrust():
-            angle_rad = math.radians(self.rotation)
+            angle_rad = math.radians(self.rotation + angle)
             thrust_direction = [math.sin(angle_rad), -math.cos(angle_rad)]
 
             if self.inertia:
                 new_velocity = [
-                    self.velocity[0] + thrust_direction[0] * self.thrust_increment,
-                    self.velocity[1] + thrust_direction[1] * self.thrust_increment
+                    self.velocity[0] + thrust_direction[0] * thrust_increment,
+                    self.velocity[1] + thrust_direction[1] * thrust_increment
                 ]
 
                 speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
                 scale = 1.0
 
                 _, planet_distance = self.planet_distance()
-                if speed > self.max_thrust and planet_distance > Const.GRAVITY_RANGE:
-                    scale = self.max_thrust / speed
+                if speed > max_thrust and planet_distance > Const.GRAVITY_RANGE:
+                    scale = max_thrust / speed
                 if speed > Const.MAX_GRAV_WHIP:
                     scale = Const.MAX_GRAV_WHIP / speed
 
@@ -240,15 +240,15 @@ class SpaceShip(PlayerObject):
                 diff_vector = [target_velocity[0] - self.velocity[0], target_velocity[1] - self.velocity[1]]
 
                 diff_magnitude = math.sqrt(diff_vector[0] ** 2 + diff_vector[1] ** 2)
-                if diff_magnitude > self.thrust_increment:
-                    scale = self.thrust_increment / diff_magnitude
+                if diff_magnitude > thrust_increment:
+                    scale = thrust_increment / diff_magnitude
                     self.add_impulse(diff_vector[0] * scale, diff_vector[1] * scale)
                 else:
                     self.add_impulse(diff_vector[0] , diff_vector[1] )
             else:
                 self.add_impulse(
-                    thrust_direction[0] * self.max_thrust,
-                    thrust_direction[1] * self.max_thrust
+                    thrust_direction[0] * max_thrust,
+                    thrust_direction[1] * max_thrust
                 )
 
             self.thrust_timer = int(self.thrust_wait * Const.THRUST_WAIT_SCALE)
