@@ -36,14 +36,19 @@ class StatusBar:
 
 
 def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing):
-    # Colors for HP and Energy
-    HP_COLOR = (0, 255, 0)  # Green
-    ENERGY_COLOR = (255, 0, 0)  # Red
+    HP_COLOR = (0, 255, 0)
+    ENERGY_COLOR = (255, 0, 0)
 
-    # Create HP bar (left)
-    hp_bar = StatusBar(base_x, base_y, bar_width, ship.max_hp)
+    # Create bars to calculate heights
+    hp_bar = StatusBar(base_x, 0, bar_width, ship.max_hp)
+    energy_bar = StatusBar(base_x + bar_width + bar_spacing, 0, bar_width, ship.max_energy)
+
+    # Calculate y positions to align bottoms at base_y
+    hp_y = base_y - hp_bar.height
+    energy_y = base_y - energy_bar.height
+
+    # Update bar positions and draw
+    hp_bar.y = hp_y
+    energy_bar.y = energy_y
     hp_bar.draw(screen, ship.current_hp, HP_COLOR)
-
-    # Create Energy bar (right)
-    energy_bar = StatusBar(base_x + bar_width + bar_spacing, base_y, bar_width, ship.max_energy)
     energy_bar.draw(screen, ship.current_energy, ENERGY_COLOR)
