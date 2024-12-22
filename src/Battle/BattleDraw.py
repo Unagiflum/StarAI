@@ -94,8 +94,9 @@ def draw_battle(screen, game_objects, border_rect, border_color):
 
     # Draw status bars for both players
     if len(players) == 2:
-        BAR_WIDTH = 30  # Increased from 20
+        BAR_WIDTH = 30
         BAR_SPACING = 5
+        DASH_HEIGHT = 6
 
         # Calculate total width of both bars + spacing
         TOTAL_BAR_WIDTH = (BAR_WIDTH * 2) + BAR_SPACING
@@ -103,7 +104,7 @@ def draw_battle(screen, game_objects, border_rect, border_color):
         # Calculate bar height using same formula as StatusBar
         max_height = max(players[0].max_hp, players[0].max_energy,
                          players[1].max_hp, players[1].max_energy)
-        bar_height = ((max_height + 1) // 2) * (6 + 2) + 2  # Using new dash_height of 6
+        bar_height = ((max_height + 1) // 2) * (DASH_HEIGHT + 2) + 2  # Using new dash_height of 6
 
         # Calculate total width of both bars + spacing
         TOTAL_BAR_WIDTH = (BAR_WIDTH * 2) + BAR_SPACING
