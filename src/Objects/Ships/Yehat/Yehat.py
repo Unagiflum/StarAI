@@ -4,20 +4,8 @@ import pygame
 import src.Const as Const
 
 class Yehat(SpaceShip):
-    shared_sprites = None
-
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
-
-        if Yehat.shared_sprites is None:
-            Yehat.shared_sprites = []
-            for i in range(Const.SHIP_DIRECTIONS):
-                sprite_path = self.sprite_location.joinpath(f'{ship_name}{i:02d}.png')
-                base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
-                scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
-                Yehat.shared_sprites.append(scaled_sprite)
-
-        self.sprites = Yehat.shared_sprites
 
     def perform_action1(self):
         if self.can_action1():

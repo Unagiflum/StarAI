@@ -8,20 +8,8 @@ MAX_RECOIL = 96
 RECOIL_INCREMENT = MAX_RECOIL / 4
 
 class Druuge(SpaceShip):
-    shared_sprites = None
-
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
-
-        if Druuge.shared_sprites is None:
-            Druuge.shared_sprites = []
-            for i in range(Const.SHIP_DIRECTIONS):
-                sprite_path = self.sprite_location.joinpath(f'{ship_name}{i:02d}.png')
-                base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
-                scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
-                Druuge.shared_sprites.append(scaled_sprite)
-
-        self.sprites = Druuge.shared_sprites
 
     def perform_action1(self):
         if self.can_action1():

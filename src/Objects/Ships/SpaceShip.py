@@ -10,6 +10,9 @@ with open(Const.SHIPS_JSON_PATH, 'r') as f:
     SHIPS_DATA = json.load(f)
 
 class SpaceShip(PlayerObject):
+    # Class-level storage for shared sprites
+    _shared_sprites = {}
+
     def __init__(self, ship_name, player_num):
         # Get ship-specific data from cached data
         ship_data = SHIPS_DATA[ship_name]
@@ -23,6 +26,23 @@ class SpaceShip(PlayerObject):
             player=player_num,
             sprite_scale=ship_data['SpriteScale']
         )
+
+        # Load shared sprites if not already loaded for this ship type
+        if ship_name not in self._shared_sprites:
+            self._shared_sprites[ship_name] = []
+            try:
+                for i in range(Const.SHIP_DIRECTIONS):
+                    sprite_path = self.sprite_location.joinpath(f'{ship_name}{i:02d}.png')
+                    base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
+                    scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
+                    self._shared_sprites[ship_name].append(scaled_sprite)
+            except pygame.error as e:
+                print(f"Error loading sprites for {ship_name}: {e}")
+                self._shared_sprites[ship_name] = None
+                return
+
+        # Use the shared sprites
+        self.sprites = self._shared_sprites[ship_name]
 
         # Ship-specific attributes
         self.ship_type = ship_data['ShipType']
