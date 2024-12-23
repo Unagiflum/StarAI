@@ -22,7 +22,7 @@ class SpaceShip(PlayerObject):
         super().__init__(
             name=ship_name,
             sprite_location=sprite_location,
-            size=[ship_data['Size']['width'], ship_data['Size']['height']],
+            size=[0,0],
             player=player_num,
             sprite_scale=ship_data['SpriteScale']
         )
@@ -38,10 +38,16 @@ class SpaceShip(PlayerObject):
                     self._shared_sprites[ship_name].append(scaled_sprite)
                     if i == 0:  # Set size based on first sprite
                         self.size = [scaled_sprite.get_width(), scaled_sprite.get_height()]
+                        print(self.size)
             except pygame.error as e:
                 print(f"Error loading sprites for {ship_name}: {e}")
                 self._shared_sprites[ship_name] = None
                 return
+        else:
+            self.size = [
+                self._shared_sprites[ship_name][0].get_width(),
+                self._shared_sprites[ship_name][0].get_height()
+            ]
 
         # Use the shared sprites
         self.sprites = self._shared_sprites[ship_name]

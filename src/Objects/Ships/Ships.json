@@ -21,8 +21,7 @@
         "Mass": 1,
         "Inertia": false,
         "SpriteLocation": "Objects/Ships/Arilou/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 56,"height": 58}
+        "SpriteScale": 1.0
     },
     "Druuge": {
         "ShipType": "Mauler",
@@ -46,8 +45,7 @@
         "Mass": 5,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/Druuge/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 39,"height": 136}
+        "SpriteScale": 1.0
     },
     "Earthling": {
         "ShipType": "Cruiser",
@@ -71,8 +69,7 @@
         "Mass": 6,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/Earthling/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 39,"height": 139}
+        "SpriteScale": 1.0
     },
     "Ilwrath": {
         "ShipType": "Avenger",
@@ -96,8 +93,7 @@
         "Mass": 7,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/Ilwrath/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 126,"height": 124}
+        "SpriteScale": 1.0
     },
     "KohrAh": {
         "ShipType": "Marauder",
@@ -121,8 +117,7 @@
         "Mass": 10,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/KohrAh/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 93,"height": 181}
+        "SpriteScale": 1.0
     },
     "KzerZa": {
         "ShipType": "Dreadnought",
@@ -146,8 +141,7 @@
         "Mass": 10,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/KzerZa/",
-        "SpriteScale": 0.87,
-		"Size": {"width": 115,"height": 181}
+        "SpriteScale": 0.87
     },
     "Mycon": {
         "ShipType": "Podship",
@@ -171,8 +165,7 @@
         "Mass": 7,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/Mycon/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 97,"height": 117}
+        "SpriteScale": 1.0
     },
     "Orz": {
         "ShipType": "Nemesis",
@@ -196,8 +189,7 @@
         "Mass": 4,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/Orz/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 138,"height": 110}
+        "SpriteScale": 1.0
     },
     "Pkunk": {
         "ShipType": "Fury",
@@ -221,8 +213,7 @@
         "Mass": 1,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/Pkunk/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 120,"height": 85}
+        "SpriteScale": 1.0
     },
     "Shofixti": {
         "ShipType": "Scout",
@@ -246,8 +237,7 @@
         "Mass": 1,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/Shofixti/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 72,"height": 72}
+        "SpriteScale": 1.0
     },
     "Spathi": {
         "ShipType": "Eluder",
@@ -271,8 +261,7 @@
         "Mass": 7,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/Spathi/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 112,"height": 93}
+        "SpriteScale": 1.0
     },
     "Supox": {
         "ShipType": "Blade",
@@ -296,8 +285,7 @@
         "Mass": 4,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/Supox/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 53,"height": 120}
+        "SpriteScale": 1.0
     },
     "Thraddash": {
         "ShipType": "Torch",
@@ -321,8 +309,7 @@
         "Mass": 7,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/Thraddash/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 113,"height": 113}
+        "SpriteScale": 1.0
     },
     "Yehat": {
         "ShipType": "Terminator",
@@ -346,8 +333,7 @@
         "Mass": 3,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/Yehat/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 80,"height": 52}
+        "SpriteScale": 1.0
     },
     "ZoqFot": {
         "ShipType": "Stinger",
@@ -371,7 +357,6 @@
         "Mass": 5,
         "Inertia": true,
         "SpriteLocation": "Objects/Ships/ZoqFot/",
-        "SpriteScale": 1.0,
-		"Size": {"width": 118,"height": 118}
+        "SpriteScale": 1.0
     }
 }
