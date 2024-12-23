@@ -298,8 +298,7 @@ class SpaceShip(PlayerObject):
         sprite = self.sprites[self.heading]
         sprite_rect = sprite.get_rect()
 
-        total_scale = scale_factor * self.sprite_scale
-        scaled_sprite = pygame.transform.smoothscale_by(sprite, total_scale)
+        scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
         scaled_rect = scaled_sprite.get_rect()
 
         # Calculate screen position with translation
@@ -316,6 +315,6 @@ class SpaceShip(PlayerObject):
                 if (0 <= pos_x <= Const.SCREEN_HEIGHT and
                         0 <= pos_y <= Const.SCREEN_HEIGHT):
                     screen.blit(scaled_sprite, (
-                        Const.SCREEN_LEFT +  pos_x - scaled_rect.width // 2,
+                        Const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
                         pos_y - scaled_rect.height // 2
                     ))

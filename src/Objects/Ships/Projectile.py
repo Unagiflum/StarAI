@@ -39,26 +39,33 @@ class Projectile(PlayerObject):
                 frames = []
                 for frame in range(projectile_data['frames']):
                     frame_path = Path(projectile_data['Path']) / f"{projectile_name}00_{frame:02d}.png"
-                    frames.append(pygame.image.load(str(frame_path)).convert_alpha())
+                    base_sprite = pygame.image.load(str(frame_path)).convert_alpha()
+                    scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
+                    frames.append(scaled_sprite)
                 self._sprites[projectile_name].append(frames)
             else:
                 # Load base sprite
                 base_sprite = pygame.image.load(
                     str(Path(projectile_data['Path']) / f"{projectile_name}00.png")).convert_alpha()
-                self._sprites[projectile_name].append(base_sprite)
+                scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
+                self._sprites[projectile_name].append(scaled_sprite)
 
                 # Load additional directional sprites only if not omnidirectional
                 if not projectile_data['omnidirectional']:
                     for i in range(1, Const.SHIP_DIRECTIONS):
                         sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
-                        self._sprites[projectile_name].append(pygame.image.load(str(sprite_path)).convert_alpha())
+                        base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
+                        scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
+                        self._sprites[projectile_name].append(scaled_sprite)
 
             # Load death animation if it exists
             if projectile_data.get('DeathAnim', 0) > 0:
                 for i in range(projectile_data['DeathAnim']):
                     try:
                         death_path = Path(projectile_data['Path']) / f"{projectile_name}die{i:02d}.png"
-                        self._death_anims[projectile_name].append(pygame.image.load(str(death_path)).convert_alpha())
+                        base_sprite = pygame.image.load(str(death_path)).convert_alpha()
+                        scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
+                        self._death_anims[projectile_name].append(scaled_sprite)
                     except pygame.error:
                         break
 
@@ -233,8 +240,7 @@ class Projectile(PlayerObject):
         else:
             sprite = self.sprites[self.heading]
 
-        total_scale = scale_factor * self.sprite_scale
-        scaled_sprite = pygame.transform.smoothscale_by(sprite, total_scale)
+        scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
         scaled_rect = scaled_sprite.get_rect()
 
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
