@@ -36,6 +36,8 @@ class SpaceShip(PlayerObject):
                     base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
                     scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                     self._shared_sprites[ship_name].append(scaled_sprite)
+                    if i == 0:  # Set size based on first sprite
+                        self.size = [scaled_sprite.get_width(), scaled_sprite.get_height()]
             except pygame.error as e:
                 print(f"Error loading sprites for {ship_name}: {e}")
                 self._shared_sprites[ship_name] = None
