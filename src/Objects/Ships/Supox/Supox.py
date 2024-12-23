@@ -15,7 +15,9 @@ class Supox(SpaceShip):
             Supox.shared_sprites = []
             for i in range(Const.SHIP_DIRECTIONS):
                 sprite_path = self.sprite_location.joinpath(f'{ship_name}{i:02d}.png')
-                Supox.shared_sprites.append(pygame.image.load(str(sprite_path)).convert_alpha())
+                base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
+                scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
+                Supox.shared_sprites.append(scaled_sprite)
 
         self.sprites = Supox.shared_sprites
 
