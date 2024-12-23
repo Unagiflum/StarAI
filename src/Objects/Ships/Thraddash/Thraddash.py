@@ -70,7 +70,7 @@ class Thraddash(SpaceShip):
                 math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
                 -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
             ]
-            self.apply_thrust(REUNK_THRUST,REUNK_INCREMENT, 0)
+            self.apply_thrust(REUNK_THRUST,REUNK_INCREMENT, 0, True)
             if projectile.launch_sound: projectile.launch_sound.play()
             return projectile
         return None
