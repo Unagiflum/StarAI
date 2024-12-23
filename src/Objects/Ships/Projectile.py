@@ -18,16 +18,14 @@ class Projectile(PlayerObject):
     def __init__(self, projectile_name, parent):
         projectile_data = PROJECTILES_DATA[projectile_name]
 
-        # Initialize with first frame's size
+        # Initialize with temporary size, will be set after sprite loading
         super().__init__(
             name=projectile_name,
             sprite_location=Path(projectile_data['Path']),
             sprite_scale=projectile_data.get('SpriteScale', 1.0),
-            size=[projectile_data['Size'][0]['width'], projectile_data['Size'][0]['height']],
+            size=[0, 0],
             player=parent.player
         )
-        self.size[0] *= self.sprite_scale
-        self.size[1] *= self.sprite_scale
 
         # Load shared resources if not already loaded
         if projectile_name not in self._sprites:
@@ -37,20 +35,24 @@ class Projectile(PlayerObject):
             if projectile_data['omnidirectional'] and projectile_data.get('frames', 1) > 1:
                 # Load animation frames for evolving projectile
                 frames = []
+                self.sizes = []
                 for frame in range(projectile_data['frames']):
                     frame_path = Path(projectile_data['Path']) / f"{projectile_name}00_{frame:02d}.png"
                     base_sprite = pygame.image.load(str(frame_path)).convert_alpha()
                     scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                     frames.append(scaled_sprite)
+                    self.sizes.append([scaled_sprite.get_width(), scaled_sprite.get_height()])
                 self._sprites[projectile_name].append(frames)
+                self.size = self.sizes[0]
             else:
                 # Load base sprite
                 base_sprite = pygame.image.load(
                     str(Path(projectile_data['Path']) / f"{projectile_name}00.png")).convert_alpha()
                 scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                 self._sprites[projectile_name].append(scaled_sprite)
+                self.size = [scaled_sprite.get_width(), scaled_sprite.get_height()]
 
-                # Load additional directional sprites only if not omnidirectional
+                # Load additional directional sprites if not omnidirectional
                 if not projectile_data['omnidirectional']:
                     for i in range(1, Const.SHIP_DIRECTIONS):
                         sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
@@ -75,6 +77,15 @@ class Projectile(PlayerObject):
                 self._launch_sounds[projectile_name] = pygame.mixer.Sound(str(sound_path))
             except pygame.error:
                 self._launch_sounds[projectile_name] = None
+        else:
+            # Sprites already loaded - set sizes based on existing sprites
+            if projectile_data['omnidirectional'] and projectile_data.get('frames', 1) > 1:
+                # Evolving projectile - get sizes from each frame
+                self.sizes = [[sprite.get_width(), sprite.get_height()] for sprite in self._sprites[projectile_name][0]]
+                self.size = self.sizes[0]
+            else:
+                # Non-evolving projectile - get size from first sprite
+                self.size = [self._sprites[projectile_name][0].get_width(), self._sprites[projectile_name][0].get_height()]
 
         self.sprites = self._sprites[projectile_name]
         self.death_anim = self._death_anims[projectile_name]
@@ -109,7 +120,6 @@ class Projectile(PlayerObject):
         self.frame_delay = projectile_data.get('frame_delay', 0)
         self.current_frame = 0
         self.frame_timer = self.frame_delay
-        self.sizes = projectile_data['Size']
 
         # Store HP array for evolution
         self.hp_array = projectile_data['StartHP']
@@ -200,8 +210,7 @@ class Projectile(PlayerObject):
                 if self.current_frame < self.frames - 1:
                     self.current_frame += 1
                     # Update properties for new frame
-                    self.size = [self.sizes[self.current_frame]['width'] * self.sprite_scale,
-                               self.sizes[self.current_frame]['height'] * self.sprite_scale]
+                    self.size = self.sizes[self.current_frame]
                     self.current_damage = self.damages[self.current_frame]
                     if len(self.hp_array) > 1:
                         self.current_hp = self.hp_array[self.current_frame]
