@@ -9,7 +9,7 @@ class KohrAhA1(Projectile):
         super().__init__("KohrAhA1", parent)
         self.is_moving = True
         self.original_speed = self.speed
-        self.expiration_timer = float('inf')  # Never expires
+        self.expiration_timer = float('inf')  # Never expires unless removed manually
 
     def update(self):
         if not self.currently_alive:
@@ -17,13 +17,13 @@ class KohrAhA1(Projectile):
 
         self.update_physics()
 
-        # Handle continuous frame animation
-        if self.frame_timer <= 0:
-            self.current_frame = (self.current_frame + 1) % self.frames
-            self.frame_timer = self.frame_delay
-
-        else:
-            self.frame_timer -= 1
+        # Continuous frame animation
+        if self.frames > 1:
+            if self.frame_timer <= 0:
+                self.current_frame = (self.current_frame + 1) % self.frames
+                self.frame_timer = self.frame_delay
+            else:
+                self.frame_timer -= 1
 
         return self.currently_alive and self.current_hp > 0
 

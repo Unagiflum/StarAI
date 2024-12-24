@@ -3,7 +3,6 @@ from src.Objects.Ships.Projectile import Projectile
 import src.Const as Const
 import math
 
-
 class KohrAh(SpaceShip):
     MAX_PROJECTILES = 8
 
@@ -13,7 +12,6 @@ class KohrAh(SpaceShip):
         self.last_action1_state = False
 
     def perform_action1(self):
-        # Detect button state change
         button_pressed = self.action1_active and not self.last_action1_state
         button_released = not self.action1_active and self.last_action1_state
         self.last_action1_state = self.action1_active
@@ -43,7 +41,6 @@ class KohrAh(SpaceShip):
                 math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
                 -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
             ]
-            projectile.is_moving = True
 
             if projectile.launch_sound:
                 projectile.launch_sound.play()
@@ -52,7 +49,7 @@ class KohrAh(SpaceShip):
             return projectile
 
         elif button_released:
-            # Stop all active projectiles
+            # Stop movement of active projectiles
             for proj in self.active_projectiles:
                 if proj.currently_alive:
                     proj.is_moving = False
