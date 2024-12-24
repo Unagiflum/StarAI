@@ -23,7 +23,8 @@ class Mycon(SpaceShip):
                 self.position[0] + math.sin(angle_rad) * spawn_distance,
                 self.position[1] - math.cos(angle_rad) * spawn_distance
             ]
-            projectile.heading = self.heading
+
+            projectile.heading = 0 # omnidirectional, so heading = 0
             projectile.rotation = self.rotation
             angle_rad = math.radians(self.rotation)
             projectile.velocity = [

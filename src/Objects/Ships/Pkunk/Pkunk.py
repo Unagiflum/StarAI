@@ -26,11 +26,10 @@ class Pkunk(SpaceShip):
                     self.position[0] + math.sin(angle_rad) * spawn_distance * h_mult,
                     self.position[1] - math.cos(angle_rad) * spawn_distance * h_mult
                 ]
-                if projectile.omnidirectional:
-                    projectile.heading = 0
-                else:
-                    projectile.heading = int(self.heading + angle_offset // Const.TURN_ANGLE) % Const.SHIP_DIRECTIONS
-                projectile.rotation = projectile.heading * Const.TURN_ANGLE
+
+                projectile.heading = 0  # omnidirectional, so heading = 0
+                projectile.rotation = 0 # non-tracking, doesn't matter
+
                 projectile.velocity = [
                     math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
                     -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel

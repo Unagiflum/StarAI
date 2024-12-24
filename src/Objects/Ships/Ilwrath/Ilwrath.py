@@ -23,8 +23,10 @@ class Ilwrath(SpaceShip):
                 self.position[0] + math.sin(angle_rad) * spawn_distance,
                 self.position[1] - math.cos(angle_rad) * spawn_distance
             ]
-            projectile.heading = self.heading
-            projectile.rotation = self.rotation
+
+            projectile.heading = 0  # omnidirectional, so heading = 0
+            projectile.rotation = 0  # non-tracking, doesn't matter
+
             angle_rad = math.radians(self.rotation)
             projectile.velocity = [
                 math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
