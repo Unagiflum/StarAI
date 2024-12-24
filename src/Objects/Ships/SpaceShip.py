@@ -129,7 +129,6 @@ class SpaceShip(PlayerObject):
 
         # Update timers and check if actions can be performed
         self.update_timers()
-        can_act = (key is None)  # Allow action checks on non-event updates
 
         # Handle movement based on active states
         if self.turn_left_active:
@@ -141,8 +140,26 @@ class SpaceShip(PlayerObject):
             if marker:
                 new_objects.append(marker)
 
+        # Handle key release events
+        if key and not pressed:
+            if key == action1_key:
+                result = self.perform_action1()
+                if result:
+                    if isinstance(result, list):
+                        new_objects.extend(result)
+                    else:
+                        new_objects.append(result)
+            elif key == action2_key:
+                result = self.perform_action2()
+                if result:
+                    if isinstance(result, list):
+                        new_objects.extend(result)
+                    else:
+                        new_objects.append(result)
+            return new_objects
+
         # Handle actions based on active states
-        if self.action1_active and self.action2_active and (can_act or key in [action1_key, action2_key]):
+        if self.action1_active and self.action2_active:
             result, is_valid = self.perform_action3()
             if result:
                 if isinstance(result, list):
@@ -165,14 +182,14 @@ class SpaceShip(PlayerObject):
                         else:
                             new_objects.append(result)
         else:
-            if self.action1_active and (can_act or key == action1_key):
+            if self.action1_active:
                 result = self.perform_action1()
                 if result:
                     if isinstance(result, list):
                         new_objects.extend(result)
                     else:
                         new_objects.append(result)
-            if self.action2_active and (can_act or key == action2_key):
+            if self.action2_active:
                 result = self.perform_action2()
                 if result:
                     if isinstance(result, list):
