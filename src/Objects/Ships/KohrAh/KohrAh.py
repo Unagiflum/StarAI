@@ -1,40 +1,62 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Ships.Projectile import Projectile
-import pygame
 import src.Const as Const
 import math
 
 
 class KohrAh(SpaceShip):
+    MAX_PROJECTILES = 8
+
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
+        self.active_projectiles = []
+        self.last_action1_state = False
 
     def perform_action1(self):
-        if self.can_action1():
+        # Detect button state change
+        button_pressed = self.action1_active and not self.last_action1_state
+        button_released = not self.action1_active and self.last_action1_state
+        self.last_action1_state = self.action1_active
+
+        if button_pressed and self.can_action1():
             self.current_energy -= self.a1_cost
             self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
 
-            angle_rad = math.radians(self.rotation)
+            # Remove oldest projectile if at max
+            if len(self.active_projectiles) >= self.MAX_PROJECTILES:
+                oldest = self.active_projectiles.pop(0)
+                oldest.currently_alive = False
 
+            # Create new projectile
             projectile = Projectile("KohrAhA1", self)
-
+            angle_rad = math.radians(self.rotation)
             spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
+
             projectile.position = [
                 self.position[0] + math.sin(angle_rad) * spawn_distance,
                 self.position[1] - math.cos(angle_rad) * spawn_distance
             ]
 
-            projectile.heading = 0  # omnidirectional, so heading = 0
-            projectile.rotation = 0  # non-tracking, doesn't matter
-
-            angle_rad = math.radians(self.rotation)
+            projectile.heading = 0  # omnidirectional
+            projectile.rotation = 0
             projectile.velocity = [
                 math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
                 -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
             ]
+            projectile.is_moving = True
 
-            if projectile.launch_sound: projectile.launch_sound.play()
+            if projectile.launch_sound:
+                projectile.launch_sound.play()
+
+            self.active_projectiles.append(projectile)
             return projectile
+
+        elif button_released:
+            # Stop all active projectiles
+            for proj in self.active_projectiles:
+                if proj.currently_alive:
+                    proj.is_moving = False
+
         return None
 
     def perform_action2(self):
