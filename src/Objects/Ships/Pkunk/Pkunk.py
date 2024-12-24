@@ -1,6 +1,5 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Ships.Projectile import Projectile
-import pygame
 import src.Const as Const
 import math
 
