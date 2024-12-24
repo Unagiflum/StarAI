@@ -49,7 +49,7 @@ class Spathi(SpaceShip):
                 self.position[0] - math.sin(angle_rad) * spawn_distance,
                 self.position[1] + math.cos(angle_rad) * spawn_distance
             ]
-            projectile.heading = (self.heading + Const.SHIP_DIRECTIONS/2) % Const.SHIP_DIRECTIONS
+            projectile.heading = int(self.heading + Const.SHIP_DIRECTIONS/2) % Const.SHIP_DIRECTIONS
             projectile.rotation = (self.rotation + 180) % 360
             angle_rad = math.radians(self.rotation)
             projectile.velocity = [

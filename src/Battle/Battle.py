@@ -121,10 +121,10 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         )
         game_objects.extend(p2_objects)
 
+        # Drawing
+        draw_battle(screen, game_objects, border_rect, border_color)
+
         # Update all objects
         for obj in game_objects[:]:
             if not obj.update():
                 game_objects.remove(obj)
-
-        # Drawing
-        draw_battle(screen, game_objects, border_rect, border_color)
