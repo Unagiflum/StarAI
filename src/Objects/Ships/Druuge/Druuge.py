@@ -1,5 +1,6 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Ships.Projectile import Projectile
+from src.Objects.Ships.Druuge.A1.DruugeA1 import DruugeA1
 import pygame
 import src.Const as Const
 import math
@@ -18,7 +19,7 @@ class Druuge(SpaceShip):
 
             angle_rad = math.radians(self.rotation)
 
-            projectile = Projectile("DruugeA1", self)
+            projectile = DruugeA1(self)
 
             spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
             projectile.position = [

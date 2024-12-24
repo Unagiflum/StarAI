@@ -1,5 +1,6 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Ships.Projectile import Projectile
+from src.Objects.Ships.Yehat.A1.YehatA1 import YehatA1
 import pygame
 import src.Const as Const
 import math
@@ -19,7 +20,7 @@ class Yehat(SpaceShip):
 
             projectiles = []
             for offset in [-side_offset, side_offset]:
-                projectile = Projectile("YehatA1", self)
+                projectile = YehatA1(self)
 
                 spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
                 offset_x = math.cos(angle_rad) * offset

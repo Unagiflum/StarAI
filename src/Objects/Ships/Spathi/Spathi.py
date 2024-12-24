@@ -1,5 +1,7 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Ships.Projectile import Projectile
+from src.Objects.Ships.Spathi.A1.SpathiA1 import SpathiA1
+from src.Objects.Ships.Spathi.A2.SpathiA2 import SpathiA2
 import pygame
 import src.Const as Const
 import math
@@ -16,7 +18,7 @@ class Spathi(SpaceShip):
 
             angle_rad = math.radians(self.rotation)
 
-            projectile = Projectile("SpathiA1", self)
+            projectile = SpathiA1(self)
 
             spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
             projectile.position = [
@@ -42,7 +44,7 @@ class Spathi(SpaceShip):
 
             angle_rad = math.radians(self.rotation)
 
-            projectile = Projectile("SpathiA2", self)
+            projectile = SpathiA2(self)
 
             spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
             projectile.position = [

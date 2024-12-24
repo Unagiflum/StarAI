@@ -1,5 +1,6 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Ships.Projectile import Projectile
+from src.Objects.Ships.Mycon.A1.MyconA1 import MyconA1
 import pygame
 import src.Const as Const
 import math
@@ -16,7 +17,7 @@ class Mycon(SpaceShip):
 
             angle_rad = math.radians(self.rotation)
 
-            projectile = Projectile("MyconA1", self)
+            projectile = MyconA1(self)
 
             spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
             projectile.position = [

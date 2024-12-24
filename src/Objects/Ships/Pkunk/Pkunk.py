@@ -1,5 +1,6 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Ships.Projectile import Projectile
+from src.Objects.Ships.Pkunk.A1.PkunkA1 import PkunkA1
 import src.Const as Const
 import math
 
@@ -21,7 +22,7 @@ class Pkunk(SpaceShip):
                 h_mult = 1.0
                 if angle_offset != 0:
                     h_mult *= self.size[0]/self.size[1]
-                projectile = Projectile("PkunkA1", self)
+                projectile = PkunkA1(self)
                 projectile.position = [
                     self.position[0] + math.sin(angle_rad) * spawn_distance * h_mult,
                     self.position[1] - math.cos(angle_rad) * spawn_distance * h_mult

@@ -1,5 +1,6 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Ships.Projectile import Projectile
+from src.Objects.Ships.ZoqFot.A1.ZoqFotA1 import ZoqFotA1
 import pygame
 import src.Const as Const
 import math
@@ -21,7 +22,7 @@ class ZoqFot(SpaceShip):
             angle_offset = direction * self.spread_angle
 
             angle_rad = math.radians(self.rotation + angle_offset)
-            projectile = Projectile("ZoqFotA1", self)
+            projectile = ZoqFotA1(self)
 
             spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
             projectile.position = [
