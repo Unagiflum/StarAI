@@ -258,5 +258,25 @@
         "Path": "Objects/Ships/Yehat/A1/",
         "DeathAnim": 0,
         "SpriteScale": 1.0
+    },
+    "ZoqFotA1": {
+        "ShipName": "ZoqFotA1",
+        "Action": "A1",
+        "StartHP": [1],
+        "Damage": [1],
+        "Tracking": false,
+        "ParentVel": 1.0,
+        "Speed": 120,
+        "LifeTime": 10,
+        "TurnWait": 1,
+        "Inertia": true,
+        "HitParent": false,
+        "HitSelf": false,
+        "omnidirectional": true,
+        "frames": 1,
+        "frame_delay": 0,
+        "Path": "Objects/Ships/ZoqFot/A1/",
+        "DeathAnim": 0,
+        "SpriteScale": 0.7
     }
 }
