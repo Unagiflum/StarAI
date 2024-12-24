@@ -1,5 +1,6 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
 from src.Objects.Ships.Projectile import Projectile
+from src.Objects.Ships.KohrAh.A1.KohrAhA1 import KohrAhA1
 import src.Const as Const
 import math
 
@@ -26,7 +27,7 @@ class KohrAh(SpaceShip):
                 oldest.currently_alive = False
 
             # Create new projectile
-            projectile = Projectile("KohrAhA1", self)
+            projectile = KohrAhA1(self)
             angle_rad = math.radians(self.rotation)
             spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
 

@@ -1,4 +1,5 @@
 from src.Objects.Ships.Projectile import Projectile
+import src.Const as Const
 import math
 
 class KohrAhA1(Projectile):
@@ -34,10 +35,10 @@ class KohrAhA1(Projectile):
             dy = self.opponent.position[1] - self.position[1]
 
             # Handle arena wrapping
-            if abs(dx) > self.parent.planet.diameter / 2:
-                dx = dx - self.parent.planet.diameter if dx > 0 else dx + self.parent.planet.diameter
-            if abs(dy) > self.parent.planet.diameter / 2:
-                dy = dy - self.parent.planet.diameter if dy > 0 else dy + self.parent.planet.diameter
+            if abs(dx) > Const.ARENA_SIZE / 2:
+                dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
+            if abs(dy) > Const.ARENA_SIZE / 2:
+                dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
 
             distance = math.sqrt(dx * dx + dy * dy)
 
