@@ -4,7 +4,7 @@ import math
 
 class KohrAhA1(Projectile):
     TRACK_SPEED = 5
-    TRACK_RANGE = 500
+    TRACK_RANGE = 224
 
     def __init__(self, parent):
         super().__init__("KohrAhA1", parent)
