@@ -59,6 +59,26 @@
         "DeathAnim": 0,
         "SpriteScale": 1.0
     },
+    "KohrAhA1": {
+        "ShipName": "KohrAh",
+        "Action": "A1",
+        "StartHP": [1, 1],
+        "Damage": [1, 1],
+        "Tracking": false,
+        "ParentVel": 0.0,
+        "Speed": 64,
+        "LifeTime": 64,
+        "TurnWait": 0,
+        "Inertia": true,
+        "HitParent": false,
+        "HitSelf": false,
+        "omnidirectional": true,
+        "frames": 2,
+        "frame_delay": 0,
+        "Path": "Objects/Ships/KohrAh/A1/",
+        "DeathAnim": 6,
+        "SpriteScale": 1.0
+    },
     "KzerZaA1": {
         "ShipName": "KzerZa",
         "Action": "A1",
