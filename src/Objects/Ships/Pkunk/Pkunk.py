@@ -15,18 +15,22 @@ class Pkunk(SpaceShip):
             self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
 
             projectiles = []
-            spawn_distance = (self.size[1] + Projectile("PkunkA1", self).size[1]) / 2
+            spawn_distance = Const.PROJ_GAP + (self.size[1] + Projectile("PkunkA1", self).size[1]) / 2
 
             for angle_offset in [-90, 0, 90]:
                 angle_rad = math.radians(self.rotation + angle_offset)
-
+                h_mult = 1.0
+                if angle_offset != 0:
+                    h_mult *= self.size[0]/self.size[1]
                 projectile = Projectile("PkunkA1", self)
                 projectile.position = [
-                    self.position[0] + math.sin(angle_rad) * spawn_distance,
-                    self.position[1] - math.cos(angle_rad) * spawn_distance
+                    self.position[0] + math.sin(angle_rad) * spawn_distance * h_mult,
+                    self.position[1] - math.cos(angle_rad) * spawn_distance * h_mult
                 ]
-
-                projectile.heading = (self.heading + angle_offset // Const.TURN_ANGLE) % Const.SHIP_DIRECTIONS
+                if projectile.omnidirectional:
+                    projectile.heading = 0
+                else:
+                    projectile.heading = int(self.heading + angle_offset // Const.TURN_ANGLE) % Const.SHIP_DIRECTIONS
                 projectile.rotation = projectile.heading * Const.TURN_ANGLE
                 projectile.velocity = [
                     math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,

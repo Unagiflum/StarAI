@@ -20,7 +20,7 @@ class Druuge(SpaceShip):
 
             projectile = Projectile("DruugeA1", self)
 
-            spawn_distance = (self.size[1] + projectile.size[1]) / 2  # Ship height + projectile height
+            spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
             projectile.position = [
                 self.position[0] + math.sin(angle_rad) * spawn_distance,
                 self.position[1] - math.cos(angle_rad) * spawn_distance

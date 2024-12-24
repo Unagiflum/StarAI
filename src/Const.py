@@ -51,6 +51,7 @@ SOUND_EFFECT_VOLUME = 0.3
 #Projectiles
 PROJ_LIFE_SCALE = 1
 PROJ_SPEED_SCALE = 1.25
+PROJ_GAP = 5
 
 #File Paths
 GAME_JSON_PATH = Path("Config/Gamesettings.json")
