@@ -3,7 +3,7 @@ import src.Const as Const
 import math
 
 class KohrAhA1(Projectile):
-    TRACK_SPEED = 15
+    TRACK_SPEED = 5
     TRACK_RANGE = 500
 
     def __init__(self, parent):
