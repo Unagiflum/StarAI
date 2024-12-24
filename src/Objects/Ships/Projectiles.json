@@ -238,5 +238,25 @@
         "Path": "Objects/Ships/Thraddash/A2/",
         "DeathAnim": 0,
         "SpriteScale": 1.0
+    },
+    "YehatA1": {
+        "ShipName": "Yehat",
+        "Action": "A1",
+        "StartHP": [1],
+        "Damage": [1],
+        "Tracking": false,
+        "ParentVel": 0.0,
+        "Speed": 80,
+        "LifeTime": 10,
+        "TurnWait": 1,
+        "Inertia": true,
+        "HitParent": false,
+        "HitSelf": false,
+        "omnidirectional": false,
+        "frames": 1,
+        "frame_delay": 0,
+        "Path": "Objects/Ships/Yehat/A1/",
+        "DeathAnim": 0,
+        "SpriteScale": 1.0
     }
 }
