@@ -1,8 +1,6 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
-from src.Objects.Ships.Projectile import Projectile
 from src.Objects.Ships.Thraddash.A1.ThraddashA1 import ThraddashA1
 from src.Objects.Ships.Thraddash.A2.ThraddashA2 import ThraddashA2
-import pygame
 import src.Const as Const
 import math
 

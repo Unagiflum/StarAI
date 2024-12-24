@@ -1,7 +1,5 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
-from src.Objects.Ships.Projectile import Projectile
 from src.Objects.Ships.ZoqFot.A1.ZoqFotA1 import ZoqFotA1
-import pygame
 import src.Const as Const
 import math
 import random

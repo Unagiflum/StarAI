@@ -1,7 +1,5 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
-from src.Objects.Ships.Projectile import Projectile
 from src.Objects.Ships.Supox.A1.SupoxA1 import SupoxA1
-import pygame
 import src.Const as Const
 import math
 

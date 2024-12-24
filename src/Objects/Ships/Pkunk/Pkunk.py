@@ -1,5 +1,4 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
-from src.Objects.Ships.Projectile import Projectile
 from src.Objects.Ships.Pkunk.A1.PkunkA1 import PkunkA1
 import src.Const as Const
 import math
@@ -15,7 +14,7 @@ class Pkunk(SpaceShip):
             self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
 
             projectiles = []
-            spawn_distance = Const.PROJ_GAP + (self.size[1] + Projectile("PkunkA1", self).size[1]) / 2
+            spawn_distance = Const.PROJ_GAP + (self.size[1] + PkunkA1(self).size[1]) / 2
 
             for angle_offset in [-90, 0, 90]:
                 angle_rad = math.radians(self.rotation + angle_offset)

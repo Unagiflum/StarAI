@@ -1,5 +1,4 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
-from src.Objects.Ships.Projectile import Projectile
 from src.Objects.Ships.KohrAh.A1.KohrAhA1 import KohrAhA1
 import src.Const as Const
 import math
