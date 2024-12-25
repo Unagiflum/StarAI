@@ -12,7 +12,7 @@ with open(Const.PROJECTILES_JSON_PATH, 'r') as f:
 class Projectile(PlayerObject):
     # Class-level storage
     _sprites = {}
-    _death_anims = {}
+    _end_anims = {}
     _launch_sounds = {}
 
     def __init__(self, projectile_name, parent):
@@ -30,7 +30,7 @@ class Projectile(PlayerObject):
         # Load shared resources if not already loaded and sprites are enabled
         if projectile_name not in self._sprites:
             self._sprites[projectile_name] = []
-            self._death_anims[projectile_name] = []
+            self._end_anims[projectile_name] = []
 
             if projectile_data.get('hasSprites', True):
                 if projectile_data['omnidirectional'] and projectile_data.get('frames', 1) > 1:
@@ -67,10 +67,10 @@ class Projectile(PlayerObject):
             if projectile_data.get('end_anim', 0) > 0:
                 for i in range(projectile_data['end_anim']):
                     try:
-                        death_path = Path(projectile_data['Path']) / f"{projectile_name}die{i:02d}.png"
-                        base_sprite = pygame.image.load(str(death_path)).convert_alpha()
+                        end_path = Path(projectile_data['Path']) / f"{projectile_name}end{i:02d}.png"
+                        base_sprite = pygame.image.load(str(end_path)).convert_alpha()
                         scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
-                        self._death_anims[projectile_name].append(scaled_sprite)
+                        self._end_anims[projectile_name].append(scaled_sprite)
                     except pygame.error:
                         break
 
@@ -96,7 +96,7 @@ class Projectile(PlayerObject):
                 self.size = [0, 0]
 
         self.sprites = self._sprites[projectile_name]
-        self.death_anim = self._death_anims[projectile_name]
+        self.death_anim = self._end_anims[projectile_name]
         self.launch_sound = self._launch_sounds[projectile_name]
         if self.launch_sound:
             self.launch_sound.set_volume(Const.SOUND_EFFECT_VOLUME)

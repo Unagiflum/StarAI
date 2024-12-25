@@ -193,7 +193,7 @@ class Asteroid(Object):
         # Load shared death animation if not already loaded
         if Asteroid.shared_death_animation is None:
             Asteroid.shared_death_animation = [
-                pygame.image.load(str(Const.ASTEROID_PATH / f"asteroiddie{i:02d}.png")).convert_alpha()
+                pygame.image.load(str(Const.ASTEROID_PATH / f"asteroidend{i:02d}.png")).convert_alpha()
                 for i in range(4)]
 
         # Randomly rotate sprites for this instance
