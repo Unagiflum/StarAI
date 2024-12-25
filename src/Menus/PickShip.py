@@ -55,7 +55,6 @@ def load_fleet_data():
                     proj_module = __import__(f"src.Objects.Ships.{ship_name}.{proj_data['Action']}.{proj_name}",
                                              fromlist=[''])
                     getattr(proj_module, proj_name)(ship)
-
             return ship
 
 
