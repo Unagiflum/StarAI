@@ -1,0 +1,74 @@
+from src.Objects.Ships.Projectile import Projectile
+import pygame
+import math
+import src.Const as Const
+
+class ArilouA1(Projectile):
+    LASER_RANGE = 400
+    LASER_COLOR = (255, 255, 255)
+    LASER_WIDTH = 2
+
+    def __init__(self, parent):
+        super().__init__("ArilouA1", parent)
+        self.end_position = [0, 0]
+        self.calculate_end_position()
+
+    def calculate_end_position(self):
+        if not self.opponent:
+            return
+
+        # Calculate direction to opponent
+        dx = self.opponent.position[0] - self.position[0]
+        dy = self.opponent.position[1] - self.position[1]
+
+        # Handle arena wrapping
+        if abs(dx) > Const.ARENA_SIZE / 2:
+            dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
+        if abs(dy) > Const.ARENA_SIZE / 2:
+            dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+
+        # Calculate angle and quantize to nearest SHIP_DIRECTION
+        angle = math.atan2(dy, dx)
+        direction = round(angle / (2 * math.pi) * Const.SHIP_DIRECTIONS) % Const.SHIP_DIRECTIONS
+        angle = direction * (2 * math.pi / Const.SHIP_DIRECTIONS)
+
+        # Calculate end position
+        self.end_position[0] = (self.position[0] + math.cos(angle) * self.LASER_RANGE) % Const.ARENA_SIZE
+        self.end_position[1] = (self.position[1] + math.sin(angle) * self.LASER_RANGE) % Const.ARENA_SIZE
+
+    def update(self):
+        if not self.currently_alive:
+            return False
+
+        self.expiration_timer -= 1
+        return self.expiration_timer > 0
+
+    def draw(self, screen, scale_factor, translation):
+        # Update position with parent ship
+        self.position = self.parent.position.copy()
+        self.calculate_end_position()
+
+        screen_start_x = int((self.position[0] + translation[0]) * scale_factor)
+        screen_start_y = int((self.position[1] + translation[1]) * scale_factor)
+        screen_end_x = int((self.end_position[0] + translation[0]) * scale_factor)
+        screen_end_y = int((self.end_position[1] + translation[1]) * scale_factor)
+
+        # Draw laser at all potential wrap-around positions
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                start_x = screen_start_x + dx * Const.ARENA_SIZE * scale_factor
+                start_y = screen_start_y + dy * Const.ARENA_SIZE * scale_factor
+                end_x = screen_end_x + dx * Const.ARENA_SIZE * scale_factor
+                end_y = screen_end_y + dy * Const.ARENA_SIZE * scale_factor
+
+                if (0 <= start_x <= Const.SCREEN_HEIGHT and
+                    0 <= start_y <= Const.SCREEN_HEIGHT) or \
+                   (0 <= end_x <= Const.SCREEN_HEIGHT and
+                    0 <= end_y <= Const.SCREEN_HEIGHT):
+                    pygame.draw.line(
+                        screen,
+                        self.LASER_COLOR,
+                        (Const.SCREEN_LEFT + start_x, start_y),
+                        (Const.SCREEN_LEFT + end_x, end_y),
+                        int(self.LASER_WIDTH * scale_factor)
+                    )
