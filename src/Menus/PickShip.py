@@ -51,7 +51,7 @@ def load_fleet_data():
 
             # Import and instantiate associated projectiles to load resources
             for proj_name, proj_data in projectiles_data.items():
-                if proj_data["ShipName"] == ship_name:
+                if proj_data["ship_name"] == ship_name:
                     proj_module = __import__(f"src.Objects.Ships.{ship_name}.{proj_data['Action']}.{proj_name}",
                                              fromlist=[''])
                     getattr(proj_module, proj_name)(ship)

@@ -113,9 +113,9 @@ class Ability(PlayerObject):
         self.damages = ability_data['Damage']
         self.current_damage = self.damages[0]
         self.tracking = ability_data['Tracking']
-        self.parent_vel = ability_data['ParentVel']
+        self.parent_vel = ability_data['parent_vel']
         self.speed = ability_data['Speed'] * Const.PROJ_SPEED_SCALE
-        self.life_time = ability_data['LifeTime']
+        self.life_time = ability_data['life_time']
         self.turn_wait = ability_data.get('turn_wait', 0)
         self.inertia = ability_data['inertia']
         self.hit_parent = ability_data['HitParent']
@@ -140,7 +140,7 @@ class Ability(PlayerObject):
         self.expiration_timer = int(self.life_time*Const.PROJ_LIFE_SCALE)
         # Load projectile-specific module
         try:
-            module_path = f"{ability_data['Path']}{ability_data['ShipName']}{ability_data['Action']}"
+            module_path = f"{ability_data['Path']}{ability_data['ship_name']}{ability_data['Action']}"
             self.projectile_module = __import__(module_path, fromlist=[''])
         except ImportError:
             self.projectile_module = None
