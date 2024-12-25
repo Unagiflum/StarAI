@@ -1,6 +1,4 @@
-#Arilou
 from src.Objects.Ships.SpaceShip import SpaceShip
-import pygame
 import src.Const as Const
 
 class Arilou(SpaceShip):
