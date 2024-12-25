@@ -18,6 +18,7 @@
         "Path": "Objects/Ships/Arilou/A1/",
         "DeathAnim": 0,
         "SpriteScale": 1.0,
+        "hasSprites": false,
         "hasSound": true
     },
     "DruugeA1": {
@@ -39,6 +40,7 @@
         "Path": "Objects/Ships/Druuge/A1/",
         "DeathAnim": 8,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "EarthlingA1": {
@@ -60,6 +62,7 @@
         "Path": "Objects/Ships/Earthling/A1/",
         "DeathAnim": 9,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "IlwrathA1": {
@@ -81,6 +84,7 @@
         "Path": "Objects/Ships/Ilwrath/A1/",
         "DeathAnim": 0,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "KohrAhA1": {
@@ -102,6 +106,7 @@
         "Path": "Objects/Ships/KohrAh/A1/",
         "DeathAnim": 6,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "KzerZaA1": {
@@ -123,6 +128,7 @@
         "Path": "Objects/Ships/KzerZa/A1/",
         "DeathAnim": 8,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "MyconA1": {
@@ -144,6 +150,7 @@
         "Path": "Objects/Ships/Mycon/A1/",
         "DeathAnim": 8,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "PkunkA1": {
@@ -165,6 +172,7 @@
         "Path": "Objects/Ships/Pkunk/A1/",
         "DeathAnim": 0,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "ShofixtiA1": {
@@ -186,6 +194,7 @@
         "Path": "Objects/Ships/Shofixti/A1/",
         "DeathAnim": 0,
         "SpriteScale": 1.5,
+        "hasSprites": true,
         "hasSound": true
     },
     "SpathiA1": {
@@ -207,6 +216,7 @@
         "Path": "Objects/Ships/Spathi/A1/",
         "DeathAnim": 0,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "SpathiA2": {
@@ -228,6 +238,7 @@
         "Path": "Objects/Ships/Spathi/A2/",
         "DeathAnim": 0,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "SupoxA1": {
@@ -249,6 +260,7 @@
         "Path": "Objects/Ships/Supox/A1/",
         "DeathAnim": 0,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "ThraddashA1": {
@@ -270,6 +282,7 @@
         "Path": "Objects/Ships/Thraddash/A1/",
         "DeathAnim": 0,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "ThraddashA2": {
@@ -291,6 +304,7 @@
         "Path": "Objects/Ships/Thraddash/A2/",
         "DeathAnim": 0,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "YehatA1": {
@@ -312,6 +326,7 @@
         "Path": "Objects/Ships/Yehat/A1/",
         "DeathAnim": 0,
         "SpriteScale": 1.0,
+        "hasSprites": true,
         "hasSound": true
     },
     "ZoqFotA1": {
@@ -333,6 +348,7 @@
         "Path": "Objects/Ships/ZoqFot/A1/",
         "DeathAnim": 0,
         "SpriteScale": 0.7,
+        "hasSprites": true,
         "hasSound": true
     }
 }

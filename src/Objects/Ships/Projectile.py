@@ -32,34 +32,36 @@ class Projectile(PlayerObject):
             self._sprites[projectile_name] = []
             self._death_anims[projectile_name] = []
 
-            if projectile_data['omnidirectional'] and projectile_data.get('frames', 1) > 1:
-                # Load animation frames for evolving projectile
-                frames = []
-                self.sizes = []
-                for frame in range(projectile_data['frames']):
-                    frame_path = Path(projectile_data['Path']) / f"{projectile_name}00_{frame:02d}.png"
-                    base_sprite = pygame.image.load(str(frame_path)).convert_alpha()
-                    scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
-                    frames.append(scaled_sprite)
-                    self.sizes.append([scaled_sprite.get_width(), scaled_sprite.get_height()])
-                self._sprites[projectile_name].append(frames)
-                self.size = self.sizes[0]
-            else:
-                # Load base sprite
-                base_sprite = pygame.image.load(
-                    str(Path(projectile_data['Path']) / f"{projectile_name}00.png")).convert_alpha()
-                scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
-                self._sprites[projectile_name].append(scaled_sprite)
-                self.size = [scaled_sprite.get_width(), scaled_sprite.get_height()]
-
-                # Load additional directional sprites if not omnidirectional
-                if not projectile_data['omnidirectional']:
-                    for i in range(1, Const.SHIP_DIRECTIONS):
-                        sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
-                        base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
+            if projectile_data.get('hasSprites', True):
+                if projectile_data['omnidirectional'] and projectile_data.get('frames', 1) > 1:
+                    # Load animation frames for evolving projectile
+                    frames = []
+                    self.sizes = []
+                    for frame in range(projectile_data['frames']):
+                        frame_path = Path(projectile_data['Path']) / f"{projectile_name}00_{frame:02d}.png"
+                        base_sprite = pygame.image.load(str(frame_path)).convert_alpha()
                         scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
-                        self._sprites[projectile_name].append(scaled_sprite)
+                        frames.append(scaled_sprite)
+                        self.sizes.append([scaled_sprite.get_width(), scaled_sprite.get_height()])
+                    self._sprites[projectile_name].append(frames)
+                    self.size = self.sizes[0]
+                else:
+                    # Load base sprite
+                    base_sprite = pygame.image.load(
+                        str(Path(projectile_data['Path']) / f"{projectile_name}00.png")).convert_alpha()
+                    scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
+                    self._sprites[projectile_name].append(scaled_sprite)
+                    self.size = [scaled_sprite.get_width(), scaled_sprite.get_height()]
 
+                    # Load additional directional sprites if not omnidirectional
+                    if not projectile_data['omnidirectional']:
+                        for i in range(1, Const.SHIP_DIRECTIONS):
+                            sprite_path = Path(projectile_data['Path']) / f"{projectile_name}{i:02d}.png"
+                            base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
+                            scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
+                            self._sprites[projectile_name].append(scaled_sprite)
+            else:
+                self._sprites[projectile_name] = None
 
             # Load death animation if it exists
             if projectile_data.get('DeathAnim', 0) > 0:
@@ -81,14 +83,17 @@ class Projectile(PlayerObject):
                     self._launch_sounds[projectile_name] = None
         else:
             # Sprites already loaded - set sizes based on existing sprites
-            if projectile_data['omnidirectional'] and projectile_data.get('frames', 1) > 1:
-                # Evolving projectile - get sizes from each frame
-                self.sizes = [[sprite.get_width(), sprite.get_height()] for sprite in self._sprites[projectile_name][0]]
-                self.size = self.sizes[0]
+            if projectile_data.get('hasSprites', True):
+                if projectile_data['omnidirectional'] and projectile_data.get('frames', 1) > 1:
+                    # Evolving projectile - get sizes from each frame
+                    self.sizes = [[sprite.get_width(), sprite.get_height()] for sprite in self._sprites[projectile_name][0]]
+                    self.size = self.sizes[0]
+                else:
+                    # Non-evolving projectile - get size from first sprite
+                    self.size = [self._sprites[projectile_name][0].get_width(),
+                                 self._sprites[projectile_name][0].get_height()]
             else:
-                # Non-evolving projectile - get size from first sprite
-                self.size = [self._sprites[projectile_name][0].get_width(),
-                             self._sprites[projectile_name][0].get_height()]
+                self.size = [0, 0]
 
         self.sprites = self._sprites[projectile_name]
         self.death_anim = self._death_anims[projectile_name]
@@ -133,7 +138,6 @@ class Projectile(PlayerObject):
         self.can_die = True
         self.can_expire = True
         self.expiration_timer = int(self.life_time*Const.PROJ_LIFE_SCALE)
-
         # Load projectile-specific module
         try:
             module_path = f"{projectile_data['Path']}{projectile_data['ShipName']}{projectile_data['Action']}"
