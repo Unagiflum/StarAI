@@ -110,7 +110,7 @@ class Ability(PlayerObject):
         # Basic properties
         self.start_hp = ability_data['start_hp'][0]
         self.current_hp = self.start_hp
-        self.damages = ability_data['Damage']
+        self.damages = ability_data['damage']
         self.current_damage = self.damages[0]
         self.tracking = ability_data['Tracking']
         self.parent_vel = ability_data['parent_vel']
