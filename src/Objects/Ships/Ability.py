@@ -112,7 +112,7 @@ class Ability(PlayerObject):
         self.current_hp = self.start_hp
         self.damages = ability_data['damage']
         self.current_damage = self.damages[0]
-        self.tracking = ability_data['Tracking']
+        self.tracking = ability_data['tracking']
         self.parent_vel = ability_data['parent_vel']
         self.speed = ability_data['speed'] * Const.PROJ_SPEED_SCALE
         self.life_time = ability_data['life_time']
