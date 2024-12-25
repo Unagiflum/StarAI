@@ -126,8 +126,12 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         # Update tracking arrays for all ships and abilities
         for obj in game_objects:
             if isinstance(obj, (SpaceShip, Ability)):
-                obj.friendly_objects = [x for x in game_objects if isinstance(x, Ability) and x.player == obj.player]
-                obj.enemy_objects = [x for x in game_objects if isinstance(x, Ability) and x.player != obj.player]
+                obj.friendly_objects = [x for x in game_objects if isinstance(x, Ability) and
+                                        x.player == obj.player and
+                                        x.type == 'projectile']
+                obj.enemy_objects = [x for x in game_objects if isinstance(x, Ability) and
+                                     x.player != obj.player and
+                                     x.type == 'projectile']
                 obj.asteroids = [x for x in game_objects if isinstance(x, Asteroid)]
 
         # Drawing
