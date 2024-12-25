@@ -3,7 +3,6 @@ import json
 import random
 import math
 
-from src.UI import ui
 import src.const as const
 from src.Objects.Space.space_obj import Planet, Star, Asteroid
 from src.Objects.Ships.space_ship import SpaceShip

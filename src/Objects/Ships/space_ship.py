@@ -1,12 +1,12 @@
 from src.Objects.object import PlayerObject, ThrustMarker
-import src.const as Const
+import src.const as const
 import math
 import pygame
 import json
 from pathlib import Path
 
 # Load ship data once at module level
-with open(Const.SHIPS_JSON_PATH, 'r') as f:
+with open(const.SHIPS_JSON_PATH, 'r') as f:
     SHIPS_DATA = json.load(f)
 
 class SpaceShip(PlayerObject):
@@ -31,7 +31,7 @@ class SpaceShip(PlayerObject):
         if ship_name not in self._shared_sprites:
             self._shared_sprites[ship_name] = []
             try:
-                for i in range(Const.SHIP_DIRECTIONS):
+                for i in range(const.SHIP_DIRECTIONS):
                     sprite_path = self.sprite_location.joinpath(f'{ship_name}{i:02d}.png')
                     base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
                     scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
@@ -102,8 +102,8 @@ class SpaceShip(PlayerObject):
 
     def initialize_in_battle(self, position, heading):
         self.position = list(position)
-        self.heading = heading % Const.SHIP_DIRECTIONS
-        self.rotation = self.heading * Const.TURN_ANGLE
+        self.heading = heading % const.SHIP_DIRECTIONS
+        self.rotation = self.heading * const.TURN_ANGLE
         self.velocity = [0.0, 0.0]
         self.thrust_timer = 0
         self.turn_timer = 0
@@ -219,8 +219,8 @@ class SpaceShip(PlayerObject):
             self.velocity = self.accumulated_impulses.copy()
             self.accumulated_impulses = [0.0, 0.0]
             self.apply_speed_limit()
-            self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
-            self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+            self.position[0] = (self.position[0] + self.velocity[0] * const.SPEED_SCALE) % const.ARENA_SIZE
+            self.position[1] = (self.position[1] + self.velocity[1] * const.SPEED_SCALE) % const.ARENA_SIZE
 
 
     def can_thrust(self):
@@ -253,7 +253,7 @@ class SpaceShip(PlayerObject):
             self.velocity = [0.0, 0.0]
 
         self.energy_timer += 1
-        if self.energy_timer >= self.energy_wait*Const.RECHARGE_DELAY_SCALE:
+        if self.energy_timer >= self.energy_wait*const.RECHARGE_DELAY_SCALE:
             self.energy_timer = 0
             if self.current_energy < self.max_energy:
                 self.current_energy = min(self.max_energy,
@@ -274,10 +274,10 @@ class SpaceShip(PlayerObject):
                 scale = 1.0
 
                 _, planet_distance = self.planet_distance()
-                if speed > max_thrust and planet_distance > Const.GRAVITY_RANGE:
+                if speed > max_thrust and planet_distance > const.GRAVITY_RANGE:
                     scale = max_thrust / speed
-                if speed > Const.MAX_GRAV_WHIP:
-                    scale = Const.MAX_GRAV_WHIP / speed
+                if speed > const.MAX_GRAV_WHIP:
+                    scale = const.MAX_GRAV_WHIP / speed
 
                 target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
 
@@ -295,7 +295,7 @@ class SpaceShip(PlayerObject):
                     thrust_direction[1] * max_thrust
                 )
 
-            self.thrust_timer = int(self.thrust_wait * Const.THRUST_WAIT_SCALE)
+            self.thrust_timer = int(self.thrust_wait * const.THRUST_WAIT_SCALE)
             marker_x, marker_y = self.get_thrust_marker_position()
             marker = ThrustMarker(marker_x, marker_y)
             return marker
@@ -311,27 +311,27 @@ class SpaceShip(PlayerObject):
 
     def turn_left(self):
         if self.can_turn():
-            self.heading = (self.heading - 1) % Const.SHIP_DIRECTIONS
-            self.rotation = self.heading * Const.TURN_ANGLE
-            self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
+            self.heading = (self.heading - 1) % const.SHIP_DIRECTIONS
+            self.rotation = self.heading * const.TURN_ANGLE
+            self.turn_timer = int(self.turn_wait * const.TURN_WAIT_SCALE)
 
     def turn_right(self):
         if self.can_turn():
-            self.heading = (self.heading + 1) % Const.SHIP_DIRECTIONS
-            self.rotation = self.heading * Const.TURN_ANGLE
-            self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
+            self.heading = (self.heading + 1) % const.SHIP_DIRECTIONS
+            self.rotation = self.heading * const.TURN_ANGLE
+            self.turn_timer = int(self.turn_wait * const.TURN_WAIT_SCALE)
 
     def perform_action1(self):
         if self.can_action1():
             self.current_energy -= self.a1_cost
-            self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
+            self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
             return None
         return None
 
     def perform_action2(self):
         if self.can_action2():
             self.current_energy -= self.a2_cost
-            self.action2_timer = int(self.a2_wait * Const.ACTION_WAIT_SCALE)
+            self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
             return None
         return None
 
@@ -352,13 +352,13 @@ class SpaceShip(PlayerObject):
         # Draw the ship at all potential wrap-around positions
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:
-                pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
-                pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
+                pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
+                pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
 
                 # Only draw if the position would be visible
-                if (0 <= pos_x <= Const.SCREEN_HEIGHT and
-                        0 <= pos_y <= Const.SCREEN_HEIGHT):
+                if (0 <= pos_x <= const.SCREEN_HEIGHT and
+                        0 <= pos_y <= const.SCREEN_HEIGHT):
                     screen.blit(scaled_sprite, (
-                        Const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
+                        const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
                         pos_y - scaled_rect.height // 2
                     ))

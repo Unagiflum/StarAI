@@ -2,6 +2,8 @@ import pygame
 import sys
 
 from src.Objects.Ships.space_ship import SpaceShip
+from src.Objects.Ships.ability import Ability
+from src.Objects.Space.space_obj import Asteroid
 from src.Battle.battle_init import initialize_battle
 from src.Battle.battle_draw import draw_battle
 import src.const as const
@@ -120,6 +122,13 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
             settings["Player 2: Action 2"]
         )
         game_objects.extend(p2_objects)
+
+        # Update tracking arrays for all ships and abilities
+        for obj in game_objects:
+            if isinstance(obj, (SpaceShip, Ability)):
+                obj.friendly_objects = [x for x in game_objects if isinstance(x, Ability) and x.player == obj.player]
+                obj.enemy_objects = [x for x in game_objects if isinstance(x, Ability) and x.player != obj.player]
+                obj.asteroids = [x for x in game_objects if isinstance(x, Asteroid)]
 
         # Drawing
         draw_battle(screen, game_objects, border_rect, border_color)

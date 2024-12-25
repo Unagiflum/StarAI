@@ -84,6 +84,9 @@ class PlayerObject(Object):
         # Battle state
         self.in_battle = False
         self.planet = None
+        self.friendly_objects = []
+        self.enemy_objects = []
+        self.asteroids = []
 
     def set_planet(self, planet):
         self.planet = planet
