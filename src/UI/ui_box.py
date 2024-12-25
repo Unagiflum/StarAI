@@ -1,5 +1,5 @@
 import pygame
-from . import UI
+from . import ui
 import src.const as Const
 
 # Constants for ShipList and Fleet
@@ -151,23 +151,23 @@ class ShipList(ShipContainer):
         self.update_scrollbar_thumb()
 
     def draw_scrollbar(self, screen):
-        pygame.draw.rect(screen, UI.GREY, self.scroll_up_rect)
-        pygame.draw.rect(screen, UI.GREY, self.scroll_down_rect)
+        pygame.draw.rect(screen, ui.GREY, self.scroll_up_rect)
+        pygame.draw.rect(screen, ui.GREY, self.scroll_down_rect)
         font = pygame.font.SysFont(None, 20)
-        up_arrow = font.render("^", True, UI.BLACK)
-        down_arrow = font.render("v", True, UI.BLACK)
+        up_arrow = font.render("^", True, ui.BLACK)
+        down_arrow = font.render("v", True, ui.BLACK)
         up_rect = up_arrow.get_rect(center=self.scroll_up_rect.center)
         down_rect = down_arrow.get_rect(center=self.scroll_down_rect.center)
         screen.blit(up_arrow, up_rect)
         screen.blit(down_arrow, down_rect)
-        pygame.draw.rect(screen, UI.DARK_GREY, self.scroll_track_rect)
-        pygame.draw.rect(screen, UI.WHITE, self.scroll_thumb_rect)
+        pygame.draw.rect(screen, ui.DARK_GREY, self.scroll_track_rect)
+        pygame.draw.rect(screen, ui.WHITE, self.scroll_thumb_rect)
 
     def draw(self, screen, font, player_font):
-        pygame.draw.rect(screen, UI.BLACK, self.rect)
-        pygame.draw.rect(screen, UI.WHITE, self.rect, 2)
+        pygame.draw.rect(screen, ui.BLACK, self.rect)
+        pygame.draw.rect(screen, ui.WHITE, self.rect, 2)
 
-        title_text = player_font.render(self.title, True, UI.WHITE)
+        title_text = player_font.render(self.title, True, ui.WHITE)
         title_rect = title_text.get_rect(x=self.rect.x + 10, y=self.rect.y + 10)
         screen.blit(title_text, title_rect)
 
@@ -193,7 +193,7 @@ class ShipList(ShipContainer):
 
             if ship_rect.colliderect(clip_rect):
                 screen.blit(sprite, sprite_rect)
-                cost_text = font.render(str(cost), True, UI.WHITE)
+                cost_text = font.render(str(cost), True, ui.WHITE)
                 cost_rect = cost_text.get_rect(centerx=ship_rect.centerx, top=ship_rect.bottom + 2)
                 screen.blit(cost_text, cost_rect)
 
@@ -273,10 +273,10 @@ class Fleet(ShipContainer):
         return sum(cost for _, _, cost, _ in self.ships)
 
     def draw(self, screen, font, player_font=None):
-        pygame.draw.rect(screen, UI.BLACK, self.rect)
-        pygame.draw.rect(screen, UI.WHITE, self.rect, 2)
+        pygame.draw.rect(screen, ui.BLACK, self.rect)
+        pygame.draw.rect(screen, ui.WHITE, self.rect, 2)
 
-        title_text = font.render(f"{self.title} - cost: {self.get_total_cost()}", True, UI.WHITE)
+        title_text = font.render(f"{self.title} - cost: {self.get_total_cost()}", True, ui.WHITE)
         screen.blit(title_text, (self.rect.x + 10, self.rect.y + 10))
 
         for sprite, _, _, rect in self.ships:

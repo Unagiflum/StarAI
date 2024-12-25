@@ -1,10 +1,10 @@
 import pygame
-from . import UI
+from . import ui
 import src.const as Const
 
 class Slider:
     def __init__(self, x, y, width, min_val, max_val, start_val, label, is_int=False, step=1,
-                 bg_color=UI.SLIDER_BG, hover_color=UI.SLIDER_BG_HI):
+                 bg_color=ui.SLIDER_BG, hover_color=ui.SLIDER_BG_HI):
         self.bg_rect_height = int(0.08 * Const.SCREEN_HEIGHT)
         self.rect = pygame.Rect(x, y, width, self.bg_rect_height)
         self.line_width = int(self.bg_rect_height/15)
@@ -96,13 +96,13 @@ class Slider:
         surface.blit(bg_surface, self.bg_rect.topleft)
 
         # Draw slider line and handle
-        pygame.draw.rect(surface, UI.SLIDER_LINE, self.line_rect)
-        pygame.draw.circle(surface, UI.HANDLE_COLOR, (self.handle_x, self.rect.y + self.handle_offset),
+        pygame.draw.rect(surface, ui.SLIDER_LINE, self.line_rect)
+        pygame.draw.circle(surface, ui.HANDLE_COLOR, (self.handle_x, self.rect.y + self.handle_offset),
                            self.handle_radius)
 
         # Draw label
         label_text = f"{self.label}: {self.format_value()}"
-        label_surf = font.render(label_text, True, UI.WHITE)
+        label_surf = font.render(label_text, True, ui.WHITE)
         label_rect = label_surf.get_rect(topleft=(self.line_rect.x, self.rect.y + self.padding_y))
         surface.blit(label_surf, label_rect)
 

@@ -2,7 +2,7 @@ import pygame
 import json
 import os
 import sys
-from src.UI import UI, UIButton
+from src.UI import ui, ui_button
 import src.const as Const
 
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT*.08)
@@ -46,7 +46,7 @@ def run(screen):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(0.03*Const.SCREEN_HEIGHT))
     settings = load_settings()
-    background = UI.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
+    background = ui.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
     # Create key bindings
     key_bindings = []
@@ -58,7 +58,7 @@ def run(screen):
                       "Player 1: Action 2"]
     for i, label in enumerate(player1_labels):
         key_bindings.append(
-            UIButton.KeyBinding(
+            ui_button.KeyBinding(
                 int(0.25*Const.SCREEN_WIDTH),
                 start_y + i * y_spacing,
                 int(0.2*Const.SCREEN_WIDTH),
@@ -73,7 +73,7 @@ def run(screen):
                       "Player 2: Action 2"]
     for i, label in enumerate(player2_labels):
         key_bindings.append(
-            UIButton.KeyBinding(
+            ui_button.KeyBinding(
                 int(0.65*Const.SCREEN_WIDTH),
                 start_y + i * y_spacing,
                 int(0.2*Const.SCREEN_WIDTH),
@@ -97,26 +97,26 @@ def run(screen):
         back_to_menu[0] = True
 
     # Create buttons
-    save_button = UIButton.Button(
-        UI.ok_button_left,
-        UI.ok_button_top,
-        UI.ok_button_width,
-        UI.ok_button_height,
+    save_button = ui_button.Button(
+        ui.ok_button_left,
+        ui.ok_button_top,
+        ui.ok_button_width,
+        ui.ok_button_height,
         text="Save",
         callback=save_and_exit,
-        bg_color=UI.OK_GREEN,
-        hover_color=UI.OK_GREEN_HI
+        bg_color=ui.OK_GREEN,
+        hover_color=ui.OK_GREEN_HI
     )
 
-    cancel_button = UIButton.Button(
-        UI.can_button_left,
-        UI.ok_button_top,
-        UI.ok_button_width,
-        UI.ok_button_height,
+    cancel_button = ui_button.Button(
+        ui.can_button_left,
+        ui.ok_button_top,
+        ui.ok_button_width,
+        ui.ok_button_height,
         text="Cancel",
         callback=go_back,
-        bg_color=UI.CAN_RED,
-        hover_color=UI.CAN_RED_HI
+        bg_color=ui.CAN_RED,
+        hover_color=ui.CAN_RED_HI
     )
 
     running = True
@@ -129,9 +129,9 @@ def run(screen):
 
             # Handle events for key bindings and buttons
             for binding in key_bindings:
-                binding.handle_event(event, UI.sound_manager)
-            save_button.handle_event(event, UI.sound_manager)
-            cancel_button.handle_event(event, UI.sound_manager)
+                binding.handle_event(event, ui.sound_manager)
+            save_button.handle_event(event, ui.sound_manager)
+            cancel_button.handle_event(event, ui.sound_manager)
 
         # Check if we should return to the main menu
         if back_to_menu[0]:
@@ -141,10 +141,10 @@ def run(screen):
         if background:
             screen.blit(background, (0, 0))
         else:
-            screen.fill(UI.BG_COLOR)
+            screen.fill(ui.BG_COLOR)
 
         # Draw title
-        UI.draw_title(screen, "Game Settings", TITLE_FONT_SIZE, 0.1*Const.SCREEN_HEIGHT)
+        ui.draw_title(screen, "Game Settings", TITLE_FONT_SIZE, 0.1*Const.SCREEN_HEIGHT)
 
         # Draw key bindings
         for binding in key_bindings:

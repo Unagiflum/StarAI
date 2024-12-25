@@ -3,7 +3,7 @@ import sys
 import json
 import os
 
-from src.UI import UI, UIButton, UIBox
+from src.UI import ui, ui_button, ui_box
 import src.const as Const
 from src.Menus import pick_ship
 from typing import Dict, Tuple
@@ -45,7 +45,7 @@ def load_ship_sprites(ships_data: Dict) -> Dict[str, pygame.Surface]:
         except Exception as e:
             print(f"Error loading sprite for {ship_name}: {e}")
             surface = pygame.Surface(SELECTION_ICON_SIZE, pygame.SRCALPHA)
-            surface.fill(UI.GREY)
+            surface.fill(ui.GREY)
             sprites[ship_name] = surface
     return sprites
 
@@ -55,7 +55,7 @@ def create_sprite_sets(ships_data: Dict) -> Tuple[Dict[str, pygame.Surface], Dic
     selection_sprites = scale_sprites(original_sprites, SELECTION_ICON_SIZE[0], ships_data)
 
     # Calculate fleet icon size first
-    fleet = UIBox.Fleet(0, 0, UI.SELECTION_WIDTH, UI.FLEET_HEIGHT, "", (0, 0))
+    fleet = ui_box.Fleet(0, 0, ui.SELECTION_WIDTH, ui.FLEET_HEIGHT, "", (0, 0))
     fleet_size = fleet.icon_size[0]
     fleet_sprites = scale_sprites(original_sprites, fleet_size, ships_data)
 
@@ -85,7 +85,7 @@ def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int,
 
     return scaled_sprites
 
-def save_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, left_ai: bool, right_ai: bool):
+def save_fleets(left_fleet: ui_box.Fleet, right_fleet: ui_box.Fleet, left_ai: bool, right_ai: bool):
     """Save the current fleets and AI settings to fleets.json."""
     fleets_data = {
         "Player1": {
@@ -106,7 +106,7 @@ def save_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, left_ai: bool
         print(f"Error saving fleets.json: {e}")
 
 
-def load_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, fleet_sprites: Dict[str, pygame.Surface], ships_data: Dict):
+def load_fleets(left_fleet: ui_box.Fleet, right_fleet: ui_box.Fleet, fleet_sprites: Dict[str, pygame.Surface], ships_data: Dict):
     """Load fleets and AI settings from fleets.json if it exists."""
     if not os.path.exists(Const.FLEETS_JSON_PATH):
         print("fleets.json does not exist. Starting with empty fleets.")
@@ -147,7 +147,7 @@ def run(screen: pygame.Surface):
     font = pygame.font.SysFont(None, cost_FONT_SIZE)
     title_font = pygame.font.SysFont(None, TITLE_FONT_SIZE)
     player_font = pygame.font.SysFont(None, PLAYER_FONT_SIZE)
-    background = UI.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
+    background = ui.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
     # Load ships data and sprites
     ships_data = load_ships()
@@ -161,12 +161,12 @@ def run(screen: pygame.Surface):
     top_button_start = int(0.1*Const.SCREEN_HEIGHT)
     AI_toggle_width = int(0.075*Const.SCREEN_WIDTH)
     top_button_height = int(0.0375*Const.SCREEN_HEIGHT)
-    each_button_width = int(0.5*(UI.SELECTION_WIDTH-AI_toggle_width-2*UI.button_spaceH))
+    each_button_width = int(0.5*(ui.SELECTION_WIDTH-AI_toggle_width-2*ui.button_spaceH))
 
     right_column_start = int(Const.SCREEN_WIDTH//2+(0.016*Const.SCREEN_WIDTH))
 
     # Create AI toggle buttons
-    left_ai_toggle = UIButton.ToggleButton(
+    left_ai_toggle = ui_button.ToggleButton(
         left_column_start,
         top_button_start,
         AI_toggle_width,
@@ -174,7 +174,7 @@ def run(screen: pygame.Surface):
         "AI",
         initial_state=False
     )
-    right_ai_toggle = UIButton.ToggleButton(
+    right_ai_toggle = ui_button.ToggleButton(
         right_column_start,
         top_button_start,
         AI_toggle_width,
@@ -184,83 +184,83 @@ def run(screen: pygame.Surface):
     )
 
     # Create "One of Each" buttons
-    def create_one_of_each(fleet: UIBox.Fleet, ships_data: dict, fleet_sprites: dict):
+    def create_one_of_each(fleet: ui_box.Fleet, ships_data: dict, fleet_sprites: dict):
         fleet.ships.clear()  # Remove all ships
         for ship_name, ship_info in ships_data.items():
             ship_type = list(ship_info.keys())[0]
             ship_cost = ship_info[ship_type]
             fleet.add_ship(fleet_sprites[ship_name], ship_name, ship_cost)
 
-    def clear_fleet(fleet: UIBox.Fleet, ships_data: dict, fleet_sprites: dict):
+    def clear_fleet(fleet: ui_box.Fleet, ships_data: dict, fleet_sprites: dict):
         fleet.ships.clear()  # Remove all ships
 
-    left_one_of_each = UIButton.Button(
-        left_column_start+AI_toggle_width+UI.button_spaceH,
+    left_one_of_each = ui_button.Button(
+        left_column_start+AI_toggle_width+ui.button_spaceH,
         top_button_start, each_button_width, top_button_height,
         "One of Each Ship",
         lambda: create_one_of_each(left_fleet, ships_data, fleet_sprites),
-        bg_color=UI.MENU_BUTTON_COLOR,
-        hover_color=UI.MENU_BUTTON_COLOR_HI
+        bg_color=ui.MENU_BUTTON_COLOR,
+        hover_color=ui.MENU_BUTTON_COLOR_HI
     )
 
-    right_one_of_each = UIButton.Button(
-        right_column_start+AI_toggle_width+UI.button_spaceH,
+    right_one_of_each = ui_button.Button(
+        right_column_start+AI_toggle_width+ui.button_spaceH,
         top_button_start, each_button_width, top_button_height,
         "One of Each Ship",
         lambda: create_one_of_each(right_fleet, ships_data, fleet_sprites),
-        bg_color=UI.MENU_BUTTON_COLOR,
-        hover_color=UI.MENU_BUTTON_COLOR_HI
+        bg_color=ui.MENU_BUTTON_COLOR,
+        hover_color=ui.MENU_BUTTON_COLOR_HI
     )
 
-    left_clear_button = UIButton.Button(
-        left_column_start+AI_toggle_width+2*UI.button_spaceH+each_button_width,
+    left_clear_button = ui_button.Button(
+        left_column_start+AI_toggle_width+2*ui.button_spaceH+each_button_width,
         top_button_start, each_button_width, top_button_height,
         "Clear Fleet 1",
         lambda: clear_fleet(left_fleet, ships_data, fleet_sprites),
-        bg_color=UI.MENU_BUTTON_COLOR,
-        hover_color=UI.MENU_BUTTON_COLOR_HI
+        bg_color=ui.MENU_BUTTON_COLOR,
+        hover_color=ui.MENU_BUTTON_COLOR_HI
     )
 
-    right_clear_button = UIButton.Button(
-        right_column_start+AI_toggle_width+2*UI.button_spaceH+each_button_width,
+    right_clear_button = ui_button.Button(
+        right_column_start+AI_toggle_width+2*ui.button_spaceH+each_button_width,
         top_button_start, each_button_width, top_button_height,
         "Clear Fleet 2",
         lambda: clear_fleet(right_fleet, ships_data, fleet_sprites),
-        bg_color=UI.MENU_BUTTON_COLOR,
-        hover_color=UI.MENU_BUTTON_COLOR_HI
+        bg_color=ui.MENU_BUTTON_COLOR,
+        hover_color=ui.MENU_BUTTON_COLOR_HI
     )
 
-    left_ships = UIBox.ShipList(
+    left_ships = ui_box.ShipList(
         left_column_start,
-        top_button_start+top_button_height+UI.button_spaceV,
-        UI.SELECTION_WIDTH,
-        UI.SELECTION_HEIGHT,
+        top_button_start+top_button_height+ui.button_spaceV,
+        ui.SELECTION_WIDTH,
+        ui.SELECTION_HEIGHT,
         "Player 1: Pick your fleet",
         SELECTION_ICON_SIZE
     )
 
-    right_ships = UIBox.ShipList(
+    right_ships = ui_box.ShipList(
         right_column_start,
-        top_button_start + top_button_height + UI.button_spaceV,
-        UI.SELECTION_WIDTH,
-        UI.SELECTION_HEIGHT,
+        top_button_start + top_button_height + ui.button_spaceV,
+        ui.SELECTION_WIDTH,
+        ui.SELECTION_HEIGHT,
         "Player 2: Pick your fleet",
         SELECTION_ICON_SIZE
     )
 
-    left_fleet = UIBox.Fleet(
+    left_fleet = ui_box.Fleet(
         left_column_start,
-        top_button_start + top_button_height + UI.SELECTION_HEIGHT + 2*UI.button_spaceV,
-        UI.SELECTION_WIDTH,
-        UI.FLEET_HEIGHT,
+        top_button_start + top_button_height + ui.SELECTION_HEIGHT + 2*ui.button_spaceV,
+        ui.SELECTION_WIDTH,
+        ui.FLEET_HEIGHT,
         "Player 1 Fleet",
         FLEET_ICON_SIZE
     )
-    right_fleet = UIBox.Fleet(
+    right_fleet = ui_box.Fleet(
         right_column_start,
-        top_button_start + top_button_height + UI.SELECTION_HEIGHT + 2 * UI.button_spaceV,
-        UI.SELECTION_WIDTH,
-        UI.FLEET_HEIGHT,
+        top_button_start + top_button_height + ui.SELECTION_HEIGHT + 2 * ui.button_spaceV,
+        ui.SELECTION_WIDTH,
+        ui.FLEET_HEIGHT,
         "Player 2 Fleet",
         FLEET_ICON_SIZE
     )
@@ -292,28 +292,28 @@ def run(screen: pygame.Surface):
         print("Cancel button clicked. Returning to main menu.")
         running = False
 
-    confirm_button = UIButton.Button(
-        UI.ok_button_left,
-        UI.ok_button_top,
-        UI.ok_button_width,
-        UI.ok_button_height,
+    confirm_button = ui_button.Button(
+        ui.ok_button_left,
+        ui.ok_button_top,
+        ui.ok_button_width,
+        ui.ok_button_height,
         "Confirm",
         confirm_callback,
-        bg_color=UI.DISABLED_BUTTON,
-        hover_color=UI.DISABLED_BUTTON,
-        text_color=UI.WHITE
+        bg_color=ui.DISABLED_BUTTON,
+        hover_color=ui.DISABLED_BUTTON,
+        text_color=ui.WHITE
     )
 
-    cancel_button = UIButton.Button(
-        UI.can_button_left,
-        UI.ok_button_top,
-        UI.ok_button_width,
-        UI.ok_button_height,
+    cancel_button = ui_button.Button(
+        ui.can_button_left,
+        ui.ok_button_top,
+        ui.ok_button_width,
+        ui.ok_button_height,
         "Cancel",
         cancel_callback,
-        bg_color=UI.CAN_RED,
-        hover_color=UI.CAN_RED_HI,
-        text_color=UI.WHITE
+        bg_color=ui.CAN_RED,
+        hover_color=ui.CAN_RED_HI,
+        text_color=ui.WHITE
     )
 
     while running:
@@ -332,17 +332,17 @@ def run(screen: pygame.Surface):
                     right_ships.handle_event(event)
 
             # Handle toggle button events
-            left_ai_toggle.handle_event(event, UI.sound_manager)
-            right_ai_toggle.handle_event(event, UI.sound_manager)
+            left_ai_toggle.handle_event(event, ui.sound_manager)
+            right_ai_toggle.handle_event(event, ui.sound_manager)
 
-            left_one_of_each.handle_event(event, UI.sound_manager)
-            right_one_of_each.handle_event(event, UI.sound_manager)
+            left_one_of_each.handle_event(event, ui.sound_manager)
+            right_one_of_each.handle_event(event, ui.sound_manager)
 
-            left_clear_button.handle_event(event, UI.sound_manager)
-            right_clear_button.handle_event(event, UI.sound_manager)
+            left_clear_button.handle_event(event, ui.sound_manager)
+            right_clear_button.handle_event(event, ui.sound_manager)
 
-            confirm_button.handle_event(event, UI.sound_manager)
-            cancel_button.handle_event(event, UI.sound_manager)
+            confirm_button.handle_event(event, ui.sound_manager)
+            cancel_button.handle_event(event, ui.sound_manager)
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 added = False
@@ -353,7 +353,7 @@ def run(screen: pygame.Surface):
                                 success = fleet.add_ship(fleet_sprites[name], name, cost)
                                 if success:
                                     print(f"Added {name} to {fleet.title}")
-                                    UI.sound_manager.play_sound('menu')
+                                    ui.sound_manager.play_sound('menu')
                                 else:
                                     print(f"{fleet.title} is full. Cannot add {name}.")
                                 added = True
@@ -365,27 +365,27 @@ def run(screen: pygame.Surface):
                     if left_fleet.rect.collidepoint(mouse_pos):
                         if left_fleet.remove_ship_at_pos(mouse_pos):
                             print("Removed a ship from Player 1 Fleet")
-                            UI.sound_manager.play_sound('menu')
+                            ui.sound_manager.play_sound('menu')
                     elif right_fleet.rect.collidepoint(mouse_pos):
                         if right_fleet.remove_ship_at_pos(mouse_pos):
                             print("Removed a ship from Player 2 Fleet")
-                            UI.sound_manager.play_sound('menu')
+                            ui.sound_manager.play_sound('menu')
 
         # Update confirm button state
         if len(left_fleet.ships) > 0 and len(right_fleet.ships) > 0:
-            confirm_button.bg_color = UI.OK_GREEN
-            confirm_button.hover_color = UI.OK_GREEN_HI
+            confirm_button.bg_color = ui.OK_GREEN
+            confirm_button.hover_color = ui.OK_GREEN_HI
         else:
-            confirm_button.bg_color = UI.DISABLED_BUTTON
-            confirm_button.hover_color = UI.DISABLED_BUTTON
+            confirm_button.bg_color = ui.DISABLED_BUTTON
+            confirm_button.hover_color = ui.DISABLED_BUTTON
 
         # Draw everything
         if background:
             screen.blit(background, (0, 0))
         else:
-            screen.fill(UI.BG_COLOR)
+            screen.fill(ui.BG_COLOR)
 
-        UI.draw_title(screen, "Players: Pick your Fleets", TITLE_FONT_SIZE, int(0.05*Const.SCREEN_HEIGHT))
+        ui.draw_title(screen, "Players: Pick your Fleets", TITLE_FONT_SIZE, int(0.05*Const.SCREEN_HEIGHT))
 
         # Draw AI toggles
         left_ai_toggle.draw(screen, font)

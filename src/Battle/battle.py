@@ -4,14 +4,14 @@ import sys
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Battle.battle_init import initialize_battle
 from src.Battle.battle_draw import draw_battle
-import src.const as Const
+import src.const as const
 
 def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     clock = pygame.time.Clock()
 
-    pygame.mixer.music.load(Const.BATTLE_MUSIC_PATH)
+    pygame.mixer.music.load(const.BATTLE_MUSIC_PATH)
     pygame.mixer.music.play(-1)  # -1 means loop indefinitely
-    pygame.mixer.music.set_volume(Const.BATTLE_MUSIC_VOLUME)
+    pygame.mixer.music.set_volume(const.BATTLE_MUSIC_VOLUME)
 
     battle_state = initialize_battle(screen, ship1, ship2)
     settings = battle_state['settings']
@@ -38,7 +38,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
 
     while running:
 
-        clock.tick(Const.FPS)
+        clock.tick(const.FPS)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:

@@ -1,7 +1,7 @@
 import pygame
 import sys
 from src.Menus import pick_fleet, train_settings, game_settings
-from src.UI import UI, UIButton
+from src.UI import ui, ui_button
 import src.const as Const
 
 def handle_menu_selection(module, screen):
@@ -21,13 +21,13 @@ def main():
     # Initialize Pygame
     pygame.init()
     pygame.mixer.init()
-    UI.sound_manager.load_sounds()
-    UI.sound_manager.set_volume(0.30)
+    ui.sound_manager.load_sounds()
+    ui.sound_manager.set_volume(0.30)
 
     screen = pygame.display.set_mode((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT))
     pygame.display.set_caption("StarAI")
     clock = pygame.time.Clock()
-    background = UI.load_background(Const.MAIN_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
+    background = ui.load_background(Const.MAIN_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
     # Create menu buttons
     button_width = int(0.3*Const.SCREEN_WIDTH)
@@ -44,15 +44,15 @@ def main():
 
     buttons = []
     for i, (text, module) in enumerate(menu_items):
-        button = UIButton.Button(
+        button = ui_button.Button(
             x=int(Const.SCREEN_WIDTH // 2 - button_width // 2),
             y=start_y + i * y_spacing,
             width=button_width,
             height=button_height,
             text=text,
             callback=lambda m=module: handle_menu_selection(m, screen),
-            bg_color=UI.MAIN_BUTTON_COLOR,
-            hover_color=UI.MAIN_BUTTON_COLOR_HI
+            bg_color=ui.MAIN_BUTTON_COLOR,
+            hover_color=ui.MAIN_BUTTON_COLOR_HI
         )
         buttons.append(button)
 
@@ -65,17 +65,17 @@ def main():
                 running = False
             # Handle button events
             for button in buttons:
-                button.handle_event(event, UI.sound_manager)
+                button.handle_event(event, ui.sound_manager)
 
         # Draw everything
         if background:
             screen.blit(background, (0, 0))
         else:
-            screen.fill(UI.BG_COLOR)
+            screen.fill(ui.BG_COLOR)
 
         # Draw title
         #title_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.1))
-        UI.draw_title(screen, "StarAI", int(Const.SCREEN_HEIGHT * 0.15), Const.SCREEN_HEIGHT // 6)
+        ui.draw_title(screen, "StarAI", int(Const.SCREEN_HEIGHT * 0.15), Const.SCREEN_HEIGHT // 6)
 
         # Draw buttons
         button_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.05))

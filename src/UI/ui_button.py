@@ -1,9 +1,9 @@
 import pygame
-from . import UI
+from . import ui
 import src.const as Const
 
 class Button:
-    def __init__(self, x, y, width, height, text, callback, bg_color=UI.GREY, hover_color=UI.LIGHT_GREY, text_color=UI.WHITE):
+    def __init__(self, x, y, width, height, text, callback, bg_color=ui.GREY, hover_color=ui.LIGHT_GREY, text_color=ui.WHITE):
         self.rect = pygame.Rect(x, y, width, height)
         self.text = text
         self.callback = callback
@@ -18,13 +18,13 @@ class Button:
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if self.rect.collidepoint(event.pos):
-                if UI.sound_manager:
-                    UI.sound_manager.play_sound('menu')
+                if ui.sound_manager:
+                    ui.sound_manager.play_sound('menu')
                 self.callback()
 
     def draw(self, surface, font):
         if not self.enabled:
-            color = (*UI.DARK_GREY, 255)
+            color = (*ui.DARK_GREY, 255)
         else:
             mouse_pos = pygame.mouse.get_pos()
             color = self.hover_color if self.rect.collidepoint(mouse_pos) else self.bg_color
@@ -40,7 +40,7 @@ class Button:
 
 class ToggleButton(Button):
     def __init__(self, x, y, width, height, text, callback=None, initial_state=False,
-                 bg_color=UI.MENU_BUTTON_COLOR, active_color=UI.BRIGHT_GREEN, text_color=UI.WHITE, hover_color=UI.MENU_BUTTON_COLOR_HI):
+                 bg_color=ui.MENU_BUTTON_COLOR, active_color=ui.BRIGHT_GREEN, text_color=ui.WHITE, hover_color=ui.MENU_BUTTON_COLOR_HI):
         super().__init__(x, y, width, height, text, callback, bg_color, hover_color, text_color)
         self.is_on = initial_state
         self.active_color = (*active_color, 255) if len(active_color) == 3 else active_color
@@ -62,7 +62,7 @@ class ToggleButton(Button):
         button_surface = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
 
         if not self.enabled:
-            color = (*UI.DARK_GREY, 255)
+            color = (*ui.DARK_GREY, 255)
         else:
             mouse_pos = pygame.mouse.get_pos()
             color = self.hover_color if self.rect.collidepoint(mouse_pos) else self.bg_color
@@ -74,7 +74,7 @@ class ToggleButton(Button):
         text_rect = text_surf.get_rect(midleft=(self.rect.x + 10, self.rect.centery))
         surface.blit(text_surf, text_rect)
 
-        switch_color = self.active_color if self.is_on else (*UI.DARK_RED, 255) if len(UI.DARK_RED) == 3 else UI.DARK_RED
+        switch_color = self.active_color if self.is_on else (*ui.DARK_RED, 255) if len(ui.DARK_RED) == 3 else ui.DARK_RED
         switch_surface = pygame.Surface((self.switch_rect.width, self.switch_rect.height), pygame.SRCALPHA)
         pygame.draw.rect(switch_surface, switch_color, switch_surface.get_rect(), border_radius=self.switch_height // 2)
         surface.blit(switch_surface, self.switch_rect)
@@ -89,7 +89,7 @@ class ToggleButton(Button):
             self.button_height - 4
         )
         button_surface = pygame.Surface((button_rect.width, button_rect.height), pygame.SRCALPHA)
-        button_color = self.active_color if self.is_on else (*UI.DARK_RED, 255) if len(UI.DARK_RED) == 3 else UI.DARK_RED
+        button_color = self.active_color if self.is_on else (*ui.DARK_RED, 255) if len(ui.DARK_RED) == 3 else ui.DARK_RED
         pygame.draw.rect(button_surface, button_color, button_rect, border_radius=self.button_height // 2)
         surface.blit(button_surface, (button_x, self.switch_rect.y + 2))
 
@@ -99,8 +99,8 @@ class ToggleButton(Button):
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if self.rect.collidepoint(event.pos):
-                if UI.sound_manager:
-                    UI.sound_manager.play_sound('menu')
+                if ui.sound_manager:
+                    ui.sound_manager.play_sound('menu')
                 self.is_on = not self.is_on
                 if self.callback:
                     self.callback(self.is_on)
@@ -111,7 +111,7 @@ class ToggleButton(Button):
 
 class KeyBinding(Button):
     def __init__(self, x, y, width, height, label, default_key, callback=None,
-                 bg_color=UI.DARK_GREY, hover_color=UI.DARK_GREEN, text_color=UI.WHITE):
+                 bg_color=ui.DARK_GREY, hover_color=ui.DARK_GREEN, text_color=ui.WHITE):
         super().__init__(x, y, width, height, text=default_key.upper(), callback=callback,
                          bg_color=bg_color, hover_color=hover_color, text_color=text_color)
         self.label = label
@@ -137,7 +137,7 @@ class KeyBinding(Button):
     def draw(self, surface, font):
         # Draw the label
         label_font = pygame.font.SysFont(None, int(0.03*Const.SCREEN_HEIGHT))
-        label_surf = label_font.render(self.label, True, UI.WHITE)
+        label_surf = label_font.render(self.label, True, ui.WHITE)
         label_rect = label_surf.get_rect(midright=(self.rect.x - int(0.01*Const.SCREEN_WIDTH), self.rect.y + self.rect.height // 2))
         surface.blit(label_surf, label_rect)
 
@@ -150,12 +150,12 @@ class KeyBinding(Button):
 
         # Draw the button background
         pygame.draw.rect(surface, color, self.rect, border_radius=5)
-        pygame.draw.rect(surface, UI.WHITE, self.rect, 2, border_radius=5)  # Border
+        pygame.draw.rect(surface, ui.WHITE, self.rect, 2, border_radius=5)  # Border
 
         # Decide which text to display
         if self.waiting_for_key:
             display_text = "Press a key..."
-            text_color = UI.RED  # Change text color for prompt visibility
+            text_color = ui.RED  # Change text color for prompt visibility
         else:
             display_text = self.key.upper()
             text_color = self.text_color

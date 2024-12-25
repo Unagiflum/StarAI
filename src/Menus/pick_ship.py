@@ -4,7 +4,7 @@ import os
 import sys
 import random
 
-from src.UI import UI, UIButton, UIBox
+from src.UI import ui, ui_button, ui_box
 import src.const as Const
 
 from src.Battle import battle
@@ -120,7 +120,7 @@ def load_ships_data(ships_data):
 def run(screen):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.03))
-    background = UI.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
+    background = ui.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
     fleet_data, player1_ships, player2_ships = load_fleet_data()
     ships_data, original_sprites = load_ships_data(SHIPS_DATA)
@@ -128,7 +128,7 @@ def run(screen):
         return
 
     # Create temporary fleet to get icon size
-    temp_fleet = UIBox.Fleet(0, 0, UI.SELECTION_WIDTH, UI.FLEET_HEIGHT, "", (0, 0))
+    temp_fleet = ui_box.Fleet(0, 0, ui.SELECTION_WIDTH, ui.FLEET_HEIGHT, "", (0, 0))
     fleet_size = temp_fleet.icon_size[0]
 
     # Update globals that use fleet size
@@ -142,25 +142,25 @@ def run(screen):
     FLEET_TOP = int(0.15 * Const.SCREEN_HEIGHT)
 
     SELECTION_BOX_SIZE = int(Const.SCREEN_WIDTH * 0.165)
-    SELECTION_TOP = FLEET_TOP + UI.FLEET_HEIGHT + int(0.025 * Const.SCREEN_HEIGHT)
-    SELECTION_L_LEFT = LEFT_COLUMN_START + UI.SELECTION_WIDTH - SELECTION_BOX_SIZE
+    SELECTION_TOP = FLEET_TOP + ui.FLEET_HEIGHT + int(0.025 * Const.SCREEN_HEIGHT)
+    SELECTION_L_LEFT = LEFT_COLUMN_START + ui.SELECTION_WIDTH - SELECTION_BOX_SIZE
     SELECTION_R_LEFT = RIGHT_COLUMN_START
     RAND_TOP = SELECTION_TOP + SELECTION_BOX_SIZE + int(0.01 * Const.SCREEN_HEIGHT)
 
-    left_fleet = UIBox.Fleet(
+    left_fleet = ui_box.Fleet(
         LEFT_COLUMN_START,
         FLEET_TOP,
-        UI.SELECTION_WIDTH,
-        UI.FLEET_HEIGHT,
+        ui.SELECTION_WIDTH,
+        ui.FLEET_HEIGHT,
         "Player 1 Fleet",
         FLEET_ICON_SIZE
     )
 
-    right_fleet = UIBox.Fleet(
+    right_fleet = ui_box.Fleet(
         RIGHT_COLUMN_START,
         FLEET_TOP,
-        UI.SELECTION_WIDTH,
-        UI.FLEET_HEIGHT,
+        ui.SELECTION_WIDTH,
+        ui.FLEET_HEIGHT,
         "Player 2 Fleet",
         FLEET_ICON_SIZE
     )
@@ -219,26 +219,26 @@ def run(screen):
             right_selection["ship_obj"] = ship_obj
             right_selection["index"] = idx  # Add this line
 
-    random_left = UIButton.Button(
+    random_left = ui_button.Button(
         SELECTION_L_LEFT,
         RAND_TOP,
         SELECTION_BOX_SIZE,
         int(0.05 * Const.SCREEN_HEIGHT),
         "Pick Random",
         pick_random_left,
-        bg_color=UI.MENU_BUTTON_COLOR,
-        hover_color=UI.MENU_BUTTON_COLOR_HI
+        bg_color=ui.MENU_BUTTON_COLOR,
+        hover_color=ui.MENU_BUTTON_COLOR_HI
     )
 
-    random_right = UIButton.Button(
+    random_right = ui_button.Button(
         SELECTION_R_LEFT,
         RAND_TOP,
         SELECTION_BOX_SIZE,
         int(0.05 * Const.SCREEN_HEIGHT),
         "Pick Random",
         pick_random_right,
-        bg_color=UI.MENU_BUTTON_COLOR,
-        hover_color=UI.MENU_BUTTON_COLOR_HI
+        bg_color=ui.MENU_BUTTON_COLOR,
+        hover_color=ui.MENU_BUTTON_COLOR_HI
     )
 
     def confirm_callback():
@@ -249,26 +249,26 @@ def run(screen):
             battle.run(screen, left_selection["ship_obj"], right_selection["ship_obj"])
             return None, None  # Return None to maintain compatibility with existing code
 
-    confirm_button = UIButton.Button(
-        UI.ok_button_left,
-        UI.ok_button_top,
-        UI.ok_button_width,
-        UI.ok_button_height,
+    confirm_button = ui_button.Button(
+        ui.ok_button_left,
+        ui.ok_button_top,
+        ui.ok_button_width,
+        ui.ok_button_height,
         "Confirm",
         confirm_callback,
-        bg_color=UI.DISABLED_BUTTON,
-        hover_color=UI.DISABLED_BUTTON
+        bg_color=ui.DISABLED_BUTTON,
+        hover_color=ui.DISABLED_BUTTON
     )
 
-    cancel_button = UIButton.Button(
-        UI.can_button_left,
-        UI.ok_button_top,
-        UI.ok_button_width,
-        UI.ok_button_height,
+    cancel_button = ui_button.Button(
+        ui.can_button_left,
+        ui.ok_button_top,
+        ui.ok_button_width,
+        ui.ok_button_height,
         "Cancel",
         lambda: None,
-        bg_color=UI.CAN_RED,
-        hover_color=UI.CAN_RED_HI
+        bg_color=ui.CAN_RED,
+        hover_color=ui.CAN_RED_HI
     )
 
     running = True
@@ -290,7 +290,7 @@ def run(screen):
                             left_selection["sprite"] = selection_sprites[name]
                             left_selection["ship_obj"] = player1_ships[i]
                             left_selection["index"] = i
-                            UI.sound_manager.play_sound('menu')
+                            ui.sound_manager.play_sound('menu')
                             break
 
                 elif right_fleet.rect.collidepoint(mouse_pos):
@@ -300,39 +300,39 @@ def run(screen):
                             right_selection["sprite"] = selection_sprites[name]
                             right_selection["ship_obj"] = player2_ships[i]
                             right_selection["index"] = i
-                            UI.sound_manager.play_sound('menu')
+                            ui.sound_manager.play_sound('menu')
                             break
 
-            random_left.handle_event(event, UI.sound_manager)
-            random_right.handle_event(event, UI.sound_manager)
+            random_left.handle_event(event, ui.sound_manager)
+            random_right.handle_event(event, ui.sound_manager)
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if cancel_button.rect.collidepoint(event.pos):
-                    UI.sound_manager.play_sound('menu')
+                    ui.sound_manager.play_sound('menu')
                     running = False
                 elif (confirm_button.rect.collidepoint(event.pos) and
                       left_selection["ship_obj"] and right_selection["ship_obj"] and
                       left_selection["ship_obj"].currently_alive and
                       right_selection["ship_obj"].currently_alive):
-                    UI.sound_manager.play_sound('menu')
+                    ui.sound_manager.play_sound('menu')
                     return confirm_callback()
 
         if (left_selection["ship_obj"] and right_selection["ship_obj"] and
                 left_selection["ship_obj"].currently_alive and
                 right_selection["ship_obj"].currently_alive):
-            confirm_button.bg_color = UI.OK_GREEN
-            confirm_button.hover_color = UI.OK_GREEN_HI
+            confirm_button.bg_color = ui.OK_GREEN
+            confirm_button.hover_color = ui.OK_GREEN_HI
         else:
-            confirm_button.bg_color = UI.DISABLED_BUTTON
-            confirm_button.hover_color = UI.DISABLED_BUTTON
+            confirm_button.bg_color = ui.DISABLED_BUTTON
+            confirm_button.hover_color = ui.DISABLED_BUTTON
 
         # Draw everything
         if background:
             screen.blit(background, (0, 0))
         else:
-            screen.fill(UI.BG_COLOR)
+            screen.fill(ui.BG_COLOR)
 
-        UI.draw_title(screen, "Players: Pick your Ship", TITLE_FONT_SIZE, int(0.05 * Const.SCREEN_HEIGHT))
+        ui.draw_title(screen, "Players: Pick your Ship", TITLE_FONT_SIZE, int(0.05 * Const.SCREEN_HEIGHT))
 
         # Draw fleets
         left_fleet.draw(screen, font)
@@ -369,11 +369,11 @@ def run(screen):
 
         # Draw selection boxes
         for selection in [left_selection, right_selection]:
-            pygame.draw.rect(screen, UI.BLACK, selection["rect"])
+            pygame.draw.rect(screen, ui.BLACK, selection["rect"])
             if selection["sprite"]:
                 sprite_rect = selection["sprite"].get_rect(center=selection["rect"].center)
                 screen.blit(selection["sprite"], sprite_rect)
-            pygame.draw.rect(screen, UI.WHITE, selection["rect"], 2)
+            pygame.draw.rect(screen, ui.WHITE, selection["rect"], 2)
 
         random_left.draw(screen, font)
         random_right.draw(screen, font)

@@ -2,7 +2,7 @@ import pygame
 import json
 import os
 import sys
-from src.UI import UI, UISlider, UIButton
+from src.UI import ui, ui_slider, ui_button
 import src.const as Const
 
 # Define constants
@@ -36,7 +36,7 @@ def run(screen):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(0.03*Const.SCREEN_HEIGHT))
     settings = load_settings()
-    background = UI.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
+    background = ui.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
     slider_left = int(Const.SCREEN_WIDTH*0.25)
     slider_width = int(Const.SCREEN_WIDTH*0.5)
@@ -46,17 +46,17 @@ def run(screen):
         HH[ii] = int(0.25*Const.SCREEN_HEIGHT+(ii * 0.09*Const.SCREEN_HEIGHT))
 
     sliders = [
-        UISlider.Slider(slider_left, HH[0], slider_width, 0.0001, 0.01,
+        ui_slider.Slider(slider_left, HH[0], slider_width, 0.0001, 0.01,
                         settings["learning_rate"], "Learning Rate", step=0.0001),
-        UISlider.Slider(slider_left, HH[1], slider_width, 0.8, 1.0,
+        ui_slider.Slider(slider_left, HH[1], slider_width, 0.8, 1.0,
                         settings["discount_factor"], "Discount Factor", step=0.01),
-        UISlider.Slider(slider_left, HH[2], slider_width, 0.0, 1.0,
+        ui_slider.Slider(slider_left, HH[2], slider_width, 0.0, 1.0,
                         settings["epsilon"], "Epsilon", step=0.01),
-        UISlider.Slider(slider_left, HH[3], slider_width, 1, 20,
+        ui_slider.Slider(slider_left, HH[3], slider_width, 1, 20,
                         settings["number_of_hidden_layers"],"Number of Hidden Layers", is_int=True),
-        UISlider.Slider(slider_left, HH[4], slider_width, 16, 512,
+        ui_slider.Slider(slider_left, HH[4], slider_width, 16, 512,
                         settings["layer_size"], "Layer Size", is_int=True, step=16),
-        UISlider.Slider(slider_left, HH[5], slider_width, 32, 256,
+        ui_slider.Slider(slider_left, HH[5], slider_width, 32, 256,
                         settings["batch_size"], "Batch Size", is_int=True, step=32),
     ]
     back_to_menu = [False]
@@ -74,26 +74,26 @@ def run(screen):
         save_settings(new_settings)
         back_to_menu[0] = True
 
-    save_button = UIButton.Button(
-        UI.ok_button_left,
-        UI.ok_button_top,
-        UI.ok_button_width,
-        UI.ok_button_height,
+    save_button = ui_button.Button(
+        ui.ok_button_left,
+        ui.ok_button_top,
+        ui.ok_button_width,
+        ui.ok_button_height,
         "Save",
         save_and_exit,
-        UI.OK_GREEN,
-        UI.OK_GREEN_HI
+        ui.OK_GREEN,
+        ui.OK_GREEN_HI
     )
 
-    cancel_button = UIButton.Button(
-        UI.can_button_left,
-        UI.ok_button_top,
-        UI.ok_button_width,
-        UI.ok_button_height,
+    cancel_button = ui_button.Button(
+        ui.can_button_left,
+        ui.ok_button_top,
+        ui.ok_button_width,
+        ui.ok_button_height,
         "Cancel",
         go_back,
-        UI.CAN_RED,
-        UI.CAN_RED_HI
+        ui.CAN_RED,
+        ui.CAN_RED_HI
     )
 
     running = True
@@ -104,9 +104,9 @@ def run(screen):
                 pygame.quit()
                 sys.exit()
             for slider in sliders:
-                slider.handle_event(event, UI.sound_manager)
-            save_button.handle_event(event, UI.sound_manager)
-            cancel_button.handle_event(event, UI.sound_manager)
+                slider.handle_event(event, ui.sound_manager)
+            save_button.handle_event(event, ui.sound_manager)
+            cancel_button.handle_event(event, ui.sound_manager)
 
         if back_to_menu[0]:
             return
@@ -114,10 +114,10 @@ def run(screen):
         if background:
             screen.blit(background, (0, 0))
         else:
-            screen.fill(UI.BG_COLOR)
+            screen.fill(ui.BG_COLOR)
 
         # Draw title using shared function
-        UI.draw_title(screen, "Training Settings", TITLE_FONT_SIZE, int(0.1*Const.SCREEN_HEIGHT))
+        ui.draw_title(screen, "Training Settings", TITLE_FONT_SIZE, int(0.1*Const.SCREEN_HEIGHT))
 
         # Draw UI elements
         for slider in sliders:
