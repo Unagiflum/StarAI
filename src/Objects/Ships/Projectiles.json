@@ -17,7 +17,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/Druuge/A1/",
         "DeathAnim": 8,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "EarthlingA1": {
         "ShipName": "Earthling",
@@ -37,7 +39,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/Earthling/A1/",
         "DeathAnim": 9,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "IlwrathA1": {
         "ShipName": "Ilwrath",
@@ -57,7 +61,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/Ilwrath/A1/",
         "DeathAnim": 0,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "KohrAhA1": {
         "ShipName": "KohrAh",
@@ -77,7 +83,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/KohrAh/A1/",
         "DeathAnim": 6,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "KzerZaA1": {
         "ShipName": "KzerZa",
@@ -97,7 +105,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/KzerZa/A1/",
         "DeathAnim": 8,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "MyconA1": {
         "ShipName": "Mycon",
@@ -117,7 +127,9 @@
         "frame_delay": 13,
         "Path": "Objects/Ships/Mycon/A1/",
         "DeathAnim": 8,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "PkunkA1": {
         "ShipName": "Pkunk",
@@ -137,7 +149,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/Pkunk/A1/",
         "DeathAnim": 0,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "ShofixtiA1": {
         "ShipName": "Shofixti",
@@ -157,7 +171,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/Shofixti/A1/",
         "DeathAnim": 0,
-        "SpriteScale": 1.5
+        "SpriteScale": 1.5,
+        "hasSprites": true,
+        "hasSound": true
     },
     "SpathiA1": {
         "ShipName": "Spathi",
@@ -177,7 +193,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/Spathi/A1/",
         "DeathAnim": 0,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "SpathiA2": {
         "ShipName": "Spathi",
@@ -197,7 +215,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/Spathi/A2/",
         "DeathAnim": 0,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "SupoxA1": {
         "ShipName": "Supox",
@@ -217,7 +237,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/Supox/A1/",
         "DeathAnim": 0,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "ThraddashA1": {
         "ShipName": "Thraddash",
@@ -237,7 +259,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/Thraddash/A1/",
         "DeathAnim": 0,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "ThraddashA2": {
         "ShipName": "Thraddash",
@@ -257,7 +281,9 @@
         "frame_delay": 5,
         "Path": "Objects/Ships/Thraddash/A2/",
         "DeathAnim": 0,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "YehatA1": {
         "ShipName": "Yehat",
@@ -277,7 +303,9 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/Yehat/A1/",
         "DeathAnim": 0,
-        "SpriteScale": 1.0
+        "SpriteScale": 1.0,
+        "hasSprites": true,
+        "hasSound": true
     },
     "ZoqFotA1": {
         "ShipName": "ZoqFotA1",
@@ -297,6 +325,8 @@
         "frame_delay": 0,
         "Path": "Objects/Ships/ZoqFot/A1/",
         "DeathAnim": 0,
-        "SpriteScale": 0.7
+        "SpriteScale": 0.7,
+        "hasSprites": true,
+        "hasSound": true
     }
 }

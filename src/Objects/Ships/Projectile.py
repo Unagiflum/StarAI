@@ -27,8 +27,8 @@ class Projectile(PlayerObject):
             player=parent.player
         )
 
-        # Load shared resources if not already loaded
-        if projectile_name not in self._sprites:
+        # Load shared resources if not already loaded and sprites are enabled
+        if projectile_name not in self._sprites and projectile_data.get('hasSprites', True):
             self._sprites[projectile_name] = []
             self._death_anims[projectile_name] = []
 
@@ -71,12 +71,13 @@ class Projectile(PlayerObject):
                     except pygame.error:
                         break
 
-            # Load sound if it exists
-            try:
-                sound_path = Path(projectile_data['Path']) / f"{projectile_name}.wav"
-                self._launch_sounds[projectile_name] = pygame.mixer.Sound(str(sound_path))
-            except pygame.error:
-                self._launch_sounds[projectile_name] = None
+            # Load sound if it exists and sounds are enabled
+            if projectile_data.get('hasSound', True):
+                try:
+                    sound_path = Path(projectile_data['Path']) / f"{projectile_name}.wav"
+                    self._launch_sounds[projectile_name] = pygame.mixer.Sound(str(sound_path))
+                except pygame.error:
+                    self._launch_sounds[projectile_name] = None
         else:
             # Sprites already loaded - set sizes based on existing sprites
             if projectile_data['omnidirectional'] and projectile_data.get('frames', 1) > 1:
@@ -85,7 +86,8 @@ class Projectile(PlayerObject):
                 self.size = self.sizes[0]
             else:
                 # Non-evolving projectile - get size from first sprite
-                self.size = [self._sprites[projectile_name][0].get_width(), self._sprites[projectile_name][0].get_height()]
+                self.size = [self._sprites[projectile_name][0].get_width(),
+                             self._sprites[projectile_name][0].get_height()]
 
         self.sprites = self._sprites[projectile_name]
         self.death_anim = self._death_anims[projectile_name]
