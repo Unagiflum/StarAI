@@ -12,8 +12,6 @@ class Arilou(SpaceShip):
             self.current_energy -= self.a1_cost
             self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
 
-            angle_rad = math.radians(self.rotation)
-
             projectile = ArilouA1(self)
 
             if projectile.launch_sound: projectile.launch_sound.play()
