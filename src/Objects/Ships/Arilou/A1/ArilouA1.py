@@ -6,7 +6,7 @@ import src.Const as Const
 class ArilouA1(Projectile):
     LASER_RANGE = 400
     LASER_COLOR = (255, 255, 0)
-    LASER_WIDTH = 4
+    LASER_WIDTH = 6
 
     def __init__(self, parent):
         super().__init__("ArilouA1", parent)
