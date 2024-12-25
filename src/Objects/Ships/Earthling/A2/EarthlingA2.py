@@ -29,8 +29,7 @@ class EarthlingA2(Ability):
 
         # Calculate angle and quantize to nearest SHIP_DIRECTION
         angle = math.atan2(dy, dx)
-        direction = round(angle / (2 * math.pi) * const.SHIP_DIRECTIONS) % const.SHIP_DIRECTIONS
-        angle = direction * (2 * math.pi / const.SHIP_DIRECTIONS)
+
 
         # Calculate end position
         self.end_position[0] = (self.position[0] + math.cos(angle) * self.LASER_RANGE)
