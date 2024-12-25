@@ -33,8 +33,8 @@ class ArilouA1(Projectile):
         angle = direction * (2 * math.pi / Const.SHIP_DIRECTIONS)
 
         # Calculate end position
-        self.end_position[0] = (self.position[0] + math.cos(angle) * self.LASER_RANGE) % Const.ARENA_SIZE
-        self.end_position[1] = (self.position[1] + math.sin(angle) * self.LASER_RANGE) % Const.ARENA_SIZE
+        self.end_position[0] = (self.position[0] + math.cos(angle) * self.LASER_RANGE)
+        self.end_position[1] = (self.position[1] + math.sin(angle) * self.LASER_RANGE)
 
     def update(self):
         if not self.currently_alive:
@@ -61,10 +61,10 @@ class ArilouA1(Projectile):
                 end_x = screen_end_x + dx * Const.ARENA_SIZE * scale_factor
                 end_y = screen_end_y + dy * Const.ARENA_SIZE * scale_factor
 
-                if (0 <= start_x <= Const.SCREEN_HEIGHT and
-                    0 <= start_y <= Const.SCREEN_HEIGHT) or \
-                   (0 <= end_x <= Const.SCREEN_HEIGHT and
-                    0 <= end_y <= Const.SCREEN_HEIGHT):
+                if (0 <= start_x <= Const.ARENA_SIZE and
+                    0 <= start_y <= Const.ARENA_SIZE) or \
+                   (0 <= end_x <= Const.ARENA_SIZE and
+                    0 <= end_y <= Const.ARENA_SIZE):
                     pygame.draw.line(
                         screen,
                         self.LASER_COLOR,
