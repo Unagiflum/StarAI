@@ -32,7 +32,7 @@ class Ability(PlayerObject):
             self._sprites[ability_name] = []
             self._end_anims[ability_name] = []
 
-            if ability_data.get('hasSprites', True):
+            if ability_data.get('has_sprites', True):
                 if ability_data['omnidirectional'] and ability_data.get('frames', 1) > 1:
                     # Load animation frames for evolving ability sprites
                     frames = []
@@ -75,7 +75,7 @@ class Ability(PlayerObject):
                         break
 
             # Load sound if it exists and sounds are enabled
-            if ability_data.get('hasSound', True):
+            if ability_data.get('has_sound', True):
                 try:
                     sound_path = Path(ability_data['Path']) / f"{ability_name}.wav"
                     self._launch_sounds[ability_name] = pygame.mixer.Sound(str(sound_path))
@@ -83,7 +83,7 @@ class Ability(PlayerObject):
                     self._launch_sounds[ability_name] = None
         else:
             # Sprites already loaded - set sizes based on existing sprites
-            if ability_data.get('hasSprites', True):
+            if ability_data.get('has_sprites', True):
                 if ability_data['omnidirectional'] and ability_data.get('frames', 1) > 1:
                     # Evolving projectile - get sizes from each frame
                     self.sizes = [[sprite.get_width(), sprite.get_height()] for sprite in self._sprites[ability_name][0]]
@@ -118,8 +118,8 @@ class Ability(PlayerObject):
         self.life_time = ability_data['life_time']
         self.turn_wait = ability_data.get('turn_wait', 0)
         self.inertia = ability_data['inertia']
-        self.hit_parent = ability_data['HitParent']
-        self.hit_self = ability_data['HitSelf']
+        self.hit_parent = ability_data['hit_parent']
+        self.hit_self = ability_data['hit_self']
         self.omnidirectional = ability_data['omnidirectional']
         self.death_anim = ability_data.get('end_anim', 0)
 
