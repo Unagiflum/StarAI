@@ -63,9 +63,9 @@ class Projectile(PlayerObject):
             else:
                 self._sprites[projectile_name] = None
 
-            # Load death animation if it exists
-            if projectile_data.get('DeathAnim', 0) > 0:
-                for i in range(projectile_data['DeathAnim']):
+            # Load end animation if it exists
+            if projectile_data.get('end_anim', 0) > 0:
+                for i in range(projectile_data['end_anim']):
                     try:
                         death_path = Path(projectile_data['Path']) / f"{projectile_name}die{i:02d}.png"
                         base_sprite = pygame.image.load(str(death_path)).convert_alpha()
@@ -121,7 +121,7 @@ class Projectile(PlayerObject):
         self.hit_parent = projectile_data['HitParent']
         self.hit_self = projectile_data['HitSelf']
         self.omnidirectional = projectile_data['omnidirectional']
-        self.death_anim = projectile_data.get('DeathAnim', 0)
+        self.death_anim = projectile_data.get('end_anim', 0)
 
         # Animation properties
         self.frames = projectile_data.get('frames', 1)
