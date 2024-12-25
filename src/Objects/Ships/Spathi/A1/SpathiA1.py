@@ -1,5 +1,5 @@
-from src.Objects.Ships.Projectile import Projectile
+from src.Objects.Ships.Ability import Ability
 
-class SpathiA1(Projectile):
+class SpathiA1(Ability):
     def __init__(self, parent):
         super().__init__("SpathiA1", parent)

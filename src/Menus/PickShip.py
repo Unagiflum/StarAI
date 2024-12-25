@@ -40,7 +40,7 @@ def load_fleet_data():
         with open(Const.FLEETS_JSON_PATH, 'r') as f:
             fleet_data = json.load(f)
 
-        with open(Const.PROJECTILES_JSON_PATH, 'r') as f:
+        with open(Const.ABILITIES_JSON_PATH, 'r') as f:
             projectiles_data = json.load(f)
 
 

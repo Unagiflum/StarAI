@@ -1,9 +1,9 @@
-from src.Objects.Ships.Projectile import Projectile
+from src.Objects.Ships.Ability import Ability
 import pygame
 import math
 import src.Const as Const
 
-class ArilouA1(Projectile):
+class ArilouA1(Ability):
     LASER_RANGE = 400
     LASER_COLOR = (255, 255, 0)
     LASER_WIDTH = 6

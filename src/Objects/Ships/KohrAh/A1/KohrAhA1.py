@@ -1,8 +1,8 @@
-from src.Objects.Ships.Projectile import Projectile
+from src.Objects.Ships.Ability import Ability
 import src.Const as Const
 import math
 
-class KohrAhA1(Projectile):
+class KohrAhA1(Ability):
     TRACK_SPEED = 5
     TRACK_RANGE = 900
 
