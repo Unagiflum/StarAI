@@ -276,7 +276,7 @@ class Fleet(ShipContainer):
         pygame.draw.rect(screen, UI.BLACK, self.rect)
         pygame.draw.rect(screen, UI.WHITE, self.rect, 2)
 
-        title_text = font.render(f"{self.title} - Cost: {self.get_total_cost()}", True, UI.WHITE)
+        title_text = font.render(f"{self.title} - cost: {self.get_total_cost()}", True, UI.WHITE)
         screen.blit(title_text, (self.rect.x + 10, self.rect.y + 10))
 
         for sprite, _, _, rect in self.ships:

@@ -69,7 +69,7 @@ def load_fleet_data():
 
 def load_ship_sprite(ship_name):
     try:
-        sprite_path = os.path.join(SHIPS_DATA[ship_name]['SpriteLocation'], f'{ship_name}00.png')
+        sprite_path = os.path.join(SHIPS_DATA[ship_name]['sprite_path'], f'{ship_name}00.png')
         sprite = pygame.image.load(sprite_path).convert_alpha()
         return sprite, sprite.get_size()
     except Exception as e:
@@ -81,7 +81,7 @@ def scale_sprites(original_sprites, target_size, ships_data):
     # First find max dimension after applying sprite_scale
     max_dim = 1
     for name, sprite in original_sprites.items():
-        sprite_scale = ships_data[name]['SpriteScale']
+        sprite_scale = ships_data[name]['sprite_scale']
         width, height = sprite.get_size()
         scaled_width = width * sprite_scale
         scaled_height = height * sprite_scale
@@ -90,9 +90,9 @@ def scale_sprites(original_sprites, target_size, ships_data):
     base_scale_factor = target_size / max_dim
     scaled_sprites = {}
 
-    # Now scale each sprite by both its SpriteScale and the base_scale_factor
+    # Now scale each sprite by both its sprite_scale and the base_scale_factor
     for name, sprite in original_sprites.items():
-        sprite_scale = ships_data[name]['SpriteScale']
+        sprite_scale = ships_data[name]['sprite_scale']
         width, height = sprite.get_size()
         new_width = int(width * sprite_scale * base_scale_factor)
         new_height = int(height * sprite_scale * base_scale_factor)
@@ -106,7 +106,7 @@ def load_ships_data(ships_data):
        simplified_data = {}
        original_sprites = {}
        for ship_name, stats in ships_data.items():
-           simplified_data[ship_name] = {stats['ShipType']: stats['Cost']}
+           simplified_data[ship_name] = {stats['ship_type']: stats['cost']}
            sprite, _ = load_ship_sprite(ship_name)
            if sprite:
                original_sprites[ship_name] = sprite

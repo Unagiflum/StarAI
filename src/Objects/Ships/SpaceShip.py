@@ -16,7 +16,7 @@ class SpaceShip(PlayerObject):
     def __init__(self, ship_name, player_num):
         # Get ship-specific data from cached data
         ship_data = SHIPS_DATA[ship_name]
-        sprite_location = Path(ship_data['SpriteLocation'])
+        sprite_location = Path(ship_data['sprite_path'])
 
         # Initialize the PlayerObject base class
         super().__init__(
@@ -24,7 +24,7 @@ class SpaceShip(PlayerObject):
             sprite_location=sprite_location,
             size=[0,0],
             player=player_num,
-            sprite_scale=ship_data['SpriteScale']
+            sprite_scale=ship_data['sprite_scale']
         )
 
         # Load shared sprites if not already loaded for this ship type
@@ -52,29 +52,29 @@ class SpaceShip(PlayerObject):
         self.sprites = self._shared_sprites[ship_name]
 
         # Ship-specific attributes
-        self.ship_type = ship_data['ShipType']
-        self.cost = ship_data['Cost']
-        self.max_hp = ship_data['MaxHP']
-        self.start_hp = ship_data['StartHP']
-        self.max_energy = ship_data['MaxEnergy']
-        self.start_energy = ship_data['StartEnergy']
-        self.energy_regen = ship_data['EnergyRegen']
-        self.energy_wait = ship_data['EnergyWait']
-        self.max_thrust = ship_data['MaxThrust']
-        self.thrust_increment = ship_data['ThrustIncrement']
-        self.thrust_wait = ship_data['ThrustWait']
-        self.turn_wait = ship_data['TurnWait']
-        self.a1_cost = ship_data['A1Cost']
-        self.a2_cost = ship_data['A2Cost']
-        self.a3_cost = ship_data['A3Cost']
-        self.a1_wait = ship_data['A1Wait']
-        self.a2_wait = ship_data['A2Wait']
-        self.a3_wait = ship_data['A3Wait']
-        self.mass = ship_data['Mass']
-        self.inertia = ship_data['Inertia']
+        self.ship_type = ship_data['ship_type']
+        self.cost = ship_data['cost']
+        self.max_hp = ship_data['max_hp']
+        self.start_hp = ship_data['start_hp']
+        self.max_energy = ship_data['max_energy']
+        self.start_energy = ship_data['start_energy']
+        self.energy_regen = ship_data['energy_regen']
+        self.energy_wait = ship_data['energy_wait']
+        self.max_thrust = ship_data['max_thrust']
+        self.thrust_increment = ship_data['thrust_increment']
+        self.thrust_wait = ship_data['thrust_wait']
+        self.turn_wait = ship_data['turn_wait']
+        self.a1_cost = ship_data['a1_cost']
+        self.a2_cost = ship_data['a2_cost']
+        self.a3_cost = ship_data['a3_cost']
+        self.a1_wait = ship_data['a1_wait']
+        self.a2_wait = ship_data['a2_wait']
+        self.a3_wait = ship_data['a3_wait']
+        self.mass = ship_data['mass']
+        self.inertia = ship_data['inertia']
 
-        self.current_hp = ship_data['StartHP']
-        self.current_energy = ship_data['StartEnergy']
+        self.current_hp = ship_data['start_hp']
+        self.current_energy = ship_data['start_energy']
         self.energy_timer = 0
 
         # Timers

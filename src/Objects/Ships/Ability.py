@@ -22,7 +22,7 @@ class Ability(PlayerObject):
         super().__init__(
             name=ability_name,
             sprite_location=Path(ability_data['Path']),
-            sprite_scale=ability_data.get('SpriteScale', 1.0),
+            sprite_scale=ability_data.get('sprite_scale', 1.0),
             size=[0, 0],
             player=parent.player
         )
@@ -108,7 +108,7 @@ class Ability(PlayerObject):
         self.projectile_name = ability_name
 
         # Basic properties
-        self.start_hp = ability_data['StartHP'][0]
+        self.start_hp = ability_data['start_hp'][0]
         self.current_hp = self.start_hp
         self.damages = ability_data['Damage']
         self.current_damage = self.damages[0]
@@ -116,8 +116,8 @@ class Ability(PlayerObject):
         self.parent_vel = ability_data['ParentVel']
         self.speed = ability_data['Speed'] * Const.PROJ_SPEED_SCALE
         self.life_time = ability_data['LifeTime']
-        self.turn_wait = ability_data.get('TurnWait', 0)
-        self.inertia = ability_data['Inertia']
+        self.turn_wait = ability_data.get('turn_wait', 0)
+        self.inertia = ability_data['inertia']
         self.hit_parent = ability_data['HitParent']
         self.hit_self = ability_data['HitSelf']
         self.omnidirectional = ability_data['omnidirectional']
@@ -130,7 +130,7 @@ class Ability(PlayerObject):
         self.frame_timer = self.frame_delay
 
         # Store HP array for evolution
-        self.hp_array = ability_data['StartHP']
+        self.hp_array = ability_data['start_hp']
 
         # State flags
         self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)

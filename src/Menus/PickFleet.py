@@ -11,7 +11,7 @@ from typing import Dict, Tuple
 # Display settings
 SELECTION_ICON_SIZE = Const.SELECTION_ICON_SIZE
 FLEET_ICON_SIZE = Const.FLEET_ICON_SIZE
-COST_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.03)
+cost_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.03)
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.08)
 PLAYER_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.03)
 
@@ -24,9 +24,9 @@ def load_ships() -> Dict:
         simplified_data = {}
         for ship_name, stats in ships_data.items():
             simplified_data[ship_name] = {
-                stats['ShipType']: stats['Cost'],
-                'SpriteScale': stats['SpriteScale'],
-                'SpriteLocation': stats['SpriteLocation']
+                stats['ship_type']: stats['cost'],
+                'sprite_scale': stats['sprite_scale'],
+                'sprite_path': stats['sprite_path']
             }
 
         return simplified_data
@@ -40,7 +40,7 @@ def load_ship_sprites(ships_data: Dict) -> Dict[str, pygame.Surface]:
     sprites = {}
     for ship_name in ships_data:
         try:
-            sprite_path = os.path.join(ships_data[ship_name]['SpriteLocation'], f'{ship_name}00.png')
+            sprite_path = os.path.join(ships_data[ship_name]['sprite_path'], f'{ship_name}00.png')
             sprites[ship_name] = pygame.image.load(sprite_path).convert_alpha()
         except Exception as e:
             print(f"Error loading sprite for {ship_name}: {e}")
@@ -62,11 +62,11 @@ def create_sprite_sets(ships_data: Dict) -> Tuple[Dict[str, pygame.Surface], Dic
     return selection_sprites, fleet_sprites
 
 def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int, ships_data: Dict) -> Dict[str, pygame.Surface]:
-    # Find the maximum dimension across all sprites after applying SpriteScale
+    # Find the maximum dimension across all sprites after applying sprite_scale
     max_dim = 1
     for name, sprite in original_sprites.items():
         width, height = sprite.get_size()
-        sprite_scale = ships_data[name]['SpriteScale']
+        sprite_scale = ships_data[name]['sprite_scale']
         scaled_width = width * sprite_scale
         scaled_height = height * sprite_scale
         max_dim = max(max_dim, scaled_width, scaled_height)
@@ -78,7 +78,7 @@ def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int,
     scaled_sprites = {}
     for name, sprite in original_sprites.items():
         width, height = sprite.get_size()
-        sprite_scale = ships_data[name]['SpriteScale']
+        sprite_scale = ships_data[name]['sprite_scale']
         new_width = int(width * sprite_scale * scale_factor)
         new_height = int(height * sprite_scale * scale_factor)
         scaled_sprites[name] = pygame.transform.scale(sprite, (new_width, new_height))
@@ -144,7 +144,7 @@ def load_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, fleet_sprites
 def run(screen: pygame.Surface):
     """Run the Pick Fleet module."""
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont(None, COST_FONT_SIZE)
+    font = pygame.font.SysFont(None, cost_FONT_SIZE)
     title_font = pygame.font.SysFont(None, TITLE_FONT_SIZE)
     player_font = pygame.font.SysFont(None, PLAYER_FONT_SIZE)
     background = UI.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
