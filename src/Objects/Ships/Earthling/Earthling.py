@@ -88,17 +88,5 @@ class Earthling(SpaceShip):
             dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
         return (dx * dx + dy * dy) ** 0.5
 
-    def _is_in_range(self, target):
-        return self._distance_to(target) <= EarthlingA2.LASER_RANGE
-
-    def _distance_to(self, target):
-        dx = target.position[0] - self.position[0]
-        dy = target.position[1] - self.position[1]
-        if abs(dx) > const.ARENA_SIZE / 2:
-            dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
-        if abs(dy) > const.ARENA_SIZE / 2:
-            dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
-        return (dx * dx + dy * dy) ** 0.5
-
     def perform_action3(self):
         return None, False
