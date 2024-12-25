@@ -3,13 +3,13 @@ import pygame
 import math
 import src.const as const
 
-class ArilouA1(Ability):
+class EarthlingA2(Ability):
     LASER_RANGE = 400
-    LASER_COLOR = (255, 255, 0)
-    LASER_WIDTH = 6
+    LASER_COLOR = (255, 255, 255)
+    LASER_WIDTH = 4
 
     def __init__(self, parent):
-        super().__init__("ArilouA1", parent)
+        super().__init__("EarthlingA2", parent)
         self.end_position = [0, 0]
         self.calculate_end_position()
 

@@ -1,5 +1,6 @@
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Earthling.A1.EarthlingA1 import EarthlingA1
+from src.Objects.Ships.Earthling.A2.EarthlingA2 import EarthlingA2
 import src.const as const
 import math
 
@@ -37,8 +38,14 @@ class Earthling(SpaceShip):
     def perform_action2(self):
         if self.can_action2():
             self.current_energy -= self.a2_cost
-            self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
-            return None
+            self.action1_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
+
+            angle_rad = math.radians(self.rotation)
+
+            projectile = EarthlingA2(self)
+
+            if projectile.launch_sound: projectile.launch_sound.play()
+            return projectile
         return None
 
     def perform_action3(self):
