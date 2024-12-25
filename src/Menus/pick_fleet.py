@@ -4,21 +4,21 @@ import json
 import os
 
 from src.UI import ui, ui_button, ui_box
-import src.const as Const
+import src.const as const
 from src.Menus import pick_ship
 from typing import Dict, Tuple
 
 # Display settings
-SELECTION_ICON_SIZE = Const.SELECTION_ICON_SIZE
-FLEET_ICON_SIZE = Const.FLEET_ICON_SIZE
-cost_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.03)
-TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.08)
-PLAYER_FONT_SIZE = int(Const.SCREEN_HEIGHT*0.03)
+SELECTION_ICON_SIZE = const.SELECTION_ICON_SIZE
+FLEET_ICON_SIZE = const.FLEET_ICON_SIZE
+cost_FONT_SIZE = int(const.SCREEN_HEIGHT*0.03)
+TITLE_FONT_SIZE = int(const.SCREEN_HEIGHT*0.08)
+PLAYER_FONT_SIZE = int(const.SCREEN_HEIGHT*0.03)
 
 
 def load_ships() -> Dict:
     try:
-        with open(Const.SHIPS_JSON_PATH, 'r') as f:
+        with open(const.SHIPS_JSON_PATH, 'r') as f:
             ships_data = json.load(f)
 
         simplified_data = {}
@@ -98,8 +98,8 @@ def save_fleets(left_fleet: ui_box.Fleet, right_fleet: ui_box.Fleet, left_ai: bo
         }
     }
     try:
-        os.makedirs(os.path.dirname(Const.FLEETS_JSON_PATH), exist_ok=True)
-        with open(Const.FLEETS_JSON_PATH, 'w') as f:
+        os.makedirs(os.path.dirname(const.FLEETS_JSON_PATH), exist_ok=True)
+        with open(const.FLEETS_JSON_PATH, 'w') as f:
             json.dump(fleets_data, f, indent=4)
         print("Fleets and AI settings saved to fleets.json")
     except Exception as e:
@@ -108,12 +108,12 @@ def save_fleets(left_fleet: ui_box.Fleet, right_fleet: ui_box.Fleet, left_ai: bo
 
 def load_fleets(left_fleet: ui_box.Fleet, right_fleet: ui_box.Fleet, fleet_sprites: Dict[str, pygame.Surface], ships_data: Dict):
     """Load fleets and AI settings from fleets.json if it exists."""
-    if not os.path.exists(Const.FLEETS_JSON_PATH):
+    if not os.path.exists(const.FLEETS_JSON_PATH):
         print("fleets.json does not exist. Starting with empty fleets.")
         return False, False
 
     try:
-        with open(Const.FLEETS_JSON_PATH, 'r') as f:
+        with open(const.FLEETS_JSON_PATH, 'r') as f:
             fleets_data = json.load(f)
 
         # Load Player 1 fleet
@@ -147,7 +147,7 @@ def run(screen: pygame.Surface):
     font = pygame.font.SysFont(None, cost_FONT_SIZE)
     title_font = pygame.font.SysFont(None, TITLE_FONT_SIZE)
     player_font = pygame.font.SysFont(None, PLAYER_FONT_SIZE)
-    background = ui.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
+    background = ui.load_background(const.MENU_BG_PATH, const.SCREEN_WIDTH, const.SCREEN_HEIGHT)
 
     # Load ships data and sprites
     ships_data = load_ships()
@@ -157,13 +157,13 @@ def run(screen: pygame.Surface):
 
     # Create UI components
 
-    left_column_start =  int(0.033*Const.SCREEN_WIDTH)
-    top_button_start = int(0.1*Const.SCREEN_HEIGHT)
-    AI_toggle_width = int(0.075*Const.SCREEN_WIDTH)
-    top_button_height = int(0.0375*Const.SCREEN_HEIGHT)
+    left_column_start =  int(0.033*const.SCREEN_WIDTH)
+    top_button_start = int(0.1*const.SCREEN_HEIGHT)
+    AI_toggle_width = int(0.075*const.SCREEN_WIDTH)
+    top_button_height = int(0.0375*const.SCREEN_HEIGHT)
     each_button_width = int(0.5*(ui.SELECTION_WIDTH-AI_toggle_width-2*ui.button_spaceH))
 
-    right_column_start = int(Const.SCREEN_WIDTH//2+(0.016*Const.SCREEN_WIDTH))
+    right_column_start = int(const.SCREEN_WIDTH//2+(0.016*const.SCREEN_WIDTH))
 
     # Create AI toggle buttons
     left_ai_toggle = ui_button.ToggleButton(
@@ -317,7 +317,7 @@ def run(screen: pygame.Surface):
     )
 
     while running:
-        clock.tick(Const.FPS)
+        clock.tick(const.FPS)
         mouse_pos = pygame.mouse.get_pos()
 
         for event in pygame.event.get():
@@ -385,7 +385,7 @@ def run(screen: pygame.Surface):
         else:
             screen.fill(ui.BG_COLOR)
 
-        ui.draw_title(screen, "Players: Pick your Fleets", TITLE_FONT_SIZE, int(0.05*Const.SCREEN_HEIGHT))
+        ui.draw_title(screen, "Players: Pick your Fleets", TITLE_FONT_SIZE, int(0.05*const.SCREEN_HEIGHT))
 
         # Draw AI toggles
         left_ai_toggle.draw(screen, font)
