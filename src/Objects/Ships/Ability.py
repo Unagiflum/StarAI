@@ -21,7 +21,7 @@ class Ability(PlayerObject):
         # Initialize with temporary size, will be set after sprite loading
         super().__init__(
             name=ability_name,
-            sprite_location=Path(ability_data['Path']),
+            sprite_location=Path(ability_data['file_path']),
             sprite_scale=ability_data.get('sprite_scale', 1.0),
             size=[0, 0],
             player=parent.player
@@ -38,7 +38,7 @@ class Ability(PlayerObject):
                     frames = []
                     self.sizes = []
                     for frame in range(ability_data['frames']):
-                        frame_path = Path(ability_data['Path']) / f"{ability_name}00_{frame:02d}.png"
+                        frame_path = Path(ability_data['file_path']) / f"{ability_name}00_{frame:02d}.png"
                         base_sprite = pygame.image.load(str(frame_path)).convert_alpha()
                         scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                         frames.append(scaled_sprite)
@@ -48,7 +48,7 @@ class Ability(PlayerObject):
                 else:
                     # Load base sprite
                     base_sprite = pygame.image.load(
-                        str(Path(ability_data['Path']) / f"{ability_name}00.png")).convert_alpha()
+                        str(Path(ability_data['file_path']) / f"{ability_name}00.png")).convert_alpha()
                     scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                     self._sprites[ability_name].append(scaled_sprite)
                     self.size = [scaled_sprite.get_width(), scaled_sprite.get_height()]
@@ -56,7 +56,7 @@ class Ability(PlayerObject):
                     # Load additional directional sprites if not omnidirectional
                     if not ability_data['omnidirectional']:
                         for i in range(1, Const.SHIP_DIRECTIONS):
-                            sprite_path = Path(ability_data['Path']) / f"{ability_name}{i:02d}.png"
+                            sprite_path = Path(ability_data['file_path']) / f"{ability_name}{i:02d}.png"
                             base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
                             scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                             self._sprites[ability_name].append(scaled_sprite)
@@ -67,7 +67,7 @@ class Ability(PlayerObject):
             if ability_data.get('end_anim', 0) > 0:
                 for i in range(ability_data['end_anim']):
                     try:
-                        end_path = Path(ability_data['Path']) / f"{ability_name}end{i:02d}.png"
+                        end_path = Path(ability_data['file_path']) / f"{ability_name}end{i:02d}.png"
                         base_sprite = pygame.image.load(str(end_path)).convert_alpha()
                         scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                         self._end_anims[ability_name].append(scaled_sprite)
@@ -77,7 +77,7 @@ class Ability(PlayerObject):
             # Load sound if it exists and sounds are enabled
             if ability_data.get('has_sound', True):
                 try:
-                    sound_path = Path(ability_data['Path']) / f"{ability_name}.wav"
+                    sound_path = Path(ability_data['file_path']) / f"{ability_name}.wav"
                     self._launch_sounds[ability_name] = pygame.mixer.Sound(str(sound_path))
                 except pygame.error:
                     self._launch_sounds[ability_name] = None
@@ -140,7 +140,7 @@ class Ability(PlayerObject):
         self.expiration_timer = int(self.life_time*Const.PROJ_LIFE_SCALE)
         # Load projectile-specific module
         try:
-            module_path = f"{ability_data['Path']}{ability_data['ship_name']}{ability_data['action']}"
+            module_path = f"{ability_data['file_path']}{ability_data['ship_name']}{ability_data['action']}"
             self.projectile_module = __import__(module_path, fromlist=[''])
         except ImportError:
             self.projectile_module = None
