@@ -1,6 +1,6 @@
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Yehat.A1.YehatA1 import YehatA1
-import src.const as Const
+import src.const as const
 import math
 
 
@@ -11,7 +11,7 @@ class Yehat(SpaceShip):
     def perform_action1(self):
         if self.can_action1():
             self.current_energy -= self.a1_cost
-            self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
+            self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
 
             angle_rad = math.radians(self.rotation)
             side_offset = self.size[0] / 2
@@ -20,7 +20,7 @@ class Yehat(SpaceShip):
             for offset in [-side_offset, side_offset]:
                 projectile = YehatA1(self)
 
-                spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
+                spawn_distance = const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
                 offset_x = math.cos(angle_rad) * offset
                 offset_y = math.sin(angle_rad) * offset
 
@@ -45,7 +45,7 @@ class Yehat(SpaceShip):
     def perform_action2(self):
         if self.can_action2():
             self.current_energy -= self.a2_cost
-            self.action2_timer = int(self.a2_wait * Const.ACTION_WAIT_SCALE)
+            self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
             return None
         return None
 
