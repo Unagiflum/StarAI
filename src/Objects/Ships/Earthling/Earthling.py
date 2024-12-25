@@ -37,14 +37,68 @@ class Earthling(SpaceShip):
 
     def perform_action2(self):
         if self.can_action2():
-            self.current_energy -= self.a2_cost
-            self.action1_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
+            # Calculate maximum possible shots
+            act2_count = self.current_energy // self.a2_cost
+            if act2_count == 0:
+                return None
 
-            projectile = EarthlingA2(self)
+            # Get valid targets within range
+            valid_targets = []
+            if self.opponent and self._is_in_range(self.opponent):
+                valid_targets.append(self.opponent)
 
-            if projectile.launch_sound: projectile.launch_sound.play()
-            return projectile
-        return None
+            for obj in sorted(self.enemy_objects, key=lambda x: self._distance_to(x)):
+                if self._is_in_range(obj):
+                    valid_targets.append(obj)
+
+            for obj in sorted(self.friendly_objects, key=lambda x: self._distance_to(x)):
+                if self._is_in_range(obj):
+                    valid_targets.append(obj)
+
+            for obj in sorted(self.asteroids, key=lambda x: self._distance_to(x)):
+                if self._is_in_range(obj):
+                    valid_targets.append(obj)
+
+            # Create lasers up to act2_count or number of valid targets
+            shots = min(act2_count, len(valid_targets))
+            if shots == 0:
+                return None
+
+            self.current_energy -= shots * self.a2_cost
+            self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
+
+            projectiles = []
+            for i in range(shots):
+                projectile = EarthlingA2(self, valid_targets[i])
+                if projectile.launch_sound:
+                    projectile.launch_sound.play()
+                projectiles.append(projectile)
+
+            return projectiles
+
+    def _is_in_range(self, target):
+        return self._distance_to(target) <= EarthlingA2.LASER_RANGE
+
+    def _distance_to(self, target):
+        dx = target.position[0] - self.position[0]
+        dy = target.position[1] - self.position[1]
+        if abs(dx) > const.ARENA_SIZE / 2:
+            dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
+        if abs(dy) > const.ARENA_SIZE / 2:
+            dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
+        return (dx * dx + dy * dy) ** 0.5
+
+    def _is_in_range(self, target):
+        return self._distance_to(target) <= EarthlingA2.LASER_RANGE
+
+    def _distance_to(self, target):
+        dx = target.position[0] - self.position[0]
+        dy = target.position[1] - self.position[1]
+        if abs(dx) > const.ARENA_SIZE / 2:
+            dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
+        if abs(dy) > const.ARENA_SIZE / 2:
+            dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
+        return (dx * dx + dy * dy) ** 0.5
 
     def perform_action3(self):
         return None, False

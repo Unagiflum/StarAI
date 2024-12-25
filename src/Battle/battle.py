@@ -8,6 +8,7 @@ from src.Battle.battle_init import initialize_battle
 from src.Battle.battle_draw import draw_battle
 import src.const as const
 
+
 def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     clock = pygame.time.Clock()
 
@@ -100,7 +101,6 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                             settings["Player 2: Action 2"]
                         )
                         game_objects.extend(p2_objects)
-
 
         # Call handle_actions with no key for repeating actions
         p1_objects = player1.handle_actions(
