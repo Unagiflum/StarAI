@@ -1,6 +1,6 @@
 import pygame
 from . import UI
-import src.Const as Const
+import src.const as Const
 
 class Slider:
     def __init__(self, x, y, width, min_val, max_val, start_val, label, is_int=False, step=1,

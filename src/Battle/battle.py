@@ -1,10 +1,10 @@
 import pygame
 import sys
 
-from src.Objects.Ships.SpaceShip import SpaceShip
-from src.Battle.BattleInit import initialize_battle
-from src.Battle.BattleDraw import draw_battle
-import src.Const as Const
+from src.Objects.Ships.space_ship import SpaceShip
+from src.Battle.battle_init import initialize_battle
+from src.Battle.battle_draw import draw_battle
+import src.const as Const
 
 def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     clock = pygame.time.Clock()

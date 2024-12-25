@@ -5,9 +5,9 @@ import sys
 import random
 
 from src.UI import UI, UIButton, UIBox
-import src.Const as Const
+import src.const as Const
 
-from src.Battle import Battle
+from src.Battle import battle
 
 with open(Const.SHIPS_JSON_PATH, 'r') as f:
     SHIPS_DATA = json.load(f)
@@ -246,7 +246,7 @@ def run(screen):
                 left_selection["ship_obj"].currently_alive and right_selection["ship_obj"].currently_alive):
             print("Ships selected:", left_selection["ship"], "vs", right_selection["ship"])
             # Call Battle.run() with the selected ships
-            Battle.run(screen, left_selection["ship_obj"], right_selection["ship_obj"])
+            battle.run(screen, left_selection["ship_obj"], right_selection["ship_obj"])
             return None, None  # Return None to maintain compatibility with existing code
 
     confirm_button = UIButton.Button(

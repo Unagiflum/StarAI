@@ -1,6 +1,6 @@
 import pygame
 from . import UI
-import src.Const as Const
+import src.const as Const
 
 class Button:
     def __init__(self, x, y, width, height, text, callback, bg_color=UI.GREY, hover_color=UI.LIGHT_GREY, text_color=UI.WHITE):

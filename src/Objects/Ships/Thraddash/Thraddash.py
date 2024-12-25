@@ -1,7 +1,7 @@
-from src.Objects.Ships.SpaceShip import SpaceShip
+from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Thraddash.A1.ThraddashA1 import ThraddashA1
 from src.Objects.Ships.Thraddash.A2.ThraddashA2 import ThraddashA2
-import src.Const as Const
+import src.const as Const
 import math
 
 REUNK_THRUST = 72

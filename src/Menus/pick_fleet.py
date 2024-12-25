@@ -4,8 +4,8 @@ import json
 import os
 
 from src.UI import UI, UIButton, UIBox
-import src.Const as Const
-from src.Menus import PickShip
+import src.const as Const
+from src.Menus import pick_ship
 from typing import Dict, Tuple
 
 # Display settings
@@ -86,7 +86,7 @@ def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int,
     return scaled_sprites
 
 def save_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, left_ai: bool, right_ai: bool):
-    """Save the current fleets and AI settings to Fleets.json."""
+    """Save the current fleets and AI settings to fleets.json."""
     fleets_data = {
         "Player1": {
             "ships": [name for _, name, _, _ in left_fleet.ships],
@@ -101,15 +101,15 @@ def save_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, left_ai: bool
         os.makedirs(os.path.dirname(Const.FLEETS_JSON_PATH), exist_ok=True)
         with open(Const.FLEETS_JSON_PATH, 'w') as f:
             json.dump(fleets_data, f, indent=4)
-        print("Fleets and AI settings saved to Fleets.json")
+        print("Fleets and AI settings saved to fleets.json")
     except Exception as e:
-        print(f"Error saving Fleets.json: {e}")
+        print(f"Error saving fleets.json: {e}")
 
 
 def load_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, fleet_sprites: Dict[str, pygame.Surface], ships_data: Dict):
-    """Load fleets and AI settings from Fleets.json if it exists."""
+    """Load fleets and AI settings from fleets.json if it exists."""
     if not os.path.exists(Const.FLEETS_JSON_PATH):
-        print("Fleets.json does not exist. Starting with empty fleets.")
+        print("fleets.json does not exist. Starting with empty fleets.")
         return False, False
 
     try:
@@ -134,10 +134,10 @@ def load_fleets(left_fleet: UIBox.Fleet, right_fleet: UIBox.Fleet, fleet_sprites
                 ship_cost = ship_info[ship_type]
                 right_fleet.add_ship(fleet_sprites[ship_name], ship_name, ship_cost)
 
-        print("Fleets loaded from Fleets.json")
+        print("Fleets loaded from fleets.json")
         return player1_data.get("ai", False), player2_data.get("ai", False)
     except Exception as e:
-        print(f"Error loading Fleets.json: {e}")
+        print(f"Error loading fleets.json: {e}")
         return False, False
 
 
@@ -283,7 +283,7 @@ def run(screen: pygame.Surface):
             save_fleets(left_fleet, right_fleet, left_ai_toggle.value, right_ai_toggle.value)
             print("Fleets confirmed.")
 
-            PickShip.run(screen)
+            pick_ship.run(screen)
 
     running = True
 

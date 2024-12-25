@@ -1,6 +1,6 @@
 import pygame
 from . import UI
-import src.Const as Const
+import src.const as Const
 
 # Constants for ShipList and Fleet
 SCROLLBAR_WIDTH = int(0.01*Const.SCREEN_WIDTH)

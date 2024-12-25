@@ -1,7 +1,7 @@
 #Orz
-from src.Objects.Ships.SpaceShip import SpaceShip
+from src.Objects.Ships.space_ship import SpaceShip
 import pygame
-import src.Const as Const
+import src.const as Const
 
 class Orz(SpaceShip):
     def __init__(self, ship_name, player_num):

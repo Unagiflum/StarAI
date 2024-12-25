@@ -1,5 +1,5 @@
-from src.Objects.Ships.Ability import Ability
-import src.Const as Const
+from src.Objects.Ships.ability import Ability
+import src.const as Const
 import math
 
 class KohrAhA1(Ability):

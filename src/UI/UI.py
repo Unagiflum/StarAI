@@ -1,5 +1,5 @@
 import pygame
-import src.Const as Const
+import src.const as Const
 
 button_spaceH = int(Const.SCREEN_WIDTH * 0.005)
 button_spaceV = int(Const.SCREEN_HEIGHT * 0.00625)

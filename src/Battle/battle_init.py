@@ -4,9 +4,9 @@ import random
 import math
 
 from src.UI import UI
-import src.Const as Const
-from src.Objects.Space.SpaceObject import Planet, Star, Asteroid
-from src.Objects.Ships.SpaceShip import SpaceShip
+import src.const as Const
+from src.Objects.Space.space_obj import Planet, Star, Asteroid
+from src.Objects.Ships.space_ship import SpaceShip
 
 
 def load_settings():

@@ -1,4 +1,4 @@
-from src.Objects.Ships.Ability import Ability
+from src.Objects.Ships.ability import Ability
 
 class SpathiA2(Ability):
     def __init__(self, parent):

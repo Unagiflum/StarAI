@@ -1,5 +1,5 @@
-from src.Objects.Object import PlayerObject
-import src.Const as Const
+from src.Objects.object import PlayerObject
+import src.const as Const
 import math
 import pygame
 import json

@@ -1,11 +1,11 @@
 import pygame
 from src.UI import UI
-from src.Objects.Object import ThrustMarker
-from src.Objects.Ships.SpaceShip import SpaceShip
-from src.Objects.Ships.Ability import Ability
-from src.Objects.Space.SpaceObject import Star, Planet, Asteroid
-from src.Battle.StatusBar import draw_player_status
-import src.Const as Const
+from src.Objects.object import ThrustMarker
+from src.Objects.Ships.space_ship import SpaceShip
+from src.Objects.Ships.ability import Ability
+from src.Objects.Space.space_obj import Star, Planet, Asteroid
+from src.Battle.status_bar import draw_player_status
+import src.const as Const
 
 
 def calculate_view_parameters(game_objects):

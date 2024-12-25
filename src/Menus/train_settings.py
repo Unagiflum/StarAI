@@ -3,7 +3,7 @@ import json
 import os
 import sys
 from src.UI import UI, UISlider, UIButton
-import src.Const as Const
+import src.const as Const
 
 # Define constants
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT*.08)

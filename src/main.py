@@ -1,8 +1,8 @@
 import pygame
 import sys
-from src.Menus import PickFleet, TrainSettings, GameSettings
+from src.Menus import pick_fleet, train_settings, game_settings
 from src.UI import UI, UIButton
-import src.Const as Const
+import src.const as Const
 
 def handle_menu_selection(module, screen):
     """Handle the selected menu item."""
@@ -36,9 +36,9 @@ def main():
     y_spacing = int(0.075 * Const.SCREEN_HEIGHT)
 
     menu_items = [
-        ("Play Game", PickFleet),
-        ("Game Settings", GameSettings),
-        ("Training Settings", TrainSettings),
+        ("Play Game", pick_fleet),
+        ("Game Settings", game_settings),
+        ("Training Settings", train_settings),
         ("Quit", None)
     ]
 

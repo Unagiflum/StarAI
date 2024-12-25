@@ -1,5 +1,5 @@
 import pygame
-import src.Const as Const
+import src.const as Const
 
 
 class StatusBar:

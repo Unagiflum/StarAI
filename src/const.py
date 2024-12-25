@@ -54,12 +54,12 @@ PROJ_SPEED_SCALE = 1.25
 PROJ_GAP = 5
 
 #File Paths
-GAME_JSON_PATH = Path("Config/Gamesettings.json")
-TRAINING_JSON_PATH = Path("Config/Trainingsettings.json")
-FLEETS_JSON_PATH = Path("Config/Fleets.json") #os.path.join("Config","Fleets.json")
+GAME_JSON_PATH = Path("Config/game_settings.json")
+TRAINING_JSON_PATH = Path("Config/train_settings.json")
+FLEETS_JSON_PATH = Path("Config/fleets.json") #os.path.join("Config","fleets.json")
 
-SHIPS_JSON_PATH = Path("Objects/Ships/Ships.json")
-ABILITIES_JSON_PATH = Path("Objects/Ships/Abilities.json")
+SHIPS_JSON_PATH = Path("Objects/Ships/space_ships.json")
+ABILITIES_JSON_PATH = Path("Objects/Ships/abilities.json")
 PLANETS_JSON_PATH = Path("Objects/Space/planets.json")
 STARS_JSON_PATH = Path("Objects/Space/stars.json")
 

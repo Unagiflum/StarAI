@@ -1,6 +1,6 @@
-from src.Objects.Ships.SpaceShip import SpaceShip
+from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.KohrAh.A1.KohrAhA1 import KohrAhA1
-import src.Const as Const
+import src.const as Const
 import math
 
 class KohrAh(SpaceShip):

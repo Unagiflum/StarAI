@@ -1,6 +1,6 @@
-from src.Objects.Ships.SpaceShip import SpaceShip
+from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Shofixti.A1.ShofixtiA1 import ShofixtiA1
-import src.Const as Const
+import src.const as Const
 import math
 
 

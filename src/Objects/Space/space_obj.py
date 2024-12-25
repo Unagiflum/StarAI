@@ -1,6 +1,6 @@
 import math
-from src.Objects.Object import Object
-import src.Const as Const
+from src.Objects.object import Object
+import src.const as Const
 import pygame
 from pathlib import Path
 import json

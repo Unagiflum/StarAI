@@ -1,7 +1,7 @@
-from src.Objects.Ships.Ability import Ability
+from src.Objects.Ships.ability import Ability
 import pygame
 import math
-import src.Const as Const
+import src.const as Const
 
 class ArilouA1(Ability):
     LASER_RANGE = 400

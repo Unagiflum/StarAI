@@ -1,6 +1,6 @@
 import pygame
 import math
-import src.Const as Const
+import src.const as Const
 
 class Object:
     def __init__(self, name, sprite_location, size, sprite_scale=1.0):
