@@ -40,8 +40,6 @@ class Earthling(SpaceShip):
             self.current_energy -= self.a2_cost
             self.action1_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
 
-            angle_rad = math.radians(self.rotation)
-
             projectile = EarthlingA2(self)
 
             if projectile.launch_sound: projectile.launch_sound.play()
