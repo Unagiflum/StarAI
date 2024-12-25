@@ -108,6 +108,7 @@ class Ability(PlayerObject):
         self.projectile_name = ability_name
 
         # Basic properties
+        self.type = ability_data['type']
         self.start_hp = ability_data['start_hp'][0]
         self.current_hp = self.start_hp
         self.damages = ability_data['damage']
