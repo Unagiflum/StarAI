@@ -28,7 +28,7 @@ class Projectile(PlayerObject):
         )
 
         # Load shared resources if not already loaded and sprites are enabled
-        if projectile_name not in self._sprites and projectile_data.get('hasSprites', True):
+        if projectile_name not in self._sprites:
             self._sprites[projectile_name] = []
             self._death_anims[projectile_name] = []
 
@@ -59,6 +59,7 @@ class Projectile(PlayerObject):
                         base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
                         scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                         self._sprites[projectile_name].append(scaled_sprite)
+
 
             # Load death animation if it exists
             if projectile_data.get('DeathAnim', 0) > 0:

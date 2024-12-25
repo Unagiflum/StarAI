@@ -5,8 +5,8 @@ import src.Const as Const
 
 class ArilouA1(Projectile):
     LASER_RANGE = 400
-    LASER_COLOR = (255, 255, 255)
-    LASER_WIDTH = 2
+    LASER_COLOR = (255, 255, 0)
+    LASER_WIDTH = 4
 
     def __init__(self, parent):
         super().__init__("ArilouA1", parent)
@@ -70,5 +70,5 @@ class ArilouA1(Projectile):
                         self.LASER_COLOR,
                         (Const.SCREEN_LEFT + start_x, start_y),
                         (Const.SCREEN_LEFT + end_x, end_y),
-                        int(self.LASER_WIDTH * scale_factor)
+                        max(1,int(self.LASER_WIDTH * scale_factor))
                     )

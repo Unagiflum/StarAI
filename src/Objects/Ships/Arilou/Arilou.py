@@ -1,5 +1,7 @@
 from src.Objects.Ships.SpaceShip import SpaceShip
+from src.Objects.Ships.Arilou.A1.ArilouA1 import ArilouA1
 import src.Const as Const
+import math
 
 class Arilou(SpaceShip):
     def __init__(self, ship_name, player_num):
@@ -7,10 +9,28 @@ class Arilou(SpaceShip):
 
     def perform_action1(self):
         if self.can_action1():
-            print("Action 1", self.current_energy, self.a1_cost)
             self.current_energy -= self.a1_cost
             self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
-            return None
+
+            angle_rad = math.radians(self.rotation)
+
+            projectile = ArilouA1(self)
+
+            #spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
+            #projectile.position = [
+            #    self.position[0] + math.sin(angle_rad) * spawn_distance,
+            #    self.position[1] - math.cos(angle_rad) * spawn_distance
+            #]
+            #projectile.heading = self.heading
+            #projectile.rotation = self.rotation
+            #angle_rad = math.radians(self.rotation)
+            #projectile.velocity = [
+            #    math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
+            #    -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
+            #]
+
+            if projectile.launch_sound: projectile.launch_sound.play()
+            return projectile
         return None
 
     def perform_action2(self):
