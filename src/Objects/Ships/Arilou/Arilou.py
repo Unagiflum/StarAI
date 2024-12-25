@@ -16,19 +16,6 @@ class Arilou(SpaceShip):
 
             projectile = ArilouA1(self)
 
-            #spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
-            #projectile.position = [
-            #    self.position[0] + math.sin(angle_rad) * spawn_distance,
-            #    self.position[1] - math.cos(angle_rad) * spawn_distance
-            #]
-            #projectile.heading = self.heading
-            #projectile.rotation = self.rotation
-            #angle_rad = math.radians(self.rotation)
-            #projectile.velocity = [
-            #    math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
-            #    -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
-            #]
-
             if projectile.launch_sound: projectile.launch_sound.play()
             return projectile
         return None

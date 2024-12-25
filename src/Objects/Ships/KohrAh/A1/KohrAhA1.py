@@ -1,5 +1,5 @@
 from src.Objects.Ships.ability import Ability
-import src.const as Const
+import src.const as const
 import math
 
 class KohrAhA1(Ability):
@@ -35,10 +35,10 @@ class KohrAhA1(Ability):
             dy = self.opponent.position[1] - self.position[1]
 
             # Handle arena wrapping
-            if abs(dx) > Const.ARENA_SIZE / 2:
-                dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
-            if abs(dy) > Const.ARENA_SIZE / 2:
-                dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+            if abs(dx) > const.ARENA_SIZE / 2:
+                dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
+            if abs(dy) > const.ARENA_SIZE / 2:
+                dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
 
             distance = math.sqrt(dx * dx + dy * dy)
 

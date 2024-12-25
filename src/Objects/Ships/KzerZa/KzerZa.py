@@ -1,6 +1,6 @@
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.KzerZa.A1.KzerZaA1 import KzerZaA1
-import src.const as Const
+import src.const as const
 import math
 
 
@@ -11,13 +11,13 @@ class KzerZa(SpaceShip):
     def perform_action1(self):
         if self.can_action1():
             self.current_energy -= self.a1_cost
-            self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
+            self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
 
             angle_rad = math.radians(self.rotation)
 
             projectile = KzerZaA1(self)
 
-            spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
+            spawn_distance = const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
             projectile.position = [
                 self.position[0] + math.sin(angle_rad) * spawn_distance,
                 self.position[1] - math.cos(angle_rad) * spawn_distance
@@ -37,7 +37,7 @@ class KzerZa(SpaceShip):
     def perform_action2(self):
         if self.can_action2():
             self.current_energy -= self.a2_cost
-            self.action2_timer = int(self.a2_wait * Const.ACTION_WAIT_SCALE)
+            self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
             return None
         return None
 

@@ -1,6 +1,6 @@
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.KohrAh.A1.KohrAhA1 import KohrAhA1
-import src.const as Const
+import src.const as const
 import math
 
 class KohrAh(SpaceShip):
@@ -18,7 +18,7 @@ class KohrAh(SpaceShip):
 
         if button_pressed and self.can_action1():
             self.current_energy -= self.a1_cost
-            self.action1_timer = int(self.a1_wait * Const.ACTION_WAIT_SCALE)
+            self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
 
             # Remove oldest projectile if at max
             if len(self.active_projectiles) >= self.MAX_PROJECTILES:
@@ -28,7 +28,7 @@ class KohrAh(SpaceShip):
             # Create new projectile
             projectile = KohrAhA1(self)
             angle_rad = math.radians(self.rotation)
-            spawn_distance = Const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
+            spawn_distance = const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
 
             projectile.position = [
                 self.position[0] + math.sin(angle_rad) * spawn_distance,
@@ -59,7 +59,7 @@ class KohrAh(SpaceShip):
     def perform_action2(self):
         if self.can_action2():
             self.current_energy -= self.a2_cost
-            self.action2_timer = int(self.a2_wait * Const.ACTION_WAIT_SCALE)
+            self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
             return None
         return None
 
