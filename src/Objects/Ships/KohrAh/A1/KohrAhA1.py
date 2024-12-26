@@ -11,6 +11,22 @@ class KohrAhA1(Ability):
         self.is_moving = True
         self.original_speed = self.speed
         self.expiration_timer = float('inf')  # Never expires unless removed manually
+        self.place_self()
+
+    def place_self(self):
+        angle_rad = math.radians(self.parent.rotation)
+        spawn_distance = const.PROJ_GAP + (self.size[1] + self.parent.size[1]) / 2
+        self.position = [
+            self.parent.position[0] + math.sin(angle_rad) * spawn_distance,
+            self.parent.position[1] - math.cos(angle_rad) * spawn_distance
+        ]
+        self.heading = 0
+        self.rotation = self.parent.rotation
+        angle_rad = math.radians(self.rotation)
+        self.velocity = [
+            math.sin(angle_rad) * self.speed + self.parent.velocity[0] * self.parent_vel,
+            -math.cos(angle_rad) * self.speed + self.parent.velocity[1] * self.parent_vel
+        ]
 
     def update(self):
         if not self.currently_alive:

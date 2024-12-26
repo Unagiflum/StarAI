@@ -1,7 +1,6 @@
 from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
 from src.Objects.Ships.KohrAh.A1.KohrAhA1 import KohrAhA1
 import src.const as const
-import math
 
 
 class KohrAh(SpaceShip):
@@ -32,20 +31,6 @@ class KohrAh(SpaceShip):
 
             # Create new projectile
             projectile = KohrAhA1(self)
-            angle_rad = math.radians(self.rotation)
-            spawn_distance = const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
-
-            projectile.position = [
-                self.position[0] + math.sin(angle_rad) * spawn_distance,
-                self.position[1] - math.cos(angle_rad) * spawn_distance
-            ]
-
-            projectile.heading = 0  # omnidirectional
-            projectile.rotation = 0
-            projectile.velocity = [
-                math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
-                -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
-            ]
 
             if projectile.launch_sound:
                 projectile.launch_sound.play()
