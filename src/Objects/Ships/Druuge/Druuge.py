@@ -1,10 +1,12 @@
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Druuge.A1.DruugeA1 import DruugeA1
+from src.Objects.Ships.Druuge.A2.DruugeA2 import DruugeA2
 import src.const as const
 import math
 
 MAX_RECOIL = 96
 RECOIL_INCREMENT = MAX_RECOIL / 4
+A2_ENERGY = 16
 
 class Druuge(SpaceShip):
     def __init__(self, ship_name, player_num):
@@ -40,9 +42,17 @@ class Druuge(SpaceShip):
         return None
 
     def perform_action2(self):
-        if self.can_action2():
+        if self.can_action2() and self.current_energy < self.max_energy and self.current_hp > 1:
             self.current_energy -= self.a2_cost
             self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
+
+            projectile = DruugeA2(self)
+            projectile.position = self.position.copy()
+            projectile.velocity = [0, 0]
+            self.current_energy = min(self.max_energy, self.current_energy + A2_ENERGY)
+            self.current_hp -= 1
+
+            if projectile.launch_sound: projectile.launch_sound.play()
             return None
         return None
 
