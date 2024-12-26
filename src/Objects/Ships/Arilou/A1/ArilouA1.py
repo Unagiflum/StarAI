@@ -1,15 +1,15 @@
-from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.ability import Ability, ABILITIES_DATA
 import pygame
 import math
 import src.const as const
 
 class ArilouA1(Ability):
-    LASER_RANGE = 400
-    LASER_COLOR = (255, 255, 0)
-    LASER_WIDTH = 6
-
     def __init__(self, parent):
         super().__init__("ArilouA1", parent)
+        ability_data = ABILITIES_DATA["ArilouA1"]
+        self.LASER_RANGE = ability_data.get("LASER_RANGE", 400)
+        self.LASER_COLOR = tuple(ability_data.get("LASER_COLOR", [255, 255, 0]))
+        self.LASER_WIDTH = ability_data.get("LASER_WIDTH", 6)
         self.end_position = [0, 0]
         self.calculate_end_position()
 

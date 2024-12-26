@@ -20,7 +20,11 @@
         "end_anim": 0,
         "sprite_scale": 1.0,
         "has_sprites": false,
-        "has_sound": true
+        "has_sound": true,
+
+        "LASER_RANGE": 400,
+        "LASER_COLOR": [255, 255, 0],
+        "LASER_WIDTH": 6
     },
     "ArilouA2": {
         "ship_name": "Arilou",
