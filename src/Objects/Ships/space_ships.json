@@ -45,7 +45,11 @@
         "mass": 5,
         "inertia": true,
         "sprite_path": "Objects/Ships/Druuge/",
-        "sprite_scale": 1.0
+        "sprite_scale": 1.0,
+
+        "MAX_RECOIL": 96,
+        "RECOIL_INCREMENT": 24,
+        "A2_ENERGY": 16
     },
     "Earthling": {
         "ship_type": "Cruiser",
@@ -311,7 +315,10 @@
         "mass": 7,
         "inertia": true,
         "sprite_path": "Objects/Ships/Thraddash/",
-        "sprite_scale": 1.0
+        "sprite_scale": 1.0,
+
+        "REUNK_THRUST": 72,
+        "REUNK_INCREMENT": 12
     },
     "Yehat": {
         "ship_type": "Terminator",

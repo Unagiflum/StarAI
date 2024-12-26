@@ -1,4 +1,4 @@
-from src.Objects.Ships.space_ship import SpaceShip
+from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
 from src.Objects.Ships.Earthling.A1.EarthlingA1 import EarthlingA1
 from src.Objects.Ships.Earthling.A2.EarthlingA2 import EarthlingA2
 import src.const as const

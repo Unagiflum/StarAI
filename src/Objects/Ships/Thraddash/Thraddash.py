@@ -1,15 +1,15 @@
-from src.Objects.Ships.space_ship import SpaceShip
+from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
 from src.Objects.Ships.Thraddash.A1.ThraddashA1 import ThraddashA1
 from src.Objects.Ships.Thraddash.A2.ThraddashA2 import ThraddashA2
 import src.const as const
 import math
 
-REUNK_THRUST = 72
-REUNK_INCREMENT = 12
-
 class Thraddash(SpaceShip):
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
+        ship_data = SHIPS_DATA["Thraddash"]
+        self.REUNK_THRUST = ship_data.get("REUNK_THRUST", 72)
+        self.REUNK_INCREMENT = ship_data.get("REUNK_INCREMENT", 12)
 
     def perform_action1(self):
         if self.can_action1():
@@ -59,7 +59,7 @@ class Thraddash(SpaceShip):
                 math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
                 -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
             ]
-            self.apply_thrust(REUNK_THRUST,REUNK_INCREMENT, 0, True)
+            self.apply_thrust(self.REUNK_THRUST,self.REUNK_INCREMENT, 0, True)
             if projectile.launch_sound: projectile.launch_sound.play()
             return projectile
         return None

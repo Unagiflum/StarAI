@@ -1,4 +1,4 @@
-from src.Objects.Ships.space_ship import SpaceShip
+from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
 from src.Objects.Ships.ZoqFot.A1.ZoqFotA1 import ZoqFotA1
 import src.const as const
 import math
