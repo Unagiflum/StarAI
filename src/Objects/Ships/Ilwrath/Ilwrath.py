@@ -89,7 +89,7 @@ class Ilwrath(SpaceShip):
         self.trackable = True
 
     def face_opponent(self):
-        if self.opponent:
+        if self.opponent and self.opponent.trackable:
             dx = self.opponent.position[0] - self.position[0]
             dy = self.opponent.position[1] - self.position[1]
 
