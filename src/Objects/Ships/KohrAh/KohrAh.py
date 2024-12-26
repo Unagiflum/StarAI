@@ -3,6 +3,7 @@ from src.Objects.Ships.KohrAh.A1.KohrAhA1 import KohrAhA1
 import src.const as const
 import math
 
+
 class KohrAh(SpaceShip):
 
     def __init__(self, ship_name, player_num):
@@ -13,6 +14,9 @@ class KohrAh(SpaceShip):
         self.last_action1_state = False
 
     def perform_action1(self):
+        # Update active_projectiles from friendly_objects
+        self.active_projectiles = [obj for obj in self.friendly_objects if isinstance(obj, KohrAhA1)]
+
         button_pressed = self.action1_active and not self.last_action1_state
         button_released = not self.action1_active and self.last_action1_state
         self.last_action1_state = self.action1_active
