@@ -19,6 +19,6 @@ class EarthlingA1(Ability):
         self.rotation = self.parent.rotation
         angle_rad = math.radians(self.rotation)
         self.velocity = [
-            math.sin(angle_rad) * self.speed + self.velocity[0] * self.parent_vel,
-            -math.cos(angle_rad) * self.speed + self.velocity[1] * self.parent_vel
+            math.sin(angle_rad) * self.speed + self.parent.velocity[0] * self.parent_vel,
+            -math.cos(angle_rad) * self.speed + self.parent.velocity[1] * self.parent_vel
         ]

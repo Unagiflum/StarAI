@@ -14,28 +14,9 @@ class Ilwrath(SpaceShip):
         if self.can_action1():
             self.current_energy -= self.a1_cost
             self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
-
-            angle_rad = math.radians(self.rotation)
-
-            projectile = IlwrathA1(self)
-
-            spawn_distance = const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
-            projectile.position = [
-                self.position[0] + math.sin(angle_rad) * spawn_distance,
-                self.position[1] - math.cos(angle_rad) * spawn_distance
-            ]
-
-            projectile.heading = 0  # omnidirectional, so heading = 0
-            projectile.rotation = 0  # non-tracking, doesn't matter
-
-            angle_rad = math.radians(self.rotation)
-            projectile.velocity = [
-                math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
-                -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
-            ]
-
-            if projectile.launch_sound: projectile.launch_sound.play()
-            return projectile
+            ability_obj = IlwrathA1(self)
+            if ability_obj.launch_sound: ability_obj.launch_sound.play()
+            return ability_obj
         return None
 
     def perform_action2(self):
