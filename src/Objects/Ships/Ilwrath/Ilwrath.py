@@ -18,7 +18,8 @@ class Ilwrath(SpaceShip):
         self.trackable = True
         self.cloaked = False
         self.fade_timer = 0
-        self.fade_duration = 10
+        self.fade_duration = 12
+        self.blink_white = 3
 
         # Load shared resources if not already loaded
         if not self._uncloak_sound:
