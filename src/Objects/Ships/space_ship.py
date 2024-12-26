@@ -136,7 +136,7 @@ class SpaceShip(PlayerObject):
         if self.turn_right_active:
             self.turn_right()
         if self.thrust_active:
-            marker = self.apply_thrust(self.max_thrust, self.thrust_increment, 0, self.can_thrust())
+            marker = self.apply_thrust(self.max_thrust, self.thrust_increment, 0, self.can_thrust(), True)
             if marker:
                 new_objects.append(marker)
 
@@ -259,7 +259,7 @@ class SpaceShip(PlayerObject):
                 self.current_energy = min(self.max_energy,
                                           self.current_energy + self.energy_regen)
 
-    def apply_thrust(self, max_thrust, thrust_increment, angle, can_thrust):
+    def apply_thrust(self, max_thrust, thrust_increment, angle, can_thrust, make_marker):
         if can_thrust:
             angle_rad = math.radians(self.rotation + angle)
             thrust_direction = [math.sin(angle_rad), -math.cos(angle_rad)]
@@ -296,10 +296,10 @@ class SpaceShip(PlayerObject):
                 )
 
             self.thrust_timer = int(self.thrust_wait * const.THRUST_WAIT_SCALE)
-            marker_x, marker_y = self.get_thrust_marker_position()
-            marker = ThrustMarker(marker_x, marker_y)
-            return marker
-
+            if make_marker:
+                marker_x, marker_y = self.get_thrust_marker_position()
+                marker = ThrustMarker(marker_x, marker_y)
+                return marker
         return None
 
     def get_thrust_marker_position(self):

@@ -36,7 +36,7 @@ class Druuge(SpaceShip):
                 -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
             ]
 
-            self.apply_thrust(self.MAX_RECOIL,self.RECOIL_INCREMENT,180, True)
+            self.apply_thrust(self.MAX_RECOIL,self.RECOIL_INCREMENT,180, True, False)
 
             if projectile.launch_sound: projectile.launch_sound.play()
             return projectile

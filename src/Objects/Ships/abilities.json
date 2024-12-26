@@ -399,7 +399,10 @@
         "end_anim": 0,
         "sprite_scale": 1.0,
         "has_sprites": true,
-        "has_sound": true
+        "has_sound": true,
+
+        "REUNK_THRUST": 72,
+        "REUNK_INCREMENT": 12
     },
     "YehatA1": {
         "ship_name": "Yehat",
