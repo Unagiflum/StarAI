@@ -1,7 +1,6 @@
 from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
 from src.Objects.Ships.Supox.A1.SupoxA1 import SupoxA1
 import src.const as const
-import math
 
 
 class Supox(SpaceShip):
@@ -13,26 +12,9 @@ class Supox(SpaceShip):
         if self.can_action1():
             self.current_energy -= self.a1_cost
             self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
-
-            angle_rad = math.radians(self.rotation)
-
-            projectile = SupoxA1(self)
-
-            spawn_distance = const.PROJ_GAP + (self.size[1] + projectile.size[1]) / 2
-            projectile.position = [
-                self.position[0] + math.sin(angle_rad) * spawn_distance,
-                self.position[1] - math.cos(angle_rad) * spawn_distance
-            ]
-            projectile.heading = self.heading
-            projectile.rotation = self.rotation
-            angle_rad = math.radians(self.rotation)
-            projectile.velocity = [
-                math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
-                -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
-            ]
-
-            if projectile.launch_sound: projectile.launch_sound.play()
-            return projectile
+            ability_obj = SupoxA1(self)
+            if ability_obj.launch_sound: ability_obj.launch_sound.play()
+            return ability_obj
         return None
 
     def perform_action2(self):
