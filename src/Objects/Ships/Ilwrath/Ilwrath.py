@@ -1,7 +1,6 @@
 from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
 from src.Objects.Ships.Ilwrath.A1.IlwrathA1 import IlwrathA1
 import src.const as const
-import math
 
 
 class Ilwrath(SpaceShip):
