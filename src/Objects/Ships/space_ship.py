@@ -93,6 +93,7 @@ class SpaceShip(PlayerObject):
 
         self.opponent = None
         self.can_die = True
+        self.trackable = True
 
         # Load optional ship module
         try:

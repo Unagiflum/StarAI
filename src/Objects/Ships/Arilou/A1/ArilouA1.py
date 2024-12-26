@@ -16,20 +16,23 @@ class ArilouA1(Ability):
     def calculate_end_position(self):
         if not self.opponent:
             return
+        if self.opponent.trackable:
+            # Calculate direction to opponent
+            dx = self.opponent.position[0] - self.position[0]
+            dy = self.opponent.position[1] - self.position[1]
 
-        # Calculate direction to opponent
-        dx = self.opponent.position[0] - self.position[0]
-        dy = self.opponent.position[1] - self.position[1]
+            # Handle arena wrapping
+            if abs(dx) > const.ARENA_SIZE / 2:
+                dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
+            if abs(dy) > const.ARENA_SIZE / 2:
+                dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
 
-        # Handle arena wrapping
-        if abs(dx) > const.ARENA_SIZE / 2:
-            dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
-        if abs(dy) > const.ARENA_SIZE / 2:
-            dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
+            # Calculate angle and quantize to nearest SHIP_DIRECTION
+            angle = math.atan2(dy, dx)
+            direction = round(angle / (2 * math.pi) * const.SHIP_DIRECTIONS) % const.SHIP_DIRECTIONS
+        else:
+            direction = int((self.parent.heading + 0.75*const.SHIP_DIRECTIONS) % const.SHIP_DIRECTIONS)
 
-        # Calculate angle and quantize to nearest SHIP_DIRECTION
-        angle = math.atan2(dy, dx)
-        direction = round(angle / (2 * math.pi) * const.SHIP_DIRECTIONS) % const.SHIP_DIRECTIONS
         angle = direction * (2 * math.pi / const.SHIP_DIRECTIONS)
 
         # Calculate end position

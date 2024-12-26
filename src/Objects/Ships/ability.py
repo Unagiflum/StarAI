@@ -184,7 +184,7 @@ class Ability(PlayerObject):
                 angle_diff += 360
 
             # Turn if timer allows
-            if self.turn_timer <= 0:
+            if self.turn_timer <= 0 and self.opponent.trackable:
                 if abs(angle_diff) >= direction_step:
                     self.rotation = (current_angle + (direction_step if angle_diff > 0 else -direction_step)) % 360
                     self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)

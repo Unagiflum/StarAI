@@ -44,7 +44,7 @@ class Earthling(SpaceShip):
 
             # Get valid targets within range
             valid_targets = []
-            if self.opponent and self._is_in_range(self.opponent):
+            if self.opponent and self._is_in_range(self.opponent) and self.opponent.trackable:
                 valid_targets.append(self.opponent)
 
             for obj in sorted(self.enemy_objects, key=lambda x: self._distance_to(x)):
