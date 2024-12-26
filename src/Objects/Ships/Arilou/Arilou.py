@@ -22,11 +22,11 @@ class Arilou(SpaceShip):
         if self.can_action2():
             self.current_energy -= self.a2_cost
             self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
-            projectile = ArilouA2(self)
+            ability_obj = ArilouA2(self)
             self.position[0] = random.randint(0, const.ARENA_SIZE)
             self.position[1] = random.randint(0, const.ARENA_SIZE)
-            if projectile.launch_sound: projectile.launch_sound.play()
-            return projectile
+            if ability_obj.launch_sound: ability_obj.launch_sound.play()
+            return ability_obj
         return None
 
     def perform_action3(self):

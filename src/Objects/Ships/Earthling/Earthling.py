@@ -25,16 +25,16 @@ class Earthling(SpaceShip):
             if act2_count == 0:
                 return None
 
-            projectile = EarthlingA2(self)
-            projectiles = projectile.get_shots(act2_count)
+            ability_obj = EarthlingA2(self)
+            projectiles = ability_obj.get_shots(act2_count)
             if not projectiles:
                 return None
 
             self.current_energy -= len(projectiles) * self.a2_cost
             self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
 
-            if projectile.launch_sound:
-                projectile.launch_sound.play()
+            if ability_obj.launch_sound:
+                ability_obj.launch_sound.play()
 
             return projectiles
         return None

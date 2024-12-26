@@ -30,13 +30,13 @@ class KohrAh(SpaceShip):
                 oldest.currently_alive = False
 
             # Create new projectile
-            projectile = KohrAhA1(self)
+            ability_obj = KohrAhA1(self)
 
-            if projectile.launch_sound:
-                projectile.launch_sound.play()
+            if ability_obj.launch_sound:
+                ability_obj.launch_sound.play()
 
-            self.active_projectiles.append(projectile)
-            return projectile
+            self.active_projectiles.append(ability_obj)
+            return ability_obj
 
         elif button_released:
             # Stop movement of active projectiles
