@@ -1,5 +1,4 @@
 from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
-import pygame
 import src.const as const
 
 class Orz(SpaceShip):
