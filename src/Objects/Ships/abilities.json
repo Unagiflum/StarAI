@@ -448,6 +448,8 @@
         "end_anim": 0,
         "sprite_scale": 0.7,
         "has_sprites": true,
-        "has_sound": true
+        "has_sound": true,
+
+        "SPREAD_ANGLE": 3
     }
 }
