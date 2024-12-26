@@ -1,13 +1,13 @@
-from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.ability import Ability, ABILITIES_DATA
 import src.const as const
 import math
 
 class KohrAhA1(Ability):
-    TRACK_SPEED = 5
-    TRACK_RANGE = 900
-
     def __init__(self, parent):
         super().__init__("KohrAhA1", parent)
+        ability_data = ABILITIES_DATA["KohrAhA1"]
+        self.TRACK_SPEED = ability_data.get("TRACK_SPEED", 5)
+        self.TRACK_RANGE = ability_data.get("TRACK_RANGE", 900)
         self.is_moving = True
         self.original_speed = self.speed
         self.expiration_timer = float('inf')  # Never expires unless removed manually

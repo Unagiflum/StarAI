@@ -189,7 +189,10 @@
         "end_anim": 6,
         "sprite_scale": 1.0,
         "has_sprites": true,
-        "has_sound": true
+        "has_sound": true,
+
+        "TRACK_SPEED": 5,
+        "TRACK_RANGE": 900
     },
     "KzerZaA1": {
         "ship_name": "KzerZa",
