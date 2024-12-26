@@ -91,7 +91,6 @@ class SpaceShip(PlayerObject):
         self.action1_active = False
         self.action2_active = False
 
-        self.opponent = None
         self.can_die = True
         self.trackable = True
 
@@ -274,7 +273,7 @@ class SpaceShip(PlayerObject):
                 speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
                 scale = 1.0
 
-                _, planet_distance = self.planet_distance()
+                _, planet_distance = self.distance_to(self.planet)
                 if speed > max_thrust and planet_distance > const.GRAVITY_RANGE:
                     scale = max_thrust / speed
                 if speed > const.MAX_GRAV_WHIP:

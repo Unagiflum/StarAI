@@ -84,6 +84,7 @@ class PlayerObject(Object):
         # Battle state
         self.in_battle = False
         self.planet = None
+        self.opponent = None
         self.friendly_objects = []
         self.enemy_objects = []
         self.asteroids = []
@@ -91,9 +92,9 @@ class PlayerObject(Object):
     def set_planet(self, planet):
         self.planet = planet
 
-    def planet_distance(self):
-        dx = self.planet.position[0] - self.position[0]
-        dy = self.planet.position[1] - self.position[1]
+    def distance_to(self, obj):
+        dx = obj.position[0] - self.position[0]
+        dy = obj.position[1] - self.position[1]
         distance = math.sqrt(dx * dx + dy * dy)
         return [dx, dy], distance
 
@@ -113,7 +114,7 @@ class PlayerObject(Object):
         if not self.planet:
             return [0.0, 0.0]
 
-        [dx, dy], distance = self.planet_distance()
+        [dx, dy], distance = self.distance_to(self.planet)
         if distance < self.planet.diameter / 2 or distance > Const.GRAVITY_RANGE:
             return [0.0, 0.0]
 
