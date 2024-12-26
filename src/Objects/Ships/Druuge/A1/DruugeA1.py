@@ -8,7 +8,6 @@ class DruugeA1(Ability):
         ability_data = ABILITIES_DATA["DruugeA1"]
         self.MAX_RECOIL = ability_data.get("MAX_RECOIL", 96)
         self.RECOIL_INCREMENT = ability_data.get("RECOIL_INCREMENT", 24)
-        self.A2_ENERGY = ability_data.get("A2_ENERGY", 16)
         self.place_self()
 
     def place_self(self):

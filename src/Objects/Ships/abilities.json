@@ -73,8 +73,7 @@
         "has_sound": true,
 
         "MAX_RECOIL": 96,
-        "RECOIL_INCREMENT": 24,
-        "A2_ENERGY": 16
+        "RECOIL_INCREMENT": 24
     },
     "DruugeA2": {
         "ship_name": "Druuge",
@@ -97,7 +96,9 @@
         "end_anim": 0,
         "sprite_scale": 1.0,
         "has_sprites": false,
-        "has_sound": true
+        "has_sound": true,
+
+        "ENERGY_GAIN": 16
     },
     "EarthlingA1": {
         "ship_name": "Earthling",

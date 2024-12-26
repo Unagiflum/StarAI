@@ -33,11 +33,11 @@ class Druuge(SpaceShip):
             self.current_energy -= self.a2_cost
             self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
 
-            projectile = DruugeA2(self)
-            self.current_energy = min(self.max_energy, self.current_energy + self.A2_ENERGY)
+            ability_obj = DruugeA2(self)
+            self.current_energy = min(self.max_energy, self.current_energy + ability_obj.ENERGY_GAIN)
             self.current_hp -= 1
 
-            if projectile.launch_sound: projectile.launch_sound.play()
+            if ability_obj.launch_sound: ability_obj.launch_sound.play()
             return None
         return None
 
