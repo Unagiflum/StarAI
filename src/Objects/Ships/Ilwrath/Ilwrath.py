@@ -20,6 +20,7 @@ class Ilwrath(SpaceShip):
         self.fade_timer = 0
         self.fade_duration = 12
         self.blink_white = 3
+        self.ship_name = ship_name
 
         # Load shared resources if not already loaded
         if not self._uncloak_sound:
@@ -80,14 +81,6 @@ class Ilwrath(SpaceShip):
 
     def perform_action3(self):
         return None, False
-
-    def cloak(self):
-        self.cloaked = True
-        self.trackable = False
-
-    def uncloak(self):
-        self.cloaked = False
-        self.trackable = True
 
     def face_opponent(self):
         if self.opponent and self.opponent.trackable:
@@ -157,27 +150,78 @@ class Ilwrath(SpaceShip):
                 return marker
         return None
 
-    def draw(self, screen, scale_factor, translation):
-        sprite = self.sprites[self.heading]
-        sprite_rect = sprite.get_rect()
+    def cloak(self):
+        self.cloaked = True
+        self.trackable = False
+        self.fade_timer = 0
 
-        scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
+    def uncloak(self):
+        self.cloaked = False
+        self.trackable = True
+        self.fade_timer = 0
+
+    def draw(self, screen, scale_factor, translation):
+        # Grab variants
+        black_sprite = self._shared_sprites_black[self.ship_name][self.heading]
+        white_sprite = self._shared_sprites_white[self.ship_name][self.heading]
+        normal_sprite = self.sprites[self.heading]
+
+        # Decide which sprite to show based on fade_timer
+        if self.fade_timer < self.blink_white:
+            # Fully white sprite
+            final_sprite = white_sprite
+        elif self.fade_timer < self.blink_white + self.fade_duration:
+            # We're in the fading window
+            progress = (self.fade_timer - self.blink_white) / self.fade_duration
+            # Create a surface to blend onto
+            final_sprite = pygame.Surface(white_sprite.get_size(), pygame.SRCALPHA)
+            alpha_white = int(255 * (1 - progress))  # white fades out
+            alpha_target = int(255 * progress)  # black or normal fades in
+
+            if self.cloaked:
+                # Fade white → black
+                white_copy = white_sprite.copy()
+                black_copy = black_sprite.copy()
+                white_copy.set_alpha(alpha_white)
+                black_copy.set_alpha(alpha_target)
+                final_sprite.blit(white_copy, (0, 0))
+                final_sprite.blit(black_copy, (0, 0))
+            else:
+                # Fade white → normal
+                white_copy = white_sprite.copy()
+                normal_copy = normal_sprite.copy()
+                white_copy.set_alpha(alpha_white)
+                normal_copy.set_alpha(alpha_target)
+                final_sprite.blit(white_copy, (0, 0))
+                final_sprite.blit(normal_copy, (0, 0))
+        else:
+            # Fade is complete
+            final_sprite = black_sprite if self.cloaked else normal_sprite
+
+        # Increment fade_timer if there's still room to fade
+        if self.fade_timer < (self.blink_white + self.fade_duration):
+            self.fade_timer += 1
+
+        # Scale sprite
+        scaled_sprite = pygame.transform.smoothscale_by(final_sprite, scale_factor)
         scaled_rect = scaled_sprite.get_rect()
 
-        # Calculate screen position with translation
+        # Calculate screen position
         screen_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_y = int((self.position[1] + translation[1]) * scale_factor)
 
-        # Draw the ship at all potential wrap-around positions
+        # Draw at wraparound positions
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:
                 pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
 
-                # Only draw if the position would be visible
-                if (0 <= pos_x <= const.SCREEN_HEIGHT and
-                        0 <= pos_y <= const.SCREEN_HEIGHT) and not self.cloaked:
-                    screen.blit(scaled_sprite, (
-                        const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
-                        pos_y - scaled_rect.height // 2
-                    ))
+                # Only draw if on screen
+                if 0 <= pos_x <= const.SCREEN_HEIGHT and 0 <= pos_y <= const.SCREEN_HEIGHT:
+                    screen.blit(
+                        scaled_sprite,
+                        (
+                            const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
+                            pos_y - scaled_rect.height // 2,
+                        )
+                    )
