@@ -1,7 +1,6 @@
 from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
 from src.Objects.Ships.Pkunk.A1.PkunkA1 import PkunkA1
 import src.const as const
-import math
 
 
 class Pkunk(SpaceShip):
@@ -15,29 +14,12 @@ class Pkunk(SpaceShip):
             self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
 
             projectiles = []
-            spawn_distance = const.PROJ_GAP + (self.size[1] + PkunkA1(self).size[1]) / 2
 
             for angle_offset in [-90, 0, 90]:
-                angle_rad = math.radians(self.rotation + angle_offset)
-                h_mult = 1.0
-                if angle_offset != 0:
-                    h_mult *= self.size[0]/self.size[1]
-                projectile = PkunkA1(self)
-                projectile.position = [
-                    self.position[0] + math.sin(angle_rad) * spawn_distance * h_mult,
-                    self.position[1] - math.cos(angle_rad) * spawn_distance * h_mult
-                ]
+                ability_obj = PkunkA1(self, angle_offset)
+                projectiles.append(ability_obj)
 
-                projectile.heading = 0  # omnidirectional, so heading = 0
-                projectile.rotation = 0 # non-tracking, doesn't matter
-
-                projectile.velocity = [
-                    math.sin(angle_rad) * projectile.speed + self.velocity[0] * projectile.parent_vel,
-                    -math.cos(angle_rad) * projectile.speed + self.velocity[1] * projectile.parent_vel
-                ]
-
-                projectiles.append(projectile)
-            if projectile.launch_sound: projectile.launch_sound.play()
+            if ability_obj.launch_sound: ability_obj.launch_sound.play()
             return projectiles
         return None
 
