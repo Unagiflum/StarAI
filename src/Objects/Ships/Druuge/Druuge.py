@@ -47,8 +47,8 @@ class Druuge(SpaceShip):
             self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
 
             projectile = DruugeA2(self)
-            projectile.position = self.position.copy()
-            projectile.velocity = [0, 0]
+            #projectile.position = self.position.copy()
+            #projectile.velocity = [0, 0]
             self.current_energy = min(self.max_energy, self.current_energy + A2_ENERGY)
             self.current_hp -= 1
 
