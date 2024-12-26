@@ -70,7 +70,11 @@
         "end_anim": 8,
         "sprite_scale": 1.0,
         "has_sprites": true,
-        "has_sound": true
+        "has_sound": true,
+
+        "MAX_RECOIL": 96,
+        "RECOIL_INCREMENT": 24,
+        "A2_ENERGY": 16
     },
     "DruugeA2": {
         "ship_name": "Druuge",
