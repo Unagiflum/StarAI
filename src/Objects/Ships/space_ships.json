@@ -117,7 +117,9 @@
         "mass": 10,
         "inertia": true,
         "sprite_path": "Objects/Ships/KohrAh/",
-        "sprite_scale": 1.0
+        "sprite_scale": 1.0,
+
+        "MAX_PROJECTILES": 8
     },
     "KzerZa": {
         "ship_type": "Dreadnought",

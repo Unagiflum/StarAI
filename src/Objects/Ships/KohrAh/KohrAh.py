@@ -1,13 +1,14 @@
-from src.Objects.Ships.space_ship import SpaceShip
+from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
 from src.Objects.Ships.KohrAh.A1.KohrAhA1 import KohrAhA1
 import src.const as const
 import math
 
 class KohrAh(SpaceShip):
-    MAX_PROJECTILES = 8
 
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
+        ship_data = SHIPS_DATA["KohrAh"]
+        self.MAX_PROJECTILES = ship_data.get("MAX_PROJECTILES", 8)
         self.active_projectiles = []
         self.last_action1_state = False
 
