@@ -46,7 +46,7 @@ SELECTION_ICON_SIZE = (int(SCREEN_HEIGHT*0.09755), int(SCREEN_HEIGHT*0.0975))
 MAX_SHIP_SIZE = 200
 SHIP_COLS = 8
 SHIP_ROWS = 4
-SOUND_EFFECT_VOLUME = 0.3
+SOUND_EFFECT_VOLUME = 0.4
 
 #Projectiles
 PROJ_LIFE_SCALE = 1
@@ -64,7 +64,7 @@ PLANETS_JSON_PATH = Path("Objects/Space/planets.json")
 STARS_JSON_PATH = Path("Objects/Space/stars.json")
 
 BATTLE_MUSIC_PATH = Path("Battle/Resources/battle.ogg")
-BATTLE_MUSIC_VOLUME = 0.4
+BATTLE_MUSIC_VOLUME = 0.2
 
 MAIN_BG_PATH = Path("UI/Resources/Main.png")
 MENU_BG_PATH = Path("UI/Resources/Menu.png")
