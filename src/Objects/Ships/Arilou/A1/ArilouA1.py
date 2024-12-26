@@ -28,16 +28,16 @@ class ArilouA1(Ability):
                 dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
 
             # Calculate angle and quantize to nearest SHIP_DIRECTION
-            angle = math.atan2(dy, dx)
+            angle = math.atan2(dx, -dy)
             direction = round(angle / (2 * math.pi) * const.SHIP_DIRECTIONS) % const.SHIP_DIRECTIONS
         else:
-            direction = int((self.parent.heading + 0.75*const.SHIP_DIRECTIONS) % const.SHIP_DIRECTIONS)
+            direction = self.parent.heading  # When untracked, use parent's heading directly
 
         angle = direction * (2 * math.pi / const.SHIP_DIRECTIONS)
 
-        # Calculate end position
-        self.end_position[0] = (self.position[0] + math.cos(angle) * self.LASER_RANGE)
-        self.end_position[1] = (self.position[1] + math.sin(angle) * self.LASER_RANGE)
+        # Calculate end position using sin/cos flipped to match coordinate system
+        self.end_position[0] = (self.position[0] + math.sin(angle) * self.LASER_RANGE)
+        self.end_position[1] = (self.position[1] - math.cos(angle) * self.LASER_RANGE)
 
     def update(self):
         if not self.currently_alive:
