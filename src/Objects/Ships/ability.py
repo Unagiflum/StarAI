@@ -138,6 +138,12 @@ class Ability(PlayerObject):
         self.can_move = True
         self.can_die = True
         self.can_expire = True
+
+        if self.type == 'laser' or self.type == 'projectile':
+            self.can_collide = True
+        else:
+            self.can_collide = False
+
         self.expiration_timer = int(self.life_time*Const.PROJ_LIFE_SCALE)
         # Load projectile-specific module
         try:
@@ -184,12 +190,13 @@ class Ability(PlayerObject):
                 angle_diff += 360
 
             # Turn if timer allows
-            if self.turn_timer <= 0 and self.opponent.trackable:
-                if abs(angle_diff) >= direction_step:
-                    self.rotation = (current_angle + (direction_step if angle_diff > 0 else -direction_step)) % 360
-                    self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
-                else:
-                    self.rotation = target_angle
+            if self.turn_timer <= 0:
+                if self.opponent.trackable:
+                    if abs(angle_diff) >= direction_step:
+                        self.rotation = (current_angle + (direction_step if angle_diff > 0 else -direction_step)) % 360
+                        self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
+                    else:
+                        self.rotation = target_angle
             else:
                 self.turn_timer -= 1
             angle_rad = math.radians(self.rotation)
