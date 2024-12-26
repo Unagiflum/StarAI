@@ -8,7 +8,7 @@ class KohrAh(SpaceShip):
 
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
-        ship_data = SHIPS_DATA["KohrAh"]
+        ship_data = SHIPS_DATA[ship_name]
         self.MAX_PROJECTILES = ship_data.get("MAX_PROJECTILES", 8)
         self.active_projectiles = []
         self.last_action1_state = False

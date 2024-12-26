@@ -8,7 +8,7 @@ import math
 class Druuge(SpaceShip):
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
-        ship_data = SHIPS_DATA["Druuge"]
+        ship_data = SHIPS_DATA[ship_name]
         self.MAX_RECOIL = ship_data.get("MAX_RECOIL", 96)
         self.RECOIL_INCREMENT = ship_data.get("RECOIL_INCREMENT", 24)
         self.A2_ENERGY = ship_data.get("A2_ENERGY", 16)

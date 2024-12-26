@@ -7,6 +7,7 @@ import math
 class Ilwrath(SpaceShip):
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
+        ship_data = SHIPS_DATA[ship_name]
         self.trackable = False
 
     def perform_action1(self):

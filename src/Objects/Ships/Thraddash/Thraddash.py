@@ -7,7 +7,7 @@ import math
 class Thraddash(SpaceShip):
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
-        ship_data = SHIPS_DATA["Thraddash"]
+        ship_data = SHIPS_DATA[ship_name]
         self.REUNK_THRUST = ship_data.get("REUNK_THRUST", 72)
         self.REUNK_INCREMENT = ship_data.get("REUNK_INCREMENT", 12)
 

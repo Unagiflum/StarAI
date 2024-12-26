@@ -8,6 +8,7 @@ import random
 class ZoqFot(SpaceShip):
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
+        ship_data = SHIPS_DATA[ship_name]
         self.spread_angle = 3  # Degrees of spread for off-center shots
 
     def perform_action1(self):
