@@ -4,6 +4,7 @@ from src.Menus import pick_fleet, train_settings, game_settings
 from src.UI import ui, ui_button
 import src.const as const
 
+
 def handle_menu_selection(module, screen):
     """Handle the selected menu item."""
     if module is None:
@@ -16,6 +17,7 @@ def handle_menu_selection(module, screen):
             print(f"Module '{module.__name__}' does not have a 'run' function. Continuing.")
     except Exception as e:
         print(f"An error occurred while running '{module.__name__}': {e}")
+
 
 def main():
     # Initialize Pygame
@@ -74,7 +76,7 @@ def main():
             screen.fill(ui.BG_COLOR)
 
         # Draw title
-        #title_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.1))
+        # title_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.1))
         ui.draw_title(screen, "StarAI", int(const.SCREEN_HEIGHT * 0.15), const.SCREEN_HEIGHT // 6)
 
         # Draw buttons
@@ -86,6 +88,7 @@ def main():
 
     pygame.quit()
     sys.exit()
+
 
 if __name__ == "__main__":
     main()
