@@ -45,7 +45,7 @@ class Ilwrath(SpaceShip):
             self.current_energy -= self.a1_cost
             self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
             if self.cloaked:
-                if self.fade_timer == self.FADE_DURATION:
+                if self.fade_timer >= self.FADE_DURATION:
                     self.face_opponent()
                 self.uncloak()
             ability_obj = IlwrathA1(self)
