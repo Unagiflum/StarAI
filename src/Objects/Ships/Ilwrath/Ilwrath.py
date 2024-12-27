@@ -8,8 +8,8 @@ import math
 
 
 class Ilwrath(SpaceShip):
+    # Removed the shared_sprites_white dictionary since we no longer need white variants
     _shared_sprites_black = {}
-    _shared_sprites_white = {}
     _uncloak_sound = None
 
     def __init__(self, ship_name, player_num):
@@ -17,9 +17,8 @@ class Ilwrath(SpaceShip):
         ship_data = SHIPS_DATA[ship_name]
         self.trackable = True
         self.cloaked = False
-        self.fade_timer = 0
-        self.fade_duration = 12
-        self.blink_white = 3
+        self.fade_duration = 15
+        self.fade_timer = self.fade_duration
         self.ship_name = ship_name
 
         # Load shared resources if not already loaded
@@ -31,10 +30,9 @@ class Ilwrath(SpaceShip):
             except pygame.error:
                 print(f"Error loading uncloak sound for {ship_name}")
 
-        # Load black and white sprite variants if not already loaded
+        # Only load black sprite variants (removed creation of white sprites)
         if ship_name not in self._shared_sprites_black:
             self._shared_sprites_black[ship_name] = []
-            self._shared_sprites_white[ship_name] = []
             for i in range(const.SHIP_DIRECTIONS):
                 sprite = self.sprites[i].copy()
 
@@ -45,23 +43,17 @@ class Ilwrath(SpaceShip):
                 black_sprite.blit(black_pixels, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
                 self._shared_sprites_black[ship_name].append(black_sprite)
 
-                # Create white variant
-                white_sprite = sprite.copy()
-                white_pixels = pygame.Surface(sprite.get_size(), pygame.SRCALPHA)
-                pygame.draw.rect(white_pixels, (255, 255, 255, 255), white_pixels.get_rect())
-                white_sprite.blit(white_pixels, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-                self._shared_sprites_white[ship_name].append(white_sprite)
-
-
     def perform_action1(self):
         if self.can_action1():
             self.current_energy -= self.a1_cost
             self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
             if self.cloaked:
-                self.face_opponent()
+                if self.fade_timer == self.fade_duration:
+                    self.face_opponent()
                 self.uncloak()
             ability_obj = IlwrathA1(self)
-            if ability_obj.launch_sound: ability_obj.launch_sound.play()
+            if ability_obj.launch_sound:
+                ability_obj.launch_sound.play()
             return ability_obj
         return None
 
@@ -75,7 +67,8 @@ class Ilwrath(SpaceShip):
                 self.current_energy -= self.a2_cost
                 self.cloak()
                 ability_obj = IlwrathA2(self)
-                if ability_obj.launch_sound: ability_obj.launch_sound.play()
+                if ability_obj.launch_sound:
+                    ability_obj.launch_sound.play()
             self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
         return None
 
@@ -106,7 +99,7 @@ class Ilwrath(SpaceShip):
         else:
             return self.action2_timer == 0 and self.current_energy >= self.a2_cost
 
-    def apply_thrust(self, max_thrust, thrust_increment, angle, can_thrust, make_marker = True):
+    def apply_thrust(self, max_thrust, thrust_increment, angle, can_thrust, make_marker=True):
         if can_thrust:
             angle_rad = math.radians(self.rotation + angle)
             thrust_direction = [math.sin(angle_rad), -math.cos(angle_rad)]
@@ -135,7 +128,7 @@ class Ilwrath(SpaceShip):
                     scale = thrust_increment / diff_magnitude
                     self.add_impulse(diff_vector[0] * scale, diff_vector[1] * scale)
                 else:
-                    self.add_impulse(diff_vector[0] , diff_vector[1] )
+                    self.add_impulse(diff_vector[0], diff_vector[1])
             else:
                 self.add_impulse(
                     thrust_direction[0] * max_thrust,
@@ -143,6 +136,7 @@ class Ilwrath(SpaceShip):
                 )
 
             self.thrust_timer = int(self.thrust_wait * const.THRUST_WAIT_SCALE)
+            # We still hide thrust markers when cloaked
             make_marker = not self.cloaked
             if make_marker:
                 marker_x, marker_y = self.get_thrust_marker_position()
@@ -158,49 +152,42 @@ class Ilwrath(SpaceShip):
     def uncloak(self):
         self.cloaked = False
         self.trackable = True
-        self.fade_timer = 0
 
     def draw(self, screen, scale_factor, translation):
-        # Grab variants
+        # Grab the black variant and normal sprite
         black_sprite = self._shared_sprites_black[self.ship_name][self.heading]
-        white_sprite = self._shared_sprites_white[self.ship_name][self.heading]
         normal_sprite = self.sprites[self.heading]
 
-        # Decide which sprite to show based on fade_timer
-        if self.fade_timer < self.blink_white:
-            # Fully white sprite
-            final_sprite = white_sprite
-        elif self.fade_timer < self.blink_white + self.fade_duration:
-            # We're in the fading window
-            progress = (self.fade_timer - self.blink_white) / self.fade_duration
-            # Create a surface to blend onto
-            final_sprite = pygame.Surface(white_sprite.get_size(), pygame.SRCALPHA)
-            alpha_white = int(255 * (1 - progress))  # white fades out
-            alpha_target = int(255 * progress)  # black or normal fades in
+        # If we're still within the fade timer, do a fade transition; otherwise pick final
+        if self.fade_timer < self.fade_duration:
+            progress = self.fade_timer / self.fade_duration
+            final_sprite = pygame.Surface(normal_sprite.get_size(), pygame.SRCALPHA)
 
             if self.cloaked:
-                # Fade white → black
-                white_copy = white_sprite.copy()
+                # Fade from normal → black
+                normal_copy = normal_sprite.copy()
                 black_copy = black_sprite.copy()
-                white_copy.set_alpha(alpha_white)
-                black_copy.set_alpha(alpha_target)
-                final_sprite.blit(white_copy, (0, 0))
+                alpha_normal = int(255 * (1 - progress))
+                alpha_black = int(255 * progress)
+                normal_copy.set_alpha(alpha_normal)
+                black_copy.set_alpha(alpha_black)
+                final_sprite.blit(normal_copy, (0, 0))
                 final_sprite.blit(black_copy, (0, 0))
             else:
-                # Fade white → normal
-                white_copy = white_sprite.copy()
+                # Fade from black → normal
+                black_copy = black_sprite.copy()
                 normal_copy = normal_sprite.copy()
-                white_copy.set_alpha(alpha_white)
-                normal_copy.set_alpha(alpha_target)
-                final_sprite.blit(white_copy, (0, 0))
+                alpha_black = int(255 * (1 - progress))
+                alpha_normal = int(255 * progress)
+                black_copy.set_alpha(alpha_black)
+                normal_copy.set_alpha(alpha_normal)
+                final_sprite.blit(black_copy, (0, 0))
                 final_sprite.blit(normal_copy, (0, 0))
+
+            self.fade_timer += 1
         else:
             # Fade is complete
             final_sprite = black_sprite if self.cloaked else normal_sprite
-
-        # Increment fade_timer if there's still room to fade
-        if self.fade_timer < (self.blink_white + self.fade_duration):
-            self.fade_timer += 1
 
         # Scale sprite
         scaled_sprite = pygame.transform.smoothscale_by(final_sprite, scale_factor)
@@ -225,3 +212,4 @@ class Ilwrath(SpaceShip):
                             pos_y - scaled_rect.height // 2,
                         )
                     )
+
