@@ -17,7 +17,7 @@ class Ilwrath(SpaceShip):
         ship_data = SHIPS_DATA[ship_name]
         self.trackable = True
         self.cloaked = False
-        self.fade_duration = 15
+        self.fade_duration = 8
         self.fade_timer = self.fade_duration
         self.ship_name = ship_name
 
@@ -174,15 +174,7 @@ class Ilwrath(SpaceShip):
                 final_sprite.blit(normal_copy, (0, 0))
                 final_sprite.blit(black_copy, (0, 0))
             else:
-                # Fade from black → normal
-                black_copy = black_sprite.copy()
-                normal_copy = normal_sprite.copy()
-                alpha_black = int(255 * (1 - progress))
-                alpha_normal = int(255 * progress)
-                black_copy.set_alpha(alpha_black)
-                normal_copy.set_alpha(alpha_normal)
-                final_sprite.blit(black_copy, (0, 0))
-                final_sprite.blit(normal_copy, (0, 0))
+                final_sprite = normal_sprite
 
             self.fade_timer += 1
         else:
