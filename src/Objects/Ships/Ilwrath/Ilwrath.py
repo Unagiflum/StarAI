@@ -105,8 +105,7 @@ class Ilwrath(SpaceShip):
         self.cloaked = False
         self.trackable = True
 
-    def draw(self, screen, scale_factor, translation):
-        # Grab the black variant and normal sprite
+    def set_sprite(self):
         black_sprite = self._shared_sprites_black[self.ship_name][self.heading]
         normal_sprite = self.sprites[self.heading]
 
@@ -130,30 +129,5 @@ class Ilwrath(SpaceShip):
 
             self.fade_timer += 1
         else:
-            # Fade is complete
             final_sprite = black_sprite if self.cloaked else normal_sprite
-
-        # Scale sprite
-        scaled_sprite = pygame.transform.smoothscale_by(final_sprite, scale_factor)
-        scaled_rect = scaled_sprite.get_rect()
-
-        # Calculate screen position
-        screen_x = int((self.position[0] + translation[0]) * scale_factor)
-        screen_y = int((self.position[1] + translation[1]) * scale_factor)
-
-        # Draw at wraparound positions
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
-                pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
-
-                # Only draw if on screen
-                if 0 <= pos_x <= const.SCREEN_HEIGHT and 0 <= pos_y <= const.SCREEN_HEIGHT:
-                    screen.blit(
-                        scaled_sprite,
-                        (
-                            const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
-                            pos_y - scaled_rect.height // 2,
-                        )
-                    )
-
+        return final_sprite

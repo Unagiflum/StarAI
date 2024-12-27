@@ -345,9 +345,11 @@ class SpaceShip(PlayerObject):
     def perform_action3(self):
         return None, False
 
+    def set_sprite(self):
+        return self.sprites[self.heading]
+
     def draw(self, screen, scale_factor, translation):
-        sprite = self.sprites[self.heading]
-        sprite_rect = sprite.get_rect()
+        sprite = self.set_sprite()
 
         scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
         scaled_rect = scaled_sprite.get_rect()
