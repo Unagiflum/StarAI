@@ -1,12 +1,12 @@
 from src.Objects.object import PlayerObject
-import src.const as Const
+import src.const as const
 import math
 import pygame
 import json
 from pathlib import Path
 
 # Load projectile data once at module level
-with open(Const.ABILITIES_JSON_PATH, 'r') as f:
+with open(const.ABILITIES_JSON_PATH, 'r') as f:
     ABILITIES_DATA = json.load(f)
 
 class Ability(PlayerObject):
@@ -55,7 +55,7 @@ class Ability(PlayerObject):
 
                     # Load additional directional sprites if not omnidirectional
                     if not ability_data['omnidirectional']:
-                        for i in range(1, Const.SHIP_DIRECTIONS):
+                        for i in range(1, const.SHIP_DIRECTIONS):
                             sprite_path = Path(ability_data['file_path']) / f"{ability_name}{i:02d}.png"
                             base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
                             scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
@@ -99,7 +99,7 @@ class Ability(PlayerObject):
         self.death_anim = self._end_anims[ability_name]
         self.launch_sound = self._launch_sounds[ability_name]
         if self.launch_sound:
-            self.launch_sound.set_volume(Const.SOUND_EFFECT_VOLUME)
+            self.launch_sound.set_volume(const.SOUND_EFFECT_VOLUME)
 
         # Rest of initialization code
         self.parent = parent
@@ -115,7 +115,7 @@ class Ability(PlayerObject):
         self.current_damage = self.damages[0]
         self.tracking = ability_data['tracking']
         self.parent_vel = ability_data['parent_vel']
-        self.speed = ability_data['speed'] * Const.PROJ_SPEED_SCALE
+        self.speed = ability_data['speed'] * const.PROJ_SPEED_SCALE
         self.life_time = ability_data['life_time']
         self.turn_wait = ability_data.get('turn_wait', 0)
         self.inertia = ability_data['inertia']
@@ -134,7 +134,7 @@ class Ability(PlayerObject):
         self.hp_array = ability_data['start_hp']
 
         # State flags
-        self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
+        self.turn_timer = int(self.turn_wait * const.TURN_WAIT_SCALE)
         self.can_move = True
         self.can_die = True
         self.can_expire = True
@@ -144,7 +144,7 @@ class Ability(PlayerObject):
         else:
             self.can_collide = False
 
-        self.expiration_timer = int(self.life_time*Const.PROJ_LIFE_SCALE)
+        self.expiration_timer = int(self.life_time * const.PROJ_LIFE_SCALE)
         # Load projectile-specific module
         try:
             module_path = f"{ability_data['file_path']}{ability_data['ship_name']}{ability_data['action']}"
@@ -157,8 +157,8 @@ class Ability(PlayerObject):
         if self.omnidirectional:
             self.heading = 0
         else:
-            direction_step = 360 / Const.SHIP_DIRECTIONS
-            self.heading = int((self.rotation % 360) / direction_step) % Const.SHIP_DIRECTIONS
+            direction_step = 360 / const.SHIP_DIRECTIONS
+            self.heading = int((self.rotation % 360) / direction_step) % const.SHIP_DIRECTIONS
 
         if self.tracking and self.opponent:
             # Find opponent
@@ -166,10 +166,10 @@ class Ability(PlayerObject):
             dy = self.opponent.position[1] - self.position[1]
 
             # Account for arena wrapping
-            if abs(dx) > Const.ARENA_SIZE / 2:
-                dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
-            if abs(dy) > Const.ARENA_SIZE / 2:
-                dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+            if abs(dx) > const.ARENA_SIZE / 2:
+                dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
+            if abs(dy) > const.ARENA_SIZE / 2:
+                dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
 
             # Calculate target angle
             target_angle = math.degrees(math.atan2(dx, -dy))
@@ -177,7 +177,7 @@ class Ability(PlayerObject):
                 target_angle += 360
 
             # Quantize to nearest available direction
-            direction_step = 360 / Const.SHIP_DIRECTIONS
+            direction_step = const.TURN_ANGLE
             current_angle = self.rotation
             target_direction = round(target_angle / direction_step)
             target_angle = (target_direction * direction_step) % 360
@@ -194,7 +194,7 @@ class Ability(PlayerObject):
                 if self.opponent.trackable:
                     if abs(angle_diff) >= direction_step:
                         self.rotation = (current_angle + (direction_step if angle_diff > 0 else -direction_step)) % 360
-                        self.turn_timer = int(self.turn_wait * Const.TURN_WAIT_SCALE)
+                        self.turn_timer = int(self.turn_wait * const.TURN_WAIT_SCALE)
                     else:
                         self.rotation = target_angle
             else:
@@ -209,8 +209,8 @@ class Ability(PlayerObject):
         if self.inertia:
             self.apply_verlet()
         else:
-            self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
-            self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+            self.position[0] = (self.position[0] + self.velocity[0] * const.SPEED_SCALE) % const.ARENA_SIZE
+            self.position[1] = (self.position[1] + self.velocity[1] * const.SPEED_SCALE) % const.ARENA_SIZE
 
     def update(self):
         if not self.currently_alive:
@@ -272,12 +272,12 @@ class Ability(PlayerObject):
 
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:
-                pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
-                pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
+                pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
+                pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
 
-                if (0 <= pos_x <= Const.SCREEN_HEIGHT and
-                        0 <= pos_y <= Const.SCREEN_HEIGHT):
+                if (0 <= pos_x <= const.SCREEN_HEIGHT and
+                        0 <= pos_y <= const.SCREEN_HEIGHT):
                     screen.blit(scaled_sprite, (
-                        Const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
+                        const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
                         pos_y - scaled_rect.height // 2
                     ))
