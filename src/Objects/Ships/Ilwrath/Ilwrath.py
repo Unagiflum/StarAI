@@ -14,8 +14,8 @@ class Ilwrath(SpaceShip):
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
         ship_data = SHIPS_DATA[ship_name]
-        self.fade_duration = 8
-        self.fade_timer = self.fade_duration
+        self.FADE_DURATION = ship_data.get("FADE_DURATION", 8)
+        self.fade_timer = self.FADE_DURATION
         self.ship_name = ship_name
 
         # Load shared resources if not already loaded
@@ -45,7 +45,7 @@ class Ilwrath(SpaceShip):
             self.current_energy -= self.a1_cost
             self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
             if self.cloaked:
-                if self.fade_timer == self.fade_duration:
+                if self.fade_timer == self.FADE_DURATION:
                     self.face_opponent()
                 self.uncloak()
             ability_obj = IlwrathA1(self)
@@ -111,8 +111,8 @@ class Ilwrath(SpaceShip):
         normal_sprite = self.sprites[self.heading]
 
         # If we're still within the fade timer, do a fade transition; otherwise pick final
-        if self.fade_timer < self.fade_duration:
-            progress = self.fade_timer / self.fade_duration
+        if self.fade_timer < self.FADE_DURATION:
+            progress = self.fade_timer / self.FADE_DURATION
             final_sprite = pygame.Surface(normal_sprite.get_size(), pygame.SRCALPHA)
 
             if self.cloaked:

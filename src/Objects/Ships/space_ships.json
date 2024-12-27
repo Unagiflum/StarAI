@@ -93,7 +93,9 @@
         "mass": 7,
         "inertia": true,
         "sprite_path": "Objects/Ships/Ilwrath/",
-        "sprite_scale": 1.0
+        "sprite_scale": 1.0,
+
+        "FADE_DURATION": 10
     },
     "KohrAh": {
         "ship_type": "Marauder",
