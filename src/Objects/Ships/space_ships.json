@@ -152,7 +152,7 @@
         "ship_type": "Podship",
         "cost": 21,
         "max_hp": 20,
-        "start_hp": 20,
+        "start_hp": 10,
         "max_energy": 40,
         "start_energy": 40,
         "energy_regen": 1,
