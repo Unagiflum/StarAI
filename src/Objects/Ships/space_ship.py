@@ -92,6 +92,7 @@ class SpaceShip(PlayerObject):
         self.action2_active = False
 
         self.can_die = True
+        self.cloaked = False
         self.trackable = True
 
         # Load optional ship module
@@ -136,7 +137,13 @@ class SpaceShip(PlayerObject):
         if self.turn_right_active:
             self.turn_right()
         if self.thrust_active:
-            marker = self.apply_thrust(self.max_thrust, self.thrust_increment, 0, self.can_thrust(), True)
+            marker = self.apply_thrust(
+                self.max_thrust,
+                self.thrust_increment,
+                0,
+                self.can_thrust(),
+                not self.cloaked
+            )
             if marker:
                 new_objects.append(marker)
 

@@ -1,7 +1,6 @@
 from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
 from src.Objects.Ships.Ilwrath.A1.IlwrathA1 import IlwrathA1
 from src.Objects.Ships.Ilwrath.A2.IlwrathA2 import IlwrathA2
-from src.Objects.object import ThrustMarker
 import src.const as const
 import pygame
 import math
@@ -15,8 +14,6 @@ class Ilwrath(SpaceShip):
     def __init__(self, ship_name, player_num):
         super().__init__(ship_name, player_num)
         ship_data = SHIPS_DATA[ship_name]
-        self.trackable = True
-        self.cloaked = False
         self.fade_duration = 8
         self.fade_timer = self.fade_duration
         self.ship_name = ship_name
@@ -98,51 +95,6 @@ class Ilwrath(SpaceShip):
             return self.action2_timer == 0
         else:
             return self.action2_timer == 0 and self.current_energy >= self.a2_cost
-
-    def apply_thrust(self, max_thrust, thrust_increment, angle, can_thrust, make_marker=True):
-        if can_thrust:
-            angle_rad = math.radians(self.rotation + angle)
-            thrust_direction = [math.sin(angle_rad), -math.cos(angle_rad)]
-
-            if self.inertia:
-                new_velocity = [
-                    self.velocity[0] + thrust_direction[0] * thrust_increment,
-                    self.velocity[1] + thrust_direction[1] * thrust_increment
-                ]
-
-                speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
-                scale = 1.0
-
-                _, planet_distance = self.distance_to(self.planet)
-                if speed > max_thrust and planet_distance > const.GRAVITY_RANGE:
-                    scale = max_thrust / speed
-                if speed > const.MAX_GRAV_WHIP:
-                    scale = const.MAX_GRAV_WHIP / speed
-
-                target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
-
-                diff_vector = [target_velocity[0] - self.velocity[0], target_velocity[1] - self.velocity[1]]
-
-                diff_magnitude = math.sqrt(diff_vector[0] ** 2 + diff_vector[1] ** 2)
-                if diff_magnitude > thrust_increment:
-                    scale = thrust_increment / diff_magnitude
-                    self.add_impulse(diff_vector[0] * scale, diff_vector[1] * scale)
-                else:
-                    self.add_impulse(diff_vector[0], diff_vector[1])
-            else:
-                self.add_impulse(
-                    thrust_direction[0] * max_thrust,
-                    thrust_direction[1] * max_thrust
-                )
-
-            self.thrust_timer = int(self.thrust_wait * const.THRUST_WAIT_SCALE)
-            # We still hide thrust markers when cloaked
-            make_marker = not self.cloaked
-            if make_marker:
-                marker_x, marker_y = self.get_thrust_marker_position()
-                marker = ThrustMarker(marker_x, marker_y)
-                return marker
-        return None
 
     def cloak(self):
         self.cloaked = True
