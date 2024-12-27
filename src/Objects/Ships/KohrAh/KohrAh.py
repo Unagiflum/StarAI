@@ -1,5 +1,6 @@
 from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
 from src.Objects.Ships.KohrAh.A1.KohrAhA1 import KohrAhA1
+from src.Objects.Ships.KohrAh.A2.KohrAhA2 import KohrAhA2
 import src.const as const
 
 
@@ -50,7 +51,9 @@ class KohrAh(SpaceShip):
         if self.can_action2():
             self.current_energy -= self.a2_cost
             self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
-            return None
+            ability_obj = KohrAhA2(self)
+            if ability_obj.launch_sound: ability_obj.launch_sound.play()
+            return ability_obj
         return None
 
     def perform_action3(self):

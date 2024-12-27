@@ -222,6 +222,32 @@
         "TRACK_SPEED": 5,
         "TRACK_RANGE": 900
     },
+    "KohrAhA2": {
+        "ship_name": "KohrAh",
+        "type": "projectile",
+        "action": "A2",
+        "start_hp": [100, 100, 100, 100, 100, 100, 100, 100],
+        "damage": [3, 3, 3, 3, 3, 3, 3, 3],
+        "tracking": false,
+        "parent_vel": 1.0,
+        "speed": 16,
+        "life_time": 16,
+        "turn_wait": 0,
+        "inertia": false,
+        "hit_parent": false,
+        "hit_self": false,
+        "omnidirectional": true,
+        "frames": 8,
+        "frame_delay": 2,
+        "file_path": "Objects/Ships/KohrAh/A2/",
+        "end_anim": 0,
+        "sprite_scale": 1.0,
+        "has_sprites": true,
+        "has_sound": true,
+
+        "DMG_TO_PROJ": 50,
+        "QUANTITY" : 16
+    },
     "KzerZaA1": {
         "ship_name": "KzerZa",
         "type": "projectile",
