@@ -122,7 +122,7 @@
         "sprite_scale": 1.0,
 
         "SAW_COUNT": 8,
-        "GAS_COUNT": 64
+        "GAS_COUNT": 16
     },
     "KzerZa": {
         "ship_type": "Dreadnought",
