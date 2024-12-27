@@ -229,9 +229,9 @@
         "start_hp": [100, 100, 100, 100, 100, 100, 100, 100],
         "damage": [3, 3, 3, 3, 3, 3, 3, 3],
         "tracking": false,
-        "parent_vel": 1.0,
+        "parent_vel": 1.05,
         "speed": 16,
-        "life_time": 16,
+        "life_time": 24,
         "turn_wait": 0,
         "inertia": false,
         "hit_parent": false,
@@ -245,8 +245,7 @@
         "has_sprites": true,
         "has_sound": true,
 
-        "DMG_TO_PROJ": 50,
-        "QUANTITY" : 16
+        "DMG_TO_PROJ": 50
     },
     "KzerZaA1": {
         "ship_name": "KzerZa",

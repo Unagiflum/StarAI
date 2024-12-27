@@ -15,8 +15,7 @@
             "Supox",
             "Thraddash",
             "Yehat",
-            "ZoqFot",
-            "Ilwrath"
+            "ZoqFot"
         ],
         "ai": false
     },
@@ -36,9 +35,8 @@
             "Supox",
             "Thraddash",
             "Yehat",
-            "ZoqFot",
-            "Druuge"
+            "ZoqFot"
         ],
-        "ai": true
+        "ai": false
     }
 }

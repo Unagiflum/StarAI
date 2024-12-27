@@ -121,7 +121,8 @@
         "sprite_path": "Objects/Ships/KohrAh/",
         "sprite_scale": 1.0,
 
-        "MAX_PROJECTILES": 8
+        "SAW_COUNT": 8,
+        "GAS_COUNT": 64
     },
     "KzerZa": {
         "ship_type": "Dreadnought",
