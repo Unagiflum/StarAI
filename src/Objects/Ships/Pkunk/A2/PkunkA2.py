@@ -1,37 +1,28 @@
 from src.Objects.Ships.ability import Ability, ABILITIES_DATA
+import pygame
 from pathlib import Path
-import pygame, random
+import random
+import glob
 
 
 class PkunkA2(Ability):
-    _insults = {}
-    _initialized = False
+    _insults = []
 
-    @classmethod
-    def _initialize_sounds(cls, file_path):
-        if not cls._initialized:
-            cls._insults["PkunkA2"] = []
-            i = 0
-            while True:
-                try:
-                    sound_path = Path(__file__).parent / f"PkunkA2{str(i).zfill(2)}.wav"
-                    sound = pygame.mixer.Sound(str(sound_path))
-                    cls._insults["PkunkA2"].append(sound)
-                    i += 1
-                except pygame.error:
-                    break
-
-            if not cls._insults["PkunkA2"]:
-                cls._insults["PkunkA2"] = None
-            cls._initialized = True
-
-    def __init__(self, parent, angle_offset=0):
+    def __init__(self, parent):
         super().__init__("PkunkA2", parent)
         ability_data = ABILITIES_DATA["PkunkA2"]
-        self.file_path = ability_data.get("file_path", "")
-        self._initialize_sounds(self.file_path)
+        self.ENERGY_GAIN = ability_data.get("ENERGY_GAIN", 2)
+        self.file_path = ability_data.get("file_path")
+        sound_dir = Path(ability_data['file_path'])
+        pattern = str(sound_dir / "PkunkA2[0-9][0-9].wav")
 
-    def play_random_insult(self):
-        if self._insults["PkunkA2"] and isinstance(self._insults["PkunkA2"], list):
-            random_sound = random.choice(self._insults["PkunkA2"])
-            random_sound.play()
+        for sound_path in glob.glob(pattern):
+            try:
+                sound = pygame.mixer.Sound(sound_path)
+                self._insults.append(sound)
+            except pygame.error:
+                continue
+
+    def play_insult(self):
+        if self._insults:
+            random.choice(self._insults).play()

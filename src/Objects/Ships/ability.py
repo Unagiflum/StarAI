@@ -75,6 +75,7 @@ class Ability(PlayerObject):
                         break
 
             # Load sound if it exists and sounds are enabled
+            self._launch_sounds[ability_name] = None
             if ability_data.get('has_sound', True):
                 try:
                     sound_path = Path(ability_data['file_path']) / f"{ability_name}.wav"
