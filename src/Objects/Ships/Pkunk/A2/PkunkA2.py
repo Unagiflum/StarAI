@@ -3,6 +3,7 @@ import pygame
 from pathlib import Path
 import random
 import glob
+import src.const as const
 
 
 class PkunkA2(Ability):
@@ -19,6 +20,7 @@ class PkunkA2(Ability):
         for sound_path in glob.glob(pattern):
             try:
                 sound = pygame.mixer.Sound(sound_path)
+                sound.set_volume(const.SOUND_EFFECT_VOLUME)
                 self._insults.append(sound)
             except pygame.error:
                 continue

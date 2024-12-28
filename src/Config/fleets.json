@@ -17,7 +17,7 @@
             "Yehat",
             "ZoqFot"
         ],
-        "ai": false
+        "ai": true
     },
     "Player2": {
         "ships": [
@@ -37,6 +37,6 @@
             "Yehat",
             "ZoqFot"
         ],
-        "ai": false
+        "ai": true
     }
 }
