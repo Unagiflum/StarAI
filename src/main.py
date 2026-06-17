@@ -1,5 +1,14 @@
-import pygame
 import sys
+import os
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+os.chdir(SRC_ROOT)
+
+import pygame
 from src.Menus import pick_fleet, train_settings, game_settings
 from src.UI import ui, ui_button
 import src.const as const

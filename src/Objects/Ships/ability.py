@@ -97,7 +97,7 @@ class Ability(PlayerObject):
                 self.size = [0, 0]
 
         self.sprites = self._sprites[ability_name]
-        self.death_anim = self._end_anims[ability_name]
+        self.death_animation = self._end_anims[ability_name]
         self.launch_sound = self._launch_sounds[ability_name]
         if self.launch_sound:
             self.launch_sound.set_volume(const.SOUND_EFFECT_VOLUME)
@@ -123,7 +123,7 @@ class Ability(PlayerObject):
         self.hit_parent = ability_data['hit_parent']
         self.hit_self = ability_data['hit_self']
         self.omnidirectional = ability_data['omnidirectional']
-        self.death_anim = ability_data.get('end_anim', 0)
+        self.end_anim_count = ability_data.get('end_anim', 0)
 
         # Animation properties
         self.frames = ability_data.get('frames', 1)

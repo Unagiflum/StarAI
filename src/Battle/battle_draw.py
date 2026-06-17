@@ -1,5 +1,6 @@
 import pygame
 from src.UI import ui
+from src.Battle.effects import BattleEffect
 from src.Objects.object import ThrustMarker
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.ability import Ability
@@ -83,6 +84,10 @@ def draw_battle(screen, game_objects, border_rect, border_color):
 
     for obj in game_objects:
         if isinstance(obj, Ability):
+            obj.draw(screen, scale_factor, translation)
+
+    for obj in game_objects:
+        if isinstance(obj, BattleEffect):
             obj.draw(screen, scale_factor, translation)
 
     for obj in game_objects:

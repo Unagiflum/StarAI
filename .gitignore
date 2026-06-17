@@ -1,3 +1,5 @@
 # created by virtualenv automatically
 .venv/
 src/Model/
+__pycache__/
+*.py[cod]

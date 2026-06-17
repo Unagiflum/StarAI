@@ -5,6 +5,7 @@ from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.ability import Ability
 from src.Objects.Space.space_obj import Asteroid
 from src.Battle.battle_init import initialize_battle
+from src.Battle.collisions import handle_collisions
 from src.Battle.battle_draw import draw_battle
 import src.const as const
 
@@ -134,10 +135,12 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                                      x.type == 'projectile']
                 obj.asteroids = [x for x in game_objects if isinstance(x, Asteroid)]
 
-        # Drawing
-        draw_battle(screen, game_objects, border_rect, border_color)
-
         # Update all objects
         for obj in game_objects[:]:
             if not obj.update():
                 game_objects.remove(obj)
+
+        handle_collisions(game_objects)
+
+        # Drawing
+        draw_battle(screen, game_objects, border_rect, border_color)
