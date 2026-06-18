@@ -26,6 +26,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     player2 = battle_state['player2']
 
     running = True
+    frame_id = 0
     # Track key states
     key_states = {
         settings["Player 1: Forward"]: False,
@@ -43,6 +44,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
     while running:
 
         clock.tick(const.FPS)
+        frame_id += 1
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -63,7 +65,8 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                             settings["Player 1: Left"],
                             settings["Player 1: Right"],
                             settings["Player 1: Action 1"],
-                            settings["Player 1: Action 2"]
+                            settings["Player 1: Action 2"],
+                            frame_id
                         )
                         game_objects.extend(p1_objects)
                     else:
@@ -73,7 +76,8 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                             settings["Player 2: Left"],
                             settings["Player 2: Right"],
                             settings["Player 2: Action 1"],
-                            settings["Player 2: Action 2"]
+                            settings["Player 2: Action 2"],
+                            frame_id
                         )
                         game_objects.extend(p2_objects)
 
@@ -89,7 +93,8 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                             settings["Player 1: Left"],
                             settings["Player 1: Right"],
                             settings["Player 1: Action 1"],
-                            settings["Player 1: Action 2"]
+                            settings["Player 1: Action 2"],
+                            frame_id
                         )
                         game_objects.extend(p1_objects)
                     else:
@@ -99,7 +104,8 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
                             settings["Player 2: Left"],
                             settings["Player 2: Right"],
                             settings["Player 2: Action 1"],
-                            settings["Player 2: Action 2"]
+                            settings["Player 2: Action 2"],
+                            frame_id
                         )
                         game_objects.extend(p2_objects)
 
@@ -110,7 +116,8 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
             settings["Player 1: Left"],
             settings["Player 1: Right"],
             settings["Player 1: Action 1"],
-            settings["Player 1: Action 2"]
+            settings["Player 1: Action 2"],
+            frame_id
         )
         game_objects.extend(p1_objects)
 
@@ -120,7 +127,8 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
             settings["Player 2: Left"],
             settings["Player 2: Right"],
             settings["Player 2: Action 1"],
-            settings["Player 2: Action 2"]
+            settings["Player 2: Action 2"],
+            frame_id
         )
         game_objects.extend(p2_objects)
 

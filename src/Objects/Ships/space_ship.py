@@ -98,6 +98,8 @@ class SpaceShip(PlayerObject):
         self.can_die = True
         self.cloaked = False
         self.trackable = True
+        self.last_timer_update_frame = None
+        self.last_action_frames = {}
 
         # Load optional ship module
         try:
@@ -115,9 +117,11 @@ class SpaceShip(PlayerObject):
         self.action1_timer = 0
         self.action2_timer = 0
         self.action3_timer = 0
+        self.last_timer_update_frame = None
+        self.last_action_frames.clear()
         self.in_battle = True
 
-    def handle_actions(self, key, pressed, forward_key, left_key, right_key, action1_key, action2_key):
+    def handle_actions(self, key, pressed, forward_key, left_key, right_key, action1_key, action2_key, frame_id=None):
         new_objects = []
 
         # Update internal key state based on event
@@ -132,8 +136,11 @@ class SpaceShip(PlayerObject):
         elif key == action2_key:
             self.action2_active = pressed
 
-        # Update timers and check if actions can be performed
-        self.update_timers()
+        # Update timers once per frame. Some frames call handle_actions from
+        # both input events and the held-key pass.
+        if frame_id is None or self.last_timer_update_frame != frame_id:
+            self.update_timers()
+            self.last_timer_update_frame = frame_id
 
         # Handle movement based on active states
         if self.turn_left_active:
@@ -154,14 +161,14 @@ class SpaceShip(PlayerObject):
         # Handle key release events
         if key and not pressed:
             if key == action1_key:
-                result = self.perform_action1()
+                result = self.perform_frame_action("action1", self.perform_action1, frame_id)
                 if result:
                     if isinstance(result, list):
                         new_objects.extend(result)
                     else:
                         new_objects.append(result)
             elif key == action2_key:
-                result = self.perform_action2()
+                result = self.perform_frame_action("action2", self.perform_action2, frame_id)
                 if result:
                     if isinstance(result, list):
                         new_objects.extend(result)
@@ -171,7 +178,7 @@ class SpaceShip(PlayerObject):
 
         # Handle actions based on active states
         if self.action1_active and self.action2_active:
-            result, is_valid = self.perform_action3()
+            result, is_valid = self.perform_frame_action3(frame_id)
             if result:
                 if isinstance(result, list):
                     new_objects.extend(result)
@@ -179,14 +186,14 @@ class SpaceShip(PlayerObject):
                     new_objects.append(result)
             elif not is_valid:
                 if self.action1_active:
-                    result = self.perform_action1()
+                    result = self.perform_frame_action("action1", self.perform_action1, frame_id)
                     if result:
                         if isinstance(result, list):
                             new_objects.extend(result)
                         else:
                             new_objects.append(result)
                 if self.action2_active:
-                    result = self.perform_action2()
+                    result = self.perform_frame_action("action2", self.perform_action2, frame_id)
                     if result:
                         if isinstance(result, list):
                             new_objects.extend(result)
@@ -194,14 +201,14 @@ class SpaceShip(PlayerObject):
                             new_objects.append(result)
         else:
             if self.action1_active:
-                result = self.perform_action1()
+                result = self.perform_frame_action("action1", self.perform_action1, frame_id)
                 if result:
                     if isinstance(result, list):
                         new_objects.extend(result)
                     else:
                         new_objects.append(result)
             if self.action2_active:
-                result = self.perform_action2()
+                result = self.perform_frame_action("action2", self.perform_action2, frame_id)
                 if result:
                     if isinstance(result, list):
                         new_objects.extend(result)
@@ -209,6 +216,27 @@ class SpaceShip(PlayerObject):
                         new_objects.append(result)
 
         return new_objects
+
+    def action_already_handled_this_frame(self, action_name, frame_id):
+        return frame_id is not None and self.last_action_frames.get(action_name) == frame_id
+
+    def mark_action_handled_this_frame(self, action_name, frame_id):
+        if frame_id is not None:
+            self.last_action_frames[action_name] = frame_id
+
+    def perform_frame_action(self, action_name, action_callback, frame_id):
+        if self.action_already_handled_this_frame(action_name, frame_id):
+            return None
+
+        self.mark_action_handled_this_frame(action_name, frame_id)
+        return action_callback()
+
+    def perform_frame_action3(self, frame_id):
+        if self.action_already_handled_this_frame("action3", frame_id):
+            return None, True
+
+        self.mark_action_handled_this_frame("action3", frame_id)
+        return self.perform_action3()
 
     def add_impulse(self, dx, dy):
         if self.can_move:

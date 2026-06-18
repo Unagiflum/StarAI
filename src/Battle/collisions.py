@@ -417,35 +417,62 @@ def _objects_overlap(obj, other, overlap):
 def _projectile_contact(projectile, other, overlap):
     if _objects_overlap(projectile, other, overlap):
         return _estimated_contact_point(projectile, other)
-    return _swept_projectile_contact(projectile, other)
+    return _swept_contact(projectile, other)
 
 
-def _swept_projectile_contact(projectile, other):
-    previous = getattr(projectile, "previous_position", projectile.position)
-    current = projectile.position
-    delta = _wrapped_delta(previous, current)
-    distance = math.hypot(delta[0], delta[1])
-    if distance <= 0:
+def _swept_contact(obj, other):
+    obj_previous = getattr(obj, "previous_position", obj.position)
+    other_previous = getattr(other, "previous_position", other.position)
+    obj_delta = _wrapped_delta(obj_previous, obj.position)
+    other_delta = _wrapped_delta(other_previous, other.position)
+    relative_delta = [
+        obj_delta[0] - other_delta[0],
+        obj_delta[1] - other_delta[1],
+    ]
+    relative_distance = math.hypot(relative_delta[0], relative_delta[1])
+    if relative_distance <= 0:
         return None
 
-    step_size = max(4, min(_radius(projectile), _radius(other)) / 2)
-    steps = max(1, int(math.ceil(distance / step_size)))
+    steps = max(1, int(math.ceil(relative_distance / _sweep_step_size(obj, other))))
     for step in range(1, steps):
         ratio = step / steps
-        position = [
-            (previous[0] + delta[0] * ratio) % const.ARENA_SIZE,
-            (previous[1] + delta[1] * ratio) % const.ARENA_SIZE,
+        obj_position = [
+            (obj_previous[0] + obj_delta[0] * ratio) % const.ARENA_SIZE,
+            (obj_previous[1] + obj_delta[1] * ratio) % const.ARENA_SIZE,
         ]
-        if _objects_overlap_at_position(projectile, other, position):
-            projectile.position = position
-            return _estimated_contact_point(projectile, other)
+        other_position = [
+            (other_previous[0] + other_delta[0] * ratio) % const.ARENA_SIZE,
+            (other_previous[1] + other_delta[1] * ratio) % const.ARENA_SIZE,
+        ]
+        if _objects_overlap_at_positions(obj, other, obj_position, other_position):
+            return _estimated_contact_point_at_positions(obj, other, obj_position, other_position)
 
     return None
+
+
+def _sweep_step_size(obj, other):
+    obj_size = _collision_size(obj)
+    other_size = _collision_size(other)
+    min_dimension = min(obj_size[0], obj_size[1], other_size[0], other_size[1])
+    return max(2, min(12, min_dimension / 3))
 
 
 def _estimated_contact_point(obj, other):
     normal, _, _ = _collision_info(obj, other)
     return _contact_point(other, normal)
+
+
+def _estimated_contact_point_at_positions(obj, other, obj_position, other_position):
+    delta = _wrapped_delta(other_position, obj_position)
+    distance = math.hypot(delta[0], delta[1])
+    if distance == 0:
+        normal = [1.0, 0.0]
+    else:
+        normal = [delta[0] / distance, delta[1] / distance]
+    return [
+        (other_position[0] + normal[0] * _radius(other)) % const.ARENA_SIZE,
+        (other_position[1] + normal[1] * _radius(other)) % const.ARENA_SIZE,
+    ]
 
 
 def _contact_point(target, normal):
@@ -455,8 +482,8 @@ def _contact_point(target, normal):
     ]
 
 
-def _objects_overlap_at_position(obj, other, obj_position):
-    delta = _wrapped_delta(other.position, obj_position)
+def _objects_overlap_at_positions(obj, other, obj_position, other_position):
+    delta = _wrapped_delta(other_position, obj_position)
     distance = math.hypot(delta[0], delta[1])
     overlap = _radius(obj) + _radius(other) - distance
     if overlap <= 0:
