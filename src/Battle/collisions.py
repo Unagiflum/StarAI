@@ -19,10 +19,12 @@ def handle_collisions(game_objects):
     _handle_ship_ship_collisions(ships)
     _handle_ship_asteroid_collisions(ships, asteroids)
     _handle_ship_planet_collisions(ships, planets)
+    _handle_asteroid_planet_collisions(asteroids, planets, ships, effects)
     _handle_projectile_projectile_collisions(projectiles, effects)
     _handle_projectile_ship_collisions(projectiles, ships, effects)
     _handle_projectile_asteroid_collisions(projectiles, asteroids, effects)
     _handle_projectile_planet_collisions(projectiles, planets, effects)
+    _spawn_replacement_asteroids(game_objects, asteroids, ships, planets)
 
     game_objects.extend(effects)
     _remove_dead_collision_objects(game_objects)
@@ -54,11 +56,25 @@ def _handle_ship_planet_collisions(ships, planets):
             if not _objects_overlap(ship, planet, overlap):
                 continue
 
-            collided_while_approaching = _bounce_off_static_body(ship, normal, overlap)
+            collided_while_approaching = _bounce_off_static_body(ship, planet, normal, overlap)
             if collided_while_approaching and ship.current_hp > 0:
                 damage = max(1, math.ceil(ship.current_hp * 0.2))
                 ship.current_hp = max(0, ship.current_hp - damage)
                 BattleEffect.play_boom(damage)
+
+
+def _handle_asteroid_planet_collisions(asteroids, planets, ships, effects):
+    for asteroid in asteroids:
+        if not asteroid.currently_alive:
+            continue
+
+        for planet in planets:
+            normal, _, overlap = _collision_info(asteroid, planet)
+            if _objects_overlap(asteroid, planet, overlap):
+                if _object_on_screen(asteroid, ships):
+                    BattleEffect.play_boom(1)
+                _destroy_asteroid(asteroid, effects)
+                break
 
 
 def _handle_projectile_projectile_collisions(projectiles, effects):
@@ -360,6 +376,40 @@ def _remove_dead_collision_objects(game_objects):
     ]
 
 
+def _spawn_replacement_asteroids(game_objects, asteroids, ships, planets):
+    if not planets:
+        return
+
+    dead_count = sum(1 for asteroid in asteroids if not asteroid.currently_alive)
+    if dead_count <= 0:
+        return
+
+    planet = planets[0]
+    avoid_bodies = [
+        obj for obj in game_objects
+        if _is_asteroid_spawn_avoid_body(obj)
+    ]
+
+    for _ in range(dead_count):
+        asteroid = Asteroid()
+        asteroid.set_planet(planet)
+        asteroid.position = asteroid.get_respawn_position(planet, ships, avoid_bodies)
+        avoid_bodies.append(asteroid)
+        game_objects.append(asteroid)
+
+
+def _is_asteroid_spawn_avoid_body(obj):
+    if isinstance(obj, Planet):
+        return False
+    if isinstance(obj, Asteroid):
+        return obj.currently_alive
+    if isinstance(obj, SpaceShip):
+        return obj.current_hp > 0
+    if isinstance(obj, Ability):
+        return obj.can_collide and obj.currently_alive and obj.current_hp > 0
+    return getattr(obj, "can_collide", False) and getattr(obj, "currently_alive", True)
+
+
 def _destroy_projectile(projectile, effects, direction, damage, contact_position=None):
     if not projectile.currently_alive:
         return
@@ -394,6 +444,30 @@ def _destroy_asteroid(asteroid, effects):
     asteroid.currently_alive = False
 
 
+def _object_on_screen(obj, ships):
+    if len(ships) != 2:
+        return True
+
+    view_center, view_size = _view_center_and_size([ship.position for ship in ships])
+    delta = _wrapped_delta(view_center, obj.position)
+    margin = max(_collision_size(obj)) / 2
+    return abs(delta[0]) <= view_size / 2 + margin and abs(delta[1]) <= view_size / 2 + margin
+
+
+def _view_center_and_size(positions):
+    p1_pos, p2_pos = positions
+    delta = _wrapped_delta(p1_pos, p2_pos)
+    view_center = [
+        (p1_pos[0] + delta[0] / 2) % const.ARENA_SIZE,
+        (p1_pos[1] + delta[1] / 2) % const.ARENA_SIZE,
+    ]
+    distance = math.hypot(delta[0], delta[1])
+    min_view_size = const.SCREEN_HEIGHT / const.MAX_ZOOM
+    view_size = min(max(distance / 0.8, min_view_size), const.ARENA_SIZE / 2)
+    scale_factor = min(const.MAX_ZOOM, const.SCREEN_HEIGHT / view_size)
+    return view_center, const.SCREEN_HEIGHT / scale_factor
+
+
 def _set_projectile_hp(projectile, hp):
     if hasattr(projectile, "set_hp"):
         projectile.set_hp(max(0, hp))
@@ -414,11 +488,8 @@ def _collision_info(obj, other):
 
 
 def _objects_overlap(obj, other, overlap):
-    if overlap <= 0:
+    if overlap <= 0 and not _mask_broadphase_overlap(obj, other):
         return False
-
-    if isinstance(obj, Planet) or isinstance(other, Planet):
-        return True
 
     obj_mask = _get_collision_mask(obj)
     other_mask = _get_collision_mask(other)
@@ -515,11 +586,8 @@ def _objects_overlap_at_positions(obj, other, obj_position, other_position):
     delta = _wrapped_delta(other_position, obj_position)
     distance = math.hypot(delta[0], delta[1])
     overlap = _radius(obj) + _radius(other) - distance
-    if overlap <= 0:
+    if overlap <= 0 and not _mask_broadphase_overlap_at_positions(obj, other, obj_position, other_position):
         return False
-
-    if isinstance(other, Planet):
-        return True
 
     obj_mask = _get_collision_mask(obj)
     other_mask = _get_collision_mask(other)
@@ -548,6 +616,21 @@ def _collision_size(obj):
     if isinstance(obj, Planet):
         return [obj.diameter, obj.diameter]
     return obj.size
+
+
+def _mask_broadphase_overlap(obj, other):
+    return _mask_broadphase_overlap_at_positions(obj, other, obj.position, other.position)
+
+
+def _mask_broadphase_overlap_at_positions(obj, other, obj_position, other_position):
+    obj_mask = _get_collision_mask(obj)
+    other_mask = _get_collision_mask(other)
+    if obj_mask is None or other_mask is None:
+        return False
+
+    delta = _wrapped_delta(other_position, obj_position)
+    distance = math.hypot(delta[0], delta[1])
+    return _mask_radius(obj) + _mask_radius(other) - distance > 0
 
 
 def _nearest_position(position, reference):
@@ -651,6 +734,11 @@ def _radius(obj):
     return max(_collision_size(obj)) / 2
 
 
+def _mask_radius(obj):
+    size = _collision_size(obj)
+    return math.hypot(size[0], size[1]) / 2
+
+
 def _mass(obj):
     return max(0.1, getattr(obj, "mass", _radius(obj) / 50))
 
@@ -679,7 +767,7 @@ def _elastic_bounce(obj, other, normal, distance, overlap):
     _separate_dynamic_bodies(obj, other, normal, overlap, obj_mass, other_mass)
 
 
-def _bounce_off_static_body(obj, normal, overlap):
+def _bounce_off_static_body(obj, static_body, normal, overlap):
     if not hasattr(obj, "velocity"):
         return False
 
@@ -691,9 +779,32 @@ def _bounce_off_static_body(obj, normal, overlap):
     else:
         collided_while_approaching = False
 
-    obj.position[0] = (obj.position[0] + normal[0] * overlap) % const.ARENA_SIZE
-    obj.position[1] = (obj.position[1] + normal[1] * overlap) % const.ARENA_SIZE
+    _separate_from_static_body(obj, static_body, normal, overlap)
     return collided_while_approaching
+
+
+def _separate_from_static_body(obj, static_body, normal, overlap):
+    if overlap <= 0 and not _mask_broadphase_overlap(obj, static_body):
+        return
+
+    if _get_collision_mask(obj) is None or _get_collision_mask(static_body) is None:
+        if overlap <= 0:
+            return
+        obj.position[0] = (obj.position[0] + normal[0] * overlap) % const.ARENA_SIZE
+        obj.position[1] = (obj.position[1] + normal[1] * overlap) % const.ARENA_SIZE
+        return
+
+    max_separation = int(math.ceil(_mask_radius(obj) + _mask_radius(static_body))) + 1
+    moved = 0
+    step = 2
+    while moved <= max_separation:
+        _, _, current_overlap = _collision_info(obj, static_body)
+        if not _objects_overlap(obj, static_body, current_overlap):
+            return
+
+        obj.position[0] = (obj.position[0] + normal[0] * step) % const.ARENA_SIZE
+        obj.position[1] = (obj.position[1] + normal[1] * step) % const.ARENA_SIZE
+        moved += step
 
 
 def _separate_dynamic_bodies(obj, other, normal, overlap, obj_mass, other_mass):

@@ -32,11 +32,17 @@ class Planet(Object):
         )
 
         self.image = pygame.image.load(str(Path(planet_data['Image']))).convert_alpha()
+        if self.image.get_size() != (self.diameter, self.diameter):
+            self.image = pygame.transform.smoothscale(self.image, (self.diameter, self.diameter))
+        self.mask = pygame.mask.from_surface(self.image)
         self.can_move = False
         self.can_die = False
 
     def update(self):
         return True
+
+    def get_collision_mask(self):
+        return self.mask
 
     @staticmethod
     def create_center():
@@ -242,64 +248,99 @@ class Asteroid(Object):
         distance = math.sqrt(dx * dx + dy * dy)
         return [dx, dy], distance
 
-    def get_valid_asteroid_position(self, planet_pos, ship_positions, existing_asteroid_positions):
-        while True:
-            x = random.randint(0, Const.ARENA_SIZE)
-            y = random.randint(0, Const.ARENA_SIZE)
+    def get_valid_asteroid_position(self, planet, view_bodies, avoid_bodies):
+        return self.get_respawn_position(planet, view_bodies, avoid_bodies)
 
-            # Calculate view center (midpoint between ships)
-            p1_pos, p2_pos = ship_positions
-            dx = p2_pos[0] - p1_pos[0]
-            dy = p2_pos[1] - p1_pos[1]
+    def get_respawn_position(self, planet, view_bodies, avoid_bodies):
+        spawn_rules = [
+            {"avoid_gravity": True, "avoid_bodies": True},
+            {"avoid_gravity": True, "avoid_bodies": False},
+            {"avoid_gravity": False, "avoid_bodies": True, "only_view_bodies": True},
+            {"avoid_gravity": False, "avoid_bodies": False},
+        ]
+        for rules in spawn_rules:
+            position = self._find_spawn_position(planet, view_bodies, avoid_bodies, rules)
+            if position is not None:
+                return position
 
-            if abs(dx) > Const.ARENA_SIZE / 2:
-                dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
-            if abs(dy) > Const.ARENA_SIZE / 2:
-                dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+        return [
+            random.randint(0, Const.ARENA_SIZE),
+            random.randint(0, Const.ARENA_SIZE)
+        ]
 
-            view_center_x = (p1_pos[0] + dx / 2) % Const.ARENA_SIZE
-            view_center_y = (p1_pos[1] + dy / 2) % Const.ARENA_SIZE
+    def _find_spawn_position(self, planet, view_bodies, avoid_bodies, rules):
+        for _ in range(1000):
+            position = [
+                random.randint(0, Const.ARENA_SIZE),
+                random.randint(0, Const.ARENA_SIZE)
+            ]
 
-            # Check if asteroid is within view
-            dx = abs(x - view_center_x)
-            dy = abs(y - view_center_y)
-            dx = min(dx, Const.ARENA_SIZE - dx)
-            dy = min(dy, Const.ARENA_SIZE - dy)
-            if dx <= Const.ARENA_SIZE / 4 and dy <= Const.ARENA_SIZE / 4:
+            if not self._position_is_offscreen(position, view_bodies):
                 continue
 
-            # Check planet distance
-            dx = x - planet_pos[0]
-            dy = y - planet_pos[1]
-            if math.sqrt(dx * dx + dy * dy) < Const.CENTER_BUFFER+max(self.size[0],self.size[1]):
+            if rules["avoid_gravity"] and not self._position_is_outside_gravity(position, planet):
                 continue
 
-            too_close = False
-            for ship_pos in ship_positions:
-                dx = abs(x - ship_pos[0])
-                dy = abs(y - ship_pos[1])
-                dx = min(dx, Const.ARENA_SIZE - dx)
-                dy = min(dy, Const.ARENA_SIZE - dy)
-                if math.sqrt(dx * dx + dy * dy) < Const.MAX_SHIP_SIZE + max(self.size[0], self.size[1]):
-                    too_close = True
-                    break
-            if too_close:
-                continue
+            if rules["avoid_bodies"]:
+                bodies = view_bodies if rules.get("only_view_bodies") else avoid_bodies
+                if not self._position_is_away_from_bodies(position, bodies, planet.diameter):
+                    continue
 
-            # Check other asteroid distances
-            too_close = False
-            for ast_pos in existing_asteroid_positions:
-                dx = abs(x - ast_pos[0])
-                dy = abs(y - ast_pos[1])
-                dx = min(dx, Const.ARENA_SIZE - dx)
-                dy = min(dy, Const.ARENA_SIZE - dy)
-                if math.sqrt(dx * dx + dy * dy) < 2*max(self.size[0],self.size[1]):
-                    too_close = True
-                    break
-            if too_close:
-                continue
+            return position
+        return None
 
-            return [x, y]
+    def _position_is_outside_gravity(self, position, planet):
+        asteroid_radius = max(self.size[0], self.size[1]) / 2
+        return self._distance_between_positions(position, planet.position) >= Const.GRAVITY_RANGE + asteroid_radius
+
+    def _position_is_away_from_bodies(self, position, bodies, minimum_distance):
+        for body in bodies:
+            if not getattr(body, "currently_alive", True):
+                continue
+            if not getattr(body, "can_collide", True):
+                continue
+            if self._distance_between_positions(position, body.position) < minimum_distance:
+                return False
+        return True
+
+    def _position_is_offscreen(self, position, view_bodies):
+        if len(view_bodies) != 2:
+            return True
+
+        view_center, view_size = self._view_center_and_size([body.position for body in view_bodies])
+        dx = abs(position[0] - view_center[0])
+        dy = abs(position[1] - view_center[1])
+        dx = min(dx, Const.ARENA_SIZE - dx)
+        dy = min(dy, Const.ARENA_SIZE - dy)
+        asteroid_radius = max(self.size[0], self.size[1]) / 2
+        return dx > view_size / 2 + asteroid_radius or dy > view_size / 2 + asteroid_radius
+
+    def _view_center_and_size(self, positions):
+        p1_pos, p2_pos = positions
+        dx = p2_pos[0] - p1_pos[0]
+        dy = p2_pos[1] - p1_pos[1]
+
+        if abs(dx) > Const.ARENA_SIZE / 2:
+            dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
+        if abs(dy) > Const.ARENA_SIZE / 2:
+            dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+
+        view_center = [
+            (p1_pos[0] + dx / 2) % Const.ARENA_SIZE,
+            (p1_pos[1] + dy / 2) % Const.ARENA_SIZE
+        ]
+        distance = math.sqrt(dx * dx + dy * dy)
+        min_view_size = Const.SCREEN_HEIGHT / Const.MAX_ZOOM
+        view_size = min(max(distance / 0.8, min_view_size), Const.ARENA_SIZE / 2)
+        scale_factor = min(Const.MAX_ZOOM, Const.SCREEN_HEIGHT / view_size)
+        return view_center, Const.SCREEN_HEIGHT / scale_factor
+
+    def _distance_between_positions(self, position, other_position):
+        dx = abs(position[0] - other_position[0])
+        dy = abs(position[1] - other_position[1])
+        dx = min(dx, Const.ARENA_SIZE - dx)
+        dy = min(dy, Const.ARENA_SIZE - dy)
+        return math.sqrt(dx * dx + dy * dy)
 
     def get_gravity(self):
         if not self.can_move or not self.planet:

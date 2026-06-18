@@ -69,13 +69,13 @@ def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
     planet = Planet.create_center()
     game_objects.append(planet)
 
-    asteroid_positions = []
+    asteroids = []
     for _ in range(const.ASTEROID_COUNT):
         asteroid = Asteroid()
         asteroid.set_planet(planet)
-        pos = asteroid.get_valid_asteroid_position(planet.position, [pos1, pos2], asteroid_positions)
+        pos = asteroid.get_valid_asteroid_position(planet, [player1, player2], [player1, player2, *asteroids])
         asteroid.position = pos
-        asteroid_positions.append(pos)
+        asteroids.append(asteroid)
         game_objects.append(asteroid)
 
     player1.set_planet(planet)
