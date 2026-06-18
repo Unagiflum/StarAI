@@ -44,7 +44,7 @@ class ArilouA1(Ability):
             return False
 
         self.expiration_timer -= 1
-        return self.expiration_timer > 0
+        return self.expiration_timer >= 0
 
     def draw(self, screen, scale_factor, translation):
         # Update position with parent ship

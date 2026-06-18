@@ -12,6 +12,7 @@ with open(const.SHIPS_JSON_PATH, 'r') as f:
 class SpaceShip(PlayerObject):
     # Class-level storage for shared sprites
     _shared_sprites = {}
+    _shared_masks = {}
 
     def __init__(self, ship_name, player_num):
         # Get ship-specific data from cached data
@@ -30,17 +31,20 @@ class SpaceShip(PlayerObject):
         # Load shared sprites if not already loaded for this ship type
         if ship_name not in self._shared_sprites:
             self._shared_sprites[ship_name] = []
+            self._shared_masks[ship_name] = []
             try:
                 for i in range(const.SHIP_DIRECTIONS):
                     sprite_path = self.sprite_location.joinpath(f'{ship_name}{i:02d}.png')
                     base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
                     scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                     self._shared_sprites[ship_name].append(scaled_sprite)
+                    self._shared_masks[ship_name].append(pygame.mask.from_surface(scaled_sprite))
                     if i == 0:  # Set size based on first sprite
                         self.size = [scaled_sprite.get_width(), scaled_sprite.get_height()]
             except pygame.error as e:
                 print(f"Error loading sprites for {ship_name}: {e}")
                 self._shared_sprites[ship_name] = None
+                self._shared_masks[ship_name] = None
                 return
         else:
             self.size = [
@@ -212,6 +216,7 @@ class SpaceShip(PlayerObject):
             self.accumulated_impulses[1] += dy
 
     def update(self):
+        self.previous_position = self.position.copy()
         self.update_physics()
         return True
 
@@ -318,15 +323,40 @@ class SpaceShip(PlayerObject):
 
     def turn_left(self):
         if self.can_turn():
+            old_heading = self.heading
+            old_rotation = self.rotation
             self.heading = (self.heading - 1) % const.SHIP_DIRECTIONS
             self.rotation = self.heading * const.TURN_ANGLE
+            if self.rotation_would_overlap():
+                self.heading = old_heading
+                self.rotation = old_rotation
+                return
             self.turn_timer = int(self.turn_wait * const.TURN_WAIT_SCALE)
 
     def turn_right(self):
         if self.can_turn():
+            old_heading = self.heading
+            old_rotation = self.rotation
             self.heading = (self.heading + 1) % const.SHIP_DIRECTIONS
             self.rotation = self.heading * const.TURN_ANGLE
+            if self.rotation_would_overlap():
+                self.heading = old_heading
+                self.rotation = old_rotation
+                return
             self.turn_timer = int(self.turn_wait * const.TURN_WAIT_SCALE)
+
+    def rotation_would_overlap(self):
+        try:
+            from src.Battle.collisions import ship_rotation_blocked
+            return ship_rotation_blocked(self)
+        except ImportError:
+            return False
+
+    def get_collision_mask(self):
+        masks = self._shared_masks.get(self.name)
+        if not masks:
+            return None
+        return masks[self.heading]
 
     def perform_action1(self):
         if self.can_action1():

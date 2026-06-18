@@ -176,6 +176,7 @@ class Star(Object):
 
 class Asteroid(Object):
     shared_sprites = None
+    shared_masks = None
     shared_death_animation = None
 
     def __init__(self):
@@ -189,6 +190,9 @@ class Asteroid(Object):
             Asteroid.shared_sprites = [
                 pygame.image.load(str(Const.ASTEROID_PATH / f"asteroid{i:02d}.png")).convert_alpha()
                 for i in range(30)]
+            Asteroid.shared_masks = [
+                pygame.mask.from_surface(sprite)
+                for sprite in Asteroid.shared_sprites]
 
         # Load shared death animation if not already loaded
         if Asteroid.shared_death_animation is None:
@@ -200,8 +204,10 @@ class Asteroid(Object):
         if random.random() < 0.0: # if 0 then no rotation will be applied
             sprite_rot = random.random()*360
             self.sprites = [pygame.transform.rotate(sprite, sprite_rot) for sprite in Asteroid.shared_sprites]
+            self.masks = [pygame.mask.from_surface(sprite) for sprite in self.sprites]
         else:
             self.sprites = Asteroid.shared_sprites
+            self.masks = Asteroid.shared_masks
 
         self.death_animation = Asteroid.shared_death_animation
 
@@ -300,6 +306,7 @@ class Asteroid(Object):
         self.image = self.sprites[self.current_sprite]
 
     def update(self):
+        self.previous_position = self.position.copy()
         gravity_impulse = self.get_gravity()
         acc0 = [gravity_impulse[0], gravity_impulse[1] ]
 
@@ -349,3 +356,6 @@ class Asteroid(Object):
                         Const.SCREEN_LEFT + pos_x - size[0] // 2,
                         pos_y - size[1] // 2
                     ))
+
+    def get_collision_mask(self):
+        return self.masks[self.current_sprite]

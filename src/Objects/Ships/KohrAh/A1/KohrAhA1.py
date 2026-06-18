@@ -32,6 +32,7 @@ class KohrAhA1(Ability):
         if not self.currently_alive:
             return False
 
+        self.previous_position = self.position.copy()
         self.update_physics()
 
         # Continuous frame animation

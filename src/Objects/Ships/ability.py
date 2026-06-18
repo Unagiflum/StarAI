@@ -12,6 +12,7 @@ with open(const.ABILITIES_JSON_PATH, 'r') as f:
 class Ability(PlayerObject):
     # Class-level storage
     _sprites = {}
+    _masks = {}
     _end_anims = {}
     _launch_sounds = {}
 
@@ -30,6 +31,7 @@ class Ability(PlayerObject):
         # Load shared resources if not already loaded and sprites are enabled
         if ability_name not in self._sprites:
             self._sprites[ability_name] = []
+            self._masks[ability_name] = []
             self._end_anims[ability_name] = []
 
             if ability_data.get('has_sprites', True):
@@ -42,6 +44,7 @@ class Ability(PlayerObject):
                         base_sprite = pygame.image.load(str(frame_path)).convert_alpha()
                         scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                         frames.append(scaled_sprite)
+                        self._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
                         self.sizes.append([scaled_sprite.get_width(), scaled_sprite.get_height()])
                     self._sprites[ability_name].append(frames)
                     self.size = self.sizes[0]
@@ -51,6 +54,7 @@ class Ability(PlayerObject):
                         str(Path(ability_data['file_path']) / f"{ability_name}00.png")).convert_alpha()
                     scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                     self._sprites[ability_name].append(scaled_sprite)
+                    self._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
                     self.size = [scaled_sprite.get_width(), scaled_sprite.get_height()]
 
                     # Load additional directional sprites if not omnidirectional
@@ -60,8 +64,10 @@ class Ability(PlayerObject):
                             base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
                             scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                             self._sprites[ability_name].append(scaled_sprite)
+                            self._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
             else:
                 self._sprites[ability_name] = None
+                self._masks[ability_name] = None
 
             # Load end animation if it exists
             if ability_data.get('end_anim', 0) > 0:
@@ -97,6 +103,7 @@ class Ability(PlayerObject):
                 self.size = [0, 0]
 
         self.sprites = self._sprites[ability_name]
+        self.masks = self._masks[ability_name]
         self.death_animation = self._end_anims[ability_name]
         self.launch_sound = self._launch_sounds[ability_name]
         if self.launch_sound:
@@ -217,6 +224,7 @@ class Ability(PlayerObject):
         if not self.currently_alive:
             return False
 
+        self.previous_position = self.position.copy()
         self.update_physics()
         self.expiration_timer -= 1
 
@@ -234,6 +242,8 @@ class Ability(PlayerObject):
             else:
                 self.frame_timer -= 1
 
+        if self.type == 'laser':
+            return self.expiration_timer >= 0 and self.current_hp > 0
         return self.expiration_timer > 0 and self.current_hp > 0
 
     def on_collide(self, target):
@@ -282,3 +292,10 @@ class Ability(PlayerObject):
                         const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
                         pos_y - scaled_rect.height // 2
                     ))
+
+    def get_collision_mask(self):
+        if not self.masks:
+            return None
+        if self.frames > 1:
+            return self.masks[self.current_frame]
+        return self.masks[self.heading]

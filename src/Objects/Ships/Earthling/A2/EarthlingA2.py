@@ -69,7 +69,7 @@ class EarthlingA2(Ability):
         if not self.currently_alive:
             return False
         self.expiration_timer -= 1
-        return self.expiration_timer > 0
+        return self.expiration_timer >= 0
 
     def draw(self, screen, scale_factor, translation):
         self.position = self.parent.position.copy()

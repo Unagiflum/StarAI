@@ -11,6 +11,7 @@ class Object:
 
         # Position and state
         self.position = [0.0, 0.0]
+        self.previous_position = self.position.copy()
         self.currently_alive = True
 
         # Collision and expiration
