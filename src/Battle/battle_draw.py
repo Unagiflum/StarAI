@@ -29,7 +29,8 @@ def calculate_view_parameters(game_objects):
     mid_y = (p1_pos[1] + dy / 2) % const.ARENA_SIZE
 
     distance = (dx ** 2 + dy ** 2) ** 0.5
-    view_size = min(distance / 0.8, const.ARENA_SIZE / 2)
+    min_view_size = const.SCREEN_HEIGHT / const.MAX_ZOOM
+    view_size = min(max(distance / 0.8, min_view_size), const.ARENA_SIZE / 2)
 
     scale_factor = min(const.MAX_ZOOM, const.SCREEN_HEIGHT / view_size)
     translation = [

@@ -237,11 +237,14 @@ class Ability(PlayerObject):
                     self.size = self.sizes[self.current_frame]
                     self.current_damage = self.damages[self.current_frame]
                     if len(self.hp_array) > 1:
-                        self.current_hp = self.hp_array[self.current_frame]
+                        self.current_hp = min(self.current_hp, self.hp_array[self.current_frame])
                     self.frame_timer = self.frame_delay
             else:
                 self.frame_timer -= 1
 
+        if self.current_hp <= 0:
+            self.currently_alive = False
+            return False
         if self.type == 'laser':
             return self.expiration_timer >= 0 and self.current_hp > 0
         return self.expiration_timer > 0 and self.current_hp > 0
@@ -259,8 +262,10 @@ class Ability(PlayerObject):
         """Override hp setting to handle evolution and death"""
         if new_hp <= 0:
             self.current_hp = 0
+            self.currently_alive = False
             return
 
+        new_hp = min(new_hp, self.current_hp)
         if len(self.hp_array) > 1:
             damage_taken = self.current_hp - new_hp
             if damage_taken > 0:

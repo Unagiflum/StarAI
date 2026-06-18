@@ -531,7 +531,7 @@
         "has_sound": true
     },
     "ZoqFotA1": {
-        "ship_name": "ZoqFotA1",
+        "ship_name": "ZoqFot",
         "type": "projectile",
         "action": "A1",
         "start_hp": [1],
