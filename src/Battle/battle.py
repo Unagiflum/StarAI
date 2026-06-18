@@ -227,8 +227,9 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_
                     running = False
                     continue
 
+                previous_player1, previous_player2 = player1, player2
                 player1, player2 = selected
-                reset_round_objects(game_objects, player1, player2)
+                reset_round_objects(game_objects, player1, player2, previous_player1, previous_player2)
                 reset_key_states(key_states)
                 pygame.event.clear(pygame.KEYDOWN)
                 pygame.event.clear(pygame.KEYUP)
@@ -417,28 +418,85 @@ def aftermath_ready_for_selection(aftermath, frame_id):
     return aftermath["ditty_started"] and elapsed >= const.FPS and not pygame.mixer.music.get_busy()
 
 
-def reset_round_objects(game_objects, player1, player2):
+def reset_round_objects(game_objects, player1, player2, previous_player1, previous_player2):
+    selected_ships = [player1, player2]
+    preserved_ships = {
+        ship for ship in (previous_player1, previous_player2)
+        if ship in selected_ships and ship.currently_alive and ship.current_hp > 0
+    }
+
     persistent_objects = [
         obj for obj in game_objects
         if not isinstance(obj, (SpaceShip, Ability, ThrustMarker, BattleEffect))
     ]
-    game_objects[:] = persistent_objects
-
-    pos1, pos2 = random_ship_positions()
-    player1.initialize_in_battle(pos1, random.randint(0, const.SHIP_DIRECTIONS - 1))
-    player2.initialize_in_battle(pos2, random.randint(0, const.SHIP_DIRECTIONS - 1))
-    reset_ship_controls(player1)
-    reset_ship_controls(player2)
-    player1.opponent = player2
-    player2.opponent = player1
+    preserved_abilities = [
+        obj for obj in game_objects
+        if (
+            isinstance(obj, Ability) and
+            obj.parent in preserved_ships and
+            obj.currently_alive and
+            obj.current_hp > 0
+        )
+    ]
+    game_objects[:] = persistent_objects + preserved_abilities
 
     planets = [obj for obj in game_objects if isinstance(obj, Planet)]
-    if planets:
-        player1.set_planet(planets[0])
-        player2.set_planet(planets[0])
+    planet = planets[0] if planets else None
 
-    game_objects.append(player1)
-    game_objects.append(player2)
+    initialize_new_round_ships(selected_ships, preserved_ships, planet)
+
+    player1.opponent = player2
+    player2.opponent = player1
+    update_preserved_abilities(preserved_abilities, player1, player2, planet)
+
+    game_objects.extend(selected_ships)
+
+
+def initialize_new_round_ships(selected_ships, preserved_ships, planet):
+    new_ships = [ship for ship in selected_ships if ship not in preserved_ships]
+    preserved_list = list(preserved_ships)
+
+    if len(new_ships) == 2:
+        positions = list(random_ship_positions())
+    elif len(new_ships) == 1 and preserved_list:
+        positions = [random_position_away_from(preserved_list[0].position)]
+    else:
+        positions = []
+
+    for ship, position in zip(new_ships, positions):
+        ship.initialize_in_battle(position, random.randint(0, const.SHIP_DIRECTIONS - 1))
+        ship.currently_alive = True
+        reset_ship_controls(ship)
+
+    for ship in selected_ships:
+        if planet:
+            ship.set_planet(planet)
+        reset_ship_controls(ship)
+
+
+def update_preserved_abilities(abilities, player1, player2, planet):
+    for ability in abilities:
+        opponent = player2 if ability.player == player1.player else player1
+        ability.opponent = opponent
+        if hasattr(ability, "target") and (
+            ability.target is None or
+            not getattr(ability.target, "currently_alive", True) or
+            getattr(ability.target, "current_hp", 1) <= 0
+        ):
+            ability.target = opponent
+        if planet:
+            ability.planet = planet
+
+
+def random_position_away_from(position):
+    from src.Battle.battle_init import get_random_position, validate_ship_positions
+
+    for _ in range(1000):
+        candidate = get_random_position()
+        if validate_ship_positions(position, candidate):
+            return candidate
+
+    return get_random_position()
 
 
 def random_ship_positions():
