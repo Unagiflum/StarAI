@@ -77,31 +77,36 @@ def _handle_projectile_projectile_collisions(projectiles, effects):
                         projectile.hit_self and other.hit_self):
                     continue
 
-                contact = _projectile_contact(projectile, other, overlap)
+                contact, impact_normal = _projectile_impact(projectile, other, overlap)
                 if contact is None:
                     continue
 
                 damage = max(projectile.current_damage, other.current_damage)
                 BattleEffect.play_boom(damage)
-                _destroy_projectile(projectile, effects, normal, projectile.current_damage, contact)
-                _destroy_projectile(other, effects, [-normal[0], -normal[1]], other.current_damage, contact)
+                _destroy_projectile(projectile, effects, impact_normal, projectile.current_damage, contact)
+                _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other.current_damage, contact)
                 continue
 
-            contact = _projectile_contact(projectile, other, overlap)
+            contact, impact_normal = _projectile_impact(projectile, other, overlap)
             if contact is None:
                 continue
 
             projectile_damage = projectile.current_damage
             other_damage = other.current_damage
+            projectile_hp = projectile.current_hp - other_damage
+            other_hp = other.current_hp - projectile_damage
 
-            _set_projectile_hp(projectile, projectile.current_hp - other_damage)
-            _set_projectile_hp(other, other.current_hp - projectile_damage)
             BattleEffect.play_boom(max(projectile_damage, other_damage))
 
-            if projectile.current_hp <= 0:
-                _destroy_projectile(projectile, effects, normal, projectile_damage, contact)
-            if other.current_hp <= 0:
-                _destroy_projectile(other, effects, [-normal[0], -normal[1]], other_damage, contact)
+            if projectile_hp <= 0:
+                _destroy_projectile(projectile, effects, impact_normal, projectile_damage, contact)
+            else:
+                _set_projectile_hp(projectile, projectile_hp)
+
+            if other_hp <= 0:
+                _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other_damage, contact)
+            else:
+                _set_projectile_hp(other, other_hp)
 
 
 def _handle_projectile_ship_collisions(projectiles, ships, effects):
@@ -116,15 +121,15 @@ def _handle_projectile_ship_collisions(projectiles, ships, effects):
             if not _projectile_can_hit_ship(projectile, ship):
                 continue
 
-            normal, _, overlap = _collision_info(projectile, ship)
-            contact = _projectile_contact(projectile, ship, overlap)
+            _, _, overlap = _collision_info(projectile, ship)
+            contact, impact_normal = _projectile_impact(projectile, ship, overlap)
             if contact is None:
                 continue
 
             damage = projectile.current_damage
             ship.current_hp = max(0, ship.current_hp - damage)
             BattleEffect.play_boom(damage)
-            _destroy_projectile(projectile, effects, normal, damage, contact)
+            _destroy_projectile(projectile, effects, impact_normal, damage, contact)
             break
 
 
@@ -137,14 +142,14 @@ def _handle_projectile_asteroid_collisions(projectiles, asteroids, effects):
             if not asteroid.currently_alive:
                 continue
 
-            normal, _, overlap = _collision_info(projectile, asteroid)
-            contact = _projectile_contact(projectile, asteroid, overlap)
+            _, _, overlap = _collision_info(projectile, asteroid)
+            contact, impact_normal = _projectile_impact(projectile, asteroid, overlap)
             if contact is None:
                 continue
 
             damage = projectile.current_damage
             BattleEffect.play_boom(damage)
-            _destroy_projectile(projectile, effects, normal, damage, contact)
+            _destroy_projectile(projectile, effects, impact_normal, damage, contact)
             _destroy_asteroid(asteroid, effects)
             break
 
@@ -155,14 +160,14 @@ def _handle_projectile_planet_collisions(projectiles, planets, effects):
             continue
 
         for planet in planets:
-            normal, _, overlap = _collision_info(projectile, planet)
-            contact = _projectile_contact(projectile, planet, overlap)
+            _, _, overlap = _collision_info(projectile, planet)
+            contact, impact_normal = _projectile_impact(projectile, planet, overlap)
             if contact is None:
                 continue
 
             damage = projectile.current_damage
             BattleEffect.play_boom(damage)
-            _destroy_projectile(projectile, effects, normal, damage, contact)
+            _destroy_projectile(projectile, effects, impact_normal, damage, contact)
             break
 
 
@@ -246,20 +251,36 @@ def _handle_laser_collisions(lasers, ships, projectiles, asteroids, planets, eff
 def _laser_targets(laser, ships, projectiles, asteroids, planets):
     explicit_target = getattr(laser, "target", None)
     if explicit_target is not None:
-        return [explicit_target]
+        return [explicit_target] if _is_live_laser_target(explicit_target) else []
 
     targets = []
     for ship in ships:
+        if not _is_live_laser_target(ship):
+            continue
         if ship.player != laser.player or (ship == laser.parent and laser.hit_parent):
             targets.append(ship)
 
     for projectile in projectiles:
+        if not _is_live_laser_target(projectile):
+            continue
         if projectile.player != laser.player or laser.hit_self:
             targets.append(projectile)
 
-    targets.extend(asteroids)
+    targets.extend(asteroid for asteroid in asteroids if _is_live_laser_target(asteroid))
     targets.extend(planets)
     return sorted(targets, key=lambda target: _distance_between(laser.parent, target))
+
+
+def _is_live_laser_target(target):
+    if isinstance(target, Planet):
+        return True
+    if isinstance(target, SpaceShip):
+        return target.current_hp > 0
+    if isinstance(target, Ability):
+        return _is_live_projectile(target)
+    if isinstance(target, Asteroid):
+        return target.currently_alive
+    return getattr(target, "currently_alive", True)
 
 
 def _laser_hit_info(laser, target):
@@ -414,13 +435,19 @@ def _objects_overlap(obj, other, overlap):
     return obj_mask.overlap(other_mask, offset) is not None
 
 
-def _projectile_contact(projectile, other, overlap):
+def _projectile_impact(projectile, other, overlap):
+    swept_impact = _swept_impact(projectile, other)
+    if swept_impact[0] is not None:
+        return swept_impact
+
     if _objects_overlap(projectile, other, overlap):
-        return _estimated_contact_point(projectile, other)
-    return _swept_contact(projectile, other)
+        return _estimated_impact(projectile, other)
+
+    normal, _, _ = _collision_info(projectile, other)
+    return None, normal
 
 
-def _swept_contact(obj, other):
+def _swept_impact(obj, other):
     obj_previous = getattr(obj, "previous_position", obj.position)
     other_previous = getattr(other, "previous_position", other.position)
     obj_delta = _wrapped_delta(obj_previous, obj.position)
@@ -431,10 +458,11 @@ def _swept_contact(obj, other):
     ]
     relative_distance = math.hypot(relative_delta[0], relative_delta[1])
     if relative_distance <= 0:
-        return None
+        normal, _, _ = _collision_info(obj, other)
+        return None, normal
 
     steps = max(1, int(math.ceil(relative_distance / _sweep_step_size(obj, other))))
-    for step in range(1, steps):
+    for step in range(1, steps + 1):
         ratio = step / steps
         obj_position = [
             (obj_previous[0] + obj_delta[0] * ratio) % const.ARENA_SIZE,
@@ -445,9 +473,10 @@ def _swept_contact(obj, other):
             (other_previous[1] + other_delta[1] * ratio) % const.ARENA_SIZE,
         ]
         if _objects_overlap_at_positions(obj, other, obj_position, other_position):
-            return _estimated_contact_point_at_positions(obj, other, obj_position, other_position)
+            return _estimated_impact_at_positions(obj, other, obj_position, other_position)
 
-    return None
+    normal, _, _ = _collision_info(obj, other)
+    return None, normal
 
 
 def _sweep_step_size(obj, other):
@@ -457,12 +486,12 @@ def _sweep_step_size(obj, other):
     return max(2, min(12, min_dimension / 3))
 
 
-def _estimated_contact_point(obj, other):
+def _estimated_impact(obj, other):
     normal, _, _ = _collision_info(obj, other)
-    return _contact_point(other, normal)
+    return _contact_point(other, normal), normal
 
 
-def _estimated_contact_point_at_positions(obj, other, obj_position, other_position):
+def _estimated_impact_at_positions(obj, other, obj_position, other_position):
     delta = _wrapped_delta(other_position, obj_position)
     distance = math.hypot(delta[0], delta[1])
     if distance == 0:
@@ -472,7 +501,7 @@ def _estimated_contact_point_at_positions(obj, other, obj_position, other_positi
     return [
         (other_position[0] + normal[0] * _radius(other)) % const.ARENA_SIZE,
         (other_position[1] + normal[1] * _radius(other)) % const.ARENA_SIZE,
-    ]
+    ], normal
 
 
 def _contact_point(target, normal):

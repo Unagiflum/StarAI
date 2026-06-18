@@ -53,7 +53,7 @@ class BattleEffect(Object):
             ]
 
         index = cls._blast_index(direction_vector)
-        scale = min(1.0, max(0.35, max(1, damage) / 6))
+        scale = cls._blast_scale(damage)
         if align_edge:
             position = cls._edge_aligned_position(
                 position,
@@ -88,6 +88,17 @@ class BattleEffect(Object):
         if damage <= 5:
             return "boom4.wav"
         return "boom6.wav"
+
+    @staticmethod
+    def _blast_scale(damage):
+        damage = max(1, int(math.ceil(damage)))
+        if damage == 1:
+            return 0.7
+        if damage <= 3:
+            return 0.8
+        if damage <= 5:
+            return 0.9
+        return 1.0
 
     @staticmethod
     def _blast_index(direction_vector):

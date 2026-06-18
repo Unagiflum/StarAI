@@ -100,6 +100,7 @@ class SpaceShip(PlayerObject):
         self.trackable = True
         self.last_timer_update_frame = None
         self.last_action_frames = {}
+        self.input_pressed_frames = {}
 
         # Load optional ship module
         try:
@@ -119,21 +120,28 @@ class SpaceShip(PlayerObject):
         self.action3_timer = 0
         self.last_timer_update_frame = None
         self.last_action_frames.clear()
+        self.input_pressed_frames.clear()
         self.in_battle = True
 
     def handle_actions(self, key, pressed, forward_key, left_key, right_key, action1_key, action2_key, frame_id=None):
         new_objects = []
+        new_press_control = None
 
         # Update internal key state based on event
         if key == forward_key:
+            new_press_control = self.update_control_state("thrust", self.thrust_active, pressed, frame_id)
             self.thrust_active = pressed
         elif key == left_key:
+            new_press_control = self.update_control_state("turn_left", self.turn_left_active, pressed, frame_id)
             self.turn_left_active = pressed
         elif key == right_key:
+            new_press_control = self.update_control_state("turn_right", self.turn_right_active, pressed, frame_id)
             self.turn_right_active = pressed
         elif key == action1_key:
+            new_press_control = self.update_control_state("action1", self.action1_active, pressed, frame_id)
             self.action1_active = pressed
         elif key == action2_key:
+            new_press_control = self.update_control_state("action2", self.action2_active, pressed, frame_id)
             self.action2_active = pressed
 
         # Update timers once per frame. Some frames call handle_actions from
@@ -143,11 +151,17 @@ class SpaceShip(PlayerObject):
             self.last_timer_update_frame = frame_id
 
         # Handle movement based on active states
-        if self.turn_left_active:
+        turn_left_ready = self.control_ready("turn_left", frame_id, new_press_control)
+        turn_right_ready = self.control_ready("turn_right", frame_id, new_press_control)
+        thrust_ready = self.control_ready("thrust", frame_id, new_press_control)
+        action1_ready = self.control_ready("action1", frame_id, new_press_control)
+        action2_ready = self.control_ready("action2", frame_id, new_press_control)
+
+        if self.turn_left_active and turn_left_ready:
             self.turn_left()
-        if self.turn_right_active:
+        if self.turn_right_active and turn_right_ready:
             self.turn_right()
-        if self.thrust_active:
+        if self.thrust_active and thrust_ready:
             marker = self.apply_thrust(
                 self.max_thrust,
                 self.thrust_increment,
@@ -163,7 +177,7 @@ class SpaceShip(PlayerObject):
             return new_objects
 
         # Handle actions based on active states
-        if self.action1_active and self.action2_active:
+        if self.action1_active and self.action2_active and (action1_ready or action2_ready):
             result, is_valid = self.perform_frame_action3(frame_id)
             if result:
                 if isinstance(result, list):
@@ -171,14 +185,14 @@ class SpaceShip(PlayerObject):
                 else:
                     new_objects.append(result)
             elif not is_valid:
-                if self.action1_active:
+                if self.action1_active and action1_ready:
                     result = self.perform_frame_action("action1", self.perform_action1, frame_id)
                     if result:
                         if isinstance(result, list):
                             new_objects.extend(result)
                         else:
                             new_objects.append(result)
-                if self.action2_active:
+                if self.action2_active and action2_ready:
                     result = self.perform_frame_action("action2", self.perform_action2, frame_id)
                     if result:
                         if isinstance(result, list):
@@ -186,14 +200,14 @@ class SpaceShip(PlayerObject):
                         else:
                             new_objects.append(result)
         else:
-            if self.action1_active:
+            if self.action1_active and action1_ready:
                 result = self.perform_frame_action("action1", self.perform_action1, frame_id)
                 if result:
                     if isinstance(result, list):
                         new_objects.extend(result)
                     else:
                         new_objects.append(result)
-            if self.action2_active:
+            if self.action2_active and action2_ready:
                 result = self.perform_frame_action("action2", self.perform_action2, frame_id)
                 if result:
                     if isinstance(result, list):
@@ -202,6 +216,28 @@ class SpaceShip(PlayerObject):
                         new_objects.append(result)
 
         return new_objects
+
+    def update_control_state(self, control_name, was_active, pressed, frame_id):
+        if pressed:
+            if not was_active:
+                self.input_pressed_frames[control_name] = frame_id
+                return control_name
+        else:
+            self.input_pressed_frames.pop(control_name, None)
+        return None
+
+    def control_ready(self, control_name, frame_id, new_press_control):
+        if control_name == new_press_control:
+            return True
+        if frame_id is None:
+            return True
+
+        pressed_frame = self.input_pressed_frames.get(control_name)
+        if pressed_frame is None:
+            return True
+
+        repeat_delay_frames = max(1, int(const.INPUT_REPEAT_DELAY_MS * const.FPS / 1000 + 0.5))
+        return frame_id - pressed_frame >= repeat_delay_frames
 
     def action_already_handled_this_frame(self, action_name, frame_id):
         return frame_id is not None and self.last_action_frames.get(action_name) == frame_id
