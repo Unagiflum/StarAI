@@ -133,15 +133,32 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip):
         game_objects.extend(p2_objects)
 
         # Update tracking arrays for all ships and abilities
-        for obj in game_objects:
-            if isinstance(obj, (SpaceShip, Ability)):
-                obj.friendly_objects = [x for x in game_objects if isinstance(x, Ability) and
-                                        x.player == obj.player and
-                                        x.type == 'projectile']
-                obj.enemy_objects = [x for x in game_objects if isinstance(x, Ability) and
-                                     x.player != obj.player and
-                                     x.type == 'projectile']
-                obj.asteroids = [x for x in game_objects if isinstance(x, Asteroid)]
+        projectiles = [
+            obj for obj in game_objects
+            if isinstance(obj, Ability) and obj.type == 'projectile'
+        ]
+        asteroids = [obj for obj in game_objects if isinstance(obj, Asteroid)]
+        ships = [obj for obj in game_objects if isinstance(obj, SpaceShip)]
+        tracked_objects = [
+            obj for obj in game_objects
+            if isinstance(obj, (SpaceShip, Ability))
+        ]
+        players = {obj.player for obj in tracked_objects}
+        projectiles_by_player = {
+            player: [obj for obj in projectiles if obj.player == player]
+            for player in players
+        }
+        enemy_projectiles_by_player = {
+            player: [obj for obj in projectiles if obj.player != player]
+            for player in players
+        }
+        for obj in tracked_objects:
+            obj.friendly_objects = projectiles_by_player.get(obj.player, [])
+            obj.enemy_objects = enemy_projectiles_by_player.get(obj.player, [])
+            obj.asteroids = asteroids
+        for asteroid in asteroids:
+            asteroid.ships = ships
+            asteroid.asteroids = asteroids
 
         # Update all objects
         for obj in game_objects[:]:

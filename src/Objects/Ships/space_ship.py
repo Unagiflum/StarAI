@@ -160,20 +160,6 @@ class SpaceShip(PlayerObject):
 
         # Handle key release events
         if key and not pressed:
-            if key == action1_key:
-                result = self.perform_frame_action("action1", self.perform_action1, frame_id)
-                if result:
-                    if isinstance(result, list):
-                        new_objects.extend(result)
-                    else:
-                        new_objects.append(result)
-            elif key == action2_key:
-                result = self.perform_frame_action("action2", self.perform_action2, frame_id)
-                if result:
-                    if isinstance(result, list):
-                        new_objects.extend(result)
-                    else:
-                        new_objects.append(result)
             return new_objects
 
         # Handle actions based on active states
@@ -423,8 +409,8 @@ class SpaceShip(PlayerObject):
                 pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
 
                 # Only draw if the position would be visible
-                if (0 <= pos_x <= const.SCREEN_HEIGHT and
-                        0 <= pos_y <= const.SCREEN_HEIGHT):
+                if (-scaled_rect.width <= pos_x <= const.SCREEN_HEIGHT + scaled_rect.width and
+                        -scaled_rect.height <= pos_y <= const.SCREEN_HEIGHT + scaled_rect.height):
                     screen.blit(scaled_sprite, (
                         const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
                         pos_y - scaled_rect.height // 2

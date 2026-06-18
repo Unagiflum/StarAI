@@ -56,6 +56,7 @@ class ArilouA1(Ability):
         screen_start_y = int((self.position[1] + translation[1]) * scale_factor)
         screen_end_x = int((self.end_position[0] + translation[0]) * scale_factor)
         screen_end_y = int((self.end_position[1] + translation[1]) * scale_factor)
+        view_rect = pygame.Rect(0, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT)
 
         # Draw laser at all potential wrap-around positions
         for dx in [-1, 0, 1]:
@@ -65,10 +66,7 @@ class ArilouA1(Ability):
                 end_x = screen_end_x + dx * const.ARENA_SIZE * scale_factor
                 end_y = screen_end_y + dy * const.ARENA_SIZE * scale_factor
 
-                if (0 <= start_x <= const.ARENA_SIZE and
-                    0 <= start_y <= const.ARENA_SIZE) or \
-                   (0 <= end_x <= const.ARENA_SIZE and
-                    0 <= end_y <= const.ARENA_SIZE):
+                if view_rect.clipline((start_x, start_y), (end_x, end_y)):
                     pygame.draw.line(
                         screen,
                         self.LASER_COLOR,

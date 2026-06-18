@@ -96,6 +96,10 @@ class PlayerObject(Object):
     def distance_to(self, obj):
         dx = obj.position[0] - self.position[0]
         dy = obj.position[1] - self.position[1]
+        if abs(dx) > Const.ARENA_SIZE / 2:
+            dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
+        if abs(dy) > Const.ARENA_SIZE / 2:
+            dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
         distance = math.sqrt(dx * dx + dy * dy)
         return [dx, dy], distance
 

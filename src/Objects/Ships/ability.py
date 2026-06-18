@@ -286,8 +286,8 @@ class Ability(PlayerObject):
                 pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
 
-                if (0 <= pos_x <= const.SCREEN_HEIGHT and
-                        0 <= pos_y <= const.SCREEN_HEIGHT):
+                if (-scaled_rect.width <= pos_x <= const.SCREEN_HEIGHT + scaled_rect.width and
+                        -scaled_rect.height <= pos_y <= const.SCREEN_HEIGHT + scaled_rect.height):
                     screen.blit(scaled_sprite, (
                         const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
                         pos_y - scaled_rect.height // 2

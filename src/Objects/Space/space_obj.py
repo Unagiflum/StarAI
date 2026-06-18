@@ -222,6 +222,8 @@ class Asteroid(Object):
         self.velocity = [speed * math.cos(angle), speed * math.sin(angle)]
 
         self.planet = None
+        self.ships = []
+        self.asteroids = []
         self.can_move = True
         self.can_die = True
         self.can_collide = True
@@ -233,6 +235,10 @@ class Asteroid(Object):
     def planet_distance(self):
         dx = self.planet.position[0] - self.position[0]
         dy = self.planet.position[1] - self.position[1]
+        if abs(dx) > Const.ARENA_SIZE / 2:
+            dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
+        if abs(dy) > Const.ARENA_SIZE / 2:
+            dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
         distance = math.sqrt(dx * dx + dy * dy)
         return [dx, dy], distance
 
@@ -268,22 +274,30 @@ class Asteroid(Object):
             if math.sqrt(dx * dx + dy * dy) < Const.CENTER_BUFFER+max(self.size[0],self.size[1]):
                 continue
 
+            too_close = False
             for ship_pos in ship_positions:
                 dx = abs(x - ship_pos[0])
                 dy = abs(y - ship_pos[1])
                 dx = min(dx, Const.ARENA_SIZE - dx)
                 dy = min(dy, Const.ARENA_SIZE - dy)
                 if math.sqrt(dx * dx + dy * dy) < Const.MAX_SHIP_SIZE + max(self.size[0], self.size[1]):
+                    too_close = True
                     break
+            if too_close:
+                continue
 
             # Check other asteroid distances
+            too_close = False
             for ast_pos in existing_asteroid_positions:
                 dx = abs(x - ast_pos[0])
                 dy = abs(y - ast_pos[1])
                 dx = min(dx, Const.ARENA_SIZE - dx)
                 dy = min(dy, Const.ARENA_SIZE - dy)
                 if math.sqrt(dx * dx + dy * dy) < 2*max(self.size[0],self.size[1]):
+                    too_close = True
                     break
+            if too_close:
+                continue
 
             return [x, y]
 
@@ -302,8 +316,57 @@ class Asteroid(Object):
         ]
 
     def next_sprite(self):
-        self.current_sprite = (self.current_sprite + 1) % 30
+        next_sprite = (self.current_sprite + 1) % 30
+        if self.sprite_would_overlap(next_sprite):
+            return
+
+        self.current_sprite = next_sprite
         self.image = self.sprites[self.current_sprite]
+
+    def sprite_would_overlap(self, sprite_index):
+        candidate_mask = self.masks[sprite_index]
+        candidate_size = candidate_mask.get_size()
+
+        for ship in self.ships:
+            if self._candidate_overlaps_object(candidate_mask, candidate_size, ship):
+                return True
+
+        for asteroid in self.asteroids:
+            if asteroid is self or not asteroid.currently_alive:
+                continue
+            if self._candidate_overlaps_object(candidate_mask, candidate_size, asteroid):
+                return True
+
+        return False
+
+    def _candidate_overlaps_object(self, candidate_mask, candidate_size, other):
+        other_mask = other.get_collision_mask() if hasattr(other, "get_collision_mask") else None
+        other_size = other_mask.get_size() if other_mask else other.size
+        delta = self._wrapped_delta(other.position, self.position)
+        radius_sum = max(candidate_size) / 2 + max(other_size) / 2
+        if math.hypot(delta[0], delta[1]) >= radius_sum:
+            return False
+
+        if other_mask is None:
+            return True
+
+        offset = (
+            int(round(-delta[0] + candidate_size[0] / 2 - other_size[0] / 2)),
+            int(round(-delta[1] + candidate_size[1] / 2 - other_size[1] / 2)),
+        )
+        return candidate_mask.overlap(other_mask, offset) is not None
+
+    @staticmethod
+    def _wrapped_delta(from_position, to_position):
+        dx = to_position[0] - from_position[0]
+        dy = to_position[1] - from_position[1]
+
+        if abs(dx) > Const.ARENA_SIZE / 2:
+            dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
+        if abs(dy) > Const.ARENA_SIZE / 2:
+            dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+
+        return [dx, dy]
 
     def update(self):
         self.previous_position = self.position.copy()
