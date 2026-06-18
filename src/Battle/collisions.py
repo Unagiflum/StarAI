@@ -154,6 +154,7 @@ def _handle_projectile_ship_collisions(projectiles, ships, effects):
 
             damage = projectile.current_damage
             ship.current_hp = max(0, ship.current_hp - damage)
+            _apply_druuge_projectile_momentum(projectile, ship)
             BattleEffect.play_boom(damage)
             _destroy_projectile(projectile, effects, impact_normal, damage, contact)
             break
@@ -214,6 +215,27 @@ def _is_live_laser(obj):
         obj.can_collide and
         obj.currently_alive and
         obj.current_hp > 0
+    )
+
+
+def _apply_druuge_projectile_momentum(projectile, ship):
+    if projectile.projectile_name != "DruugeA1" or not hasattr(ship, "add_impulse"):
+        return
+
+    speed = math.hypot(projectile.velocity[0], projectile.velocity[1])
+    if speed <= 0:
+        return
+
+    projectile_direction = [
+        projectile.velocity[0] / speed,
+        projectile.velocity[1] / speed,
+    ]
+    parent_mass = _mass(projectile.parent)
+    ship_mass = _mass(ship)
+    momentum = parent_mass * projectile.RECOIL_INCREMENT
+    ship.add_impulse(
+        projectile_direction[0] * momentum / ship_mass,
+        projectile_direction[1] * momentum / ship_mass,
     )
 
 
