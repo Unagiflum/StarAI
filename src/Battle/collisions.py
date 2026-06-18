@@ -98,23 +98,17 @@ def _handle_projectile_projectile_collisions(projectiles, effects):
 
             normal, _, overlap = _collision_info(projectile, other)
 
-            if projectile.player == other.player:
-                if not (projectile.projectile_name == other.projectile_name and
-                        projectile.hit_self and other.hit_self):
-                    continue
-
-                contact, impact_normal = _projectile_impact(projectile, other, overlap)
-                if contact is None:
-                    continue
-
-                damage = max(projectile.current_damage, other.current_damage)
-                BattleEffect.play_boom(damage)
-                _destroy_projectile(projectile, effects, impact_normal, projectile.current_damage, contact)
-                _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other.current_damage, contact)
+            if not _projectiles_can_hit_each_other(projectile, other):
                 continue
 
             contact, impact_normal = _projectile_impact(projectile, other, overlap)
             if contact is None:
+                continue
+
+            if projectile.projectile_name == other.projectile_name:
+                BattleEffect.play_boom(max(projectile.current_damage, other.current_damage))
+                _destroy_projectile(projectile, effects, impact_normal, projectile.current_damage, contact)
+                _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other.current_damage, contact)
                 continue
 
             projectile_damage = projectile.current_damage
@@ -124,15 +118,29 @@ def _handle_projectile_projectile_collisions(projectiles, effects):
 
             BattleEffect.play_boom(max(projectile_damage, other_damage))
 
-            if projectile_hp <= 0:
+            if projectile_hp <= 0 and other_hp <= 0:
                 _destroy_projectile(projectile, effects, impact_normal, projectile_damage, contact)
-            else:
-                _set_projectile_hp(projectile, projectile_hp)
-
-            if other_hp <= 0:
                 _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other_damage, contact)
-            else:
+            elif projectile_hp > 0 and projectile_hp > other_hp:
+                _set_projectile_hp(projectile, projectile_hp)
+                _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other_damage, contact)
+            elif other_hp > 0 and other_hp > projectile_hp:
+                _destroy_projectile(projectile, effects, impact_normal, projectile_damage, contact)
                 _set_projectile_hp(other, other_hp)
+            else:
+                _destroy_projectile(projectile, effects, impact_normal, projectile_damage, contact)
+                _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other_damage, contact)
+
+
+def _projectiles_can_hit_each_other(projectile, other):
+    if projectile.player != other.player:
+        return True
+
+    return (
+        projectile.projectile_name == other.projectile_name and
+        projectile.hit_self and
+        other.hit_self
+    )
 
 
 def _handle_projectile_ship_collisions(projectiles, ships, effects):

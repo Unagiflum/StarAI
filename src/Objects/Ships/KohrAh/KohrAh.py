@@ -17,10 +17,12 @@ class KohrAh(SpaceShip):
 
     def perform_action1(self):
         # Update active_projectiles from friendly_objects
-        self.active_projectiles = [obj for obj in self.friendly_objects if isinstance(obj, KohrAhA1)]
+        self.active_projectiles = [
+            obj for obj in self.friendly_objects
+            if isinstance(obj, KohrAhA1) and obj.currently_alive and obj.current_hp > 0
+        ]
 
         button_pressed = self.action1_active and not self.last_action1_state
-        button_released = not self.action1_active and self.last_action1_state
         self.last_action1_state = self.action1_active
 
         if button_pressed and self.can_action1():
@@ -41,12 +43,16 @@ class KohrAh(SpaceShip):
             self.active_projectiles.append(ability_obj)
             return ability_obj
 
-        elif button_released:
-            # Stop movement of active projectiles
-            for proj in self.active_projectiles:
-                if proj.currently_alive:
-                    proj.is_moving = False
+        return None
 
+    def perform_action1_release(self):
+        self.last_action1_state = False
+        self.active_projectiles = [
+            obj for obj in self.friendly_objects
+            if isinstance(obj, KohrAhA1) and obj.currently_alive and obj.current_hp > 0
+        ]
+        for proj in self.active_projectiles:
+            proj.stop_and_track()
         return None
 
     def perform_action2(self):

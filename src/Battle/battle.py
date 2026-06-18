@@ -213,6 +213,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_
             if aftermath_ready_for_selection(aftermath, frame_id):
                 from src.Menus import pick_ship
 
+                stop_tracking_projectiles(game_objects)
                 pygame.mixer.music.stop()
                 selected = pick_ship.run(
                     screen,
@@ -452,6 +453,17 @@ def reset_round_objects(game_objects, player1, player2, previous_player1, previo
     game_objects.extend(selected_ships)
 
 
+def stop_tracking_projectiles(game_objects):
+    for obj in game_objects:
+        if (
+            isinstance(obj, Ability) and
+            obj.currently_alive and
+            obj.current_hp > 0 and
+            hasattr(obj, "stop_and_track")
+        ):
+            obj.stop_and_track()
+
+
 def initialize_new_round_ships(selected_ships, preserved_ships, planet):
     new_ships = [ship for ship in selected_ships if ship not in preserved_ships]
     preserved_list = list(preserved_ships)
@@ -478,6 +490,8 @@ def update_preserved_abilities(abilities, player1, player2, planet):
     for ability in abilities:
         opponent = player2 if ability.player == player1.player else player1
         ability.opponent = opponent
+        if hasattr(ability, "stop_and_track"):
+            ability.stop_and_track()
         if hasattr(ability, "target") and (
             ability.target is None or
             not getattr(ability.target, "currently_alive", True) or

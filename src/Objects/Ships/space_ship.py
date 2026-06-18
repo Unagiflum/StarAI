@@ -175,6 +175,13 @@ class SpaceShip(PlayerObject):
 
         # Handle key release events
         if key and not pressed:
+            if key == action1_key:
+                result = self.perform_action1_release()
+                if result:
+                    if isinstance(result, list):
+                        new_objects.extend(result)
+                    else:
+                        new_objects.append(result)
             return new_objects
 
         # Handle actions based on active states
@@ -414,6 +421,9 @@ class SpaceShip(PlayerObject):
             self.current_energy -= self.a1_cost
             self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
             return None
+        return None
+
+    def perform_action1_release(self):
         return None
 
     def perform_action2(self):

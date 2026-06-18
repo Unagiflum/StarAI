@@ -13,6 +13,10 @@ class KohrAhA1(Ability):
         self.expiration_timer = float('inf')  # Never expires unless removed manually
         self.place_self()
 
+    def stop_and_track(self):
+        self.is_moving = False
+        self.velocity = [0, 0]
+
     def place_self(self):
         angle_rad = math.radians(self.parent.rotation)
         spawn_distance = const.PROJ_GAP + (self.size[1] + self.parent.size[1]) / 2
