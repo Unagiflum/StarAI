@@ -110,6 +110,7 @@ class SpaceShip(PlayerObject):
 
     def initialize_in_battle(self, position, heading):
         self.position = list(position)
+        self.previous_position = self.position.copy()
         self.heading = heading % const.SHIP_DIRECTIONS
         self.rotation = self.heading * const.TURN_ANGLE
         self.velocity = [0.0, 0.0]

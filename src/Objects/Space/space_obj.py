@@ -48,6 +48,7 @@ class Planet(Object):
     def create_center():
         planet = Planet()
         planet.position = Const.PLANET_POSITION
+        planet.previous_position = planet.position.copy()
         return planet
 
     def draw(self, screen, scale_factor, translation):

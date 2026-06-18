@@ -56,9 +56,16 @@ def _handle_ship_planet_collisions(ships, planets):
             if not _objects_overlap(ship, planet, overlap):
                 continue
 
-            collided_while_approaching = _bounce_off_static_body(ship, planet, normal, overlap)
+            bounce_clearance = max(_collision_size(ship)) * 1.5
+            collided_while_approaching = _bounce_off_static_body(
+                ship,
+                planet,
+                normal,
+                overlap,
+                extra_clearance=bounce_clearance,
+            )
             if collided_while_approaching and ship.current_hp > 0:
-                damage = max(1, math.ceil(ship.current_hp * 0.2))
+                damage = max(1, math.ceil(ship.current_hp * 0.15))
                 ship.current_hp = max(0, ship.current_hp - damage)
                 BattleEffect.play_boom(damage)
 
@@ -519,8 +526,8 @@ def _projectile_impact(projectile, other, overlap):
 
 
 def _swept_impact(obj, other):
-    obj_previous = getattr(obj, "previous_position", obj.position)
-    other_previous = getattr(other, "previous_position", other.position)
+    obj_previous = _sweep_previous_position(obj)
+    other_previous = _sweep_previous_position(other)
     obj_delta = _wrapped_delta(obj_previous, obj.position)
     other_delta = _wrapped_delta(other_previous, other.position)
     relative_delta = [
@@ -548,6 +555,12 @@ def _swept_impact(obj, other):
 
     normal, _, _ = _collision_info(obj, other)
     return None, normal
+
+
+def _sweep_previous_position(obj):
+    if not getattr(obj, "can_move", True):
+        return obj.position
+    return getattr(obj, "previous_position", obj.position)
 
 
 def _sweep_step_size(obj, other):
@@ -767,7 +780,7 @@ def _elastic_bounce(obj, other, normal, distance, overlap):
     _separate_dynamic_bodies(obj, other, normal, overlap, obj_mass, other_mass)
 
 
-def _bounce_off_static_body(obj, static_body, normal, overlap):
+def _bounce_off_static_body(obj, static_body, normal, overlap, extra_clearance=0.0):
     if not hasattr(obj, "velocity"):
         return False
 
@@ -779,19 +792,20 @@ def _bounce_off_static_body(obj, static_body, normal, overlap):
     else:
         collided_while_approaching = False
 
-    _separate_from_static_body(obj, static_body, normal, overlap)
+    _separate_from_static_body(obj, static_body, normal, overlap, extra_clearance)
     return collided_while_approaching
 
 
-def _separate_from_static_body(obj, static_body, normal, overlap):
+def _separate_from_static_body(obj, static_body, normal, overlap, extra_clearance=0.0):
     if overlap <= 0 and not _mask_broadphase_overlap(obj, static_body):
         return
 
     if _get_collision_mask(obj) is None or _get_collision_mask(static_body) is None:
         if overlap <= 0:
             return
-        obj.position[0] = (obj.position[0] + normal[0] * overlap) % const.ARENA_SIZE
-        obj.position[1] = (obj.position[1] + normal[1] * overlap) % const.ARENA_SIZE
+        separation = overlap + extra_clearance
+        obj.position[0] = (obj.position[0] + normal[0] * separation) % const.ARENA_SIZE
+        obj.position[1] = (obj.position[1] + normal[1] * separation) % const.ARENA_SIZE
         return
 
     max_separation = int(math.ceil(_mask_radius(obj) + _mask_radius(static_body))) + 1
@@ -800,11 +814,18 @@ def _separate_from_static_body(obj, static_body, normal, overlap):
     while moved <= max_separation:
         _, _, current_overlap = _collision_info(obj, static_body)
         if not _objects_overlap(obj, static_body, current_overlap):
+            if extra_clearance > 0:
+                obj.position[0] = (obj.position[0] + normal[0] * extra_clearance) % const.ARENA_SIZE
+                obj.position[1] = (obj.position[1] + normal[1] * extra_clearance) % const.ARENA_SIZE
             return
 
         obj.position[0] = (obj.position[0] + normal[0] * step) % const.ARENA_SIZE
         obj.position[1] = (obj.position[1] + normal[1] * step) % const.ARENA_SIZE
         moved += step
+
+    if extra_clearance > 0:
+        obj.position[0] = (obj.position[0] + normal[0] * extra_clearance) % const.ARENA_SIZE
+        obj.position[1] = (obj.position[1] + normal[1] * extra_clearance) % const.ARENA_SIZE
 
 
 def _separate_dynamic_bodies(obj, other, normal, overlap, obj_mass, other_mass):
