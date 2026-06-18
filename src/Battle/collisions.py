@@ -8,7 +8,10 @@ from src.Objects.Ships.space_ship import SpaceShip
 
 
 def handle_collisions(game_objects):
-    ships = [obj for obj in game_objects if isinstance(obj, SpaceShip)]
+    ships = [
+        obj for obj in game_objects
+        if isinstance(obj, SpaceShip) and obj.currently_alive and obj.current_hp > 0
+    ]
     projectiles = [obj for obj in game_objects if _is_live_projectile(obj)]
     lasers = [obj for obj in game_objects if _is_live_laser(obj)]
     asteroids = [obj for obj in game_objects if isinstance(obj, Asteroid) and obj.currently_alive]

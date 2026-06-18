@@ -9,13 +9,27 @@ from src.Battle.status_bar import draw_player_status
 import src.const as const
 
 
-def calculate_view_parameters(game_objects):
-    players = [obj for obj in game_objects if isinstance(obj, SpaceShip)]
-    if len(players) != 2:
+def calculate_view_parameters(game_objects, camera_targets=None):
+    targets = camera_targets
+    if targets is None:
+        targets = [
+            obj for obj in game_objects
+            if isinstance(obj, SpaceShip) and obj.currently_alive and obj.current_hp > 0
+        ]
+
+    if len(targets) == 1:
+        view_size = (const.SCREEN_HEIGHT / const.MAX_ZOOM) * 1.5
+        scale_factor = min(const.MAX_ZOOM, const.SCREEN_HEIGHT / view_size)
+        translation = [
+            const.SCREEN_HEIGHT / (2 * scale_factor) - targets[0].position[0],
+            const.SCREEN_HEIGHT / (2 * scale_factor) - targets[0].position[1],
+        ]
+        return scale_factor, translation
+    if len(targets) < 2:
         return 1.0, [0, 0]
 
-    p1_pos = players[0].position
-    p2_pos = players[1].position
+    p1_pos = targets[0].position
+    p2_pos = targets[1].position
 
     dx = p2_pos[0] - p1_pos[0]
     dy = p2_pos[1] - p1_pos[1]
@@ -41,10 +55,13 @@ def calculate_view_parameters(game_objects):
     return scale_factor, translation
 
 
-def draw_battle(screen, game_objects, border_rect, border_color):
-    scale_factor, translation = calculate_view_parameters(game_objects)
+def draw_battle(screen, game_objects, border_rect, border_color, camera_targets=None):
+    scale_factor, translation = calculate_view_parameters(game_objects, camera_targets)
 
-    players = [obj for obj in game_objects if isinstance(obj, SpaceShip)]
+    players = [
+        obj for obj in game_objects
+        if isinstance(obj, SpaceShip) and obj.currently_alive and obj.current_hp > 0
+    ]
     if len(players) == 2:
         p1_pos, p2_pos = players[0].position, players[1].position
         dx = p2_pos[0] - p1_pos[0]

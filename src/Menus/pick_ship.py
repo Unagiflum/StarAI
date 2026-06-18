@@ -117,12 +117,19 @@ def load_ships_data(ships_data):
        return None, None
 
 
-def run(screen):
+def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
+        preselect_player1=None, preselect_player2=None):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.03))
     background = ui.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
-    fleet_data, player1_ships, player2_ships = load_fleet_data()
+    if player1_ships is None or player2_ships is None:
+        fleet_data, player1_ships, player2_ships = load_fleet_data()
+    else:
+        fleet_data = {
+            "Player1": {"ships": [ship.name for ship in player1_ships]},
+            "Player2": {"ships": [ship.name for ship in player2_ships]},
+        }
     ships_data, original_sprites = load_ships_data(SHIPS_DATA)
     if not fleet_data or not ships_data or not original_sprites:
         return
@@ -199,6 +206,22 @@ def run(screen):
                        "ship_obj": None,
                        "index": None}
 
+    def set_selection(selection, selection_sprites, fleet, ships, ship_obj):
+        if not ship_obj or not ship_obj.currently_alive:
+            return
+
+        for idx, candidate in enumerate(ships):
+            if candidate == ship_obj:
+                _, name, _, _ = fleet.ships[idx]
+                selection["ship"] = name
+                selection["sprite"] = selection_sprites[name]
+                selection["ship_obj"] = candidate
+                selection["index"] = idx
+                return
+
+    set_selection(left_selection, selection_sprites, left_fleet, player1_ships, preselect_player1)
+    set_selection(right_selection, selection_sprites, right_fleet, player2_ships, preselect_player2)
+
     def pick_random_left():
         alive_ships = [(i, ship) for i, ship in enumerate(player1_ships) if ship.currently_alive]
         if alive_ships:
@@ -245,9 +268,17 @@ def run(screen):
         if (left_selection["ship_obj"] and right_selection["ship_obj"] and
                 left_selection["ship_obj"].currently_alive and right_selection["ship_obj"].currently_alive):
             print("Ships selected:", left_selection["ship"], "vs", right_selection["ship"])
-            # Call Battle.run() with the selected ships
-            battle.run(screen, left_selection["ship_obj"], right_selection["ship_obj"])
-            return None, None  # Return None to maintain compatibility with existing code
+            if start_battle:
+                battle.run(
+                    screen,
+                    left_selection["ship_obj"],
+                    right_selection["ship_obj"],
+                    player1_ships,
+                    player2_ships,
+                )
+                return None, None
+
+            return left_selection["ship_obj"], right_selection["ship_obj"]
 
     confirm_button = ui_button.Button(
         ui.ok_button_left,
