@@ -1,4 +1,4 @@
-from src.Objects.Ships.ability import Ability, ABILITIES_DATA
+from src.Objects.Ships.ability import Ability, ABILITIES_DATA, wrapped_endpoint
 import pygame
 import math
 import src.const as const
@@ -52,10 +52,11 @@ class ArilouA1(Ability):
         if not getattr(self, "intercepted", False):
             self.calculate_end_position()
 
+        draw_end_position = wrapped_endpoint(self.position, self.end_position)
         screen_start_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_start_y = int((self.position[1] + translation[1]) * scale_factor)
-        screen_end_x = int((self.end_position[0] + translation[0]) * scale_factor)
-        screen_end_y = int((self.end_position[1] + translation[1]) * scale_factor)
+        screen_end_x = int((draw_end_position[0] + translation[0]) * scale_factor)
+        screen_end_y = int((draw_end_position[1] + translation[1]) * scale_factor)
         view_rect = pygame.Rect(0, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT)
 
         # Draw laser at all potential wrap-around positions

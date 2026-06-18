@@ -9,6 +9,18 @@ from pathlib import Path
 with open(const.ABILITIES_JSON_PATH, 'r') as f:
     ABILITIES_DATA = json.load(f)
 
+
+def wrapped_endpoint(start, end):
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+
+    if abs(dx) > const.ARENA_SIZE / 2:
+        dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
+    if abs(dy) > const.ARENA_SIZE / 2:
+        dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
+
+    return [start[0] + dx, start[1] + dy]
+
 class Ability(PlayerObject):
     # Class-level storage
     _sprites = {}
