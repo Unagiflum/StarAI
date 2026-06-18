@@ -49,7 +49,8 @@ class ArilouA1(Ability):
     def draw(self, screen, scale_factor, translation):
         # Update position with parent ship
         self.position = self.parent.position.copy()
-        self.calculate_end_position()
+        if not getattr(self, "intercepted", False):
+            self.calculate_end_position()
 
         screen_start_x = int((self.position[0] + translation[0]) * scale_factor)
         screen_start_y = int((self.position[1] + translation[1]) * scale_factor)

@@ -87,11 +87,11 @@ def draw_battle(screen, game_objects, border_rect, border_color):
             obj.draw(screen, scale_factor, translation)
 
     for obj in game_objects:
-        if isinstance(obj, BattleEffect):
+        if isinstance(obj, SpaceShip):
             obj.draw(screen, scale_factor, translation)
 
     for obj in game_objects:
-        if isinstance(obj, SpaceShip):
+        if isinstance(obj, BattleEffect):
             obj.draw(screen, scale_factor, translation)
 
     pygame.draw.rect(screen, border_color, border_rect, 2)

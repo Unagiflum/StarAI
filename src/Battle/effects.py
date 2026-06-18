@@ -38,11 +38,14 @@ class BattleEffect(Object):
         self.can_expire = True
 
     @classmethod
-    def from_animation(cls, position, frames, frame_delay=2, scale=1.0):
+    def from_animation(cls, position, frames, frame_delay=2, scale=1.0,
+                       direction_vector=None, align_edge=False):
+        if align_edge and frames:
+            position = cls._edge_aligned_position(position, frames[0], scale, direction_vector)
         return cls(position, frames, frame_delay, scale)
 
     @classmethod
-    def from_blast(cls, position, direction_vector, damage):
+    def from_blast(cls, position, direction_vector, damage, align_edge=False):
         if cls._blast_sprites is None:
             cls._blast_sprites = [
                 pygame.image.load(str(BATTLE_ASSET_PATH / f"blast-{i:03d}.png")).convert_alpha()
@@ -50,7 +53,14 @@ class BattleEffect(Object):
             ]
 
         index = cls._blast_index(direction_vector)
-        scale = min(1.0, max(1, damage) / 6)
+        scale = min(1.0, max(0.35, max(1, damage) / 6))
+        if align_edge:
+            position = cls._edge_aligned_position(
+                position,
+                cls._blast_sprites[index],
+                scale,
+                direction_vector
+            )
         return cls(position, [cls._blast_sprites[index]], frame_delay=4, scale=scale)
 
     @classmethod
@@ -86,6 +96,19 @@ class BattleEffect(Object):
             return 0
         angle = math.degrees(math.atan2(dx, -dy))
         return round(angle / 45) % 8
+
+    @staticmethod
+    def _edge_aligned_position(contact_position, sprite, scale, direction_vector):
+        dx, dy = direction_vector or (0, 0)
+        length = math.hypot(dx, dy)
+        if length == 0:
+            return contact_position
+
+        radius = max(sprite.get_width(), sprite.get_height()) * scale / 2
+        return [
+            (contact_position[0] + dx / length * radius) % const.ARENA_SIZE,
+            (contact_position[1] + dy / length * radius) % const.ARENA_SIZE,
+        ]
 
     def update(self):
         if not self.frames:
