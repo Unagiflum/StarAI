@@ -7,6 +7,9 @@ from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
 
 
+PLANET_CONTACT_EXIT_MARGIN = 4.0
+
+
 def handle_collisions(game_objects):
     ships = [
         obj for obj in game_objects
@@ -62,21 +65,39 @@ def _handle_ship_planet_collisions(ships, planets):
     for ship in ships:
         for planet in planets:
             normal, distance, overlap = _collision_info(ship, planet)
-            if not _objects_overlap(ship, planet, overlap):
+            contact_id = id(planet)
+            objects_overlap = _objects_overlap(ship, planet, overlap)
+            if (
+                contact_id in ship.planet_contacts
+                and not objects_overlap
+                and _planet_contact_has_ended(ship, planet, distance)
+            ):
+                ship.planet_contacts.remove(contact_id)
+
+            if not objects_overlap:
                 continue
 
-            bounce_clearance = max(_collision_size(ship)) * 1.5
-            collided_while_approaching = _bounce_off_static_body(
-                ship,
-                planet,
-                normal,
-                overlap,
-                extra_clearance=bounce_clearance,
-            )
-            if collided_while_approaching and ship.current_hp > 0:
+            new_contact = contact_id not in ship.planet_contacts
+            ship.planet_contacts.add(contact_id)
+            if new_contact:
+                collided_while_approaching = _bounce_off_static_body(
+                    ship,
+                    planet,
+                    normal,
+                    overlap,
+                )
+            else:
+                collided_while_approaching = False
+                _stop_at_static_body(ship, planet, normal, overlap)
+            if new_contact and collided_while_approaching and ship.current_hp > 0:
                 damage = max(1, math.ceil(ship.current_hp * 0.15))
                 ship.current_hp = max(0, ship.current_hp - damage)
                 BattleEffect.play_boom(damage)
+
+
+def _planet_contact_has_ended(ship, planet, distance):
+    contact_distance = _radius(ship) + _radius(planet)
+    return distance > contact_distance + PLANET_CONTACT_EXIT_MARGIN
 
 
 def _handle_asteroid_planet_collisions(asteroids, planets, ships, effects):
@@ -965,14 +986,30 @@ def _bounce_off_static_body(obj, static_body, normal, overlap, extra_clearance=0
 
     velocity_along_normal = _dot(obj.velocity, normal)
     if velocity_along_normal < 0:
-        obj.velocity[0] -= 2 * velocity_along_normal * normal[0]
-        obj.velocity[1] -= 2 * velocity_along_normal * normal[1]
+        impulse = [
+            -2 * velocity_along_normal * normal[0],
+            -2 * velocity_along_normal * normal[1],
+        ]
+        obj.velocity[0] += impulse[0]
+        obj.velocity[1] += impulse[1]
+        if not getattr(obj, "inertia", True) and hasattr(obj, "collision_velocity"):
+            obj.collision_velocity = obj.velocity.copy()
         collided_while_approaching = True
     else:
         collided_while_approaching = False
 
     _separate_from_static_body(obj, static_body, normal, overlap, extra_clearance)
     return collided_while_approaching
+
+
+def _stop_at_static_body(obj, static_body, normal, overlap):
+    if hasattr(obj, "velocity"):
+        velocity_along_normal = _dot(obj.velocity, normal)
+        if velocity_along_normal < 0:
+            obj.velocity[0] -= velocity_along_normal * normal[0]
+            obj.velocity[1] -= velocity_along_normal * normal[1]
+
+    _separate_from_static_body(obj, static_body, normal, overlap)
 
 
 def _separate_from_static_body(obj, static_body, normal, overlap, extra_clearance=0.0):

@@ -76,6 +76,8 @@ class SpaceShip(PlayerObject):
         self.a3_wait = ship_data['a3_wait']
         self.mass = ship_data['mass']
         self.inertia = ship_data['inertia']
+        self.collision_velocity = [0.0, 0.0]
+        self.planet_contacts = set()
 
         self.current_hp = ship_data['start_hp']
         self.current_energy = ship_data['start_energy']
@@ -114,6 +116,8 @@ class SpaceShip(PlayerObject):
         self.heading = heading % const.SHIP_DIRECTIONS
         self.rotation = self.heading * const.TURN_ANGLE
         self.velocity = [0.0, 0.0]
+        self.collision_velocity = [0.0, 0.0]
+        self.planet_contacts.clear()
         self.thrust_timer = 0
         self.turn_timer = 0
         self.action1_timer = 0
@@ -285,7 +289,11 @@ class SpaceShip(PlayerObject):
             self.apply_verlet()
             self.apply_speed_limit()
         else:
-            self.velocity = self.accumulated_impulses.copy()
+            if self.collision_velocity != [0.0, 0.0]:
+                self.velocity = self.collision_velocity.copy()
+                self.collision_velocity = [0.0, 0.0]
+            else:
+                self.velocity = self.accumulated_impulses.copy()
             self.accumulated_impulses = [0.0, 0.0]
             self.apply_speed_limit()
             self.position[0] = (self.position[0] + self.velocity[0] * const.SPEED_SCALE) % const.ARENA_SIZE
