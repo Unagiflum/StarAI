@@ -30,14 +30,25 @@ class Supox(SpaceShip):
                 thrust_ready, turn_left_ready, turn_right_ready
             )
 
-        thrust_angles = []
-        if self.thrust_active and thrust_ready:
-            thrust_angles.append(180)
-        if self.turn_left_active and turn_left_ready:
-            thrust_angles.append(-90)
-        if self.turn_right_active and turn_right_ready:
-            thrust_angles.append(90)
-        return thrust_angles
+        directions = {
+            "thrust": (self.thrust_active, thrust_ready, 180),
+            "turn_left": (self.turn_left_active, turn_left_ready, -90),
+            "turn_right": (self.turn_right_active, turn_right_ready, 90),
+        }
+
+        # Pressed controls retain insertion order. Walking that order backwards
+        # selects the most recently pressed direction, and releasing it removes
+        # it so the next-most-recent held direction takes over.
+        for control_name in reversed(self.input_pressed_frames):
+            active, ready, angle = directions.get(control_name, (False, False, 0))
+            if active:
+                return [angle] if ready else []
+
+        # Keep this method safe for callers that set control state directly.
+        for active, ready, angle in reversed(tuple(directions.values())):
+            if active:
+                return [angle] if ready else []
+        return []
 
     def get_thrust_marker_position(self, thrust_angle=0):
         if abs(thrust_angle) != 90:

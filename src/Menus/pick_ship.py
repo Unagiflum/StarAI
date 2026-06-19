@@ -18,6 +18,7 @@ HIGHLIGHT_COLOR = (50, 50, 75)
 ACTIVE_SELECTION_COLOR = (255, 196, 64)
 SELECTED_COLOR = (0, 175, 175)
 LOCKED_COLOR = (120, 120, 120)
+BANNER_ALPHA = 175
 FLEET_ICON_SIZE = Const.FLEET_ICON_SIZE
 X_COLOR = (255, 100, 100, 100)
 X_THICKNESS = int(0.2*FLEET_ICON_SIZE[0])
@@ -242,7 +243,14 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             top=panel.rect.top + 8,
             right=panel.rect.right - 8,
         ).inflate(16, 8)
-        pygame.draw.rect(screen, color, badge_rect, border_radius=4)
+        badge_surface = pygame.Surface(badge_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(
+            badge_surface,
+            (*color, BANNER_ALPHA),
+            badge_surface.get_rect(),
+            border_radius=4,
+        )
+        screen.blit(badge_surface, badge_rect)
         screen.blit(text_surface, text_surface.get_rect(center=badge_rect.center))
 
     def draw_locked_panel(panel):
@@ -260,7 +268,9 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             selection["rect"].width,
             label_surface.get_height() + 12,
         )
-        pygame.draw.rect(screen, color, label_rect)
+        label_surface_bg = pygame.Surface(label_rect.size, pygame.SRCALPHA)
+        label_surface_bg.fill((*color, BANNER_ALPHA))
+        screen.blit(label_surface_bg, label_rect)
         text_rect = label_surface.get_rect(center=label_rect.center)
         if show_lock:
             text_rect.x += 7
