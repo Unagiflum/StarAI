@@ -432,6 +432,8 @@ def update_aftermath(aftermath, player1, player2, game_objects, frame_id, sound_
         aftermath["death_effects"][item["ship"].player].append(effect)
         game_objects.append(effect)
         if item["is_final"]:
+            if sound_enabled:
+                BattleEffect.play_ship_death()
             hide_dead_ship(item["ship"], game_objects)
             aftermath["ships_pending_hide"].discard(item["ship"])
 

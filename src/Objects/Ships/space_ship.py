@@ -162,15 +162,16 @@ class SpaceShip(PlayerObject):
         action1_ready = self.control_ready("action1", frame_id, new_press_control)
         action2_ready = self.control_ready("action2", frame_id, new_press_control)
 
-        if self.turn_left_active and turn_left_ready:
+        if self.turn_left_active and turn_left_ready and self.turn_input_enabled():
             self.turn_left()
-        if self.turn_right_active and turn_right_ready:
+        if self.turn_right_active and turn_right_ready and self.turn_input_enabled():
             self.turn_right()
-        if self.thrust_active and thrust_ready:
+        for thrust_angle in self.get_active_thrust_angles(
+                thrust_ready, turn_left_ready, turn_right_ready):
             marker = self.apply_thrust(
                 self.max_thrust,
                 self.thrust_increment,
-                0,
+                thrust_angle,
                 self.can_thrust(),
                 not self.cloaked
             )
@@ -228,6 +229,14 @@ class SpaceShip(PlayerObject):
                         new_objects.append(result)
 
         return new_objects
+
+    def turn_input_enabled(self):
+        return True
+
+    def get_active_thrust_angles(self, thrust_ready, turn_left_ready, turn_right_ready):
+        if self.thrust_active and thrust_ready:
+            return [0]
+        return []
 
     def update_control_state(self, control_name, was_active, pressed, frame_id):
         if pressed:
@@ -374,13 +383,13 @@ class SpaceShip(PlayerObject):
 
             self.thrust_timer = int(self.thrust_wait * const.THRUST_WAIT_SCALE)
             if make_marker:
-                marker_x, marker_y = self.get_thrust_marker_position()
+                marker_x, marker_y = self.get_thrust_marker_position(angle)
                 marker = ThrustMarker(marker_x, marker_y)
                 return marker
         return None
 
-    def get_thrust_marker_position(self):
-        angle_rad = math.radians(self.rotation)
+    def get_thrust_marker_position(self, thrust_angle=0):
+        angle_rad = math.radians(self.rotation + thrust_angle)
         offset = (self.size[1] / 2) + 6
         marker_x = self.position[0] - math.sin(angle_rad) * offset
         marker_y = self.position[1] + math.cos(angle_rad) * offset
