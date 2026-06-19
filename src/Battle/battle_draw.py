@@ -115,19 +115,12 @@ def draw_battle(screen, game_objects, border_rect, border_color, camera_targets=
     pygame.draw.rect(screen, border_color, border_rect, 2)
     screen.set_clip(None)
 
-    # Draw status bars for both players
-    if len(players) == 2:
+    # Draw status bars for each surviving player. During the post-fight winner
+    # view only one ship remains alive, but its crew and battery are still
+    # useful and should remain visible.
+    if players:
         BAR_WIDTH = 30
         BAR_SPACING = 5
-        DASH_HEIGHT = 8
-
-        # Calculate total width of both bars + spacing
-        TOTAL_BAR_WIDTH = (BAR_WIDTH * 2) + BAR_SPACING
-
-        # Calculate bar height using same formula as StatusBar
-        max_height = max(players[0].max_hp, players[0].max_energy,
-                         players[1].max_hp, players[1].max_energy)
-        bar_height = ((max_height + 1) // 2) * (DASH_HEIGHT + 2) + 2  # Using new dash_height of 6
 
         # Calculate total width of both bars + spacing
         TOTAL_BAR_WIDTH = (BAR_WIDTH * 2) + BAR_SPACING
@@ -142,7 +135,8 @@ def draw_battle(screen, game_objects, border_rect, border_color, camera_targets=
 
         BASE_Y = const.SCREEN_HEIGHT // 2
 
-        draw_player_status(screen, players[0], P1_X, BASE_Y, BAR_WIDTH, BAR_SPACING)
-        draw_player_status(screen, players[1], P2_X, BASE_Y, BAR_WIDTH, BAR_SPACING)
+        for ship in players:
+            status_x = P1_X if ship.player == 1 else P2_X
+            draw_player_status(screen, ship, status_x, BASE_Y, BAR_WIDTH, BAR_SPACING)
 
     pygame.display.flip()

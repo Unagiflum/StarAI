@@ -1,4 +1,7 @@
 import math
+from pathlib import Path
+
+import pygame
 
 import src.const as const
 from src.Objects.Ships.ability import Ability, ABILITIES_DATA
@@ -9,10 +12,15 @@ class KzerZaA2(Ability):
     LAUNCHING = "launching"
     ATTACKING = "attacking"
     RETURNING = "returning"
+    _fighter_sounds = {}
 
     def __init__(self, parent, launch_angle=0, formation_index=0):
         super().__init__("KzerZaA2", parent)
         data = ABILITIES_DATA["KzerZaA2"]
+        self._load_fighter_sounds(data["file_path"])
+        self.launch_sound = self._sound("launch")
+        self.laser_sound = self._sound("laser")
+        self.return_sound = self._sound("return")
 
         self.one_way_flight = data["one_way_flight"]
         self.launch_distance = data["launch_distance"]
@@ -68,7 +76,7 @@ class KzerZaA2(Ability):
             else:
                 self.velocity = [0.0, 0.0]
                 return True
-        elif self.attack_elapsed >= self.one_way_flight:
+        elif self.attack_elapsed >= 2 * self.one_way_flight:
             self.mode = self.RETURNING
         elif target:
             self.mode = self.ATTACKING
@@ -85,7 +93,7 @@ class KzerZaA2(Ability):
         else:
             self._move_toward(destination)
 
-        if self.mode == self.ATTACKING and target:
+        if self.mode == self.ATTACKING and target and self._is_at_position(destination):
             self._update_weapon(target)
         return True
 
@@ -100,8 +108,6 @@ class KzerZaA2(Ability):
         if self.launch_travelled >= self.launch_distance:
             target = self._live_trackable_opponent()
             self.mode = self.ATTACKING if target else self.RETURNING
-            if self.mode == self.ATTACKING:
-                self._update_weapon(target)
 
     def _destination(self, target):
         if self.mode == self.RETURNING:
@@ -131,6 +137,10 @@ class KzerZaA2(Ability):
         self.position[0] = (self.position[0] + self.velocity[0] * const.SPEED_SCALE) % const.ARENA_SIZE
         self.position[1] = (self.position[1] + self.velocity[1] * const.SPEED_SCALE) % const.ARENA_SIZE
 
+    def _is_at_position(self, destination):
+        dx, dy = _wrapped_delta(self.position, destination)
+        return math.hypot(dx, dy) <= 0.5
+
     def _move_around_planet(self, destination):
         planet, tangent = self.planet_avoidance
         if not _segment_intersects_body(self.position, destination, planet, self.size):
@@ -154,6 +164,8 @@ class KzerZaA2(Ability):
     def _update_weapon(self, target):
         if self.weapon_timer <= 0:
             self.spawned_objects.append(KzerZaA2Laser(self, target))
+            if self.laser_sound:
+                self.laser_sound.play()
             self.weapon_timer = int(self.weapon_wait * const.ACTION_WAIT_SCALE)
         else:
             self.weapon_timer -= 1
@@ -167,8 +179,34 @@ class KzerZaA2(Ability):
         if not self.currently_alive or not self._parent_alive():
             return
         self.parent.current_hp = min(self.parent.max_hp, self.parent.current_hp + 1)
+        if self.return_sound:
+            self.return_sound.play()
         self.current_hp = 0
         self.currently_alive = False
+
+    @classmethod
+    def _load_fighter_sounds(cls, file_path):
+        if not cls.sound_enabled:
+            return
+        sound_files = {
+            "launch": "KzerZaA2Launch.wav",
+            "laser": "KzerZaA2Laser.wav",
+            "return": "KzerZaA2Return.wav",
+        }
+        for sound_name, filename in sound_files.items():
+            if sound_name in cls._fighter_sounds:
+                continue
+            try:
+                sound = pygame.mixer.Sound(str(Path(file_path) / filename))
+                sound.set_volume(const.SOUND_EFFECT_VOLUME)
+                cls._fighter_sounds[sound_name] = sound
+            except (pygame.error, FileNotFoundError):
+                cls._fighter_sounds[sound_name] = None
+
+    def _sound(self, sound_name):
+        if not self.sound_enabled:
+            return None
+        return self._fighter_sounds.get(sound_name)
 
     def _live_trackable_opponent(self):
         if (
