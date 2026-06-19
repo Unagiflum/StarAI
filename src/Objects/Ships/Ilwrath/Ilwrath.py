@@ -1,4 +1,5 @@
 from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
+from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.Ilwrath.A1.IlwrathA1 import IlwrathA1
 from src.Objects.Ships.Ilwrath.A2.IlwrathA2 import IlwrathA2
 import src.const as const
@@ -19,7 +20,7 @@ class Ilwrath(SpaceShip):
         self.ship_name = ship_name
 
         # Load shared resources if not already loaded
-        if not self._uncloak_sound:
+        if Ability.sound_enabled and not self._uncloak_sound:
             try:
                 sound_path = self.sprite_location / "A2" / "IlwrathA2end.wav"
                 self._uncloak_sound = pygame.mixer.Sound(str(sound_path))
@@ -58,7 +59,7 @@ class Ilwrath(SpaceShip):
         if self.can_action2():
             if self.cloaked:
                 self.uncloak()
-                if self._uncloak_sound:
+                if Ability.sound_enabled and self._uncloak_sound:
                     self._uncloak_sound.play()
             else:
                 self.current_energy -= self.a2_cost

@@ -14,6 +14,9 @@ class PkunkA2(Ability):
         ability_data = ABILITIES_DATA["PkunkA2"]
         self.ENERGY_GAIN = ability_data.get("ENERGY_GAIN", 2)
         self.file_path = ability_data.get("file_path")
+        if not self.sound_enabled:
+            return
+
         sound_dir = Path(ability_data['file_path'])
         pattern = str(sound_dir / "PkunkA2[0-9][0-9].wav")
 
@@ -26,5 +29,5 @@ class PkunkA2(Ability):
                 continue
 
     def play_insult(self):
-        if self._insults:
+        if self.sound_enabled and self._insults:
             random.choice(self._insults).play()

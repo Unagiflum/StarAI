@@ -244,8 +244,7 @@ class SpaceShip(PlayerObject):
         if pressed_frame is None:
             return True
 
-        repeat_delay_frames = max(1, int(const.INPUT_REPEAT_DELAY_MS * const.FPS / 1000 + 0.5))
-        return frame_id - pressed_frame >= repeat_delay_frames
+        return frame_id - pressed_frame >= const.INPUT_REPEAT_DELAY_FRAMES
 
     def action_already_handled_this_frame(self, action_name, frame_id):
         return frame_id is not None and self.last_action_frames.get(action_name) == frame_id

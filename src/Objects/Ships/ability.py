@@ -27,6 +27,7 @@ class Ability(PlayerObject):
     _masks = {}
     _end_anims = {}
     _launch_sounds = {}
+    sound_enabled = True
 
     def __init__(self, ability_name, parent):
         ability_data = ABILITIES_DATA[ability_name]
@@ -117,7 +118,7 @@ class Ability(PlayerObject):
         self.sprites = self._sprites[ability_name]
         self.masks = self._masks[ability_name]
         self.death_animation = self._end_anims[ability_name]
-        self.launch_sound = self._launch_sounds[ability_name]
+        self.launch_sound = self._launch_sounds[ability_name] if self.sound_enabled else None
         if self.launch_sound:
             self.launch_sound.set_volume(const.SOUND_EFFECT_VOLUME)
 

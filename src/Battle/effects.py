@@ -15,6 +15,7 @@ class BattleEffect(Object):
     _boom_sounds = {}
     _ship_explosion_sprites = None
     _ship_death_sound = None
+    sound_enabled = True
 
     def __init__(self, position, frames, frame_delay=2, scale=1.0):
         first_frame = frames[0] if frames else None
@@ -77,6 +78,9 @@ class BattleEffect(Object):
 
     @classmethod
     def play_ship_death(cls):
+        if not cls.sound_enabled:
+            return 0
+
         if cls._ship_death_sound is None:
             try:
                 cls._ship_death_sound = pygame.mixer.Sound(str(BATTLE_ASSET_PATH / "shipdies.wav"))
@@ -92,6 +96,9 @@ class BattleEffect(Object):
 
     @classmethod
     def play_boom(cls, damage):
+        if not cls.sound_enabled:
+            return
+
         sound_name = cls._boom_name(damage)
         if sound_name not in cls._boom_sounds:
             try:
