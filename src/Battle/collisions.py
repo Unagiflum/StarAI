@@ -13,12 +13,13 @@ def handle_collisions(game_objects):
         if isinstance(obj, SpaceShip) and obj.currently_alive and obj.current_hp > 0
     ]
     projectiles = [obj for obj in game_objects if _is_live_projectile(obj)]
+    fighters = [obj for obj in game_objects if _is_live_fighter(obj)]
     lasers = [obj for obj in game_objects if _is_live_laser(obj)]
     asteroids = [obj for obj in game_objects if isinstance(obj, Asteroid) and obj.currently_alive]
     planets = [obj for obj in game_objects if isinstance(obj, Planet)]
     effects = []
 
-    _handle_laser_collisions(lasers, ships, projectiles, asteroids, planets, effects)
+    _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, planets, effects)
     _handle_ship_ship_collisions(ships)
     _handle_ship_asteroid_collisions(ships, asteroids)
     _handle_ship_planet_collisions(ships, planets)
@@ -27,6 +28,11 @@ def handle_collisions(game_objects):
     _handle_projectile_ship_collisions(projectiles, ships, effects)
     _handle_projectile_asteroid_collisions(projectiles, asteroids, effects)
     _handle_projectile_planet_collisions(projectiles, planets, effects)
+    _handle_fighter_fighter_collisions(fighters, effects)
+    _handle_fighter_projectile_collisions(fighters, projectiles, effects)
+    _handle_fighter_ship_collisions(fighters, ships, effects)
+    _handle_fighter_asteroid_collisions(fighters, asteroids, effects)
+    _handle_fighter_planet_collisions(fighters, planets)
     _spawn_replacement_asteroids(game_objects, asteroids, ships, planets)
 
     game_objects.extend(effects)
@@ -206,10 +212,136 @@ def _handle_projectile_planet_collisions(projectiles, planets, effects):
             break
 
 
+def _handle_fighter_fighter_collisions(fighters, effects):
+    for index, fighter in enumerate(fighters):
+        if not _is_live_fighter(fighter):
+            continue
+        for other in fighters[index + 1:]:
+            if not _is_live_fighter(other):
+                continue
+            fighter_hits = getattr(fighter, "collide_fighters", True)
+            other_hits = getattr(other, "collide_fighters", True)
+            if not fighter_hits and not other_hits:
+                continue
+
+            _, _, overlap = _collision_info(fighter, other)
+            contact, normal = _projectile_impact(fighter, other, overlap)
+            if contact is None:
+                continue
+
+            if fighter_hits:
+                other.current_hp = max(0, other.current_hp - fighter.current_damage)
+            if other_hits:
+                fighter.current_hp = max(0, fighter.current_hp - other.current_damage)
+            BattleEffect.play_boom(max(fighter.current_damage, other.current_damage))
+            if fighter.current_hp <= 0:
+                _destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
+            if other.current_hp <= 0:
+                _destroy_projectile(other, effects, [-normal[0], -normal[1]], other.current_damage, contact)
+
+
+def _handle_fighter_projectile_collisions(fighters, projectiles, effects):
+    for fighter in fighters:
+        if not _is_live_fighter(fighter) or not getattr(fighter, "collide_projectiles", True):
+            continue
+        for projectile in projectiles:
+            if not _is_live_projectile(projectile):
+                continue
+            _, _, overlap = _collision_info(fighter, projectile)
+            contact, normal = _projectile_impact(fighter, projectile, overlap)
+            if contact is None:
+                continue
+
+            if getattr(fighter, "damage_projectiles", True):
+                projectile_hp = projectile.current_hp - fighter.current_damage
+                if projectile_hp <= 0:
+                    _destroy_projectile(projectile, effects, [-normal[0], -normal[1]], fighter.current_damage, contact)
+                else:
+                    _set_projectile_hp(projectile, projectile_hp)
+            BattleEffect.play_boom(fighter.current_damage)
+            _destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
+            break
+
+
+def _handle_fighter_ship_collisions(fighters, ships, effects):
+    for fighter in fighters:
+        if not _is_live_fighter(fighter):
+            continue
+        for ship in ships:
+            if ship.current_hp <= 0:
+                continue
+            if ship is fighter.parent:
+                if getattr(fighter, "mode", None) != getattr(fighter, "RETURNING", "returning"):
+                    continue
+            elif ship.player == fighter.player:
+                if not getattr(fighter, "collide_friendly_ships", False):
+                    continue
+            elif not getattr(fighter, "collide_enemy_ships", True):
+                continue
+
+            _, _, overlap = _collision_info(fighter, ship)
+            contact, normal = _projectile_impact(fighter, ship, overlap)
+            if contact is None:
+                continue
+
+            if ship is fighter.parent:
+                fighter.recover()
+            else:
+                damage = fighter.current_damage
+                ship.current_hp = max(0, ship.current_hp - damage)
+                BattleEffect.play_boom(damage)
+                _destroy_projectile(fighter, effects, normal, damage, contact)
+            break
+
+
+def _handle_fighter_asteroid_collisions(fighters, asteroids, effects):
+    for fighter in fighters:
+        if not _is_live_fighter(fighter) or not getattr(fighter, "collide_asteroids", True):
+            continue
+        for asteroid in asteroids:
+            if not asteroid.currently_alive:
+                continue
+            _, _, overlap = _collision_info(fighter, asteroid)
+            contact, normal = _projectile_impact(fighter, asteroid, overlap)
+            if contact is None:
+                continue
+
+            BattleEffect.play_boom(fighter.current_damage)
+            _destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
+            if getattr(fighter, "damage_asteroids", True):
+                _destroy_asteroid(asteroid, effects)
+            break
+
+
+def _handle_fighter_planet_collisions(fighters, planets):
+    for fighter in fighters:
+        if not _is_live_fighter(fighter) or not getattr(fighter, "collide_planets", True):
+            continue
+        for planet in planets:
+            normal, _, overlap = _collision_info(fighter, planet)
+            contact, _ = _projectile_impact(fighter, planet, overlap)
+            if contact is None:
+                continue
+            _separate_from_static_body(fighter, planet, normal, overlap, extra_clearance=1.0)
+            if hasattr(fighter, "begin_planet_avoidance"):
+                fighter.begin_planet_avoidance(planet, normal)
+            break
+
+
 def _is_live_projectile(obj):
     return (
         isinstance(obj, Ability) and
         obj.type == "projectile" and
+        obj.can_collide and
+        obj.currently_alive and
+        obj.current_hp > 0
+    )
+
+
+def _is_live_fighter(obj):
+    return (
+        isinstance(obj, Ability) and
+        obj.type == "fighter" and
         obj.can_collide and
         obj.currently_alive and
         obj.current_hp > 0
@@ -265,7 +397,7 @@ def _projectile_can_hit_ship(projectile, ship):
     return False
 
 
-def _handle_laser_collisions(lasers, ships, projectiles, asteroids, planets, effects):
+def _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, planets, effects):
     for laser in lasers:
         if not _is_live_laser(laser):
             continue
@@ -274,7 +406,7 @@ def _handle_laser_collisions(lasers, ships, projectiles, asteroids, planets, eff
         if hasattr(laser, "calculate_end_position"):
             laser.calculate_end_position()
 
-        targets = _laser_targets(laser, ships, projectiles, asteroids, planets)
+        targets = _laser_targets(laser, ships, projectiles, fighters, asteroids, planets)
         hit_infos = [
             hit_info for hit_info in (_laser_hit_info(laser, target) for target in targets)
             if hit_info is not None
@@ -304,10 +436,19 @@ def _handle_laser_collisions(lasers, ships, projectiles, asteroids, planets, eff
             _destroy_asteroid(target, effects)
 
 
-def _laser_targets(laser, ships, projectiles, asteroids, planets):
+def _laser_targets(laser, ships, projectiles, fighters, asteroids, planets):
     explicit_target = getattr(laser, "target", None)
     if explicit_target is not None:
-        return [explicit_target] if _is_live_laser_target(explicit_target) else []
+        targets = [explicit_target] if _is_live_laser_target(explicit_target) else []
+        targets.extend(
+            fighter for fighter in fighters
+            if (
+                fighter is not laser.parent and
+                fighter is not explicit_target and
+                getattr(fighter, "laser_vulnerable", True)
+            )
+        )
+        return targets
 
     targets = []
     for ship in ships:
@@ -322,6 +463,11 @@ def _laser_targets(laser, ships, projectiles, asteroids, planets):
         if projectile.player != laser.player or laser.hit_self:
             targets.append(projectile)
 
+    for fighter in fighters:
+        if fighter is laser.parent or not getattr(fighter, "laser_vulnerable", True):
+            continue
+        targets.append(fighter)
+
     targets.extend(asteroid for asteroid in asteroids if _is_live_laser_target(asteroid))
     targets.extend(planets)
     return sorted(targets, key=lambda target: _distance_between(laser.parent, target))
@@ -333,14 +479,14 @@ def _is_live_laser_target(target):
     if isinstance(target, SpaceShip):
         return target.current_hp > 0
     if isinstance(target, Ability):
-        return _is_live_projectile(target)
+        return _is_live_projectile(target) or _is_live_fighter(target)
     if isinstance(target, Asteroid):
         return target.currently_alive
     return getattr(target, "currently_alive", True)
 
 
 def _laser_hit_info(laser, target):
-    start = laser.parent.position
+    start = getattr(laser, "start_position", laser.parent.position)
     end = getattr(laser, "end_position", laser.position)
     segment = _wrapped_segment(start, end)
     distance = _distance_from_segment_to_point(segment[0], segment[1], target.position)

@@ -144,7 +144,7 @@ class BattleSimulation:
     def _update_tracking_lists(self):
         projectiles = [
             obj for obj in self.game_objects
-            if isinstance(obj, Ability) and obj.type == 'projectile'
+            if isinstance(obj, Ability) and obj.type in ('projectile', 'fighter')
         ]
         asteroids = [obj for obj in self.game_objects if isinstance(obj, Asteroid)]
         ships = [obj for obj in self.game_objects if isinstance(obj, SpaceShip)]
@@ -170,11 +170,16 @@ class BattleSimulation:
             asteroid.asteroids = asteroids
 
     def _update_objects(self):
+        spawned_objects = []
         for obj in self.game_objects[:]:
             if isinstance(obj, SpaceShip) and obj.current_hp <= 0:
                 continue
             if not obj.update():
                 self.game_objects.remove(obj)
+                continue
+            if hasattr(obj, "drain_spawned_objects"):
+                spawned_objects.extend(obj.drain_spawned_objects())
+        self.game_objects.extend(spawned_objects)
 
     def _update_aftermath(self):
         newly_dead = [

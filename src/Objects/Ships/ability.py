@@ -99,7 +99,7 @@ class Ability(PlayerObject):
                 try:
                     sound_path = Path(ability_data['file_path']) / f"{ability_name}.wav"
                     self._launch_sounds[ability_name] = pygame.mixer.Sound(str(sound_path))
-                except pygame.error:
+                except (pygame.error, FileNotFoundError):
                     self._launch_sounds[ability_name] = None
         else:
             # Sprites already loaded - set sizes based on existing sprites
@@ -160,7 +160,7 @@ class Ability(PlayerObject):
         self.can_die = True
         self.can_expire = True
 
-        if self.type == 'laser' or self.type == 'projectile':
+        if self.type in ('laser', 'projectile', 'fighter'):
             self.can_collide = True
         else:
             self.can_collide = False
