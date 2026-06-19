@@ -115,10 +115,31 @@ class KzerZaA2(Ability):
         if target is None:
             return None
 
-        side = 90 if self.formation_index % 2 == 0 else 270
-        wave = self.formation_index // 2
-        spread = 0 if wave == 0 else ((wave + 1) // 2) * (5 if wave % 2 else -5)
-        angle = math.radians((target.rotation + side + spread) % 360)
+        flank_destinations = [
+            self._attack_position(target, side)
+            for side in (90, 270)
+        ]
+        destination = min(
+            flank_destinations,
+            key=lambda position: sum(
+                component * component
+                for component in _wrapped_delta(self.position, position)
+            ),
+        )
+
+        # Fighters may share a flank. Fan them out around its center instead of
+        # assigning every other fighter to the far side of the target.
+        spread_slot = self.formation_index % 13
+        spread_index = (spread_slot + 1) // 2
+        spread = spread_index * (5 if spread_slot % 2 else -5)
+        if spread == 0:
+            return destination
+
+        side = 90 if destination is flank_destinations[0] else 270
+        return self._attack_position(target, side + spread)
+
+    def _attack_position(self, target, angle_offset):
+        angle = math.radians((target.rotation + angle_offset) % 360)
         return [
             (target.position[0] + math.sin(angle) * self.laser_range) % const.ARENA_SIZE,
             (target.position[1] - math.cos(angle) * self.laser_range) % const.ARENA_SIZE,
