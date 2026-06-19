@@ -309,6 +309,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_
                 start_battle=False,
                 preselect_player1=simulation.player1 if simulation.player1.currently_alive else None,
                 preselect_player2=simulation.player2 if simulation.player2.currently_alive else None,
+                choose_second_player=simulation.aftermath.get("choose_second_player"),
             )
             simulation.select_next_round(selected)
             pygame.event.clear(pygame.KEYDOWN)
@@ -370,6 +371,8 @@ def start_or_update_aftermath(aftermath, dead_ships, player1, player2, game_obje
             "ships_pending_hide": set(),
             "camera_hold_targets": [],
             "ditty_started": False,
+            "tie_break_ship": None,
+            "choose_second_player": None,
         }
 
     for ship in dead_ships:
@@ -384,6 +387,15 @@ def start_or_update_aftermath(aftermath, dead_ships, player1, player2, game_obje
         aftermath["ships_pending_hide"].add(ship)
         aftermath["camera_hold_targets"].append(ship)
         aftermath["latest_death_frame"] = frame_id
+
+    if player1.current_hp <= 0 and player2.current_hp <= 0:
+        self_destructors = [
+            ship for ship in (player1, player2)
+            if getattr(ship, "shofixti_self_destruct", False)
+        ]
+        if len(self_destructors) == 1:
+            aftermath["tie_break_ship"] = self_destructors[0]
+            aftermath["choose_second_player"] = self_destructors[0].player
 
     if sound_enabled:
         pygame.mixer.music.stop()
@@ -445,6 +457,15 @@ def update_aftermath(aftermath, player1, player2, game_objects, frame_id, sound_
     if len(living_ships) == 1 and not aftermath["ditty_started"] and death_view_done:
         if sound_enabled:
             play_victory_ditty(living_ships[0])
+        aftermath["ditty_started"] = True
+    elif (
+        not living_ships and
+        aftermath.get("tie_break_ship") is not None and
+        not aftermath["ditty_started"] and
+        death_view_done
+    ):
+        if sound_enabled:
+            play_victory_ditty(aftermath["tie_break_ship"])
         aftermath["ditty_started"] = True
 
 

@@ -54,6 +54,8 @@ class Ability(PlayerObject):
                     self.sizes = []
                     for frame in range(ability_data['frames']):
                         frame_path = Path(ability_data['file_path']) / f"{ability_name}00_{frame:02d}.png"
+                        if not frame_path.exists():
+                            frame_path = Path(ability_data['file_path']) / f"{ability_name}{frame:02d}.png"
                         base_sprite = pygame.image.load(str(frame_path)).convert_alpha()
                         scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
                         frames.append(scaled_sprite)
@@ -248,7 +250,7 @@ class Ability(PlayerObject):
                     self.current_frame += 1
                     # Update properties for new frame
                     self.size = self.sizes[self.current_frame]
-                    self.current_damage = self.damages[self.current_frame]
+                    self.current_damage = self.damages[min(self.current_frame, len(self.damages) - 1)]
                     if len(self.hp_array) > 1:
                         self.current_hp = min(self.current_hp, self.hp_array[self.current_frame])
                     self.frame_timer = self.frame_delay

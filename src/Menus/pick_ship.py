@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import random
+import math
 
 from src.UI import ui, ui_button, ui_box
 import src.const as Const
@@ -14,6 +15,9 @@ with open(Const.SHIPS_JSON_PATH, 'r') as f:
 
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT * 0.08)
 HIGHLIGHT_COLOR = (50, 50, 75)
+ACTIVE_SELECTION_COLOR = (255, 196, 64)
+SELECTED_COLOR = (0, 175, 175)
+LOCKED_COLOR = (120, 120, 120)
 FLEET_ICON_SIZE = Const.FLEET_ICON_SIZE
 X_COLOR = (255, 100, 100, 100)
 X_THICKNESS = int(0.2*FLEET_ICON_SIZE[0])
@@ -118,9 +122,10 @@ def load_ships_data(ships_data):
 
 
 def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
-        preselect_player1=None, preselect_player2=None):
+        preselect_player1=None, preselect_player2=None, choose_second_player=None):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.03))
+    state_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.025))
     background = ui.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
     if player1_ships is None or player2_ships is None:
@@ -206,6 +211,76 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                        "ship_obj": None,
                        "index": None}
 
+    selection_order = {
+        "active_player": 3 - choose_second_player
+        if choose_second_player in (1, 2) else None,
+        "first_player": 3 - choose_second_player
+        if choose_second_player in (1, 2) else None,
+        "first_locked": False,
+    }
+    survivor_locked_players = {
+        player
+        for player, ship in ((1, preselect_player1), (2, preselect_player2))
+        if ship is not None and ship.currently_alive and ship.current_hp > 0
+    }
+
+    def selection_allowed(player):
+        if player in survivor_locked_players:
+            return False
+        active_player = selection_order["active_player"]
+        return active_player is None or active_player == player
+
+    def advance_selection_order(player):
+        if selection_order["active_player"] == player and choose_second_player in (1, 2):
+            if player == selection_order["first_player"]:
+                selection_order["first_locked"] = True
+            selection_order["active_player"] = choose_second_player
+
+    def draw_panel_badge(panel, text, color):
+        text_surface = state_font.render(text, True, ui.WHITE)
+        badge_rect = text_surface.get_rect(
+            top=panel.rect.top + 8,
+            right=panel.rect.right - 8,
+        ).inflate(16, 8)
+        pygame.draw.rect(screen, color, badge_rect, border_radius=4)
+        screen.blit(text_surface, text_surface.get_rect(center=badge_rect.center))
+
+    def draw_locked_panel(panel):
+        overlay = pygame.Surface(panel.rect.size, pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 145))
+        screen.blit(overlay, panel.rect)
+        pygame.draw.rect(screen, LOCKED_COLOR, panel.rect, 4)
+        draw_panel_badge(panel, "LOCKED", LOCKED_COLOR)
+
+    def draw_selection_label(selection, text, color, show_lock=False):
+        label_surface = state_font.render(text, True, ui.WHITE)
+        label_rect = pygame.Rect(
+            selection["rect"].left,
+            selection["rect"].bottom - label_surface.get_height() - 12,
+            selection["rect"].width,
+            label_surface.get_height() + 12,
+        )
+        pygame.draw.rect(screen, color, label_rect)
+        text_rect = label_surface.get_rect(center=label_rect.center)
+        if show_lock:
+            text_rect.x += 7
+            lock_center_x = text_rect.left - 14
+            pygame.draw.arc(
+                screen,
+                ui.WHITE,
+                pygame.Rect(lock_center_x - 4, label_rect.centery - 8, 8, 10),
+                math.pi,
+                2 * math.pi,
+                2,
+            )
+            pygame.draw.rect(
+                screen,
+                ui.WHITE,
+                pygame.Rect(lock_center_x - 5, label_rect.centery - 1, 10, 8),
+                border_radius=2,
+            )
+        screen.blit(label_surface, text_rect)
+
     def set_selection(selection, selection_sprites, fleet, ships, ship_obj):
         if not ship_obj or not ship_obj.currently_alive:
             return
@@ -223,6 +298,8 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
     set_selection(right_selection, selection_sprites, right_fleet, player2_ships, preselect_player2)
 
     def pick_random_left():
+        if not selection_allowed(1):
+            return
         alive_ships = [(i, ship) for i, ship in enumerate(player1_ships) if ship.currently_alive]
         if alive_ships:
             idx, ship_obj = random.choice(alive_ships)
@@ -231,8 +308,11 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             left_selection["sprite"] = selection_sprites[name]
             left_selection["ship_obj"] = ship_obj
             left_selection["index"] = idx  # Add this line
+            advance_selection_order(1)
 
     def pick_random_right():
+        if not selection_allowed(2):
+            return
         alive_ships = [(i, ship) for i, ship in enumerate(player2_ships) if ship.currently_alive]
         if alive_ships:
             idx, ship_obj = random.choice(alive_ships)
@@ -241,6 +321,7 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             right_selection["sprite"] = selection_sprites[name]
             right_selection["ship_obj"] = ship_obj
             right_selection["index"] = idx  # Add this line
+            advance_selection_order(2)
 
     random_left = ui_button.Button(
         SELECTION_L_LEFT,
@@ -306,6 +387,9 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
     while running:
         clock.tick(Const.FPS)
 
+        random_left.enabled = selection_allowed(1)
+        random_right.enabled = selection_allowed(2)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -314,7 +398,7 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mouse_pos = event.pos
 
-                if left_fleet.rect.collidepoint(mouse_pos):
+                if left_fleet.rect.collidepoint(mouse_pos) and selection_allowed(1):
                     for i, (_, name, _, rect) in enumerate(left_fleet.ships):
                         if rect and rect.collidepoint(mouse_pos) and player1_ships[i].currently_alive:
                             left_selection["ship"] = name
@@ -322,9 +406,10 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                             left_selection["ship_obj"] = player1_ships[i]
                             left_selection["index"] = i
                             ui.sound_manager.play_sound('menu')
+                            advance_selection_order(1)
                             break
 
-                elif right_fleet.rect.collidepoint(mouse_pos):
+                elif right_fleet.rect.collidepoint(mouse_pos) and selection_allowed(2):
                     for i, (_, name, _, rect) in enumerate(right_fleet.ships):
                         if rect and rect.collidepoint(mouse_pos) and player2_ships[i].currently_alive:
                             right_selection["ship"] = name
@@ -332,6 +417,7 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                             right_selection["ship_obj"] = player2_ships[i]
                             right_selection["index"] = i
                             ui.sound_manager.play_sound('menu')
+                            advance_selection_order(2)
                             break
 
             random_left.handle_event(event, ui.sound_manager)
@@ -357,13 +443,43 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             confirm_button.bg_color = ui.DISABLED_BUTTON
             confirm_button.hover_color = ui.DISABLED_BUTTON
 
+        # A first-player click can lock that side during this event loop.
+        random_left.enabled = selection_allowed(1)
+        random_right.enabled = selection_allowed(2)
+
         # Draw everything
         if background:
             screen.blit(background, (0, 0))
         else:
             screen.fill(ui.BG_COLOR)
 
-        ui.draw_title(screen, "Players: Pick your Ship", TITLE_FONT_SIZE, int(0.05 * Const.SCREEN_HEIGHT))
+        active_player = selection_order["active_player"]
+        both_selected = bool(left_selection["ship_obj"] and right_selection["ship_obj"])
+        title_size = TITLE_FONT_SIZE
+        if choose_second_player in (1, 2):
+            if not selection_order["first_locked"]:
+                title = f"Player {active_player}: Select First"
+            elif both_selected:
+                title = "Both Players Ready"
+            else:
+                title = (
+                    f"Player {selection_order['first_player']} Locked - "
+                    f"Player {choose_second_player}: Select Second"
+                )
+                title_size = int(Const.SCREEN_HEIGHT * 0.055)
+        elif survivor_locked_players:
+            selecting_players = [player for player in (1, 2) if player not in survivor_locked_players]
+            if both_selected:
+                title = "Both Players Ready"
+            elif selecting_players:
+                survivor = next(iter(survivor_locked_players))
+                title = f"Player {survivor} Survives - Player {selecting_players[0]}: Select Ship"
+                title_size = int(Const.SCREEN_HEIGHT * 0.055)
+            else:
+                title = "Both Players Ready"
+        else:
+            title = "Players: Select Your Ships"
+        ui.draw_title(screen, title, title_size, int(0.05 * Const.SCREEN_HEIGHT))
 
         # Draw fleets
         left_fleet.draw(screen, font)
@@ -398,6 +514,23 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             if not player2_ships[i].currently_alive:
                 draw_x(screen, rect)
 
+        panels = {1: left_fleet, 2: right_fleet}
+        for player in survivor_locked_players:
+            draw_locked_panel(panels[player])
+        if choose_second_player in (1, 2):
+            if selection_order["first_locked"]:
+                draw_locked_panel(panels[selection_order["first_player"]])
+            active_panel = panels[active_player]
+            pygame.draw.rect(screen, ACTIVE_SELECTION_COLOR, active_panel.rect, 4)
+            active_badge = "SELECT FIRST" if not selection_order["first_locked"] else "SELECT SECOND"
+            draw_panel_badge(active_panel, active_badge, ACTIVE_SELECTION_COLOR)
+        elif survivor_locked_players:
+            for player in (1, 2):
+                if player in survivor_locked_players:
+                    continue
+                pygame.draw.rect(screen, ACTIVE_SELECTION_COLOR, panels[player].rect, 4)
+                draw_panel_badge(panels[player], "SELECT SHIP", ACTIVE_SELECTION_COLOR)
+
         # Draw selection boxes
         for selection in [left_selection, right_selection]:
             pygame.draw.rect(screen, ui.BLACK, selection["rect"])
@@ -405,6 +538,19 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                 sprite_rect = selection["sprite"].get_rect(center=selection["rect"].center)
                 screen.blit(selection["sprite"], sprite_rect)
             pygame.draw.rect(screen, ui.WHITE, selection["rect"], 2)
+
+        selections = {1: left_selection, 2: right_selection}
+        visually_locked_players = set(survivor_locked_players)
+        if choose_second_player in (1, 2) and selection_order["first_locked"]:
+            visually_locked_players.add(selection_order["first_player"])
+        for player, selection in selections.items():
+            if not selection["ship_obj"]:
+                continue
+            if player in visually_locked_players:
+                label = "SURVIVOR LOCKED" if player in survivor_locked_players else "SELECTION LOCKED"
+                draw_selection_label(selection, label, LOCKED_COLOR, show_lock=True)
+            else:
+                draw_selection_label(selection, "SELECTED", SELECTED_COLOR)
 
         random_left.draw(screen, font)
         random_right.draw(screen, font)

@@ -11,6 +11,10 @@ PLANET_CONTACT_EXIT_MARGIN = 4.0
 
 
 def handle_collisions(game_objects):
+    effects = []
+    all_asteroids = [obj for obj in game_objects if isinstance(obj, Asteroid)]
+    _handle_area_damage(game_objects, effects)
+
     ships = [
         obj for obj in game_objects
         if isinstance(obj, SpaceShip) and obj.currently_alive and obj.current_hp > 0
@@ -20,7 +24,6 @@ def handle_collisions(game_objects):
     lasers = [obj for obj in game_objects if _is_live_laser(obj)]
     asteroids = [obj for obj in game_objects if isinstance(obj, Asteroid) and obj.currently_alive]
     planets = [obj for obj in game_objects if isinstance(obj, Planet)]
-    effects = []
 
     _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, planets, effects)
     _handle_ship_ship_collisions(ships)
@@ -36,10 +39,59 @@ def handle_collisions(game_objects):
     _handle_fighter_ship_collisions(fighters, ships, effects)
     _handle_fighter_asteroid_collisions(fighters, asteroids, effects)
     _handle_fighter_planet_collisions(fighters, planets)
-    _spawn_replacement_asteroids(game_objects, asteroids, ships, planets)
+    _spawn_replacement_asteroids(game_objects, all_asteroids, ships, planets)
 
     game_objects.extend(effects)
     _remove_dead_collision_objects(game_objects)
+
+
+def _handle_area_damage(game_objects, effects):
+    area_abilities = [
+        obj for obj in game_objects
+        if (
+            isinstance(obj, Ability) and
+            obj.currently_alive and
+            getattr(obj, "area_damage_pending", False)
+        )
+    ]
+
+    for ability in area_abilities:
+        ability.area_damage_pending = False
+        for target in game_objects:
+            if target is ability or isinstance(target, Planet):
+                continue
+            if not isinstance(target, (SpaceShip, Ability, Asteroid)):
+                continue
+            if getattr(target, "invulnerable", False):
+                continue
+            if isinstance(target, Ability) and target.type == "laser":
+                continue
+            if not getattr(target, "currently_alive", True):
+                continue
+
+            delta = _wrapped_delta(ability.position, target.position)
+            distance = math.hypot(delta[0], delta[1])
+            damage = ability.damage_at_distance(distance)
+            if damage <= 0:
+                continue
+
+            if isinstance(target, Asteroid):
+                _destroy_asteroid(target, effects)
+                continue
+
+            if target.current_hp <= 0:
+                continue
+            remaining_hp = target.current_hp - damage
+            if isinstance(target, Ability) and remaining_hp <= 0:
+                direction = (
+                    [delta[0] / distance, delta[1] / distance]
+                    if distance > 0 else [0, -1]
+                )
+                _destroy_projectile(target, effects, direction, damage)
+            elif isinstance(target, Ability):
+                _set_projectile_hp(target, remaining_hp)
+            else:
+                target.current_hp = max(0, remaining_hp)
 
 
 def _handle_ship_ship_collisions(ships):
