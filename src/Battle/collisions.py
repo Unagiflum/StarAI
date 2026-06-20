@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 import src.const as const
 from src.Battle.effects import BattleEffect
+from src.Battle.world import World
 from src.collision_capabilities import CollisionRole, ShipImpactContext
 from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.Ships.ability import Ability
@@ -120,19 +121,17 @@ def _dispatch_collision_pair(first, second, effects, environment=None):
 
 
 def handle_collisions(game_objects):
+    world = World.coerce(game_objects)
     effects = []
-    all_asteroids = [obj for obj in game_objects if isinstance(obj, Asteroid)]
-    _handle_area_damage(game_objects, effects)
+    all_asteroids = world.asteroids
+    _handle_area_damage(world, effects)
 
-    ships = [
-        obj for obj in game_objects
-        if isinstance(obj, SpaceShip) and obj.currently_alive and obj.current_hp > 0
-    ]
-    projectiles = [obj for obj in game_objects if _is_live_projectile(obj)]
-    fighters = [obj for obj in game_objects if _is_live_fighter(obj)]
-    lasers = [obj for obj in game_objects if _is_live_laser(obj)]
-    asteroids = [obj for obj in game_objects if isinstance(obj, Asteroid) and obj.currently_alive]
-    planets = [obj for obj in game_objects if isinstance(obj, Planet)]
+    ships = world.live_ships
+    projectiles = world.colliding_projectiles
+    fighters = world.colliding_fighters
+    lasers = world.colliding_lasers
+    asteroids = world.live_asteroids
+    planets = world.planets
 
     _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, planets, effects)
     _handle_ship_ship_collisions(ships, effects)
@@ -148,25 +147,19 @@ def handle_collisions(game_objects):
     _handle_fighter_ship_collisions(fighters, ships, effects)
     _handle_fighter_asteroid_collisions(fighters, asteroids, effects)
     _handle_fighter_planet_collisions(fighters, planets)
-    _spawn_replacement_asteroids(game_objects, all_asteroids, ships, planets)
+    _spawn_replacement_asteroids(world, all_asteroids, ships, planets)
 
-    game_objects.extend(effects)
-    _remove_dead_collision_objects(game_objects)
+    world.add_all(effects)
+    world.remove_dead_collision_objects()
 
 
 def _handle_area_damage(game_objects, effects):
-    area_abilities = [
-        obj for obj in game_objects
-        if (
-            obj.area_damage_capabilities.emits and
-            obj.currently_alive and
-            obj.area_damage_pending
-        )
-    ]
+    world = World.coerce(game_objects)
+    area_abilities = world.pending_area_damage
 
     for ability in area_abilities:
         ability.area_damage_pending = False
-        for target in game_objects:
+        for target in world:
             if not _area_damage_target_is_eligible(ability, target):
                 continue
 
@@ -665,33 +658,15 @@ def _fighter_impacts_planet(fighter, planet, effects, environment):
 
 
 def _is_live_projectile(obj):
-    return (
-        isinstance(obj, Ability) and
-        obj.type == "projectile" and
-        obj.can_collide and
-        obj.currently_alive and
-        obj.current_hp > 0
-    )
+    return World.is_colliding_ability_kind(obj, "projectile")
 
 
 def _is_live_fighter(obj):
-    return (
-        isinstance(obj, Ability) and
-        obj.type == "fighter" and
-        obj.can_collide and
-        obj.currently_alive and
-        obj.current_hp > 0
-    )
+    return World.is_colliding_ability_kind(obj, "fighter")
 
 
 def _is_live_laser(obj):
-    return (
-        isinstance(obj, Ability) and
-        obj.type == "laser" and
-        obj.can_collide and
-        obj.currently_alive and
-        obj.current_hp > 0
-    )
+    return World.is_colliding_ability_kind(obj, "laser")
 
 
 def _projectile_can_hit_ship(projectile, ship):
@@ -930,13 +905,11 @@ def ship_rotation_blocked(ship):
 
 
 def _remove_dead_collision_objects(game_objects):
-    game_objects[:] = [
-        obj for obj in game_objects
-        if not isinstance(obj, (Ability, Asteroid)) or obj.currently_alive
-    ]
+    World.coerce(game_objects).remove_dead_collision_objects()
 
 
 def _spawn_replacement_asteroids(game_objects, asteroids, ships, planets):
+    world = World.coerce(game_objects)
     if not planets:
         return
 
@@ -945,29 +918,14 @@ def _spawn_replacement_asteroids(game_objects, asteroids, ships, planets):
         return
 
     planet = planets[0]
-    avoid_bodies = [
-        obj for obj in game_objects
-        if _is_asteroid_spawn_avoid_body(obj)
-    ]
+    avoid_bodies = world.asteroid_spawn_avoid_bodies
 
     for _ in range(dead_count):
         asteroid = Asteroid()
         asteroid.set_planet(planet)
         asteroid.position = asteroid.get_respawn_position(planet, ships, avoid_bodies)
         avoid_bodies.append(asteroid)
-        game_objects.append(asteroid)
-
-
-def _is_asteroid_spawn_avoid_body(obj):
-    if isinstance(obj, Planet):
-        return False
-    if isinstance(obj, Asteroid):
-        return obj.currently_alive
-    if isinstance(obj, SpaceShip):
-        return obj.current_hp > 0
-    if isinstance(obj, Ability):
-        return obj.can_collide and obj.currently_alive and obj.current_hp > 0
-    return getattr(obj, "can_collide", False) and getattr(obj, "currently_alive", True)
+        world.add(asteroid)
 
 
 def _destroy_projectile(projectile, effects, direction, damage, contact_position=None):

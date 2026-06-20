@@ -5,12 +5,12 @@ import math
 
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.ability import Ability
-from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.object import ThrustMarker
 from src.Battle.battle_init import initialize_battle
 from src.Battle.collisions import handle_collisions
 from src.Battle.battle_draw import draw_battle
 from src.Battle.effects import BattleEffect
+from src.Battle.world import World
 import src.const as const
 
 
@@ -44,7 +44,7 @@ class BattleSimulation:
 
         battle_state = initialize_battle(screen, ship1, ship2)
         self.settings = battle_state['settings']
-        self.game_objects = battle_state['game_objects']
+        self.world = battle_state['world']
         self.border_rect = battle_state['border_rect']
         self.border_color = battle_state['border_color']
         self.player1 = battle_state['player1']
@@ -59,6 +59,15 @@ class BattleSimulation:
         self.aftermath = None
         self.needs_selection = False
         self.running = True
+
+    @property
+    def game_objects(self):
+        """Compatibility access to the World's authoritative object list."""
+        return self.world.objects
+
+    @game_objects.setter
+    def game_objects(self, objects):
+        self.world = World(objects)
 
     def _initial_key_states(self):
         return {
@@ -83,7 +92,7 @@ class BattleSimulation:
         self._process_ship_inputs()
         self._update_tracking_lists()
         self._update_objects()
-        handle_collisions(self.game_objects)
+        handle_collisions(self.world)
         self._update_aftermath()
 
         return self.state()
@@ -130,19 +139,13 @@ class BattleSimulation:
     def _process_ship_inputs(self):
         for ship in (self.player1, self.player2):
             if ship.currently_alive and ship.current_hp > 0:
-                self.game_objects.extend(ship.process_controls(self.frame_id))
+                self.world.add_all(ship.process_controls(self.frame_id))
 
     def _update_tracking_lists(self):
-        projectiles = [
-            obj for obj in self.game_objects
-            if isinstance(obj, Ability) and obj.type in ('projectile', 'fighter')
-        ]
-        asteroids = [obj for obj in self.game_objects if isinstance(obj, Asteroid)]
-        ships = [obj for obj in self.game_objects if isinstance(obj, SpaceShip)]
-        tracked_objects = [
-            obj for obj in self.game_objects
-            if isinstance(obj, (SpaceShip, Ability))
-        ]
+        projectiles = self.world.abilities_of_kind('projectile', 'fighter')
+        asteroids = self.world.asteroids
+        ships = self.world.ships
+        tracked_objects = self.world.objects_of_types(SpaceShip, Ability)
         players = {obj.player for obj in tracked_objects}
         projectiles_by_player = {
             player: [obj for obj in projectiles if obj.player == player]
@@ -161,16 +164,7 @@ class BattleSimulation:
             asteroid.asteroids = asteroids
 
     def _update_objects(self):
-        spawned_objects = []
-        for obj in self.game_objects[:]:
-            if isinstance(obj, SpaceShip) and obj.current_hp <= 0:
-                continue
-            if not obj.update():
-                self.game_objects.remove(obj)
-                continue
-            if hasattr(obj, "drain_spawned_objects"):
-                spawned_objects.extend(obj.drain_spawned_objects())
-        self.game_objects.extend(spawned_objects)
+        self.world.update_objects()
 
     def _update_aftermath(self):
         newly_dead = [
@@ -183,7 +177,7 @@ class BattleSimulation:
                 newly_dead,
                 self.player1,
                 self.player2,
-                self.game_objects,
+                self.world,
                 self.frame_id,
                 self.sound_enabled,
             )
@@ -201,7 +195,7 @@ class BattleSimulation:
                 newly_dead,
                 self.player1,
                 self.player2,
-                self.game_objects,
+                self.world,
                 self.frame_id,
                 self.sound_enabled,
             )
@@ -210,7 +204,7 @@ class BattleSimulation:
             self.aftermath,
             self.player1,
             self.player2,
-            self.game_objects,
+            self.world,
             self.frame_id,
             self.sound_enabled,
         )
@@ -227,7 +221,7 @@ class BattleSimulation:
 
         previous_player1, previous_player2 = self.player1, self.player2
         self.player1, self.player2 = selected
-        reset_round_objects(self.game_objects, self.player1, self.player2, previous_player1, previous_player2)
+        reset_round_objects(self.world, self.player1, self.player2, previous_player1, previous_player2)
         reset_key_states(self.key_states)
         reset_ship_controls(self.player1)
         reset_ship_controls(self.player2)
@@ -291,7 +285,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_
         if state["needs_selection"]:
             from src.Menus import pick_ship
 
-            stop_tracking_projectiles(simulation.game_objects)
+            stop_tracking_projectiles(simulation.world)
             pygame.mixer.music.stop()
             selected = pick_ship.run(
                 screen,
@@ -312,7 +306,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_
         # Drawing
         draw_battle(
             screen,
-            simulation.game_objects,
+            simulation.world,
             simulation.border_rect,
             simulation.border_color,
             camera_targets=aftermath_camera_targets(
@@ -405,6 +399,7 @@ def create_ship_explosion_schedule(ship, start_frame):
 
 
 def update_aftermath(aftermath, player1, player2, game_objects, frame_id, sound_enabled=True):
+    world = World.coerce(game_objects)
     ready_explosions = [
         item for item in aftermath["pending_explosions"]
         if item["frame"] <= frame_id
@@ -417,11 +412,11 @@ def update_aftermath(aftermath, player1, player2, game_objects, frame_id, sound_
     for item in ready_explosions:
         effect = BattleEffect.ship_explosion(item["position"], scale=item["scale"])
         aftermath["death_effects"][item["ship"].player].append(effect)
-        game_objects.append(effect)
+        world.add(effect)
         if item["is_final"]:
             if sound_enabled:
                 BattleEffect.play_ship_death()
-            hide_dead_ship(item["ship"], game_objects)
+            hide_dead_ship(item["ship"], world)
             aftermath["ships_pending_hide"].discard(item["ship"])
 
     living_ships = [
@@ -445,10 +440,7 @@ def update_aftermath(aftermath, player1, player2, game_objects, frame_id, sound_
 
 
 def hide_dead_ship(ship, game_objects):
-    game_objects[:] = [
-        obj for obj in game_objects
-        if obj is not ship
-    ]
+    World.coerce(game_objects).remove_where(lambda obj: obj is ship)
 
 
 def aftermath_camera_targets(aftermath, player1, player2, frame_id=None):
@@ -481,28 +473,27 @@ def aftermath_ready_for_selection(aftermath, frame_id, sound_enabled=True):
 
 
 def reset_round_objects(game_objects, player1, player2, previous_player1, previous_player2):
+    world = World.coerce(game_objects)
     selected_ships = [player1, player2]
     preserved_ships = {
         ship for ship in (previous_player1, previous_player2)
         if ship in selected_ships and ship.currently_alive and ship.current_hp > 0
     }
 
-    persistent_objects = [
-        obj for obj in game_objects
-        if not isinstance(obj, (SpaceShip, Ability, ThrustMarker, BattleEffect))
-    ]
+    persistent_objects = world.objects_excluding_types(
+        SpaceShip, Ability, ThrustMarker, BattleEffect
+    )
     preserved_abilities = [
-        obj for obj in game_objects
+        obj for obj in world.abilities
         if (
-            isinstance(obj, Ability) and
             obj.parent in preserved_ships and
             obj.currently_alive and
             obj.current_hp > 0
         )
     ]
-    game_objects[:] = persistent_objects + preserved_abilities
+    world.retain(persistent_objects + preserved_abilities)
 
-    planets = [obj for obj in game_objects if isinstance(obj, Planet)]
+    planets = world.planets
     planet = planets[0] if planets else None
 
     initialize_new_round_ships(selected_ships, preserved_ships, planet)
@@ -511,13 +502,12 @@ def reset_round_objects(game_objects, player1, player2, previous_player1, previo
     player2.opponent = player1
     update_preserved_abilities(preserved_abilities, player1, player2, planet)
 
-    game_objects.extend(selected_ships)
+    world.add_all(selected_ships)
 
 
 def stop_tracking_projectiles(game_objects):
-    for obj in game_objects:
+    for obj in World.coerce(game_objects).abilities:
         if (
-            isinstance(obj, Ability) and
             obj.currently_alive and
             obj.current_hp > 0 and
             hasattr(obj, "stop_and_track")

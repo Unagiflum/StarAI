@@ -6,6 +6,7 @@ import src.const as const
 from src.toroidal import wrapped_distance
 from src.Objects.Space.space_obj import Planet, Star, Asteroid
 from src.Objects.Ships.space_ship import SpaceShip
+from src.Battle.world import World
 
 
 def load_settings():
@@ -43,10 +44,10 @@ def get_valid_ship_positions():
 
 def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
     settings = load_settings()
-    game_objects = []
+    world = World()
 
     # Create stars
-    game_objects.extend(Star.create_random_stars(const.STAR_COUNT))
+    world.add_all(Star.create_random_stars(const.STAR_COUNT))
 
     # Initialize ships
     pos1, pos2 = get_valid_ship_positions()
@@ -58,12 +59,12 @@ def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
     player1.opponent = player2
     player2.opponent = player1
 
-    game_objects.append(player1)
-    game_objects.append(player2)
+    world.add(player1)
+    world.add(player2)
 
     # Create planet
     planet = Planet.create_center()
-    game_objects.append(planet)
+    world.add(planet)
 
     asteroids = []
     for _ in range(const.ASTEROID_COUNT):
@@ -72,7 +73,7 @@ def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
         pos = asteroid.get_valid_asteroid_position(planet, [player1, player2], [player1, player2, *asteroids])
         asteroid.position = pos
         asteroids.append(asteroid)
-        game_objects.append(asteroid)
+        world.add(asteroid)
 
     player1.set_planet(planet)
     player2.set_planet(planet)
@@ -83,7 +84,8 @@ def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
 
     return {
         'settings': settings,
-        'game_objects': game_objects,
+        'world': world,
+        'game_objects': world.objects,
         'border_rect': border_rect,
         'border_color': border_color,
         'player1': player1,

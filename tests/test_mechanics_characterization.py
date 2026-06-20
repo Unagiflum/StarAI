@@ -30,7 +30,9 @@ from src.Battle.battle import (
     BattleSimulation,
     aftermath_camera_targets,
     aftermath_ready_for_selection,
+    reset_round_objects,
     start_or_update_aftermath,
+    update_aftermath,
 )
 from src.Battle.battle_draw import calculate_view_parameters
 from src.Battle.battle_init import validate_ship_positions
@@ -324,6 +326,166 @@ class SimulationInputTests(unittest.TestCase):
 
         self.assertEqual(simulation.player1.control_changes, [("thrust", True, 1)])
         self.assertEqual(simulation.player1.processed_frames, [1])
+
+
+class ObjectLifecycleCharacterizationTests(unittest.TestCase):
+    class UpdatingObject:
+        def __init__(self, name, events, survives=True, spawned=None):
+            self.name = name
+            self.events = events
+            self.survives = survives
+            self.spawned = list(spawned or [])
+
+        def update(self):
+            self.events.append(self.name)
+            return self.survives
+
+        def drain_spawned_objects(self):
+            spawned, self.spawned = self.spawned, []
+            return spawned
+
+    def test_updates_use_a_snapshot_and_append_spawned_objects_in_source_order(self):
+        events = []
+        first_spawn = self.UpdatingObject("first spawn", events)
+        second_spawn = self.UpdatingObject("second spawn", events)
+        first = self.UpdatingObject("first", events, spawned=[first_spawn])
+        removed = self.UpdatingObject("removed", events, survives=False)
+        second = self.UpdatingObject("second", events, spawned=[second_spawn])
+        simulation = BattleSimulation.__new__(BattleSimulation)
+        simulation.game_objects = [first, removed, second]
+
+        simulation._update_objects()
+
+        self.assertEqual(events, ["first", "removed", "second"])
+        self.assertEqual(
+            simulation.game_objects,
+            [first, second, first_spawn, second_spawn],
+        )
+
+    def test_state_exposes_the_authoritative_game_objects_list(self):
+        simulation = SimulationInputTests.make_simulation()
+        authoritative = simulation.game_objects
+
+        state = simulation.state()
+
+        self.assertIs(state["game_objects"], authoritative)
+
+    def test_collision_cleanup_preserves_survivor_order_and_list_identity(self):
+        first = object()
+        live_ability = Ability.__new__(Ability)
+        live_ability.currently_alive = True
+        dead_ability = Ability.__new__(Ability)
+        dead_ability.currently_alive = False
+        live_asteroid = Asteroid.__new__(Asteroid)
+        live_asteroid.currently_alive = True
+        dead_asteroid = Asteroid.__new__(Asteroid)
+        dead_asteroid.currently_alive = False
+        last = object()
+        game_objects = [
+            first,
+            dead_ability,
+            live_ability,
+            dead_asteroid,
+            live_asteroid,
+            last,
+        ]
+        authoritative = game_objects
+
+        collisions._remove_dead_collision_objects(game_objects)
+
+        self.assertIs(game_objects, authoritative)
+        self.assertEqual(game_objects, [first, live_ability, live_asteroid, last])
+
+    def test_round_reset_preserves_group_and_intra_group_order(self):
+        retained_ship = SpaceShip.__new__(SpaceShip)
+        retained_ship.currently_alive = True
+        retained_ship.current_hp = 1
+        replaced_ship = SpaceShip.__new__(SpaceShip)
+        replacement_ship = SpaceShip.__new__(SpaceShip)
+        preserved_ability = Ability.__new__(Ability)
+        preserved_ability.parent = retained_ship
+        preserved_ability.currently_alive = True
+        preserved_ability.current_hp = 1
+        discarded_ability = Ability.__new__(Ability)
+        discarded_ability.parent = replaced_ship
+        discarded_ability.currently_alive = True
+        discarded_ability.current_hp = 1
+        first_persistent = object()
+        second_persistent = object()
+        game_objects = [
+            retained_ship,
+            first_persistent,
+            preserved_ability,
+            discarded_ability,
+            second_persistent,
+            replaced_ship,
+        ]
+
+        with (
+            mock.patch("src.Battle.battle.initialize_new_round_ships"),
+            mock.patch("src.Battle.battle.update_preserved_abilities"),
+        ):
+            reset_round_objects(
+                game_objects,
+                retained_ship,
+                replacement_ship,
+                retained_ship,
+                replaced_ship,
+            )
+
+        self.assertEqual(
+            game_objects,
+            [
+                first_persistent,
+                second_persistent,
+                preserved_ability,
+                retained_ship,
+                replacement_ship,
+            ],
+        )
+
+    def test_final_aftermath_effect_appends_after_survivors_when_ship_is_hidden(self):
+        dead_ship = ShipState()
+        dead_ship.player = 1
+        dead_ship.currently_alive = False
+        dead_ship.current_hp = 0
+        survivor = ShipState()
+        survivor.player = 2
+        survivor.currently_alive = True
+        survivor.current_hp = 1
+        first = object()
+        last = object()
+        effect = object()
+        game_objects = [first, dead_ship, last]
+        aftermath = {
+            "started_frame": 10,
+            "pending_explosions": [{
+                "frame": 10,
+                "ship": dead_ship,
+                "position": [1, 2],
+                "scale": 1.0,
+                "is_final": True,
+            }],
+            "death_effects": {1: []},
+            "ships_pending_hide": {dead_ship},
+            "ditty_started": False,
+            "tie_break_ship": None,
+        }
+
+        with mock.patch(
+            "src.Battle.battle.BattleEffect.ship_explosion",
+            return_value=effect,
+        ):
+            update_aftermath(
+                aftermath,
+                dead_ship,
+                survivor,
+                game_objects,
+                10,
+                sound_enabled=False,
+            )
+
+        self.assertEqual(game_objects, [first, last, effect])
 
 
 class CollisionCharacterizationTests(unittest.TestCase):

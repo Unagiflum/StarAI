@@ -1,22 +1,17 @@
 import pygame
 from src.UI import ui
-from src.Battle.effects import BattleEffect
-from src.Objects.object import ThrustMarker
-from src.Objects.Ships.space_ship import SpaceShip
-from src.Objects.Ships.ability import Ability
-from src.Objects.Space.space_obj import Star, Planet, Asteroid
+from src.Objects.Space.space_obj import Star
 from src.Battle.status_bar import draw_player_status
 import src.const as const
 from src.toroidal import view_center_and_size, wrapped_midpoint
+from src.Battle.world import World
 
 
 def calculate_view_parameters(game_objects, camera_targets=None):
+    world = World.coerce(game_objects)
     targets = camera_targets
     if targets is None:
-        targets = [
-            obj for obj in game_objects
-            if isinstance(obj, SpaceShip) and obj.currently_alive and obj.current_hp > 0
-        ]
+        targets = world.live_ships
 
     if len(targets) == 1:
         view_size = (const.SCREEN_HEIGHT / const.MAX_ZOOM) * 1.5
@@ -43,12 +38,10 @@ def calculate_view_parameters(game_objects, camera_targets=None):
 
 
 def draw_battle(screen, game_objects, border_rect, border_color, camera_targets=None):
-    scale_factor, translation = calculate_view_parameters(game_objects, camera_targets)
+    world = World.coerce(game_objects)
+    scale_factor, translation = calculate_view_parameters(world, camera_targets)
 
-    players = [
-        obj for obj in game_objects
-        if isinstance(obj, SpaceShip) and obj.currently_alive and obj.current_hp > 0
-    ]
+    players = world.live_ships
     if len(players) == 2:
         p1_pos, p2_pos = players[0].position, players[1].position
         midpoint = wrapped_midpoint(p1_pos, p2_pos)
@@ -59,36 +52,30 @@ def draw_battle(screen, game_objects, border_rect, border_color, camera_targets=
     screen.set_clip(border_rect)
 
     # Update and draw star layers
-    stars = [obj for obj in game_objects if isinstance(obj, Star)]
+    stars = world.stars
     for depth in range(const.STAR_DEPTHS):
         parallax_factor = 0.5 + 0.5 * (depth / (const.STAR_DEPTHS - 1))
         Star.update_depth_surface(depth, stars, scale_factor, translation, midpoint, parallax_factor)
         screen.blit(Star.depth_surfaces[depth], (0, 0))
 
     # Draw other objects normally
-    for obj in game_objects:
-        if isinstance(obj, Planet):
-            obj.draw(screen, scale_factor, translation)
+    for planet in world.planets:
+        planet.draw(screen, scale_factor, translation)
 
-    for obj in game_objects:
-        if isinstance(obj, ThrustMarker):
-            obj.draw(screen, scale_factor, translation)
+    for marker in world.thrust_markers:
+        marker.draw(screen, scale_factor, translation)
 
-    for obj in game_objects:
-        if isinstance(obj, Asteroid):
-            obj.draw(screen, scale_factor, translation)
+    for asteroid in world.asteroids:
+        asteroid.draw(screen, scale_factor, translation)
 
-    for obj in game_objects:
-        if isinstance(obj, Ability):
-            obj.draw(screen, scale_factor, translation)
+    for ability in world.abilities:
+        ability.draw(screen, scale_factor, translation)
 
-    for obj in game_objects:
-        if isinstance(obj, SpaceShip):
-            obj.draw(screen, scale_factor, translation)
+    for ship in world.ships:
+        ship.draw(screen, scale_factor, translation)
 
-    for obj in game_objects:
-        if isinstance(obj, BattleEffect):
-            obj.draw(screen, scale_factor, translation)
+    for effect in world.effects:
+        effect.draw(screen, scale_factor, translation)
 
     pygame.draw.rect(screen, border_color, border_rect, 2)
     screen.set_clip(None)
