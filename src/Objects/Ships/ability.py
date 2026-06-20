@@ -2,13 +2,8 @@ from src.Objects.object import PlayerObject
 import src.const as const
 import math
 import pygame
-import json
-from pathlib import Path
+from src.Objects.Ships.catalog import ABILITIES_DATA
 from src.toroidal import nearest_position, wrapped_delta
-
-# Load projectile data once at module level
-with open(const.ABILITIES_JSON_PATH, 'r') as f:
-    ABILITIES_DATA = json.load(f)
 
 
 def wrapped_endpoint(start, end):
@@ -19,7 +14,9 @@ class Ability(PlayerObject):
     _sprites = {}
     _masks = {}
     _end_anims = {}
+    _sizes = {}
     _launch_sounds = {}
+    _sound_load_attempted = set()
     sound_enabled = True
 
     def __init__(self, ability_name, parent):
@@ -28,87 +25,15 @@ class Ability(PlayerObject):
         # Initialize with temporary size, will be set after sprite loading
         super().__init__(
             name=ability_name,
-            sprite_location=Path(ability_data['file_path']),
+            sprite_location=const.source_path(ability_data['file_path']),
             sprite_scale=ability_data.get('sprite_scale', 1.0),
             size=[0, 0],
             player=parent.player
         )
 
-        # Load shared resources if not already loaded and sprites are enabled
-        if ability_name not in self._sprites:
-            self._sprites[ability_name] = []
-            self._masks[ability_name] = []
-            self._end_anims[ability_name] = []
-
-            if ability_data.get('has_sprites', True):
-                if ability_data['omnidirectional'] and ability_data.get('frames', 1) > 1:
-                    # Load animation frames for evolving ability sprites
-                    frames = []
-                    self.sizes = []
-                    for frame in range(ability_data['frames']):
-                        frame_path = Path(ability_data['file_path']) / f"{ability_name}00_{frame:02d}.png"
-                        if not frame_path.exists():
-                            frame_path = Path(ability_data['file_path']) / f"{ability_name}{frame:02d}.png"
-                        base_sprite = pygame.image.load(str(frame_path)).convert_alpha()
-                        scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
-                        frames.append(scaled_sprite)
-                        self._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
-                        self.sizes.append([scaled_sprite.get_width(), scaled_sprite.get_height()])
-                    self._sprites[ability_name].append(frames)
-                    self.size = self.sizes[0]
-                else:
-                    # Load base sprite
-                    base_sprite = pygame.image.load(
-                        str(Path(ability_data['file_path']) / f"{ability_name}00.png")).convert_alpha()
-                    scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
-                    self._sprites[ability_name].append(scaled_sprite)
-                    self._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
-                    self.size = [scaled_sprite.get_width(), scaled_sprite.get_height()]
-
-                    # Load additional directional sprites if not omnidirectional
-                    if not ability_data['omnidirectional']:
-                        for i in range(1, const.SHIP_DIRECTIONS):
-                            sprite_path = Path(ability_data['file_path']) / f"{ability_name}{i:02d}.png"
-                            base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
-                            scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
-                            self._sprites[ability_name].append(scaled_sprite)
-                            self._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
-            else:
-                self._sprites[ability_name] = None
-                self._masks[ability_name] = None
-
-            # Load end animation if it exists
-            if ability_data.get('end_anim', 0) > 0:
-                for i in range(ability_data['end_anim']):
-                    try:
-                        end_path = Path(ability_data['file_path']) / f"{ability_name}end{i:02d}.png"
-                        base_sprite = pygame.image.load(str(end_path)).convert_alpha()
-                        scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
-                        self._end_anims[ability_name].append(scaled_sprite)
-                    except pygame.error:
-                        break
-
-            # Load sound if it exists and sounds are enabled
-            self._launch_sounds[ability_name] = None
-            if ability_data.get('has_sound', True):
-                try:
-                    sound_path = Path(ability_data['file_path']) / f"{ability_name}.wav"
-                    self._launch_sounds[ability_name] = pygame.mixer.Sound(str(sound_path))
-                except (pygame.error, FileNotFoundError):
-                    self._launch_sounds[ability_name] = None
-        else:
-            # Sprites already loaded - set sizes based on existing sprites
-            if ability_data.get('has_sprites', True):
-                if ability_data['omnidirectional'] and ability_data.get('frames', 1) > 1:
-                    # Evolving projectile - get sizes from each frame
-                    self.sizes = [[sprite.get_width(), sprite.get_height()] for sprite in self._sprites[ability_name][0]]
-                    self.size = self.sizes[0]
-                else:
-                    # Non-evolving projectile - get size from first sprite
-                    self.size = [self._sprites[ability_name][0].get_width(),
-                                 self._sprites[ability_name][0].get_height()]
-            else:
-                self.size = [0, 0]
+        self.preload_resources(ability_name)
+        self.sizes = self._sizes[ability_name]
+        self.size = self.sizes[0].copy() if self.sizes else [0, 0]
 
         self.sprites = self._sprites[ability_name]
         self.masks = self._masks[ability_name]
@@ -161,12 +86,79 @@ class Ability(PlayerObject):
             self.can_collide = False
 
         self.expiration_timer = int(self.life_time * const.PROJ_LIFE_SCALE)
-        # Load projectile-specific module
-        try:
-            module_path = f"{ability_data['file_path']}{ability_data['ship_name']}{ability_data['action']}"
-            self.projectile_module = __import__(module_path, fromlist=[''])
-        except ImportError:
-            self.projectile_module = None
+
+    @classmethod
+    def preload_resources(cls, ability_name):
+        """Load and cache an ability's shared visual and audio resources."""
+        ability_data = ABILITIES_DATA[ability_name]
+        resource_dir = const.source_path(ability_data['file_path'])
+        sprite_scale = ability_data.get('sprite_scale', 1.0)
+
+        if ability_name not in cls._sprites:
+            cls._sprites[ability_name] = []
+            cls._masks[ability_name] = []
+            cls._end_anims[ability_name] = []
+            cls._sizes[ability_name] = []
+
+            if ability_data.get('has_sprites', True):
+                if ability_data['omnidirectional'] and ability_data.get('frames', 1) > 1:
+                    frames = []
+                    for frame in range(ability_data['frames']):
+                        frame_path = resource_dir / f"{ability_name}00_{frame:02d}.png"
+                        if not frame_path.exists():
+                            frame_path = resource_dir / f"{ability_name}{frame:02d}.png"
+                        base_sprite = pygame.image.load(str(frame_path)).convert_alpha()
+                        scaled_sprite = pygame.transform.smoothscale_by(base_sprite, sprite_scale)
+                        frames.append(scaled_sprite)
+                        cls._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
+                        cls._sizes[ability_name].append(
+                            [scaled_sprite.get_width(), scaled_sprite.get_height()]
+                        )
+                    cls._sprites[ability_name].append(frames)
+                else:
+                    base_sprite = pygame.image.load(
+                        str(resource_dir / f"{ability_name}00.png")
+                    ).convert_alpha()
+                    scaled_sprite = pygame.transform.smoothscale_by(base_sprite, sprite_scale)
+                    cls._sprites[ability_name].append(scaled_sprite)
+                    cls._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
+                    cls._sizes[ability_name].append(
+                        [scaled_sprite.get_width(), scaled_sprite.get_height()]
+                    )
+
+                    if not ability_data['omnidirectional']:
+                        for index in range(1, const.SHIP_DIRECTIONS):
+                            sprite_path = resource_dir / f"{ability_name}{index:02d}.png"
+                            base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
+                            scaled_sprite = pygame.transform.smoothscale_by(base_sprite, sprite_scale)
+                            cls._sprites[ability_name].append(scaled_sprite)
+                            cls._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
+            else:
+                cls._sprites[ability_name] = None
+                cls._masks[ability_name] = None
+
+            for index in range(ability_data.get('end_anim', 0)):
+                try:
+                    end_path = resource_dir / f"{ability_name}end{index:02d}.png"
+                    base_sprite = pygame.image.load(str(end_path)).convert_alpha()
+                    cls._end_anims[ability_name].append(
+                        pygame.transform.smoothscale_by(base_sprite, sprite_scale)
+                    )
+                except (pygame.error, FileNotFoundError):
+                    break
+
+        cls._launch_sounds.setdefault(ability_name, None)
+        if (
+            cls.sound_enabled and
+            ability_name not in cls._sound_load_attempted and
+            ability_data.get('has_sound', True)
+        ):
+            cls._sound_load_attempted.add(ability_name)
+            try:
+                sound_path = resource_dir / f"{ability_name}.wav"
+                cls._launch_sounds[ability_name] = pygame.mixer.Sound(str(sound_path))
+            except (pygame.error, FileNotFoundError):
+                cls._launch_sounds[ability_name] = None
 
     def update_heading(self):
 

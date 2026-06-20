@@ -1,6 +1,5 @@
 import pygame
 import json
-import os
 import sys
 import random
 import math
@@ -9,9 +8,8 @@ from src.UI import ui, ui_button, ui_box
 import src.const as Const
 
 from src.Battle import battle
-
-with open(Const.SHIPS_JSON_PATH, 'r') as f:
-    SHIPS_DATA = json.load(f)
+from src.Objects.Ships.catalog import SHIPS_DATA
+from src.Objects.Ships.registry import create_ship, preload_ship_ability_resources
 
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT * 0.08)
 HIGHLIGHT_COLOR = (50, 50, 75)
@@ -45,26 +43,14 @@ def load_fleet_data():
         with open(Const.FLEETS_JSON_PATH, 'r') as f:
             fleet_data = json.load(f)
 
-        with open(Const.ABILITIES_JSON_PATH, 'r') as f:
-            projectiles_data = json.load(f)
+        ship_names = set(
+            fleet_data["Player1"]["ships"] + fleet_data["Player2"]["ships"]
+        )
+        for ship_name in ship_names:
+            preload_ship_ability_resources(ship_name)
 
-
-        def get_ship_class(ship_name, player_num):
-            # Import and instantiate ship
-            ship_module = __import__(f"src.Objects.Ships.{ship_name}.{ship_name}", fromlist=[''])
-            ship = getattr(ship_module, ship_name)(ship_name, player_num)
-
-            # Import and instantiate associated projectiles to load resources
-            for proj_name, proj_data in projectiles_data.items():
-                if proj_data["ship_name"] == ship_name:
-                    proj_module = __import__(f"src.Objects.Ships.{ship_name}.{proj_data['action']}.{proj_name}",
-                                             fromlist=[''])
-                    getattr(proj_module, proj_name)(ship)
-            return ship
-
-
-        player1_ships = [get_ship_class(ship_name, 1) for ship_name in fleet_data["Player1"]["ships"]]
-        player2_ships = [get_ship_class(ship_name, 2) for ship_name in fleet_data["Player2"]["ships"]]
+        player1_ships = [create_ship(ship_name, 1) for ship_name in fleet_data["Player1"]["ships"]]
+        player2_ships = [create_ship(ship_name, 2) for ship_name in fleet_data["Player2"]["ships"]]
         return fleet_data, player1_ships, player2_ships
 
     except Exception as e:
@@ -74,7 +60,7 @@ def load_fleet_data():
 
 def load_ship_sprite(ship_name):
     try:
-        sprite_path = os.path.join(SHIPS_DATA[ship_name]['sprite_path'], f'{ship_name}00.png')
+        sprite_path = Const.source_path(SHIPS_DATA[ship_name]['sprite_path']) / f'{ship_name}00.png'
         sprite = pygame.image.load(sprite_path).convert_alpha()
         return sprite, sprite.get_size()
     except Exception as e:

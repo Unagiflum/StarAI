@@ -1,6 +1,5 @@
 from src.Objects.Ships.ability import Ability, ABILITIES_DATA
 import pygame
-from pathlib import Path
 import random
 import glob
 import src.const as const
@@ -17,7 +16,7 @@ class PkunkA2(Ability):
         if not self.sound_enabled:
             return
 
-        sound_dir = Path(ability_data['file_path'])
+        sound_dir = const.source_path(ability_data['file_path'])
         pattern = str(sound_dir / "PkunkA2[0-9][0-9].wav")
 
         for sound_path in glob.glob(pattern):

@@ -2,8 +2,7 @@ from src.Objects.object import PlayerObject, ThrustMarker
 import src.const as const
 import math
 import pygame
-import json
-from pathlib import Path
+from src.Objects.Ships.catalog import SHIPS_DATA
 
 
 CONTROL_STATE_ATTRIBUTES = {
@@ -14,10 +13,6 @@ CONTROL_STATE_ATTRIBUTES = {
     "action2": "action2_active",
 }
 
-# Load ship data once at module level
-with open(const.SHIPS_JSON_PATH, 'r') as f:
-    SHIPS_DATA = json.load(f)
-
 class SpaceShip(PlayerObject):
     # Class-level storage for shared sprites
     _shared_sprites = {}
@@ -26,7 +21,7 @@ class SpaceShip(PlayerObject):
     def __init__(self, ship_name, player_num):
         # Get ship-specific data from cached data
         ship_data = SHIPS_DATA[ship_name]
-        sprite_location = Path(ship_data['sprite_path'])
+        sprite_location = const.source_path(ship_data['sprite_path'])
 
         # Initialize the PlayerObject base class
         super().__init__(
@@ -106,12 +101,6 @@ class SpaceShip(PlayerObject):
         self.newly_pressed_controls = set()
         self.released_controls = set()
         self.reset_controls()
-
-        # Load optional ship module
-        try:
-            self.ship_module = __import__(f"Objects.Ships.{ship_name}.{ship_name}", fromlist=[''])
-        except ImportError:
-            self.ship_module = None
 
     def initialize_in_battle(self, position, heading):
         self.position = list(position)

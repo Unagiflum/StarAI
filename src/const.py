@@ -2,6 +2,16 @@
 import pygame
 from pathlib import Path
 
+
+SOURCE_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = SOURCE_ROOT.parent
+
+
+def source_path(path):
+    """Resolve a path stored relative to the source/resource directory."""
+    path = Path(path)
+    return path if path.is_absolute() else SOURCE_ROOT / path
+
 # Screen
 SCREEN_HEIGHT = 960
 SCREEN_WIDTH = int(SCREEN_HEIGHT*1.6)
@@ -38,7 +48,7 @@ STAR_ALPHA = 200
 
 #Asteroids
 ASTEROID_COUNT = 5 # Asteroid placing function will get stuck if you have too many
-ASTEROID_PATH = Path("Objects/Space/Asteroid")
+ASTEROID_PATH = source_path("Objects/Space/Asteroid")
 ASTEROID_SPEED = 30
 
 #Ships
@@ -57,21 +67,21 @@ PROJ_SPEED_SCALE = 1.25
 PROJ_GAP = 5
 
 #File Paths
-GAME_JSON_PATH = Path("Config/game_settings.json")
-TRAINING_JSON_PATH = Path("Config/train_settings.json")
-FLEETS_JSON_PATH = Path("Config/fleets.json") #os.path.join("Config","fleets.json")
+GAME_JSON_PATH = source_path("Config/game_settings.json")
+TRAINING_JSON_PATH = source_path("Config/train_settings.json")
+FLEETS_JSON_PATH = source_path("Config/fleets.json")
 
-SHIPS_JSON_PATH = Path("Objects/Ships/space_ships.json")
-ABILITIES_JSON_PATH = Path("Objects/Ships/abilities.json")
-PLANETS_JSON_PATH = Path("Objects/Space/planets.json")
-STARS_JSON_PATH = Path("Objects/Space/stars.json")
+SHIPS_JSON_PATH = source_path("Objects/Ships/space_ships.json")
+ABILITIES_JSON_PATH = source_path("Objects/Ships/abilities.json")
+PLANETS_JSON_PATH = source_path("Objects/Space/planets.json")
+STARS_JSON_PATH = source_path("Objects/Space/stars.json")
 
-BATTLE_MUSIC_PATH = Path("Battle/Resources/battle.ogg")
+BATTLE_MUSIC_PATH = source_path("Battle/Resources/battle.ogg")
 BATTLE_MUSIC_VOLUME = 0.2
 
-MAIN_BG_PATH = Path("UI/Resources/Main.png")
-MENU_BG_PATH = Path("UI/Resources/Menu.png")
-MENU_WAV_PATH = Path("UI/Resources/Menu.wav")
+MAIN_BG_PATH = source_path("UI/Resources/Main.png")
+MENU_BG_PATH = source_path("UI/Resources/Menu.png")
+MENU_WAV_PATH = source_path("UI/Resources/Menu.wav")
 
 # Default settings
 DEFAULT_KEYS = {

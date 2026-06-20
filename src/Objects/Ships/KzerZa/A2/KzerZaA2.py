@@ -1,5 +1,4 @@
 import math
-from pathlib import Path
 
 import pygame
 
@@ -219,7 +218,7 @@ class KzerZaA2(Ability):
             if sound_name in cls._fighter_sounds:
                 continue
             try:
-                sound = pygame.mixer.Sound(str(Path(file_path) / filename))
+                sound = pygame.mixer.Sound(str(const.source_path(file_path) / filename))
                 sound.set_volume(const.SOUND_EFFECT_VOLUME)
                 cls._fighter_sounds[sound_name] = sound
             except (pygame.error, FileNotFoundError):

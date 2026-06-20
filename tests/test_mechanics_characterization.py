@@ -10,7 +10,6 @@ from unittest import mock
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
-os.chdir(PROJECT_ROOT / "src")
 
 import pygame
 

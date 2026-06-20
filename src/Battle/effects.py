@@ -1,5 +1,4 @@
 import math
-from pathlib import Path
 
 import pygame
 
@@ -7,7 +6,7 @@ import src.const as const
 from src.Objects.object import Object
 
 
-BATTLE_ASSET_PATH = Path("Objects/Battle")
+BATTLE_ASSET_PATH = const.source_path("Objects/Battle")
 
 
 class BattleEffect(Object):

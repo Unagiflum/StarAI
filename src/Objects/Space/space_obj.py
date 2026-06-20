@@ -2,7 +2,6 @@ import math
 from src.Objects.object import Object
 import src.const as Const
 import pygame
-from pathlib import Path
 import json
 import random
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_distance
@@ -32,7 +31,7 @@ class Planet(Object):
             size=[self.diameter, self.diameter]
         )
 
-        self.image = pygame.image.load(str(Path(planet_data['Image']))).convert_alpha()
+        self.image = pygame.image.load(str(Const.source_path(planet_data['Image']))).convert_alpha()
         if self.image.get_size() != (self.diameter, self.diameter):
             self.image = pygame.transform.smoothscale(self.image, (self.diameter, self.diameter))
         self.mask = pygame.mask.from_surface(self.image)
@@ -123,7 +122,7 @@ class Star(Object):
             size=[self.diameter, self.diameter]
         )
 
-        self.image = pygame.image.load(str(Path(star_data['Image']))).convert_alpha()
+        self.image = pygame.image.load(str(Const.source_path(star_data['Image']))).convert_alpha()
         self.can_move = False
         self.can_die = False
         self.can_collide = False
