@@ -5,6 +5,7 @@ from src.Objects.Ships.Ilwrath.A2.IlwrathA2 import IlwrathA2
 import src.const as const
 import pygame
 import math
+from src.toroidal import wrapped_delta
 
 
 class Ilwrath(SpaceShip):
@@ -75,13 +76,7 @@ class Ilwrath(SpaceShip):
 
     def face_opponent(self):
         if self.opponent and self.opponent.trackable:
-            dx = self.opponent.position[0] - self.position[0]
-            dy = self.opponent.position[1] - self.position[1]
-
-            if abs(dx) > const.ARENA_SIZE / 2:
-                dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
-            if abs(dy) > const.ARENA_SIZE / 2:
-                dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
+            dx, dy = wrapped_delta(self.position, self.opponent.position)
 
             target_angle = math.degrees(math.atan2(dx, -dy))
             if target_angle < 0:

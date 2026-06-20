@@ -4,6 +4,7 @@ import math
 import pygame
 import json
 from pathlib import Path
+from src.toroidal import nearest_position, wrapped_delta
 
 # Load projectile data once at module level
 with open(const.ABILITIES_JSON_PATH, 'r') as f:
@@ -11,15 +12,7 @@ with open(const.ABILITIES_JSON_PATH, 'r') as f:
 
 
 def wrapped_endpoint(start, end):
-    dx = end[0] - start[0]
-    dy = end[1] - start[1]
-
-    if abs(dx) > const.ARENA_SIZE / 2:
-        dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
-    if abs(dy) > const.ARENA_SIZE / 2:
-        dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
-
-    return [start[0] + dx, start[1] + dy]
+    return nearest_position(end, start)
 
 class Ability(PlayerObject):
     # Class-level storage
@@ -185,14 +178,7 @@ class Ability(PlayerObject):
 
         if self.tracking and self.opponent:
             # Find opponent
-            dx = self.opponent.position[0] - self.position[0]
-            dy = self.opponent.position[1] - self.position[1]
-
-            # Account for arena wrapping
-            if abs(dx) > const.ARENA_SIZE / 2:
-                dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
-            if abs(dy) > const.ARENA_SIZE / 2:
-                dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
+            dx, dy = wrapped_delta(self.position, self.opponent.position)
 
             # Calculate target angle
             target_angle = math.degrees(math.atan2(dx, -dy))

@@ -5,6 +5,12 @@ from src.Battle.effects import BattleEffect
 from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
+from src.toroidal import (
+    nearest_position as _nearest_position,
+    view_center_and_size as _view_center_and_size,
+    wrapped_delta as _wrapped_delta,
+    wrapped_distance,
+)
 
 
 PLANET_CONTACT_EXIT_MARGIN = 4.0
@@ -713,20 +719,6 @@ def _object_on_screen(obj, ships):
     return abs(delta[0]) <= view_size / 2 + margin and abs(delta[1]) <= view_size / 2 + margin
 
 
-def _view_center_and_size(positions):
-    p1_pos, p2_pos = positions
-    delta = _wrapped_delta(p1_pos, p2_pos)
-    view_center = [
-        (p1_pos[0] + delta[0] / 2) % const.ARENA_SIZE,
-        (p1_pos[1] + delta[1] / 2) % const.ARENA_SIZE,
-    ]
-    distance = math.hypot(delta[0], delta[1])
-    min_view_size = const.SCREEN_HEIGHT / const.MAX_ZOOM
-    view_size = min(max(distance / 0.8, min_view_size), const.ARENA_SIZE / 2)
-    scale_factor = min(const.MAX_ZOOM, const.SCREEN_HEIGHT / view_size)
-    return view_center, const.SCREEN_HEIGHT / scale_factor
-
-
 def _set_projectile_hp(projectile, hp):
     if hasattr(projectile, "set_hp"):
         projectile.set_hp(max(0, hp))
@@ -898,17 +890,8 @@ def _mask_broadphase_overlap_at_positions(obj, other, obj_position, other_positi
     return _mask_radius(obj) + _mask_radius(other) - distance > 0
 
 
-def _nearest_position(position, reference):
-    delta = _wrapped_delta(reference, position)
-    return [
-        reference[0] + delta[0],
-        reference[1] + delta[1],
-    ]
-
-
 def _distance_between(obj, other):
-    delta = _wrapped_delta(obj.position, other.position)
-    return math.hypot(delta[0], delta[1])
+    return wrapped_distance(obj.position, other.position)
 
 
 def _distance_from_segment_to_point(start, end, point):
@@ -979,18 +962,6 @@ def _segment_direction(start, end):
     if length == 0:
         return [0, -1]
     return [dx / length, dy / length]
-
-
-def _wrapped_delta(from_position, to_position):
-    dx = to_position[0] - from_position[0]
-    dy = to_position[1] - from_position[1]
-
-    if abs(dx) > const.ARENA_SIZE / 2:
-        dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
-    if abs(dy) > const.ARENA_SIZE / 2:
-        dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
-
-    return [dx, dy]
 
 
 def _radius(obj):

@@ -1,9 +1,9 @@
 import pygame
 import json
 import random
-import math
 
 import src.const as const
+from src.toroidal import wrapped_distance
 from src.Objects.Space.space_obj import Planet, Star, Asteroid
 from src.Objects.Ships.space_ship import SpaceShip
 
@@ -30,11 +30,7 @@ def get_random_position():
 
 
 def validate_ship_positions(pos1, pos2):
-    dx = abs(pos1[0] - pos2[0])
-    dy = abs(pos1[1] - pos2[1])
-    dx = min(dx, const.ARENA_SIZE - dx)
-    dy = min(dy, const.ARENA_SIZE - dy)
-    return math.sqrt(dx * dx + dy * dy) >= const.MIN_SHIP_SEPARATION
+    return wrapped_distance(pos1, pos2) >= const.MIN_SHIP_SEPARATION
 
 
 def get_valid_ship_positions():

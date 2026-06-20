@@ -6,6 +6,7 @@ import pygame
 import src.const as const
 from src.Objects.Ships.ability import Ability, ABILITIES_DATA
 from src.Objects.Ships.KzerZa.A2.KzerZaA2Laser import KzerZaA2Laser
+from src.toroidal import wrapped_delta
 
 
 class KzerZaA2(Ability):
@@ -123,7 +124,7 @@ class KzerZaA2(Ability):
             flank_destinations,
             key=lambda position: sum(
                 component * component
-                for component in _wrapped_delta(self.position, position)
+                for component in wrapped_delta(self.position, position)
             ),
         )
 
@@ -146,7 +147,7 @@ class KzerZaA2(Ability):
         ]
 
     def _move_toward(self, destination):
-        dx, dy = _wrapped_delta(self.position, destination)
+        dx, dy = wrapped_delta(self.position, destination)
         distance = math.hypot(dx, dy)
         if distance <= 0:
             self.velocity = [0.0, 0.0]
@@ -159,7 +160,7 @@ class KzerZaA2(Ability):
         self.position[1] = (self.position[1] + self.velocity[1] * const.SPEED_SCALE) % const.ARENA_SIZE
 
     def _is_at_position(self, destination):
-        dx, dy = _wrapped_delta(self.position, destination)
+        dx, dy = wrapped_delta(self.position, destination)
         return math.hypot(dx, dy) <= 0.5
 
     def _move_around_planet(self, destination):
@@ -169,7 +170,7 @@ class KzerZaA2(Ability):
             self._move_toward(destination)
             return
 
-        dx, dy = _wrapped_delta(self.position, destination)
+        dx, dy = wrapped_delta(self.position, destination)
         if tangent[0] * dx + tangent[1] * dy < 0:
             tangent = [-tangent[0], -tangent[1]]
             self.planet_avoidance = (planet, tangent)
@@ -254,19 +255,9 @@ class KzerZaA2(Ability):
         self.heading = round(self.rotation / const.TURN_ANGLE) % const.SHIP_DIRECTIONS
 
 
-def _wrapped_delta(start, end):
-    dx = end[0] - start[0]
-    dy = end[1] - start[1]
-    if abs(dx) > const.ARENA_SIZE / 2:
-        dx += -const.ARENA_SIZE if dx > 0 else const.ARENA_SIZE
-    if abs(dy) > const.ARENA_SIZE / 2:
-        dy += -const.ARENA_SIZE if dy > 0 else const.ARENA_SIZE
-    return dx, dy
-
-
 def _segment_intersects_body(start, end, body, fighter_size):
-    dx, dy = _wrapped_delta(start, end)
-    cx, cy = _wrapped_delta(start, body.position)
+    dx, dy = wrapped_delta(start, end)
+    cx, cy = wrapped_delta(start, body.position)
     length_squared = dx * dx + dy * dy
     if length_squared == 0:
         return False

@@ -2,6 +2,7 @@ from src.Objects.Ships.ability import Ability, ABILITIES_DATA, wrapped_endpoint
 import pygame
 import math
 import src.const as const
+from src.toroidal import wrapped_delta, wrapped_distance
 
 
 class EarthlingA2(Ability):
@@ -17,13 +18,7 @@ class EarthlingA2(Ability):
             self.calculate_end_position()
 
     def _distance_to(self, target):
-        dx = target.position[0] - self.parent.position[0]
-        dy = target.position[1] - self.parent.position[1]
-        if abs(dx) > const.ARENA_SIZE / 2:
-            dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
-        if abs(dy) > const.ARENA_SIZE / 2:
-            dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
-        return (dx * dx + dy * dy) ** 0.5
+        return wrapped_distance(self.parent.position, target.position)
 
     def _is_in_range(self, target):
         return self._distance_to(target) <= self.LASER_RANGE
@@ -53,13 +48,7 @@ class EarthlingA2(Ability):
         return [EarthlingA2(self.parent, valid_targets[i]) for i in range(shots)]
 
     def calculate_end_position(self):
-        dx = self.target.position[0] - self.position[0]
-        dy = self.target.position[1] - self.position[1]
-
-        if abs(dx) > const.ARENA_SIZE / 2:
-            dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
-        if abs(dy) > const.ARENA_SIZE / 2:
-            dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
+        dx, dy = wrapped_delta(self.position, self.target.position)
 
         angle = math.atan2(dy, dx)
         self.end_position[0] = (self.position[0] + math.cos(angle) * self.LASER_RANGE)

@@ -4,6 +4,7 @@ import pygame
 
 import src.const as const
 from src.Objects.Ships.ability import Ability, ABILITIES_DATA, wrapped_endpoint
+from src.toroidal import wrapped_delta
 
 
 class KzerZaA2Laser(Ability):
@@ -22,7 +23,7 @@ class KzerZaA2Laser(Ability):
         self.calculate_end_position()
 
     def calculate_end_position(self):
-        dx, dy = _wrapped_delta(self.parent.position, self.aim_target.position)
+        dx, dy = wrapped_delta(self.parent.position, self.aim_target.position)
         target_angle = math.degrees(math.atan2(dx, -dy)) % 360
         direction_step = 360 / self.track_directions
         shot_angle = round(target_angle / direction_step) * direction_step
@@ -66,13 +67,3 @@ class KzerZaA2Laser(Ability):
                         (const.SCREEN_LEFT + line[2], line[3]),
                         max(1, int(self.LASER_WIDTH * scale_factor)),
                     )
-
-
-def _wrapped_delta(start, end):
-    dx = end[0] - start[0]
-    dy = end[1] - start[1]
-    if abs(dx) > const.ARENA_SIZE / 2:
-        dx += -const.ARENA_SIZE if dx > 0 else const.ARENA_SIZE
-    if abs(dy) > const.ARENA_SIZE / 2:
-        dy += -const.ARENA_SIZE if dy > 0 else const.ARENA_SIZE
-    return dx, dy

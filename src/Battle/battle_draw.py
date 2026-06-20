@@ -7,6 +7,7 @@ from src.Objects.Ships.ability import Ability
 from src.Objects.Space.space_obj import Star, Planet, Asteroid
 from src.Battle.status_bar import draw_player_status
 import src.const as const
+from src.toroidal import view_center_and_size, wrapped_midpoint
 
 
 def calculate_view_parameters(game_objects, camera_targets=None):
@@ -28,28 +29,14 @@ def calculate_view_parameters(game_objects, camera_targets=None):
     if len(targets) < 2:
         return 1.0, [0, 0]
 
-    p1_pos = targets[0].position
-    p2_pos = targets[1].position
-
-    dx = p2_pos[0] - p1_pos[0]
-    dy = p2_pos[1] - p1_pos[1]
-
-    if abs(dx) > const.ARENA_SIZE / 2:
-        dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
-    if abs(dy) > const.ARENA_SIZE / 2:
-        dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
-
-    mid_x = (p1_pos[0] + dx / 2) % const.ARENA_SIZE
-    mid_y = (p1_pos[1] + dy / 2) % const.ARENA_SIZE
-
-    distance = (dx ** 2 + dy ** 2) ** 0.5
-    min_view_size = const.SCREEN_HEIGHT / const.MAX_ZOOM
-    view_size = min(max(distance / 0.8, min_view_size), const.ARENA_SIZE / 2)
+    center, view_size = view_center_and_size(
+        [targets[0].position, targets[1].position]
+    )
 
     scale_factor = min(const.MAX_ZOOM, const.SCREEN_HEIGHT / view_size)
     translation = [
-        const.SCREEN_HEIGHT / (2 * scale_factor) - mid_x,
-        const.SCREEN_HEIGHT / (2 * scale_factor) - mid_y
+        const.SCREEN_HEIGHT / (2 * scale_factor) - center[0],
+        const.SCREEN_HEIGHT / (2 * scale_factor) - center[1]
     ]
 
     return scale_factor, translation
@@ -64,16 +51,7 @@ def draw_battle(screen, game_objects, border_rect, border_color, camera_targets=
     ]
     if len(players) == 2:
         p1_pos, p2_pos = players[0].position, players[1].position
-        dx = p2_pos[0] - p1_pos[0]
-        dy = p2_pos[1] - p1_pos[1]
-
-        if abs(dx) > const.ARENA_SIZE / 2:
-            dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
-        if abs(dy) > const.ARENA_SIZE / 2:
-            dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
-
-        midpoint = [(p1_pos[0] + dx / 2) % const.ARENA_SIZE,
-                    (p1_pos[1] + dy / 2) % const.ARENA_SIZE]
+        midpoint = wrapped_midpoint(p1_pos, p2_pos)
     else:
         midpoint = [const.ARENA_SIZE / 2, const.ARENA_SIZE / 2]
 

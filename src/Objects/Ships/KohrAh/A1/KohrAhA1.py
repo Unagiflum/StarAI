@@ -1,6 +1,7 @@
 from src.Objects.Ships.ability import Ability, ABILITIES_DATA
 import src.const as const
 import math
+from src.toroidal import wrapped_delta
 
 class KohrAhA1(Ability):
     def __init__(self, parent):
@@ -52,14 +53,7 @@ class KohrAhA1(Ability):
     def update_heading(self):
         if not self.is_moving and self.opponent and self.opponent.trackable:
             # Calculate distance to opponent
-            dx = self.opponent.position[0] - self.position[0]
-            dy = self.opponent.position[1] - self.position[1]
-
-            # Handle arena wrapping
-            if abs(dx) > const.ARENA_SIZE / 2:
-                dx = dx - const.ARENA_SIZE if dx > 0 else dx + const.ARENA_SIZE
-            if abs(dy) > const.ARENA_SIZE / 2:
-                dy = dy - const.ARENA_SIZE if dy > 0 else dy + const.ARENA_SIZE
+            dx, dy = wrapped_delta(self.position, self.opponent.position)
 
             distance = math.sqrt(dx * dx + dy * dy)
 

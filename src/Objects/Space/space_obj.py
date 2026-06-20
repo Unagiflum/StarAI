@@ -5,6 +5,7 @@ import pygame
 from pathlib import Path
 import json
 import random
+from src.toroidal import view_center_and_size, wrapped_delta, wrapped_distance
 
 class Planet(Object):
     # Load planet data once at module level
@@ -147,13 +148,7 @@ class Star(Object):
         surface.fill((0, 0, 0, 0))
 
         for star in Star.stars_by_depth[depth]:
-            dx = star.position[0] - midpoint[0]
-            dy = star.position[1] - midpoint[1]
-
-            if abs(dx) > Const.ARENA_SIZE / 2:
-                dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
-            if abs(dy) > Const.ARENA_SIZE / 2:
-                dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+            dx, dy = wrapped_delta(midpoint, star.position)
 
             relative_x = midpoint[0] + dx * parallax_factor
             relative_y = midpoint[1] + dy * parallax_factor
@@ -240,12 +235,7 @@ class Asteroid(Object):
         self.planet = planet
 
     def planet_distance(self):
-        dx = self.planet.position[0] - self.position[0]
-        dy = self.planet.position[1] - self.position[1]
-        if abs(dx) > Const.ARENA_SIZE / 2:
-            dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
-        if abs(dy) > Const.ARENA_SIZE / 2:
-            dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
+        dx, dy = wrapped_delta(self.position, self.planet.position)
         distance = math.sqrt(dx * dx + dy * dy)
         return [dx, dy], distance
 
@@ -292,7 +282,7 @@ class Asteroid(Object):
 
     def _position_is_outside_gravity(self, position, planet):
         asteroid_radius = max(self.size[0], self.size[1]) / 2
-        return self._distance_between_positions(position, planet.position) >= Const.GRAVITY_RANGE + asteroid_radius
+        return wrapped_distance(position, planet.position) >= Const.GRAVITY_RANGE + asteroid_radius
 
     def _position_is_away_from_bodies(self, position, bodies, minimum_distance):
         for body in bodies:
@@ -300,7 +290,7 @@ class Asteroid(Object):
                 continue
             if not getattr(body, "can_collide", True):
                 continue
-            if self._distance_between_positions(position, body.position) < minimum_distance:
+            if wrapped_distance(position, body.position) < minimum_distance:
                 return False
         return True
 
@@ -308,40 +298,10 @@ class Asteroid(Object):
         if len(view_bodies) != 2:
             return True
 
-        view_center, view_size = self._view_center_and_size([body.position for body in view_bodies])
-        dx = abs(position[0] - view_center[0])
-        dy = abs(position[1] - view_center[1])
-        dx = min(dx, Const.ARENA_SIZE - dx)
-        dy = min(dy, Const.ARENA_SIZE - dy)
+        view_center, view_size = view_center_and_size([body.position for body in view_bodies])
+        dx, dy = wrapped_delta(view_center, position)
         asteroid_radius = max(self.size[0], self.size[1]) / 2
-        return dx > view_size / 2 + asteroid_radius or dy > view_size / 2 + asteroid_radius
-
-    def _view_center_and_size(self, positions):
-        p1_pos, p2_pos = positions
-        dx = p2_pos[0] - p1_pos[0]
-        dy = p2_pos[1] - p1_pos[1]
-
-        if abs(dx) > Const.ARENA_SIZE / 2:
-            dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
-        if abs(dy) > Const.ARENA_SIZE / 2:
-            dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
-
-        view_center = [
-            (p1_pos[0] + dx / 2) % Const.ARENA_SIZE,
-            (p1_pos[1] + dy / 2) % Const.ARENA_SIZE
-        ]
-        distance = math.sqrt(dx * dx + dy * dy)
-        min_view_size = Const.SCREEN_HEIGHT / Const.MAX_ZOOM
-        view_size = min(max(distance / 0.8, min_view_size), Const.ARENA_SIZE / 2)
-        scale_factor = min(Const.MAX_ZOOM, Const.SCREEN_HEIGHT / view_size)
-        return view_center, Const.SCREEN_HEIGHT / scale_factor
-
-    def _distance_between_positions(self, position, other_position):
-        dx = abs(position[0] - other_position[0])
-        dy = abs(position[1] - other_position[1])
-        dx = min(dx, Const.ARENA_SIZE - dx)
-        dy = min(dy, Const.ARENA_SIZE - dy)
-        return math.sqrt(dx * dx + dy * dy)
+        return abs(dx) > view_size / 2 + asteroid_radius or abs(dy) > view_size / 2 + asteroid_radius
 
     def get_gravity(self):
         if not self.can_move or not self.planet:
@@ -384,7 +344,7 @@ class Asteroid(Object):
     def _candidate_overlaps_object(self, candidate_mask, candidate_size, other):
         other_mask = other.get_collision_mask() if hasattr(other, "get_collision_mask") else None
         other_size = other_mask.get_size() if other_mask else other.size
-        delta = self._wrapped_delta(other.position, self.position)
+        delta = wrapped_delta(other.position, self.position)
         radius_sum = max(candidate_size) / 2 + max(other_size) / 2
         if math.hypot(delta[0], delta[1]) >= radius_sum:
             return False
@@ -397,18 +357,6 @@ class Asteroid(Object):
             int(round(-delta[1] + candidate_size[1] / 2 - other_size[1] / 2)),
         )
         return candidate_mask.overlap(other_mask, offset) is not None
-
-    @staticmethod
-    def _wrapped_delta(from_position, to_position):
-        dx = to_position[0] - from_position[0]
-        dy = to_position[1] - from_position[1]
-
-        if abs(dx) > Const.ARENA_SIZE / 2:
-            dx = dx - Const.ARENA_SIZE if dx > 0 else dx + Const.ARENA_SIZE
-        if abs(dy) > Const.ARENA_SIZE / 2:
-            dy = dy - Const.ARENA_SIZE if dy > 0 else dy + Const.ARENA_SIZE
-
-        return [dx, dy]
 
     def update(self):
         self.previous_position = self.position.copy()
