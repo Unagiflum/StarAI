@@ -10,6 +10,7 @@ import src.const as Const
 from src.Battle import battle
 from src.Objects.Ships.catalog import SHIPS_DATA
 from src.Objects.Ships.registry import create_ship, preload_ship_ability_resources
+from src.resources import default_assets
 
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT * 0.08)
 HIGHLIGHT_COLOR = (50, 50, 75)
@@ -58,10 +59,9 @@ def load_fleet_data():
         return None, [], []
 
 
-def load_ship_sprite(ship_name):
+def load_ship_sprite(ship_name, resources=None):
     try:
-        sprite_path = Const.source_path(SHIPS_DATA[ship_name]['sprite_path']) / f'{ship_name}00.png'
-        sprite = pygame.image.load(sprite_path).convert_alpha()
+        sprite = (resources or default_assets()).menu_ship_sprite(ship_name)
         return sprite, sprite.get_size()
     except Exception as e:
         print(f"Error loading sprite for {ship_name}: {e}")

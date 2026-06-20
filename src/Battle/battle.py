@@ -11,6 +11,7 @@ from src.Battle.collisions import handle_collisions
 from src.Battle.battle_draw import draw_battle
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
+from src.resources import default_assets
 import src.const as const
 
 
@@ -319,9 +320,9 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_
 
 
 def play_battle_music():
-    pygame.mixer.music.load(const.BATTLE_MUSIC_PATH)
-    pygame.mixer.music.play(-1)
-    pygame.mixer.music.set_volume(const.BATTLE_MUSIC_VOLUME)
+    default_assets().play_music(
+        const.BATTLE_MUSIC_PATH, const.BATTLE_MUSIC_VOLUME, loops=-1
+    )
 
 
 def set_battle_sound_enabled(enabled):
@@ -458,11 +459,12 @@ def aftermath_camera_targets(aftermath, player1, player2, frame_id=None):
 
 
 def play_victory_ditty(ship):
-    ditty_path = ship.sprite_location / f"{ship.name}-ditty.mp3"
     try:
-        pygame.mixer.music.load(ditty_path)
-        pygame.mixer.music.play()
-        pygame.mixer.music.set_volume(const.BATTLE_MUSIC_VOLUME)
+        resources = getattr(ship, "resources", default_assets())
+        resources.play_music(
+            resources.ship(ship.name).ditty_path,
+            const.BATTLE_MUSIC_VOLUME,
+        )
     except pygame.error:
         pass
 

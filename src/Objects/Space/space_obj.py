@@ -10,13 +10,15 @@ from src.collision_capabilities import (
     CollisionRole,
 )
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_distance
+from src.resources import default_assets
 
 class Planet(Object):
     # Load planet data once at module level
     with open(Const.PLANETS_JSON_PATH, 'r') as f:
         _planet_data = json.load(f)
 
-    def __init__(self):
+    def __init__(self, resources=None):
+        self.resources = resources or default_assets()
         weights = {
             name: Const.PLANET_WEIGHTS[0] if 'Gas' in name
             else Const.PLANET_WEIGHTS[1] if 'Ice' in name
@@ -36,10 +38,11 @@ class Planet(Object):
             size=[self.diameter, self.diameter]
         )
 
-        self.image = pygame.image.load(str(Const.source_path(planet_data['Image']))).convert_alpha()
-        if self.image.get_size() != (self.diameter, self.diameter):
-            self.image = pygame.transform.smoothscale(self.image, (self.diameter, self.diameter))
-        self.mask = pygame.mask.from_surface(self.image)
+        assets = self.resources.image(
+            planet_data['Image'], (self.diameter, self.diameter), with_mask=True
+        )
+        self.image = assets.image
+        self.mask = assets.mask
         self.collision_capabilities = CollisionCapabilities(CollisionRole.PLANET)
         self.can_move = False
         self.can_die = False
@@ -51,8 +54,8 @@ class Planet(Object):
         return self.mask
 
     @staticmethod
-    def create_center():
-        planet = Planet()
+    def create_center(resources=None):
+        planet = Planet(resources)
         planet.position = Const.PLANET_POSITION
         planet.previous_position = planet.position.copy()
         return planet
@@ -107,7 +110,8 @@ class Star(Object):
     depth_surfaces = [pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA) for _ in range(Const.STAR_DEPTHS)]
     stars_by_depth = [[] for _ in range(Const.STAR_DEPTHS)]
 
-    def __init__(self):
+    def __init__(self, resources=None):
+        self.resources = resources or default_assets()
         weights = {
             name: Const.STAR_WEIGHTS[0] if 'e' in name
             else Const.STAR_WEIGHTS[1] if 'd' in name
@@ -128,17 +132,17 @@ class Star(Object):
             size=[self.diameter, self.diameter]
         )
 
-        self.image = pygame.image.load(str(Const.source_path(star_data['Image']))).convert_alpha()
+        self.image = self.resources.image(star_data['Image']).image
         self.can_move = False
         self.can_die = False
         self.can_collide = False
 
     @staticmethod
-    def create_random_stars(count):
+    def create_random_stars(count, resources=None):
         Star.stars_by_depth = [[] for _ in range(Const.STAR_DEPTHS)]
         stars = []
         for _ in range(count):
-            star = Star()
+            star = Star(resources)
             star.position = [
                 random.randint(0, Const.ARENA_SIZE),
                 random.randint(0, Const.ARENA_SIZE)
@@ -186,26 +190,17 @@ class Asteroid(Object):
     shared_masks = None
     shared_death_animation = None
 
-    def __init__(self):
+    def __init__(self, resources=None):
+        self.resources = resources or default_assets()
         super().__init__(
             name="Asteroid",
             sprite_location=None,
             size=[0, 0]
         )
-        # Load shared sprites if not already loaded
-        if Asteroid.shared_sprites is None:
-            Asteroid.shared_sprites = [
-                pygame.image.load(str(Const.ASTEROID_PATH / f"asteroid{i:02d}.png")).convert_alpha()
-                for i in range(30)]
-            Asteroid.shared_masks = [
-                pygame.mask.from_surface(sprite)
-                for sprite in Asteroid.shared_sprites]
-
-        # Load shared death animation if not already loaded
-        if Asteroid.shared_death_animation is None:
-            Asteroid.shared_death_animation = [
-                pygame.image.load(str(Const.ASTEROID_PATH / f"asteroidend{i:02d}.png")).convert_alpha()
-                for i in range(4)]
+        assets = self.resources.asteroid()
+        Asteroid.shared_sprites = assets.sprites
+        Asteroid.shared_masks = assets.masks
+        Asteroid.shared_death_animation = assets.death_animation
 
         # Randomly rotate sprites for this instance
         if random.random() < 0.0: # if 0 then no rotation will be applied

@@ -4,6 +4,7 @@ import pygame
 
 import src.const as const
 from src.Objects.object import Object
+from src.resources import default_assets
 
 
 BATTLE_ASSET_PATH = const.source_path("Objects/Battle")
@@ -15,6 +16,7 @@ class BattleEffect(Object):
     _ship_explosion_sprites = None
     _ship_death_sound = None
     sound_enabled = True
+    resources = default_assets()
 
     def __init__(self, position, frames, frame_delay=2, scale=1.0):
         first_frame = frames[0] if frames else None
@@ -49,10 +51,10 @@ class BattleEffect(Object):
     @classmethod
     def from_blast(cls, position, direction_vector, damage, align_edge=False):
         if cls._blast_sprites is None:
-            cls._blast_sprites = [
-                pygame.image.load(str(BATTLE_ASSET_PATH / f"blast-{i:03d}.png")).convert_alpha()
-                for i in range(8)
-            ]
+            cls._blast_sprites = cls.resources.animation(
+                "battle-blasts",
+                tuple(BATTLE_ASSET_PATH / f"blast-{i:03d}.png" for i in range(8)),
+            )
 
         index = cls._blast_index(direction_vector)
         scale = cls._blast_scale(damage)
@@ -68,10 +70,13 @@ class BattleEffect(Object):
     @classmethod
     def ship_explosion(cls, position, frame_delay=2, scale=1.0):
         if cls._ship_explosion_sprites is None:
-            cls._ship_explosion_sprites = [
-                pygame.image.load(str(path)).convert_alpha()
-                for path in sorted(BATTLE_ASSET_PATH.glob("explosion-*.png"))
-            ]
+            cls._ship_explosion_sprites = cls.resources.animation(
+                "ship-explosions",
+                tuple(
+                    BATTLE_ASSET_PATH / f"explosion-{index:03d}.png"
+                    for index in range(8)
+                ),
+            )
 
         return cls(position, cls._ship_explosion_sprites, frame_delay=frame_delay, scale=scale)
 
@@ -81,11 +86,11 @@ class BattleEffect(Object):
             return 0
 
         if cls._ship_death_sound is None:
-            try:
-                cls._ship_death_sound = pygame.mixer.Sound(str(BATTLE_ASSET_PATH / "shipdies.wav"))
-                cls._ship_death_sound.set_volume(const.SOUND_EFFECT_VOLUME)
-            except pygame.error:
-                cls._ship_death_sound = False
+            cls._ship_death_sound = cls.resources.sound(
+                BATTLE_ASSET_PATH / "shipdies.wav",
+                const.SOUND_EFFECT_VOLUME,
+                enabled=cls.sound_enabled,
+            )
 
         if cls._ship_death_sound:
             cls._ship_death_sound.play()
@@ -100,12 +105,11 @@ class BattleEffect(Object):
 
         sound_name = cls._boom_name(damage)
         if sound_name not in cls._boom_sounds:
-            try:
-                sound = pygame.mixer.Sound(str(BATTLE_ASSET_PATH / sound_name))
-                sound.set_volume(const.SOUND_EFFECT_VOLUME)
-                cls._boom_sounds[sound_name] = sound
-            except pygame.error:
-                cls._boom_sounds[sound_name] = None
+            cls._boom_sounds[sound_name] = cls.resources.sound(
+                BATTLE_ASSET_PATH / sound_name,
+                const.SOUND_EFFECT_VOLUME,
+                enabled=cls.sound_enabled,
+            )
 
         sound = cls._boom_sounds[sound_name]
         if sound:

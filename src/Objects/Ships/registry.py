@@ -27,8 +27,11 @@ def get_ability_class(ability_name):
     return getattr(module, ability_name)
 
 
-def create_ship(ship_name, player_num):
-    return get_ship_class(ship_name)(ship_name, player_num)
+def create_ship(ship_name, player_num, resources=None):
+    ship_class = get_ship_class(ship_name)
+    if resources is None:
+        return ship_class(ship_name, player_num)
+    return ship_class(ship_name, player_num, resources=resources)
 
 
 def create_ability(ability_name, parent, *args, **kwargs):
@@ -45,6 +48,6 @@ def ability_names_for_ship(ship_name):
     )
 
 
-def preload_ship_ability_resources(ship_name):
+def preload_ship_ability_resources(ship_name, resources=None):
     for ability_name in ability_names_for_ship(ship_name):
-        Ability.preload_resources(ability_name)
+        Ability.preload_resources(ability_name, resources)

@@ -7,6 +7,7 @@ import src.const as const
 from src.Menus import pick_ship
 from typing import Dict, Tuple
 from src.Objects.Ships.catalog import SHIPS_DATA
+from src.resources import default_assets
 
 # Display settings
 SELECTION_ICON_SIZE = const.SELECTION_ICON_SIZE
@@ -32,13 +33,13 @@ def load_ships() -> Dict:
         return {}
 
 
-def load_ship_sprites(ships_data: Dict) -> Dict[str, pygame.Surface]:
+def load_ship_sprites(ships_data: Dict, resources=None) -> Dict[str, pygame.Surface]:
     """Load all ship sprites once."""
     sprites = {}
+    resources = resources or default_assets()
     for ship_name in ships_data:
         try:
-            sprite_path = const.source_path(ships_data[ship_name]['sprite_path']) / f'{ship_name}00.png'
-            sprites[ship_name] = pygame.image.load(sprite_path).convert_alpha()
+            sprites[ship_name] = resources.menu_ship_sprite(ship_name)
         except Exception as e:
             print(f"Error loading sprite for {ship_name}: {e}")
             surface = pygame.Surface(SELECTION_ICON_SIZE, pygame.SRCALPHA)

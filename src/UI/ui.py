@@ -1,5 +1,6 @@
 import pygame
 import src.const as Const
+from src.resources import default_assets
 
 button_spaceH = int(Const.SCREEN_WIDTH * 0.005)
 button_spaceV = int(Const.SCREEN_HEIGHT * 0.00625)
@@ -50,11 +51,12 @@ HANDLE_COLOR = (255, 0, 0)
 BG_COLOR = (0, 0, 20)
 
 
-def load_background(path, screen_width, screen_height):
+def load_background(path, screen_width, screen_height, resources=None):
     """Load and scale the background image to fit the screen."""
     try:
-        background = pygame.image.load(path)
-        return pygame.transform.scale(background, (screen_width, screen_height))
+        return (resources or default_assets()).background(
+            path, (screen_width, screen_height)
+        )
     except pygame.error as e:
         print(f"Could not load background image: {e}")
         return None
@@ -67,25 +69,30 @@ def draw_title(screen, text, font_size=40, y_pos=50):
     screen.blit(title_surf, title_rect)
 
 class SoundManager:
-    def __init__(self):
-        if not pygame.mixer.get_init():
-            pygame.mixer.init()
+    def __init__(self, enabled=True, resources=None):
+        self.enabled = enabled
+        self.resources = resources or default_assets()
         self.sounds = {}
         self.volume = 1.0
 
     def load_sounds(self):
+        if not self.enabled:
+            return
         sound_files = {
             'menu': Const.MENU_WAV_PATH,
         }
         for sound_name, path in sound_files.items():
             try:
-                sound = pygame.mixer.Sound(path)
-                sound.set_volume(self.volume)
+                sound = self.resources.sound(path, self.volume, enabled=True)
+                if sound is None:
+                    continue
                 self.sounds[sound_name] = sound
             except pygame.error as e:
                 print(f"Could not load sound '{sound_name}' from {path}: {e}")
 
     def play_sound(self, sound_name):
+        if not self.enabled:
+            return
         if sound_name in self.sounds:
             self.sounds[sound_name].play()
         else:

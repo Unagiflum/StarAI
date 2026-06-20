@@ -10,6 +10,7 @@ from src.collision_capabilities import (
     LaserTargetCapabilities,
 )
 from src.Objects.Ships.catalog import ABILITIES_DATA
+from src.resources import default_assets
 from src.toroidal import nearest_position, wrapped_delta
 
 
@@ -37,17 +38,18 @@ class Ability(PlayerObject):
             size=[0, 0],
             player=parent.player
         )
-
-        self.preload_resources(ability_name)
+        self.resources = getattr(parent, "resources", default_assets())
+        self.preload_resources(ability_name, self.resources)
         self.sizes = self._sizes[ability_name]
-        self.size = self.sizes[0].copy() if self.sizes else [0, 0]
+        self.size = list(self.sizes[0]) if self.sizes else [0, 0]
 
         self.sprites = self._sprites[ability_name]
         self.masks = self._masks[ability_name]
         self.death_animation = self._end_anims[ability_name]
-        self.launch_sound = self._launch_sounds[ability_name] if self.sound_enabled else None
-        if self.launch_sound:
-            self.launch_sound.set_volume(const.SOUND_EFFECT_VOLUME)
+        self.launch_sound = self.resources.ability_sound(
+            ability_name, enabled=self.sound_enabled
+        )
+        self._launch_sounds[ability_name] = self.launch_sound
 
         # Rest of initialization code
         self.parent = parent
@@ -137,77 +139,15 @@ class Ability(PlayerObject):
         self.expiration_timer = int(self.life_time * const.PROJ_LIFE_SCALE)
 
     @classmethod
-    def preload_resources(cls, ability_name):
+    def preload_resources(cls, ability_name, resources=None):
         """Load and cache an ability's shared visual and audio resources."""
-        ability_data = ABILITIES_DATA[ability_name]
-        resource_dir = const.source_path(ability_data['file_path'])
-        sprite_scale = ability_data.get('sprite_scale', 1.0)
-
-        if ability_name not in cls._sprites:
-            cls._sprites[ability_name] = []
-            cls._masks[ability_name] = []
-            cls._end_anims[ability_name] = []
-            cls._sizes[ability_name] = []
-
-            if ability_data.get('has_sprites', True):
-                if ability_data['omnidirectional'] and ability_data.get('frames', 1) > 1:
-                    frames = []
-                    for frame in range(ability_data['frames']):
-                        frame_path = resource_dir / f"{ability_name}00_{frame:02d}.png"
-                        if not frame_path.exists():
-                            frame_path = resource_dir / f"{ability_name}{frame:02d}.png"
-                        base_sprite = pygame.image.load(str(frame_path)).convert_alpha()
-                        scaled_sprite = pygame.transform.smoothscale_by(base_sprite, sprite_scale)
-                        frames.append(scaled_sprite)
-                        cls._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
-                        cls._sizes[ability_name].append(
-                            [scaled_sprite.get_width(), scaled_sprite.get_height()]
-                        )
-                    cls._sprites[ability_name].append(frames)
-                else:
-                    base_sprite = pygame.image.load(
-                        str(resource_dir / f"{ability_name}00.png")
-                    ).convert_alpha()
-                    scaled_sprite = pygame.transform.smoothscale_by(base_sprite, sprite_scale)
-                    cls._sprites[ability_name].append(scaled_sprite)
-                    cls._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
-                    cls._sizes[ability_name].append(
-                        [scaled_sprite.get_width(), scaled_sprite.get_height()]
-                    )
-
-                    if not ability_data['omnidirectional']:
-                        for index in range(1, const.SHIP_DIRECTIONS):
-                            sprite_path = resource_dir / f"{ability_name}{index:02d}.png"
-                            base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
-                            scaled_sprite = pygame.transform.smoothscale_by(base_sprite, sprite_scale)
-                            cls._sprites[ability_name].append(scaled_sprite)
-                            cls._masks[ability_name].append(pygame.mask.from_surface(scaled_sprite))
-            else:
-                cls._sprites[ability_name] = None
-                cls._masks[ability_name] = None
-
-            for index in range(ability_data.get('end_anim', 0)):
-                try:
-                    end_path = resource_dir / f"{ability_name}end{index:02d}.png"
-                    base_sprite = pygame.image.load(str(end_path)).convert_alpha()
-                    cls._end_anims[ability_name].append(
-                        pygame.transform.smoothscale_by(base_sprite, sprite_scale)
-                    )
-                except (pygame.error, FileNotFoundError):
-                    break
-
+        resources = resources or default_assets()
+        assets = resources.ability(ability_name)
+        cls._sprites[ability_name] = assets.sprites
+        cls._masks[ability_name] = assets.masks
+        cls._end_anims[ability_name] = assets.end_animation
+        cls._sizes[ability_name] = assets.sizes
         cls._launch_sounds.setdefault(ability_name, None)
-        if (
-            cls.sound_enabled and
-            ability_name not in cls._sound_load_attempted and
-            ability_data.get('has_sound', True)
-        ):
-            cls._sound_load_attempted.add(ability_name)
-            try:
-                sound_path = resource_dir / f"{ability_name}.wav"
-                cls._launch_sounds[ability_name] = pygame.mixer.Sound(str(sound_path))
-            except (pygame.error, FileNotFoundError):
-                cls._launch_sounds[ability_name] = None
 
     def update_heading(self):
 
@@ -276,7 +216,7 @@ class Ability(PlayerObject):
                 if self.current_frame < self.frames - 1:
                     self.current_frame += 1
                     # Update properties for new frame
-                    self.size = self.sizes[self.current_frame]
+                    self.size = list(self.sizes[self.current_frame])
                     self.current_damage = self.damages[min(self.current_frame, len(self.damages) - 1)]
                     if len(self.hp_array) > 1:
                         self.current_hp = min(self.current_hp, self.hp_array[self.current_frame])

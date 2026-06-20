@@ -3,7 +3,6 @@ from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.Ilwrath.A1.IlwrathA1 import IlwrathA1
 from src.Objects.Ships.Ilwrath.A2.IlwrathA2 import IlwrathA2
 import src.const as const
-import pygame
 import math
 from src.toroidal import wrapped_delta
 
@@ -13,34 +12,21 @@ class Ilwrath(SpaceShip):
     _shared_sprites_black = {}
     _uncloak_sound = None
 
-    def __init__(self, ship_name, player_num):
-        super().__init__(ship_name, player_num)
+    def __init__(self, ship_name, player_num, resources=None):
+        super().__init__(ship_name, player_num, resources)
         ship_data = SHIPS_DATA[ship_name]
         self.FADE_DURATION = ship_data.get("FADE_DURATION", 8)
         self.fade_timer = self.FADE_DURATION
         self.ship_name = ship_name
 
-        # Load shared resources if not already loaded
-        if Ability.sound_enabled and not self._uncloak_sound:
-            try:
-                sound_path = self.sprite_location / "A2" / "IlwrathA2end.wav"
-                self._uncloak_sound = pygame.mixer.Sound(str(sound_path))
-                self._uncloak_sound.set_volume(const.SOUND_EFFECT_VOLUME)
-            except pygame.error:
-                print(f"Error loading uncloak sound for {ship_name}")
-
-        # Only load black sprite variants (removed creation of white sprites)
-        if ship_name not in self._shared_sprites_black:
-            self._shared_sprites_black[ship_name] = []
-            for i in range(const.SHIP_DIRECTIONS):
-                sprite = self.sprites[i].copy()
-
-                # Create black variant
-                black_sprite = sprite.copy()
-                black_pixels = pygame.Surface(sprite.get_size(), pygame.SRCALPHA)
-                pygame.draw.rect(black_pixels, (0, 0, 0, 255), black_pixels.get_rect())
-                black_sprite.blit(black_pixels, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-                self._shared_sprites_black[ship_name].append(black_sprite)
+        self._uncloak_sound = self.resources.sound(
+            self.sprite_location / "A2" / "IlwrathA2end.wav",
+            const.SOUND_EFFECT_VOLUME,
+            enabled=Ability.sound_enabled,
+        )
+        self._shared_sprites_black[ship_name] = self.resources.black_ship_sprites(
+            ship_name
+        )
 
     def perform_action1(self):
         if self.can_action1():

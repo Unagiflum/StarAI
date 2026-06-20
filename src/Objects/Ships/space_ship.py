@@ -9,6 +9,7 @@ from src.collision_capabilities import (
     ShipImpactResult,
 )
 from src.Objects.Ships.catalog import SHIPS_DATA
+from src.resources import default_assets
 
 
 CONTROL_STATE_ATTRIBUTES = {
@@ -24,7 +25,7 @@ class SpaceShip(PlayerObject):
     _shared_sprites = {}
     _shared_masks = {}
 
-    def __init__(self, ship_name, player_num):
+    def __init__(self, ship_name, player_num, resources=None):
         # Get ship-specific data from cached data
         ship_data = SHIPS_DATA[ship_name]
         sprite_location = const.source_path(ship_data['sprite_path'])
@@ -37,35 +38,16 @@ class SpaceShip(PlayerObject):
             player=player_num,
             sprite_scale=ship_data['sprite_scale']
         )
+        self.resources = resources or default_assets()
         self.collision_capabilities = CollisionCapabilities(CollisionRole.SHIP)
         self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
 
-        # Load shared sprites if not already loaded for this ship type
-        if ship_name not in self._shared_sprites:
-            self._shared_sprites[ship_name] = []
-            self._shared_masks[ship_name] = []
-            try:
-                for i in range(const.SHIP_DIRECTIONS):
-                    sprite_path = self.sprite_location.joinpath(f'{ship_name}{i:02d}.png')
-                    base_sprite = pygame.image.load(str(sprite_path)).convert_alpha()
-                    scaled_sprite = pygame.transform.smoothscale_by(base_sprite, self.sprite_scale)
-                    self._shared_sprites[ship_name].append(scaled_sprite)
-                    self._shared_masks[ship_name].append(pygame.mask.from_surface(scaled_sprite))
-                    if i == 0:  # Set size based on first sprite
-                        self.size = [scaled_sprite.get_width(), scaled_sprite.get_height()]
-            except pygame.error as e:
-                print(f"Error loading sprites for {ship_name}: {e}")
-                self._shared_sprites[ship_name] = None
-                self._shared_masks[ship_name] = None
-                return
-        else:
-            self.size = [
-                self._shared_sprites[ship_name][0].get_width(),
-                self._shared_sprites[ship_name][0].get_height()
-            ]
-
-        # Use the shared sprites
-        self.sprites = self._shared_sprites[ship_name]
+        # Compatibility aliases remain while resource ownership moves to AssetManager.
+        assets = self.resources.ship(ship_name)
+        self._shared_sprites[ship_name] = assets.sprites
+        self._shared_masks[ship_name] = assets.masks
+        self.size = list(assets.size)
+        self.sprites = assets.sprites
 
         # Ship-specific attributes
         self.ship_type = ship_data['ship_type']

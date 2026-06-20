@@ -198,24 +198,18 @@ class KzerZaA2(Ability):
         self.current_hp = 0
         self.currently_alive = False
 
-    @classmethod
-    def _load_fighter_sounds(cls, file_path):
-        if not cls.sound_enabled:
-            return
+    def _load_fighter_sounds(self, file_path):
         sound_files = {
             "launch": "KzerZaA2Launch.wav",
             "laser": "KzerZaA2Laser.wav",
             "return": "KzerZaA2Return.wav",
         }
         for sound_name, filename in sound_files.items():
-            if sound_name in cls._fighter_sounds:
-                continue
-            try:
-                sound = pygame.mixer.Sound(str(const.source_path(file_path) / filename))
-                sound.set_volume(const.SOUND_EFFECT_VOLUME)
-                cls._fighter_sounds[sound_name] = sound
-            except (pygame.error, FileNotFoundError):
-                cls._fighter_sounds[sound_name] = None
+            self.__class__._fighter_sounds[sound_name] = self.resources.sound(
+                const.source_path(file_path) / filename,
+                const.SOUND_EFFECT_VOLUME,
+                enabled=self.sound_enabled,
+            )
 
     def _sound(self, sound_name):
         if not self.sound_enabled:

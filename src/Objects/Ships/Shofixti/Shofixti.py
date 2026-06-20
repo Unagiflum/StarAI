@@ -6,8 +6,8 @@ import math
 
 
 class Shofixti(SpaceShip):
-    def __init__(self, ship_name, player_num):
-        super().__init__(ship_name, player_num)
+    def __init__(self, ship_name, player_num, resources=None):
+        super().__init__(ship_name, player_num, resources)
         ship_data = SHIPS_DATA[ship_name]
 
     def initialize_in_battle(self, position, heading):
