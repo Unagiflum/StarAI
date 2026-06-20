@@ -24,6 +24,13 @@ ACTION_ALIASES = {
     "Action 1": ("action1", "action_1", "primary"),
     "Action 2": ("action2", "action_2", "secondary"),
 }
+SHIP_CONTROL_NAMES = {
+    "Forward": "thrust",
+    "Left": "turn_left",
+    "Right": "turn_right",
+    "Action 1": "action1",
+    "Action 2": "action2",
+}
 
 
 class BattleSimulation:
@@ -73,7 +80,7 @@ class BattleSimulation:
         if actions is not None:
             self.apply_actions(actions)
 
-        self._apply_held_inputs()
+        self._process_ship_inputs()
         self._update_tracking_lists()
         self._update_objects()
         handle_collisions(self.game_objects)
@@ -86,12 +93,13 @@ class BattleSimulation:
             return
 
         self.key_states[key] = pressed
-        player = self._player_for_key(key)
-        if player is None:
+        binding = self._binding_for_key(key)
+        if binding is None:
             return
 
+        player, control = binding
         ship = self.player1 if player == 1 else self.player2
-        self.game_objects.extend(self._handle_ship_input_for_player(ship, player, key, pressed))
+        ship.set_control_state(control, pressed, self.frame_id)
 
     def apply_actions(self, actions):
         for player in (1, 2):
@@ -112,34 +120,17 @@ class BattleSimulation:
                 return bool(player_actions[alias])
         return False
 
-    def _player_for_key(self, key):
+    def _binding_for_key(self, key):
         for player in (1, 2):
-            if key in self._player_keys(player):
-                return player
+            for control in CONTROL_NAMES:
+                if key == self.settings[f"Player {player}: {control}"]:
+                    return player, SHIP_CONTROL_NAMES[control]
         return None
 
-    def _player_keys(self, player):
-        return [
-            self.settings[f"Player {player}: {control}"]
-            for control in CONTROL_NAMES
-        ]
-
-    def _handle_ship_input_for_player(self, ship, player, key, pressed):
-        return handle_ship_input(
-            ship,
-            key,
-            pressed,
-            self.settings[f"Player {player}: Forward"],
-            self.settings[f"Player {player}: Left"],
-            self.settings[f"Player {player}: Right"],
-            self.settings[f"Player {player}: Action 1"],
-            self.settings[f"Player {player}: Action 2"],
-            self.frame_id,
-        )
-
-    def _apply_held_inputs(self):
-        self.game_objects.extend(self._handle_ship_input_for_player(self.player1, 1, None, False))
-        self.game_objects.extend(self._handle_ship_input_for_player(self.player2, 2, None, False))
+    def _process_ship_inputs(self):
+        for ship in (self.player1, self.player2):
+            if ship.currently_alive and ship.current_hp > 0:
+                self.game_objects.extend(ship.process_controls(self.frame_id))
 
     def _update_tracking_lists(self):
         projectiles = [
@@ -342,22 +333,6 @@ def play_battle_music():
 def set_battle_sound_enabled(enabled):
     BattleEffect.sound_enabled = enabled
     Ability.sound_enabled = enabled
-
-
-def handle_ship_input(ship, key, pressed, forward_key, left_key, right_key, action1_key, action2_key, frame_id):
-    if not ship.currently_alive or ship.current_hp <= 0:
-        return []
-
-    return ship.handle_actions(
-        key,
-        pressed,
-        forward_key,
-        left_key,
-        right_key,
-        action1_key,
-        action2_key,
-        frame_id,
-    )
 
 
 def start_or_update_aftermath(aftermath, dead_ships, player1, player2, game_objects, frame_id, sound_enabled=True):
@@ -610,9 +585,4 @@ def reset_key_states(key_states):
 
 
 def reset_ship_controls(ship):
-    ship.thrust_active = False
-    ship.turn_left_active = False
-    ship.turn_right_active = False
-    ship.action1_active = False
-    ship.action2_active = False
-    ship.input_pressed_frames.clear()
+    ship.reset_controls()

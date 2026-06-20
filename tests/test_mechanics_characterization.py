@@ -19,6 +19,7 @@ pygame.init()
 import src.const as const
 from src.Battle import collisions
 from src.Battle.battle import (
+    BattleSimulation,
     aftermath_camera_targets,
     aftermath_ready_for_selection,
     start_or_update_aftermath,
@@ -46,7 +47,15 @@ class Positioned:
 
 
 class ShipState:
-    pass
+    def reset_controls(self):
+        self.thrust_active = False
+        self.turn_left_active = False
+        self.turn_right_active = False
+        self.action1_active = False
+        self.action2_active = False
+        self.input_pressed_frames.clear()
+        self.newly_pressed_controls.clear()
+        self.released_controls.clear()
 
 
 class ToroidalMechanicsTests(unittest.TestCase):
@@ -145,9 +154,9 @@ class InputTimingTests(unittest.TestCase):
         ship.turn_right_active = False
         ship.action1_active = False
         ship.action2_active = False
-        ship.last_timer_update_frame = None
-        ship.last_action_frames = {}
         ship.input_pressed_frames = {}
+        ship.newly_pressed_controls = set()
+        ship.released_controls = set()
         ship.thrust_timer = 2
         ship.turn_timer = 2
         ship.action1_timer = 2
@@ -161,12 +170,10 @@ class InputTimingTests(unittest.TestCase):
         ship.inertia = True
         return ship
 
-    def test_timers_advance_only_once_when_input_is_processed_twice(self):
+    def test_timers_advance_once_during_frame_processing(self):
         ship = self.make_ship()
-        keys = (1, 2, 3, 4, 5)
 
-        ship.handle_actions(None, False, *keys, frame_id=10)
-        ship.handle_actions(None, False, *keys, frame_id=10)
+        ship.process_controls(frame_id=10)
 
         self.assertEqual(ship.thrust_timer, 1)
         self.assertEqual(ship.action1_timer, 1)
@@ -176,12 +183,136 @@ class InputTimingTests(unittest.TestCase):
         ship.action1_timer = 0
         calls = []
         ship.perform_action1 = lambda: calls.append("action1")
-        keys = (1, 2, 3, 4, 5)
 
-        ship.handle_actions(4, True, *keys, frame_id=10)
-        ship.handle_actions(None, False, *keys, frame_id=10)
+        ship.set_control_state("action1", True, frame_id=10)
+        ship.process_controls(frame_id=10)
 
         self.assertEqual(calls, ["action1"])
+
+    def test_held_action_observes_repeat_delay(self):
+        ship = self.make_ship()
+        ship.action1_timer = 0
+        calls = []
+        ship.perform_action1 = lambda: calls.append("action1")
+
+        ship.set_control_state("action1", True, frame_id=10)
+        ship.process_controls(frame_id=10)
+        ship.process_controls(frame_id=11)
+        ship.process_controls(frame_id=12)
+        ship.process_controls(frame_id=13)
+
+        self.assertEqual(calls, ["action1", "action1"])
+
+    def test_action_release_hook_runs_once(self):
+        ship = self.make_ship()
+        ship.action1_timer = 0
+        releases = []
+        ship.perform_action1 = lambda: None
+        ship.perform_action1_release = lambda: releases.append("release")
+
+        ship.set_control_state("action1", True, frame_id=10)
+        ship.process_controls(frame_id=10)
+        ship.set_control_state("action1", False, frame_id=11)
+        ship.process_controls(frame_id=11)
+
+        self.assertEqual(releases, ["release"])
+
+    def test_press_and_release_in_same_frame_keeps_both_edges(self):
+        ship = self.make_ship()
+        ship.action1_timer = 0
+        calls = []
+        ship.perform_action1 = lambda: calls.append("action1")
+        ship.perform_action1_release = lambda: calls.append("release")
+
+        ship.set_control_state("action1", True, frame_id=10)
+        ship.set_control_state("action1", False, frame_id=10)
+        ship.process_controls(frame_id=10)
+
+        self.assertEqual(calls, ["action1", "release"])
+
+    def test_invalid_combined_action_falls_back_to_both_actions(self):
+        ship = self.make_ship()
+        ship.action1_timer = 0
+        ship.action2_timer = 0
+        calls = []
+        ship.perform_action1 = lambda: calls.append("action1")
+        ship.perform_action2 = lambda: calls.append("action2")
+        ship.perform_action3 = lambda: (calls.append("action3"), False)
+
+        ship.set_control_state("action1", True, frame_id=10)
+        ship.set_control_state("action2", True, frame_id=10)
+        ship.process_controls(frame_id=10)
+
+        self.assertEqual(calls, ["action3", "action1", "action2"])
+
+    def test_valid_combined_action_runs_without_individual_actions(self):
+        ship = self.make_ship()
+        ship.action1_timer = 0
+        ship.action2_timer = 0
+        calls = []
+        ship.perform_action1 = lambda: calls.append("action1")
+        ship.perform_action2 = lambda: calls.append("action2")
+        ship.perform_action3 = lambda: (calls.append("action3"), True)
+
+        ship.set_control_state("action1", True, frame_id=10)
+        ship.set_control_state("action2", True, frame_id=10)
+        ship.process_controls(frame_id=10)
+
+        self.assertEqual(calls, ["action3"])
+
+
+class SimulationInputTests(unittest.TestCase):
+    class CountingShip:
+        def __init__(self):
+            self.currently_alive = True
+            self.current_hp = 1
+            self.processed_frames = []
+            self.control_changes = []
+
+        def set_control_state(self, control, pressed, frame_id):
+            self.control_changes.append((control, pressed, frame_id))
+
+        def process_controls(self, frame_id):
+            self.processed_frames.append(frame_id)
+            return []
+
+    @staticmethod
+    def make_simulation():
+        simulation = BattleSimulation.__new__(BattleSimulation)
+        simulation.running = True
+        simulation.frame_id = 0
+        simulation.needs_selection = False
+        simulation.aftermath = None
+        simulation.player1 = SimulationInputTests.CountingShip()
+        simulation.player2 = SimulationInputTests.CountingShip()
+        simulation.game_objects = []
+        simulation.settings = {
+            f"Player {player}: {control}": player * 10 + index
+            for player in (1, 2)
+            for index, control in enumerate(("Forward", "Left", "Right", "Action 1", "Action 2"))
+        }
+        simulation.key_states = {
+            key: False for key in simulation.settings.values()
+        }
+        return simulation
+
+    def test_each_living_ship_processes_input_once_per_step(self):
+        simulation = self.make_simulation()
+
+        simulation.step()
+        simulation.step()
+
+        self.assertEqual(simulation.player1.processed_frames, [1, 2])
+        self.assertEqual(simulation.player2.processed_frames, [1, 2])
+
+    def test_key_change_is_ingested_before_frame_processing(self):
+        simulation = self.make_simulation()
+        forward_key = simulation.settings["Player 1: Forward"]
+
+        simulation.step(key_changes=[(forward_key, True)])
+
+        self.assertEqual(simulation.player1.control_changes, [("thrust", True, 1)])
+        self.assertEqual(simulation.player1.processed_frames, [1])
 
 
 class CollisionCharacterizationTests(unittest.TestCase):
@@ -256,8 +387,8 @@ class AftermathCharacterizationTests(unittest.TestCase):
         dead.action1_active = False
         dead.action2_active = False
         dead.input_pressed_frames = {}
-        dead.last_action_frames = {}
-        dead.last_timer_update_frame = 0
+        dead.newly_pressed_controls = set()
+        dead.released_controls = set()
         survivor = ShipState()
         survivor.player = 2
         survivor.current_hp = 5

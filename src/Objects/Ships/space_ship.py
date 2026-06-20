@@ -5,6 +5,15 @@ import pygame
 import json
 from pathlib import Path
 
+
+CONTROL_STATE_ATTRIBUTES = {
+    "thrust": "thrust_active",
+    "turn_left": "turn_left_active",
+    "turn_right": "turn_right_active",
+    "action1": "action1_active",
+    "action2": "action2_active",
+}
+
 # Load ship data once at module level
 with open(const.SHIPS_JSON_PATH, 'r') as f:
     SHIPS_DATA = json.load(f)
@@ -90,19 +99,13 @@ class SpaceShip(PlayerObject):
         self.action2_timer = 0
         self.action3_timer = 0
 
-        # action states
-        self.thrust_active = False
-        self.turn_left_active = False
-        self.turn_right_active = False
-        self.action1_active = False
-        self.action2_active = False
-
         self.can_die = True
         self.cloaked = False
         self.trackable = True
-        self.last_timer_update_frame = None
-        self.last_action_frames = {}
         self.input_pressed_frames = {}
+        self.newly_pressed_controls = set()
+        self.released_controls = set()
+        self.reset_controls()
 
         # Load optional ship module
         try:
@@ -123,44 +126,40 @@ class SpaceShip(PlayerObject):
         self.action1_timer = 0
         self.action2_timer = 0
         self.action3_timer = 0
-        self.last_timer_update_frame = None
-        self.last_action_frames.clear()
-        self.input_pressed_frames.clear()
+        self.reset_controls()
         self.in_battle = True
 
-    def handle_actions(self, key, pressed, forward_key, left_key, right_key, action1_key, action2_key, frame_id=None):
+    def reset_controls(self):
+        for attribute in CONTROL_STATE_ATTRIBUTES.values():
+            setattr(self, attribute, False)
+        self.input_pressed_frames.clear()
+        self.newly_pressed_controls.clear()
+        self.released_controls.clear()
+
+    def set_control_state(self, control_name, pressed, frame_id=None):
+        attribute = CONTROL_STATE_ATTRIBUTES[control_name]
+        was_active = getattr(self, attribute)
+        if was_active == pressed:
+            return
+
+        setattr(self, attribute, pressed)
+        if pressed:
+            self.input_pressed_frames[control_name] = frame_id
+            self.newly_pressed_controls.add(control_name)
+        else:
+            self.input_pressed_frames.pop(control_name, None)
+            self.released_controls.add(control_name)
+
+    def process_controls(self, frame_id=None):
         new_objects = []
-        new_press_control = None
-
-        # Update internal key state based on event
-        if key == forward_key:
-            new_press_control = self.update_control_state("thrust", self.thrust_active, pressed, frame_id)
-            self.thrust_active = pressed
-        elif key == left_key:
-            new_press_control = self.update_control_state("turn_left", self.turn_left_active, pressed, frame_id)
-            self.turn_left_active = pressed
-        elif key == right_key:
-            new_press_control = self.update_control_state("turn_right", self.turn_right_active, pressed, frame_id)
-            self.turn_right_active = pressed
-        elif key == action1_key:
-            new_press_control = self.update_control_state("action1", self.action1_active, pressed, frame_id)
-            self.action1_active = pressed
-        elif key == action2_key:
-            new_press_control = self.update_control_state("action2", self.action2_active, pressed, frame_id)
-            self.action2_active = pressed
-
-        # Update timers once per frame. Some frames call handle_actions from
-        # both input events and the held-key pass.
-        if frame_id is None or self.last_timer_update_frame != frame_id:
-            self.update_timers()
-            self.last_timer_update_frame = frame_id
+        self.update_timers()
 
         # Handle movement based on active states
-        turn_left_ready = self.control_ready("turn_left", frame_id, new_press_control)
-        turn_right_ready = self.control_ready("turn_right", frame_id, new_press_control)
-        thrust_ready = self.control_ready("thrust", frame_id, new_press_control)
-        action1_ready = self.control_ready("action1", frame_id, new_press_control)
-        action2_ready = self.control_ready("action2", frame_id, new_press_control)
+        turn_left_ready = self.control_ready("turn_left", frame_id)
+        turn_right_ready = self.control_ready("turn_right", frame_id)
+        thrust_ready = self.control_ready("thrust", frame_id)
+        action1_ready = self.control_ready("action1", frame_id)
+        action2_ready = self.control_ready("action2", frame_id)
 
         if self.turn_left_active and turn_left_ready and self.turn_input_enabled():
             self.turn_left()
@@ -178,57 +177,37 @@ class SpaceShip(PlayerObject):
             if marker:
                 new_objects.append(marker)
 
-        # Handle key release events
-        if key and not pressed:
-            if key == action1_key:
-                result = self.perform_action1_release()
-                if result:
-                    if isinstance(result, list):
-                        new_objects.extend(result)
-                    else:
-                        new_objects.append(result)
-            return new_objects
-
         # Handle actions based on active states
-        if self.action1_active and self.action2_active and (action1_ready or action2_ready):
-            result, is_valid = self.perform_frame_action3(frame_id)
-            if result:
-                if isinstance(result, list):
-                    new_objects.extend(result)
-                else:
-                    new_objects.append(result)
-            elif not is_valid:
-                if self.action1_active and action1_ready:
-                    result = self.perform_frame_action("action1", self.perform_action1, frame_id)
-                    if result:
-                        if isinstance(result, list):
-                            new_objects.extend(result)
-                        else:
-                            new_objects.append(result)
-                if self.action2_active and action2_ready:
-                    result = self.perform_frame_action("action2", self.perform_action2, frame_id)
-                    if result:
-                        if isinstance(result, list):
-                            new_objects.extend(result)
-                        else:
-                            new_objects.append(result)
+        action1_active = self.action1_active or "action1" in self.newly_pressed_controls
+        action2_active = self.action2_active or "action2" in self.newly_pressed_controls
+        if action1_active and action2_active and (action1_ready or action2_ready):
+            result, is_valid = self.perform_action3()
+            self._add_action_result(new_objects, result)
+            if not is_valid:
+                if action1_active and action1_ready:
+                    self._add_action_result(new_objects, self.perform_action1())
+                if action2_active and action2_ready:
+                    self._add_action_result(new_objects, self.perform_action2())
         else:
-            if self.action1_active and action1_ready:
-                result = self.perform_frame_action("action1", self.perform_action1, frame_id)
-                if result:
-                    if isinstance(result, list):
-                        new_objects.extend(result)
-                    else:
-                        new_objects.append(result)
-            if self.action2_active and action2_ready:
-                result = self.perform_frame_action("action2", self.perform_action2, frame_id)
-                if result:
-                    if isinstance(result, list):
-                        new_objects.extend(result)
-                    else:
-                        new_objects.append(result)
+            if action1_active and action1_ready:
+                self._add_action_result(new_objects, self.perform_action1())
+            if action2_active and action2_ready:
+                self._add_action_result(new_objects, self.perform_action2())
 
+        if "action1" in self.released_controls:
+            self._add_action_result(new_objects, self.perform_action1_release())
+
+        self.newly_pressed_controls.clear()
+        self.released_controls.clear()
         return new_objects
+
+    @staticmethod
+    def _add_action_result(new_objects, result):
+        if result:
+            if isinstance(result, list):
+                new_objects.extend(result)
+            else:
+                new_objects.append(result)
 
     def turn_input_enabled(self):
         return True
@@ -238,17 +217,8 @@ class SpaceShip(PlayerObject):
             return [0]
         return []
 
-    def update_control_state(self, control_name, was_active, pressed, frame_id):
-        if pressed:
-            if not was_active:
-                self.input_pressed_frames[control_name] = frame_id
-                return control_name
-        else:
-            self.input_pressed_frames.pop(control_name, None)
-        return None
-
-    def control_ready(self, control_name, frame_id, new_press_control):
-        if control_name == new_press_control:
+    def control_ready(self, control_name, frame_id):
+        if control_name in self.newly_pressed_controls:
             return True
         if frame_id is None:
             return True
@@ -258,27 +228,6 @@ class SpaceShip(PlayerObject):
             return True
 
         return frame_id - pressed_frame >= const.INPUT_REPEAT_DELAY_FRAMES
-
-    def action_already_handled_this_frame(self, action_name, frame_id):
-        return frame_id is not None and self.last_action_frames.get(action_name) == frame_id
-
-    def mark_action_handled_this_frame(self, action_name, frame_id):
-        if frame_id is not None:
-            self.last_action_frames[action_name] = frame_id
-
-    def perform_frame_action(self, action_name, action_callback, frame_id):
-        if self.action_already_handled_this_frame(action_name, frame_id):
-            return None
-
-        self.mark_action_handled_this_frame(action_name, frame_id)
-        return action_callback()
-
-    def perform_frame_action3(self, frame_id):
-        if self.action_already_handled_this_frame("action3", frame_id):
-            return None, True
-
-        self.mark_action_handled_this_frame("action3", frame_id)
-        return self.perform_action3()
 
     def add_impulse(self, dx, dy):
         if self.can_move:
