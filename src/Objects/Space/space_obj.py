@@ -4,6 +4,11 @@ import src.const as Const
 import pygame
 import json
 import random
+from src.collision_capabilities import (
+    AreaDamageCapabilities,
+    CollisionCapabilities,
+    CollisionRole,
+)
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_distance
 
 class Planet(Object):
@@ -35,6 +40,7 @@ class Planet(Object):
         if self.image.get_size() != (self.diameter, self.diameter):
             self.image = pygame.transform.smoothscale(self.image, (self.diameter, self.diameter))
         self.mask = pygame.mask.from_surface(self.image)
+        self.collision_capabilities = CollisionCapabilities(CollisionRole.PLANET)
         self.can_move = False
         self.can_die = False
 
@@ -211,6 +217,8 @@ class Asteroid(Object):
             self.masks = Asteroid.shared_masks
 
         self.death_animation = Asteroid.shared_death_animation
+        self.collision_capabilities = CollisionCapabilities(CollisionRole.ASTEROID)
+        self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
 
         self.current_sprite = random.randint(0, 29)
         self.size = [self.sprites[self.current_sprite].get_width(), self.sprites[self.current_sprite].get_height()]

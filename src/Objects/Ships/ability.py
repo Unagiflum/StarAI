@@ -2,6 +2,13 @@ from src.Objects.object import PlayerObject
 import src.const as const
 import math
 import pygame
+from src.collision_capabilities import (
+    AreaDamageCapabilities,
+    CollisionCapabilities,
+    CollisionRole,
+    FighterCollisionCapabilities,
+    LaserTargetCapabilities,
+)
 from src.Objects.Ships.catalog import ABILITIES_DATA
 from src.toroidal import nearest_position, wrapped_delta
 
@@ -47,9 +54,50 @@ class Ability(PlayerObject):
         self.opponent = self.parent.opponent
         self.planet = self.parent.planet
         self.projectile_name = ability_name
+        self.target = None
 
         # Basic properties
         self.type = ability_data['type']
+        self.collision_capabilities = CollisionCapabilities({
+            'projectile': CollisionRole.PROJECTILE,
+            'fighter': CollisionRole.FIGHTER,
+            'laser': CollisionRole.LASER,
+        }.get(self.type, CollisionRole.NONE))
+        self.laser_target_capabilities = LaserTargetCapabilities(
+            targetable=self.type in ("projectile", "fighter"),
+            vulnerable=ability_data.get("laser_vulnerable", True),
+        )
+        self.area_damage_capabilities = AreaDamageCapabilities(
+            emits=self.type == "area",
+            targetable=self.type != "laser",
+        )
+        self.area_damage_pending = False
+        self.fighter_collision_capabilities = (
+            FighterCollisionCapabilities(
+                collides_with_planets=ability_data.get("collide_planets", True),
+                collides_with_asteroids=ability_data.get(
+                    "collide_asteroids", True
+                ),
+                damages_asteroids=ability_data.get("damage_asteroids", True),
+                collides_with_projectiles=ability_data.get(
+                    "collide_projectiles", True
+                ),
+                damages_projectiles=ability_data.get(
+                    "damage_projectiles", True
+                ),
+                collides_with_enemy_ships=ability_data.get(
+                    "collide_enemy_ships", True
+                ),
+                collides_with_friendly_ships=ability_data.get(
+                    "collide_friendly_ships", False
+                ),
+                collides_with_fighters=ability_data.get(
+                    "collide_fighters", True
+                ),
+            )
+            if self.type == "fighter"
+            else None
+        )
         self.start_hp = ability_data['start_hp'][0]
         self.current_hp = self.start_hp
         self.damages = ability_data['damage']
@@ -62,6 +110,7 @@ class Ability(PlayerObject):
         self.inertia = ability_data['inertia']
         self.hit_parent = ability_data['hit_parent']
         self.hit_self = ability_data['hit_self']
+        self.has_left_parent = False
         self.omnidirectional = ability_data['omnidirectional']
         self.end_anim_count = ability_data.get('end_anim', 0)
 
@@ -250,6 +299,23 @@ class Ability(PlayerObject):
             target.current_hp = max(0, target.current_hp - self.current_damage)
 
         return True
+
+    def on_ship_impact(self, ship):
+        """Apply projectile-specific behavior after damaging a ship."""
+        return None
+
+    def begin_planet_avoidance(self, planet, outward_normal):
+        """React to fighter separation from a planet."""
+        return None
+
+    def can_recover_with_parent(self):
+        """Return whether this fighter may currently recover into its parent."""
+        return False
+
+    def recover_with_parent(self):
+        """Apply fighter-specific recovery behavior."""
+        return None
+
 
     def set_hp(self, new_hp):
         """Override hp setting to handle evolution and death"""

@@ -1,7 +1,9 @@
 import math
+from dataclasses import dataclass
 
 import src.const as const
 from src.Battle.effects import BattleEffect
+from src.collision_capabilities import CollisionRole, ShipImpactContext
 from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
@@ -14,6 +16,107 @@ from src.toroidal import (
 
 
 PLANET_CONTACT_EXIT_MARGIN = 4.0
+_PAIR_COLLISION_HANDLERS = {}
+_LASER_TARGET_POLICIES = {}
+_LASER_IMPACT_POLICIES = {}
+_AREA_DAMAGE_IMPACT_POLICIES = {}
+
+
+@dataclass(frozen=True)
+class CollisionEnvironment:
+    ships: tuple = ()
+
+
+def _pair_collision_handler(first_role, second_role):
+    """Register one ordered collision-pair policy."""
+    def register(handler):
+        pair = (first_role, second_role)
+        if pair in _PAIR_COLLISION_HANDLERS:
+            raise ValueError(f"Collision handler already registered for {pair}")
+        _PAIR_COLLISION_HANDLERS[pair] = handler
+        return handler
+
+    return register
+
+
+def _laser_target_policy(role):
+    """Register one laser target-eligibility policy by collision role."""
+    def register(policy):
+        if role in _LASER_TARGET_POLICIES:
+            raise ValueError(f"Laser target policy already registered for {role}")
+        _LASER_TARGET_POLICIES[role] = policy
+        return policy
+
+    return register
+
+
+def _laser_impact_policy(role):
+    """Register one laser impact policy by collision role."""
+    def register(policy):
+        if role in _LASER_IMPACT_POLICIES:
+            raise ValueError(f"Laser impact policy already registered for {role}")
+        _LASER_IMPACT_POLICIES[role] = policy
+        return policy
+
+    return register
+
+
+def _area_damage_impact_policy(role):
+    """Register one area-damage impact policy by collision role."""
+    def register(policy):
+        if role in _AREA_DAMAGE_IMPACT_POLICIES:
+            raise ValueError(f"Area-damage policy already registered for {role}")
+        _AREA_DAMAGE_IMPACT_POLICIES[role] = policy
+        return policy
+
+    return register
+
+
+def _dispatch_collision_pairs(
+    first_objects,
+    second_objects,
+    effects,
+    *,
+    stop_after_handled=True,
+    environment=None,
+):
+    """Dispatch ordered object pairs by their explicit collision roles."""
+    if environment is None:
+        environment = CollisionEnvironment()
+    for first in first_objects:
+        for second in second_objects:
+            handled = _dispatch_collision_pair(first, second, effects, environment)
+            if handled and stop_after_handled:
+                break
+
+
+def _dispatch_unique_collision_pairs(
+    objects,
+    effects,
+    first_is_active,
+    environment=None,
+):
+    """Dispatch each unordered pair while preserving outer-loop activity rules."""
+    if environment is None:
+        environment = CollisionEnvironment()
+    for index, first in enumerate(objects):
+        if not first_is_active(first):
+            continue
+        for second in objects[index + 1:]:
+            _dispatch_collision_pair(first, second, effects, environment)
+
+
+def _dispatch_collision_pair(first, second, effects, environment=None):
+    if environment is None:
+        environment = CollisionEnvironment()
+    pair = (
+        first.collision_capabilities.role,
+        second.collision_capabilities.role,
+    )
+    handler = _PAIR_COLLISION_HANDLERS.get(pair)
+    if handler is None:
+        return False
+    return handler(first, second, effects, environment)
 
 
 def handle_collisions(game_objects):
@@ -32,7 +135,7 @@ def handle_collisions(game_objects):
     planets = [obj for obj in game_objects if isinstance(obj, Planet)]
 
     _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, planets, effects)
-    _handle_ship_ship_collisions(ships)
+    _handle_ship_ship_collisions(ships, effects)
     _handle_ship_asteroid_collisions(ships, asteroids)
     _handle_ship_planet_collisions(ships, planets)
     _handle_asteroid_planet_collisions(asteroids, planets, ships, effects)
@@ -55,24 +158,16 @@ def _handle_area_damage(game_objects, effects):
     area_abilities = [
         obj for obj in game_objects
         if (
-            isinstance(obj, Ability) and
+            obj.area_damage_capabilities.emits and
             obj.currently_alive and
-            getattr(obj, "area_damage_pending", False)
+            obj.area_damage_pending
         )
     ]
 
     for ability in area_abilities:
         ability.area_damage_pending = False
         for target in game_objects:
-            if target is ability or isinstance(target, Planet):
-                continue
-            if not isinstance(target, (SpaceShip, Ability, Asteroid)):
-                continue
-            if getattr(target, "invulnerable", False):
-                continue
-            if isinstance(target, Ability) and target.type == "laser":
-                continue
-            if not getattr(target, "currently_alive", True):
+            if not _area_damage_target_is_eligible(ability, target):
                 continue
 
             delta = _wrapped_delta(ability.position, target.position)
@@ -81,76 +176,161 @@ def _handle_area_damage(game_objects, effects):
             if damage <= 0:
                 continue
 
-            if isinstance(target, Asteroid):
-                _destroy_asteroid(target, effects)
-                continue
-
-            if target.current_hp <= 0:
-                continue
-            remaining_hp = target.current_hp - damage
-            if isinstance(target, Ability) and remaining_hp <= 0:
-                direction = (
-                    [delta[0] / distance, delta[1] / distance]
-                    if distance > 0 else [0, -1]
-                )
-                _destroy_projectile(target, effects, direction, damage)
-            elif isinstance(target, Ability):
-                _set_projectile_hp(target, remaining_hp)
-            else:
-                target.current_hp = max(0, remaining_hp)
+            policy = _AREA_DAMAGE_IMPACT_POLICIES[
+                target.collision_capabilities.role
+            ]
+            policy(target, effects, delta, distance, damage)
 
 
-def _handle_ship_ship_collisions(ships):
-    for i, ship in enumerate(ships):
-        for other in ships[i + 1:]:
-            normal, distance, overlap = _collision_info(ship, other)
-            if _objects_overlap(ship, other, overlap):
-                _elastic_bounce(ship, other, normal, distance, overlap)
+def _area_damage_target_is_eligible(source, target):
+    capabilities = target.area_damage_capabilities
+    return (
+        target is not source
+        and capabilities.targetable
+        and capabilities.vulnerable
+        and target.currently_alive
+        and target.collision_capabilities.role in _AREA_DAMAGE_IMPACT_POLICIES
+    )
+
+
+@_area_damage_impact_policy(CollisionRole.SHIP)
+def _area_damage_impacts_ship(target, effects, delta, distance, damage):
+    if target.current_hp <= 0:
+        return
+    target.current_hp = max(0, target.current_hp - damage)
+
+
+@_area_damage_impact_policy(CollisionRole.NONE)
+@_area_damage_impact_policy(CollisionRole.PROJECTILE)
+@_area_damage_impact_policy(CollisionRole.FIGHTER)
+def _area_damage_impacts_ability(target, effects, delta, distance, damage):
+    if target.current_hp <= 0:
+        return
+    remaining_hp = target.current_hp - damage
+    if remaining_hp <= 0:
+        direction = (
+            [delta[0] / distance, delta[1] / distance]
+            if distance > 0 else [0, -1]
+        )
+        _destroy_projectile(target, effects, direction, damage)
+    else:
+        _set_projectile_hp(target, remaining_hp)
+
+
+@_area_damage_impact_policy(CollisionRole.ASTEROID)
+def _area_damage_impacts_asteroid(target, effects, delta, distance, damage):
+    _destroy_asteroid(target, effects)
+
+
+def _handle_ship_ship_collisions(ships, effects=None):
+    if effects is None:
+        effects = []
+    _dispatch_unique_collision_pairs(ships, effects, lambda ship: True)
+
+
+@_pair_collision_handler(CollisionRole.SHIP, CollisionRole.SHIP)
+def _ship_impacts_ship(ship, other, effects, environment):
+    normal, distance, overlap = _collision_info(ship, other)
+    if not _objects_overlap(ship, other, overlap):
+        return False
+
+    closing_speed = max(0.0, -_dot([
+        ship.velocity[0] - other.velocity[0],
+        ship.velocity[1] - other.velocity[1],
+    ], normal))
+    impact = ShipImpactContext(
+        normal=(normal[0], normal[1]),
+        distance=distance,
+        overlap=overlap,
+        closing_speed=closing_speed,
+    )
+    other_impact = ShipImpactContext(
+        normal=(-normal[0], -normal[1]),
+        distance=distance,
+        overlap=overlap,
+        closing_speed=closing_speed,
+    )
+
+    _elastic_bounce(ship, other, normal, distance, overlap)
+
+    ship_result = ship.on_ship_impact(other, impact)
+    other_result = other.on_ship_impact(ship, other_impact)
+    _apply_ship_impact_damage(other, ship_result.damage_to_other)
+    _apply_ship_impact_damage(ship, other_result.damage_to_other)
+    return True
+
+
+def _apply_ship_impact_damage(ship, damage):
+    damage = max(0.0, damage)
+    if damage <= 0 or ship.current_hp <= 0:
+        return
+    ship.current_hp = max(0, ship.current_hp - damage)
+    BattleEffect.play_boom(damage)
 
 
 def _handle_ship_asteroid_collisions(ships, asteroids):
-    for ship in ships:
-        for asteroid in asteroids:
-            if not asteroid.currently_alive:
-                continue
+    _dispatch_collision_pairs(
+        ships,
+        asteroids,
+        [],
+        stop_after_handled=False,
+    )
 
-            normal, distance, overlap = _collision_info(ship, asteroid)
-            if _objects_overlap(ship, asteroid, overlap):
-                _elastic_bounce(ship, asteroid, normal, distance, overlap)
+
+@_pair_collision_handler(CollisionRole.SHIP, CollisionRole.ASTEROID)
+def _ship_impacts_asteroid(ship, asteroid, effects, environment):
+    if not asteroid.currently_alive:
+        return False
+
+    normal, distance, overlap = _collision_info(ship, asteroid)
+    if not _objects_overlap(ship, asteroid, overlap):
+        return False
+
+    _elastic_bounce(ship, asteroid, normal, distance, overlap)
+    return True
 
 
 def _handle_ship_planet_collisions(ships, planets):
-    for ship in ships:
-        for planet in planets:
-            normal, distance, overlap = _collision_info(ship, planet)
-            contact_id = id(planet)
-            objects_overlap = _objects_overlap(ship, planet, overlap)
-            if (
-                contact_id in ship.planet_contacts
-                and not objects_overlap
-                and _planet_contact_has_ended(ship, planet, distance)
-            ):
-                ship.planet_contacts.remove(contact_id)
+    _dispatch_collision_pairs(
+        ships,
+        planets,
+        [],
+        stop_after_handled=False,
+    )
 
-            if not objects_overlap:
-                continue
 
-            new_contact = contact_id not in ship.planet_contacts
-            ship.planet_contacts.add(contact_id)
-            if new_contact:
-                collided_while_approaching = _bounce_off_static_body(
-                    ship,
-                    planet,
-                    normal,
-                    overlap,
-                )
-            else:
-                collided_while_approaching = False
-                _stop_at_static_body(ship, planet, normal, overlap)
-            if new_contact and collided_while_approaching and ship.current_hp > 0:
-                damage = max(1, math.ceil(ship.current_hp * 0.15))
-                ship.current_hp = max(0, ship.current_hp - damage)
-                BattleEffect.play_boom(damage)
+@_pair_collision_handler(CollisionRole.SHIP, CollisionRole.PLANET)
+def _ship_impacts_planet(ship, planet, effects, environment):
+    normal, distance, overlap = _collision_info(ship, planet)
+    contact_id = id(planet)
+    objects_overlap = _objects_overlap(ship, planet, overlap)
+    if (
+        contact_id in ship.planet_contacts
+        and not objects_overlap
+        and _planet_contact_has_ended(ship, planet, distance)
+    ):
+        ship.planet_contacts.remove(contact_id)
+
+    if not objects_overlap:
+        return False
+
+    new_contact = contact_id not in ship.planet_contacts
+    ship.planet_contacts.add(contact_id)
+    if new_contact:
+        collided_while_approaching = _bounce_off_static_body(
+            ship,
+            planet,
+            normal,
+            overlap,
+        )
+    else:
+        collided_while_approaching = False
+        _stop_at_static_body(ship, planet, normal, overlap)
+    if new_contact and collided_while_approaching and ship.current_hp > 0:
+        damage = max(1, math.ceil(ship.current_hp * 0.15))
+        ship.current_hp = max(0, ship.current_hp - damage)
+        BattleEffect.play_boom(damage)
+    return True
 
 
 def _planet_contact_has_ended(ship, planet, distance):
@@ -159,62 +339,73 @@ def _planet_contact_has_ended(ship, planet, distance):
 
 
 def _handle_asteroid_planet_collisions(asteroids, planets, ships, effects):
-    for asteroid in asteroids:
-        if not asteroid.currently_alive:
-            continue
+    _dispatch_collision_pairs(
+        asteroids,
+        planets,
+        effects,
+        environment=CollisionEnvironment(ships=tuple(ships)),
+    )
 
-        for planet in planets:
-            normal, _, overlap = _collision_info(asteroid, planet)
-            if _objects_overlap(asteroid, planet, overlap):
-                if _object_on_screen(asteroid, ships):
-                    BattleEffect.play_boom(1)
-                _destroy_asteroid(asteroid, effects)
-                break
+
+@_pair_collision_handler(CollisionRole.ASTEROID, CollisionRole.PLANET)
+def _asteroid_impacts_planet(asteroid, planet, effects, environment):
+    if not asteroid.currently_alive:
+        return False
+
+    normal, _, overlap = _collision_info(asteroid, planet)
+    if not _objects_overlap(asteroid, planet, overlap):
+        return False
+
+    if _object_on_screen(asteroid, environment.ships):
+        BattleEffect.play_boom(1)
+    _destroy_asteroid(asteroid, effects)
+    return True
 
 
 def _handle_projectile_projectile_collisions(projectiles, effects):
-    for i, projectile in enumerate(projectiles):
-        if not _is_live_projectile(projectile):
-            continue
+    _dispatch_unique_collision_pairs(projectiles, effects, _is_live_projectile)
 
-        for other in projectiles[i + 1:]:
-            if not _is_live_projectile(other):
-                continue
 
-            normal, _, overlap = _collision_info(projectile, other)
+@_pair_collision_handler(CollisionRole.PROJECTILE, CollisionRole.PROJECTILE)
+def _projectile_impacts_projectile(projectile, other, effects, environment):
+    if not _is_live_projectile(other):
+        return False
 
-            if not _projectiles_can_hit_each_other(projectile, other):
-                continue
+    normal, _, overlap = _collision_info(projectile, other)
 
-            contact, impact_normal = _projectile_impact(projectile, other, overlap)
-            if contact is None:
-                continue
+    if not _projectiles_can_hit_each_other(projectile, other):
+        return False
 
-            if projectile.projectile_name == other.projectile_name:
-                BattleEffect.play_boom(max(projectile.current_damage, other.current_damage))
-                _destroy_projectile(projectile, effects, impact_normal, projectile.current_damage, contact)
-                _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other.current_damage, contact)
-                continue
+    contact, impact_normal = _projectile_impact(projectile, other, overlap)
+    if contact is None:
+        return False
 
-            projectile_damage = projectile.current_damage
-            other_damage = other.current_damage
-            projectile_hp = projectile.current_hp - other_damage
-            other_hp = other.current_hp - projectile_damage
+    if projectile.projectile_name == other.projectile_name:
+        BattleEffect.play_boom(max(projectile.current_damage, other.current_damage))
+        _destroy_projectile(projectile, effects, impact_normal, projectile.current_damage, contact)
+        _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other.current_damage, contact)
+        return True
 
-            BattleEffect.play_boom(max(projectile_damage, other_damage))
+    projectile_damage = projectile.current_damage
+    other_damage = other.current_damage
+    projectile_hp = projectile.current_hp - other_damage
+    other_hp = other.current_hp - projectile_damage
 
-            if projectile_hp <= 0 and other_hp <= 0:
-                _destroy_projectile(projectile, effects, impact_normal, projectile_damage, contact)
-                _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other_damage, contact)
-            elif projectile_hp > 0 and projectile_hp > other_hp:
-                _set_projectile_hp(projectile, projectile_hp)
-                _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other_damage, contact)
-            elif other_hp > 0 and other_hp > projectile_hp:
-                _destroy_projectile(projectile, effects, impact_normal, projectile_damage, contact)
-                _set_projectile_hp(other, other_hp)
-            else:
-                _destroy_projectile(projectile, effects, impact_normal, projectile_damage, contact)
-                _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other_damage, contact)
+    BattleEffect.play_boom(max(projectile_damage, other_damage))
+
+    if projectile_hp <= 0 and other_hp <= 0:
+        _destroy_projectile(projectile, effects, impact_normal, projectile_damage, contact)
+        _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other_damage, contact)
+    elif projectile_hp > 0 and projectile_hp > other_hp:
+        _set_projectile_hp(projectile, projectile_hp)
+        _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other_damage, contact)
+    elif other_hp > 0 and other_hp > projectile_hp:
+        _destroy_projectile(projectile, effects, impact_normal, projectile_damage, contact)
+        _set_projectile_hp(other, other_hp)
+    else:
+        _destroy_projectile(projectile, effects, impact_normal, projectile_damage, contact)
+        _destroy_projectile(other, effects, [-impact_normal[0], -impact_normal[1]], other_damage, contact)
+    return True
 
 
 def _projectiles_can_hit_each_other(projectile, other):
@@ -229,182 +420,248 @@ def _projectiles_can_hit_each_other(projectile, other):
 
 
 def _handle_projectile_ship_collisions(projectiles, ships, effects):
-    for projectile in projectiles:
-        if not _is_live_projectile(projectile):
-            continue
+    _dispatch_collision_pairs(projectiles, ships, effects)
 
-        for ship in ships:
-            if ship.current_hp <= 0:
-                continue
 
-            if not _projectile_can_hit_ship(projectile, ship):
-                continue
+@_pair_collision_handler(CollisionRole.PROJECTILE, CollisionRole.SHIP)
+def _projectile_impacts_ship(projectile, ship, effects, environment):
+    if (
+        not _is_live_projectile(projectile)
+        or ship.current_hp <= 0
+        or not _projectile_can_hit_ship(projectile, ship)
+    ):
+        return False
 
-            _, _, overlap = _collision_info(projectile, ship)
-            contact, impact_normal = _projectile_impact(projectile, ship, overlap)
-            if contact is None:
-                continue
+    _, _, overlap = _collision_info(projectile, ship)
+    contact, impact_normal = _projectile_impact(projectile, ship, overlap)
+    if contact is None:
+        return False
 
-            damage = projectile.current_damage
-            ship.current_hp = max(0, ship.current_hp - damage)
-            _apply_druuge_projectile_momentum(projectile, ship)
-            BattleEffect.play_boom(damage)
-            _destroy_projectile(projectile, effects, impact_normal, damage, contact)
-            break
+    damage = projectile.current_damage
+    ship.current_hp = max(0, ship.current_hp - damage)
+    projectile.on_ship_impact(ship)
+    BattleEffect.play_boom(damage)
+    _destroy_projectile(projectile, effects, impact_normal, damage, contact)
+    return True
 
 
 def _handle_projectile_asteroid_collisions(projectiles, asteroids, effects):
-    for projectile in projectiles:
-        if not _is_live_projectile(projectile):
-            continue
+    _dispatch_collision_pairs(projectiles, asteroids, effects)
 
-        for asteroid in asteroids:
-            if not asteroid.currently_alive:
-                continue
 
-            _, _, overlap = _collision_info(projectile, asteroid)
-            contact, impact_normal = _projectile_impact(projectile, asteroid, overlap)
-            if contact is None:
-                continue
+@_pair_collision_handler(CollisionRole.PROJECTILE, CollisionRole.ASTEROID)
+def _projectile_impacts_asteroid(projectile, asteroid, effects, environment):
+    if not _is_live_projectile(projectile) or not asteroid.currently_alive:
+        return False
 
-            damage = projectile.current_damage
-            BattleEffect.play_boom(damage)
-            _destroy_projectile(projectile, effects, impact_normal, damage, contact)
-            _destroy_asteroid(asteroid, effects)
-            break
+    _, _, overlap = _collision_info(projectile, asteroid)
+    contact, impact_normal = _projectile_impact(projectile, asteroid, overlap)
+    if contact is None:
+        return False
+
+    damage = projectile.current_damage
+    BattleEffect.play_boom(damage)
+    _destroy_projectile(projectile, effects, impact_normal, damage, contact)
+    _destroy_asteroid(asteroid, effects)
+    return True
 
 
 def _handle_projectile_planet_collisions(projectiles, planets, effects):
-    for projectile in projectiles:
-        if not _is_live_projectile(projectile):
-            continue
+    _dispatch_collision_pairs(projectiles, planets, effects)
 
-        for planet in planets:
-            _, _, overlap = _collision_info(projectile, planet)
-            contact, impact_normal = _projectile_impact(projectile, planet, overlap)
-            if contact is None:
-                continue
 
-            damage = projectile.current_damage
-            BattleEffect.play_boom(damage)
-            _destroy_projectile(projectile, effects, impact_normal, damage, contact)
-            break
+@_pair_collision_handler(CollisionRole.PROJECTILE, CollisionRole.PLANET)
+def _projectile_impacts_planet(projectile, planet, effects, environment):
+    if not _is_live_projectile(projectile):
+        return False
+
+    _, _, overlap = _collision_info(projectile, planet)
+    contact, impact_normal = _projectile_impact(projectile, planet, overlap)
+    if contact is None:
+        return False
+
+    damage = projectile.current_damage
+    BattleEffect.play_boom(damage)
+    _destroy_projectile(projectile, effects, impact_normal, damage, contact)
+    return True
 
 
 def _handle_fighter_fighter_collisions(fighters, effects):
-    for index, fighter in enumerate(fighters):
-        if not _is_live_fighter(fighter):
-            continue
-        for other in fighters[index + 1:]:
-            if not _is_live_fighter(other):
-                continue
-            fighter_hits = getattr(fighter, "collide_fighters", True)
-            other_hits = getattr(other, "collide_fighters", True)
-            if not fighter_hits and not other_hits:
-                continue
+    _dispatch_unique_collision_pairs(fighters, effects, _is_live_fighter)
 
-            _, _, overlap = _collision_info(fighter, other)
-            contact, normal = _projectile_impact(fighter, other, overlap)
-            if contact is None:
-                continue
 
-            if fighter_hits:
-                other.current_hp = max(0, other.current_hp - fighter.current_damage)
-            if other_hits:
-                fighter.current_hp = max(0, fighter.current_hp - other.current_damage)
-            BattleEffect.play_boom(max(fighter.current_damage, other.current_damage))
-            if fighter.current_hp <= 0:
-                _destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
-            if other.current_hp <= 0:
-                _destroy_projectile(other, effects, [-normal[0], -normal[1]], other.current_damage, contact)
+@_pair_collision_handler(CollisionRole.FIGHTER, CollisionRole.FIGHTER)
+def _fighter_impacts_fighter(fighter, other, effects, environment):
+    if not _is_live_fighter(other):
+        return False
+
+    fighter_hits = (
+        fighter.fighter_collision_capabilities.collides_with_fighters
+    )
+    other_hits = other.fighter_collision_capabilities.collides_with_fighters
+    if not fighter_hits and not other_hits:
+        return False
+
+    _, _, overlap = _collision_info(fighter, other)
+    contact, normal = _projectile_impact(fighter, other, overlap)
+    if contact is None:
+        return False
+
+    if fighter_hits:
+        other.current_hp = max(0, other.current_hp - fighter.current_damage)
+    if other_hits:
+        fighter.current_hp = max(0, fighter.current_hp - other.current_damage)
+    BattleEffect.play_boom(max(fighter.current_damage, other.current_damage))
+    if fighter.current_hp <= 0:
+        _destroy_projectile(
+            fighter,
+            effects,
+            normal,
+            fighter.current_damage,
+            contact,
+        )
+    if other.current_hp <= 0:
+        _destroy_projectile(
+            other,
+            effects,
+            [-normal[0], -normal[1]],
+            other.current_damage,
+            contact,
+        )
+    return True
 
 
 def _handle_fighter_projectile_collisions(fighters, projectiles, effects):
-    for fighter in fighters:
-        if not _is_live_fighter(fighter) or not getattr(fighter, "collide_projectiles", True):
-            continue
-        for projectile in projectiles:
-            if not _is_live_projectile(projectile):
-                continue
-            _, _, overlap = _collision_info(fighter, projectile)
-            contact, normal = _projectile_impact(fighter, projectile, overlap)
-            if contact is None:
-                continue
+    _dispatch_collision_pairs(fighters, projectiles, effects)
 
-            if getattr(fighter, "damage_projectiles", True):
-                projectile_hp = projectile.current_hp - fighter.current_damage
-                if projectile_hp <= 0:
-                    _destroy_projectile(projectile, effects, [-normal[0], -normal[1]], fighter.current_damage, contact)
-                else:
-                    _set_projectile_hp(projectile, projectile_hp)
-            BattleEffect.play_boom(fighter.current_damage)
-            _destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
-            break
+
+@_pair_collision_handler(CollisionRole.FIGHTER, CollisionRole.PROJECTILE)
+def _fighter_impacts_projectile(fighter, projectile, effects, environment):
+    if (
+        not _is_live_fighter(fighter)
+        or not fighter.fighter_collision_capabilities.collides_with_projectiles
+        or not _is_live_projectile(projectile)
+    ):
+        return False
+
+    _, _, overlap = _collision_info(fighter, projectile)
+    contact, normal = _projectile_impact(fighter, projectile, overlap)
+    if contact is None:
+        return False
+
+    if fighter.fighter_collision_capabilities.damages_projectiles:
+        projectile_hp = projectile.current_hp - fighter.current_damage
+        if projectile_hp <= 0:
+            _destroy_projectile(
+                projectile,
+                effects,
+                [-normal[0], -normal[1]],
+                fighter.current_damage,
+                contact,
+            )
+        else:
+            _set_projectile_hp(projectile, projectile_hp)
+    BattleEffect.play_boom(fighter.current_damage)
+    _destroy_projectile(
+        fighter,
+        effects,
+        normal,
+        fighter.current_damage,
+        contact,
+    )
+    return True
 
 
 def _handle_fighter_ship_collisions(fighters, ships, effects):
-    for fighter in fighters:
-        if not _is_live_fighter(fighter):
-            continue
-        for ship in ships:
-            if ship.current_hp <= 0:
-                continue
-            if ship is fighter.parent:
-                if getattr(fighter, "mode", None) != getattr(fighter, "RETURNING", "returning"):
-                    continue
-            elif ship.player == fighter.player:
-                if not getattr(fighter, "collide_friendly_ships", False):
-                    continue
-            elif not getattr(fighter, "collide_enemy_ships", True):
-                continue
+    _dispatch_collision_pairs(fighters, ships, effects)
 
-            _, _, overlap = _collision_info(fighter, ship)
-            contact, normal = _projectile_impact(fighter, ship, overlap)
-            if contact is None:
-                continue
 
-            if ship is fighter.parent:
-                fighter.recover()
-            else:
-                damage = fighter.current_damage
-                ship.current_hp = max(0, ship.current_hp - damage)
-                BattleEffect.play_boom(damage)
-                _destroy_projectile(fighter, effects, normal, damage, contact)
-            break
+@_pair_collision_handler(CollisionRole.FIGHTER, CollisionRole.SHIP)
+def _fighter_impacts_ship(fighter, ship, effects, environment):
+    if not _is_live_fighter(fighter) or ship.current_hp <= 0:
+        return False
+
+    if ship is fighter.parent:
+        if not fighter.can_recover_with_parent():
+            return False
+    elif ship.player == fighter.player:
+        if not fighter.fighter_collision_capabilities.collides_with_friendly_ships:
+            return False
+    elif not fighter.fighter_collision_capabilities.collides_with_enemy_ships:
+        return False
+
+    _, _, overlap = _collision_info(fighter, ship)
+    contact, normal = _projectile_impact(fighter, ship, overlap)
+    if contact is None:
+        return False
+
+    if ship is fighter.parent:
+        fighter.recover_with_parent()
+    else:
+        damage = fighter.current_damage
+        ship.current_hp = max(0, ship.current_hp - damage)
+        BattleEffect.play_boom(damage)
+        _destroy_projectile(fighter, effects, normal, damage, contact)
+    return True
 
 
 def _handle_fighter_asteroid_collisions(fighters, asteroids, effects):
-    for fighter in fighters:
-        if not _is_live_fighter(fighter) or not getattr(fighter, "collide_asteroids", True):
-            continue
-        for asteroid in asteroids:
-            if not asteroid.currently_alive:
-                continue
-            _, _, overlap = _collision_info(fighter, asteroid)
-            contact, normal = _projectile_impact(fighter, asteroid, overlap)
-            if contact is None:
-                continue
+    _dispatch_collision_pairs(fighters, asteroids, effects)
 
-            BattleEffect.play_boom(fighter.current_damage)
-            _destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
-            if getattr(fighter, "damage_asteroids", True):
-                _destroy_asteroid(asteroid, effects)
-            break
+
+@_pair_collision_handler(CollisionRole.FIGHTER, CollisionRole.ASTEROID)
+def _fighter_impacts_asteroid(fighter, asteroid, effects, environment):
+    if (
+        not _is_live_fighter(fighter)
+        or not fighter.fighter_collision_capabilities.collides_with_asteroids
+        or not asteroid.currently_alive
+    ):
+        return False
+
+    _, _, overlap = _collision_info(fighter, asteroid)
+    contact, normal = _projectile_impact(fighter, asteroid, overlap)
+    if contact is None:
+        return False
+
+    BattleEffect.play_boom(fighter.current_damage)
+    _destroy_projectile(
+        fighter,
+        effects,
+        normal,
+        fighter.current_damage,
+        contact,
+    )
+    if fighter.fighter_collision_capabilities.damages_asteroids:
+        _destroy_asteroid(asteroid, effects)
+    return True
 
 
 def _handle_fighter_planet_collisions(fighters, planets):
-    for fighter in fighters:
-        if not _is_live_fighter(fighter) or not getattr(fighter, "collide_planets", True):
-            continue
-        for planet in planets:
-            normal, _, overlap = _collision_info(fighter, planet)
-            contact, _ = _projectile_impact(fighter, planet, overlap)
-            if contact is None:
-                continue
-            _separate_from_static_body(fighter, planet, normal, overlap, extra_clearance=1.0)
-            if hasattr(fighter, "begin_planet_avoidance"):
-                fighter.begin_planet_avoidance(planet, normal)
-            break
+    _dispatch_collision_pairs(fighters, planets, [])
+
+
+@_pair_collision_handler(CollisionRole.FIGHTER, CollisionRole.PLANET)
+def _fighter_impacts_planet(fighter, planet, effects, environment):
+    if (
+        not _is_live_fighter(fighter)
+        or not fighter.fighter_collision_capabilities.collides_with_planets
+    ):
+        return False
+
+    normal, _, overlap = _collision_info(fighter, planet)
+    contact, _ = _projectile_impact(fighter, planet, overlap)
+    if contact is None:
+        return False
+
+    _separate_from_static_body(
+        fighter,
+        planet,
+        normal,
+        overlap,
+        extra_clearance=1.0,
+    )
+    fighter.begin_planet_avoidance(planet, normal)
+    return True
 
 
 def _is_live_projectile(obj):
@@ -437,27 +694,6 @@ def _is_live_laser(obj):
     )
 
 
-def _apply_druuge_projectile_momentum(projectile, ship):
-    if projectile.projectile_name != "DruugeA1" or not hasattr(ship, "add_impulse"):
-        return
-
-    speed = math.hypot(projectile.velocity[0], projectile.velocity[1])
-    if speed <= 0:
-        return
-
-    projectile_direction = [
-        projectile.velocity[0] / speed,
-        projectile.velocity[1] / speed,
-    ]
-    parent_mass = _mass(projectile.parent)
-    ship_mass = _mass(ship)
-    momentum = parent_mass * projectile.RECOIL_INCREMENT
-    ship.add_impulse(
-        projectile_direction[0] * momentum / ship_mass,
-        projectile_direction[1] * momentum / ship_mass,
-    )
-
-
 def _projectile_can_hit_ship(projectile, ship):
     if ship.player != projectile.player:
         return True
@@ -465,7 +701,7 @@ def _projectile_can_hit_ship(projectile, ship):
     if ship != projectile.parent or not projectile.hit_parent:
         return False
 
-    if getattr(projectile, "has_left_parent", False):
+    if projectile.has_left_parent:
         return True
 
     _, _, overlap = _collision_info(projectile, ship)
@@ -504,64 +740,123 @@ def _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, pl
         effects.append(BattleEffect.from_blast(contact, normal, damage, align_edge=True))
         BattleEffect.play_boom(damage)
 
-        if isinstance(target, Planet):
-            continue
+        _apply_laser_impact(target, effects, normal, damage, contact)
 
-        if hasattr(target, "current_hp"):
-            target.current_hp = max(0, target.current_hp - damage)
-            if isinstance(target, Ability) and target.current_hp <= 0:
-                _destroy_projectile(target, effects, normal, damage, contact)
-        elif isinstance(target, Asteroid):
-            _destroy_asteroid(target, effects)
+
+def _apply_laser_impact(target, effects, normal, damage, contact):
+    policy = _LASER_IMPACT_POLICIES.get(target.collision_capabilities.role)
+    if policy is not None:
+        policy(target, effects, normal, damage, contact)
+
+
+@_laser_impact_policy(CollisionRole.SHIP)
+def _laser_impacts_ship(target, effects, normal, damage, contact):
+    target.current_hp = max(0, target.current_hp - damage)
+
+
+@_laser_impact_policy(CollisionRole.PROJECTILE)
+@_laser_impact_policy(CollisionRole.FIGHTER)
+def _laser_impacts_ability(target, effects, normal, damage, contact):
+    target.current_hp = max(0, target.current_hp - damage)
+    if target.current_hp <= 0:
+        _destroy_projectile(target, effects, normal, damage, contact)
+
+
+@_laser_impact_policy(CollisionRole.ASTEROID)
+def _laser_impacts_asteroid(target, effects, normal, damage, contact):
+    _destroy_asteroid(target, effects)
+
+
+@_laser_impact_policy(CollisionRole.PLANET)
+def _laser_impacts_planet(target, effects, normal, damage, contact):
+    pass
 
 
 def _laser_targets(laser, ships, projectiles, fighters, asteroids, planets):
-    explicit_target = getattr(laser, "target", None)
+    explicit_target = laser.target
     if explicit_target is not None:
-        targets = [explicit_target] if _is_live_laser_target(explicit_target) else []
+        targets = (
+            [explicit_target]
+            if _laser_target_is_eligible(laser, explicit_target, explicit=True)
+            else []
+        )
         targets.extend(
             fighter for fighter in fighters
             if (
-                fighter is not laser.parent and
                 fighter is not explicit_target and
-                getattr(fighter, "laser_vulnerable", True)
+                _laser_target_is_eligible(laser, fighter)
             )
         )
         return targets
 
-    targets = []
-    for ship in ships:
-        if not _is_live_laser_target(ship):
-            continue
-        if ship.player != laser.player or (ship == laser.parent and laser.hit_parent):
-            targets.append(ship)
-
-    for projectile in projectiles:
-        if not _is_live_laser_target(projectile):
-            continue
-        if projectile.player != laser.player or laser.hit_self:
-            targets.append(projectile)
-
-    for fighter in fighters:
-        if fighter is laser.parent or not getattr(fighter, "laser_vulnerable", True):
-            continue
-        targets.append(fighter)
-
-    targets.extend(asteroid for asteroid in asteroids if _is_live_laser_target(asteroid))
-    targets.extend(planets)
+    targets = [
+        target
+        for target in (*ships, *projectiles, *fighters, *asteroids, *planets)
+        if _laser_target_is_eligible(laser, target)
+    ]
     return sorted(targets, key=lambda target: _distance_between(laser.parent, target))
 
 
-def _is_live_laser_target(target):
-    if isinstance(target, Planet):
+def _laser_target_is_eligible(laser, target, explicit=False):
+    if not target.laser_target_capabilities.targetable:
+        return False
+    policy = _LASER_TARGET_POLICIES.get(target.collision_capabilities.role)
+    if policy is None:
+        return False
+    return policy(laser, target, explicit)
+
+
+@_laser_target_policy(CollisionRole.SHIP)
+def _ship_is_laser_target(laser, target, explicit):
+    if target.current_hp <= 0:
+        return False
+    if explicit:
         return True
-    if isinstance(target, SpaceShip):
-        return target.current_hp > 0
-    if isinstance(target, Ability):
-        return _is_live_projectile(target) or _is_live_fighter(target)
-    if isinstance(target, Asteroid):
-        return target.currently_alive
-    return getattr(target, "currently_alive", True)
+    return target.player != laser.player or (
+        target is laser.parent and laser.hit_parent
+    )
+
+
+@_laser_target_policy(CollisionRole.PROJECTILE)
+def _projectile_is_laser_target(laser, target, explicit):
+    if not (
+        target.can_collide
+        and target.currently_alive
+        and target.current_hp > 0
+    ):
+        return False
+    return explicit or target.player != laser.player or laser.hit_self
+
+
+@_laser_target_policy(CollisionRole.FIGHTER)
+def _fighter_is_laser_target(laser, target, explicit):
+    if not (
+        target.can_collide
+        and target.currently_alive
+        and target.current_hp > 0
+    ):
+        return False
+    if explicit:
+        return True
+    return (
+        target is not laser.parent
+        and target.laser_target_capabilities.vulnerable
+    )
+
+
+@_laser_target_policy(CollisionRole.ASTEROID)
+def _asteroid_is_laser_target(laser, target, explicit):
+    return target.currently_alive
+
+
+@_laser_target_policy(CollisionRole.PLANET)
+def _planet_is_laser_target(laser, target, explicit):
+    return True
+
+
+@_laser_target_policy(CollisionRole.NONE)
+def _generic_is_laser_target(laser, target, explicit):
+    return explicit and target.currently_alive
 
 
 def _laser_hit_info(laser, target):

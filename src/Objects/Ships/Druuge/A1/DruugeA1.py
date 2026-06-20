@@ -24,3 +24,15 @@ class DruugeA1(Ability):
             math.sin(angle_rad) * self.speed + self.parent.velocity[0] * self.parent_vel,
             -math.cos(angle_rad) * self.speed + self.parent.velocity[1] * self.parent_vel
         ]
+
+    def on_ship_impact(self, ship):
+        speed = math.hypot(self.velocity[0], self.velocity[1])
+        if speed <= 0:
+            return
+
+        momentum = max(0.1, self.parent.mass) * self.RECOIL_INCREMENT
+        ship_mass = max(0.1, ship.mass)
+        ship.add_impulse(
+            self.velocity[0] / speed * momentum / ship_mass,
+            self.velocity[1] / speed * momentum / ship_mass,
+        )

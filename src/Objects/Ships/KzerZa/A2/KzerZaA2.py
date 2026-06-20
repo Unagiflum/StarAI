@@ -30,16 +30,6 @@ class KzerZaA2(Ability):
         self.laser_range = data["range"]
         self.track_directions = data["track_directions"]
 
-        self.laser_vulnerable = data.get("laser_vulnerable", True)
-        self.collide_fighters = data.get("collide_fighters", True)
-        self.collide_projectiles = data.get("collide_projectiles", True)
-        self.damage_projectiles = data.get("damage_projectiles", True)
-        self.collide_asteroids = data.get("collide_asteroids", True)
-        self.damage_asteroids = data.get("damage_asteroids", True)
-        self.collide_enemy_ships = data.get("collide_enemy_ships", True)
-        self.collide_friendly_ships = data.get("collide_friendly_ships", False)
-        self.collide_planets = data.get("collide_planets", True)
-
         self.position = parent.position.copy()
         self.previous_position = self.position.copy()
         self.rotation = (parent.rotation + launch_angle) % 360
@@ -196,7 +186,10 @@ class KzerZaA2(Ability):
         self.spawned_objects = []
         return result
 
-    def recover(self):
+    def can_recover_with_parent(self):
+        return self.mode == self.RETURNING
+
+    def recover_with_parent(self):
         if not self.currently_alive or not self._parent_alive():
             return
         self.parent.current_hp = min(self.parent.max_hp, self.parent.current_hp + 1)

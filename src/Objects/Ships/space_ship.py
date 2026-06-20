@@ -2,6 +2,12 @@ from src.Objects.object import PlayerObject, ThrustMarker
 import src.const as const
 import math
 import pygame
+from src.collision_capabilities import (
+    AreaDamageCapabilities,
+    CollisionCapabilities,
+    CollisionRole,
+    ShipImpactResult,
+)
 from src.Objects.Ships.catalog import SHIPS_DATA
 
 
@@ -31,6 +37,8 @@ class SpaceShip(PlayerObject):
             player=player_num,
             sprite_scale=ship_data['sprite_scale']
         )
+        self.collision_capabilities = CollisionCapabilities(CollisionRole.SHIP)
+        self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
 
         # Load shared sprites if not already loaded for this ship type
         if ship_name not in self._shared_sprites:
@@ -222,6 +230,10 @@ class SpaceShip(PlayerObject):
         if self.can_move:
             self.accumulated_impulses[0] += dx
             self.accumulated_impulses[1] += dy
+
+    def on_ship_impact(self, other, impact):
+        """Return optional behavior for a physical collision with another ship."""
+        return ShipImpactResult()
 
     def update(self):
         self.previous_position = self.position.copy()

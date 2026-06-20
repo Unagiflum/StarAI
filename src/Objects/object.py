@@ -1,6 +1,11 @@
 import pygame
 import math
 import src.const as Const
+from src.collision_capabilities import (
+    AreaDamageCapabilities,
+    CollisionCapabilities,
+    LaserTargetCapabilities,
+)
 from src.toroidal import wrapped_delta
 
 class Object:
@@ -17,6 +22,9 @@ class Object:
 
         # Collision and expiration
         self.can_collide = True
+        self.collision_capabilities = CollisionCapabilities()
+        self.laser_target_capabilities = LaserTargetCapabilities()
+        self.area_damage_capabilities = AreaDamageCapabilities()
         self.can_expire = False
         self.expiration_timer = 0
 

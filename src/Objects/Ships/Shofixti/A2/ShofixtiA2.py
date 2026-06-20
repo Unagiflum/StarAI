@@ -1,6 +1,7 @@
 import math
 
 from src.Objects.Ships.ability import ABILITIES_DATA, Ability
+from src.collision_capabilities import AreaDamageCapabilities
 
 
 class ShofixtiA2(Ability):
@@ -13,7 +14,11 @@ class ShofixtiA2(Ability):
         self.velocity = [0.0, 0.0]
         self._first_update = True
         self.area_damage_pending = parent.in_battle
-        self.invulnerable = True
+        self.area_damage_capabilities = AreaDamageCapabilities(
+            emits=True,
+            targetable=True,
+            vulnerable=False,
+        )
 
         # Fleet setup instantiates abilities once to warm their shared assets.
         # Gameplay effects must only run for a ship active in battle.

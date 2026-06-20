@@ -1,0 +1,57 @@
+"""Explicit collision identity shared by battle objects and collision dispatch."""
+
+from dataclasses import dataclass
+from enum import Enum, auto
+
+
+class CollisionRole(Enum):
+    NONE = auto()
+    SHIP = auto()
+    PROJECTILE = auto()
+    FIGHTER = auto()
+    LASER = auto()
+    ASTEROID = auto()
+    PLANET = auto()
+
+
+@dataclass(frozen=True)
+class CollisionCapabilities:
+    role: CollisionRole = CollisionRole.NONE
+
+
+@dataclass(frozen=True)
+class LaserTargetCapabilities:
+    targetable: bool = True
+    vulnerable: bool = True
+
+
+@dataclass(frozen=True)
+class AreaDamageCapabilities:
+    emits: bool = False
+    targetable: bool = False
+    vulnerable: bool = True
+
+
+@dataclass(frozen=True)
+class FighterCollisionCapabilities:
+    collides_with_planets: bool = True
+    collides_with_asteroids: bool = True
+    damages_asteroids: bool = True
+    collides_with_projectiles: bool = True
+    damages_projectiles: bool = True
+    collides_with_enemy_ships: bool = True
+    collides_with_friendly_ships: bool = False
+    collides_with_fighters: bool = True
+
+
+@dataclass(frozen=True)
+class ShipImpactContext:
+    normal: tuple[float, float]
+    distance: float
+    overlap: float
+    closing_speed: float
+
+
+@dataclass(frozen=True)
+class ShipImpactResult:
+    damage_to_other: float = 0.0
