@@ -20,12 +20,6 @@ class ShofixtiA2(Ability):
             vulnerable=False,
         )
 
-        # Fleet setup instantiates abilities once to warm their shared assets.
-        # Gameplay effects must only run for a ship active in battle.
-        if parent.in_battle:
-            parent.shofixti_self_destruct = True
-            parent.current_hp = 0
-
     def damage_at_distance(self, distance):
         if distance > self.range:
             return 0

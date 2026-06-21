@@ -1,4 +1,5 @@
 from src.Objects.Ships.space_ship import SpaceShip
+from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.Supox.A1.SupoxA1 import SupoxA1
 import math
 
@@ -6,8 +7,9 @@ import math
 class Supox(SpaceShip):
     action_factories = {1: SupoxA1}
 
-    def perform_action2(self):
-        return None
+    def plan_action2(self):
+        # Secondary is a held movement modifier, not a resource action.
+        return ActionPlan.invalid(2)
 
     def turn_input_enabled(self):
         return not self.action2_active

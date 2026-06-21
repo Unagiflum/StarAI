@@ -15,6 +15,7 @@ pygame.display.set_mode((1, 1))
 import src.const as const
 from src.Battle.battle import BattleSimulation
 from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, ActionResult
 from src.Objects.Ships.catalog import ABILITIES_DATA, SHIPS_DATA
 from src.Objects.Ships.registry import create_ability, create_ship
 
@@ -46,6 +47,76 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         return (
             getattr(ship, f"a{action_number}_cost"),
             int(getattr(ship, f"a{action_number}_wait") * const.ACTION_WAIT_SCALE),
+        )
+
+    def test_action_plan_validation_does_not_commit_until_requested(self):
+        ship = create_ship("Earthling", 1)
+        initial_energy = ship.current_energy
+        launch_sound = mock.Mock()
+        ability = SimpleNamespace(launch_sound=launch_sound)
+        ship.action_factories = {1: mock.Mock(return_value=ability)}
+
+        plan = ship.plan_action1()
+
+        self.assertIsInstance(plan, ActionPlan)
+        self.assertTrue(plan.valid)
+        self.assertEqual(plan.spawned_objects, (ability,))
+        self.assertEqual(plan.energy_change, -ship.a1_cost)
+        self.assertTrue(plan.cooldown_committed)
+        self.assertEqual(ship.current_energy, initial_energy)
+        self.assertEqual(ship.action1_timer, 0)
+        launch_sound.play.assert_not_called()
+
+        result = ship.commit_action(plan)
+
+        self.assertIsInstance(result, ActionResult)
+        self.assertTrue(result.valid)
+        self.assertEqual(result.spawned_objects, (ability,))
+        self.assertEqual(result.cooldown_action, 1)
+        self.assertTrue(result.launch_sound_played)
+        self.assertEqual(ship.current_energy, initial_energy - ship.a1_cost)
+        launch_sound.play.assert_called_once_with()
+
+    def test_invalid_target_plan_rolls_back_every_commit_field(self):
+        ship = create_ship("Earthling", 1)
+        initial_energy = ship.current_energy
+        point_defense = SimpleNamespace(
+            launch_sound=mock.Mock(),
+            get_shots=mock.Mock(return_value=None),
+        )
+        with mock.patch(
+            "src.Objects.Ships.Earthling.Earthling.EarthlingA2",
+            return_value=point_defense,
+        ):
+            plan = ship.plan_action2()
+        result = ship.commit_action(plan)
+
+        self.assertFalse(plan.valid)
+        self.assertFalse(result.valid)
+        self.assertEqual(result.spawned_objects, ())
+        self.assertEqual(result.energy_change, 0)
+        self.assertIsNone(result.cooldown_action)
+        self.assertEqual(ship.current_energy, initial_energy)
+        self.assertEqual(ship.action2_timer, 0)
+        point_defense.launch_sound.play.assert_not_called()
+
+    def test_action_result_preserves_multi_object_order_and_one_sound(self):
+        ship = create_ship("Pkunk", 1)
+        abilities = [SimpleNamespace(launch_sound=mock.Mock()) for _ in range(3)]
+        with mock.patch(
+            "src.Objects.Ships.Pkunk.Pkunk.PkunkA1",
+            side_effect=abilities,
+        ):
+            plan = ship.plan_action1()
+        result = ship.commit_action(plan)
+
+        self.assertEqual(plan.spawned_objects, tuple(abilities))
+        self.assertEqual(result.spawned_objects, tuple(abilities))
+        self.assertIs(result.output, ActionOutput.MANY)
+        self.assertEqual(result.compatibility_value(), abilities)
+        self.assertEqual(
+            [ability.launch_sound.play.call_count for ability in abilities],
+            [1, 0, 0],
         )
 
     def test_ordinary_single_actions_apply_cost_cooldown_sound_and_result(self):

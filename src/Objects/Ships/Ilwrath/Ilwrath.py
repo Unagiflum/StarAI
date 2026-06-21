@@ -1,4 +1,5 @@
 from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
+from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.Ilwrath.A1.IlwrathA1 import IlwrathA1
 from src.Objects.Ships.Ilwrath.A2.IlwrathA2 import IlwrathA2
@@ -26,46 +27,70 @@ class Ilwrath(SpaceShip):
         )
         self.black_sprites = self.resources.black_ship_sprites(ship_name)
 
-    def perform_action1(self):
-        if self.can_action1():
-            self.current_energy -= self.a1_cost
-            self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
-            if self.cloaked:
-                if self.fade_timer >= self.FADE_DURATION:
-                    self.face_opponent()
-                self.uncloak()
-            ability_obj = IlwrathA1(self)
-            if ability_obj.launch_sound:
-                ability_obj.launch_sound.play()
-            return ability_obj
-        return None
+    def plan_action1(self):
+        if not self.can_action1():
+            return ActionPlan.invalid(1)
 
-    def perform_action2(self):
-        if self.can_action2():
-            if self.cloaked:
+        facing = None
+        if self.cloaked and self.fade_timer >= self.FADE_DURATION:
+            facing = self._opponent_facing()
+        flame = self._construct_primary_at_facing(facing)
+
+        side_effects = ()
+        if self.cloaked:
+            def uncloak_for_attack():
+                if facing is not None:
+                    self.heading, self.rotation = facing
                 self.uncloak()
-                if self._uncloak_sound:
-                    self._uncloak_sound.play()
-            else:
-                self.current_energy -= self.a2_cost
-                self.cloak()
-                ability_obj = IlwrathA2(self)
-                if ability_obj.launch_sound:
-                    ability_obj.launch_sound.play()
-            self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
-        return None
+            side_effects = (uncloak_for_attack,)
+
+        return self.prepare_action_plan(1, flame, side_effects=side_effects)
+
+    def plan_action2(self):
+        if not self.can_action2():
+            return ActionPlan.invalid(2)
+        if self.cloaked:
+            return self.prepare_action_plan(
+                2,
+                energy_change=0,
+                side_effects=(self.uncloak,),
+                launch_sound=self._uncloak_sound,
+                use_first_object_sound=False,
+            )
+
+        cloak_effect = IlwrathA2(self)
+        return self.prepare_action_plan(
+            2,
+            side_effects=(self.cloak,),
+            launch_sound=cloak_effect.launch_sound,
+            use_first_object_sound=False,
+        )
+
+    def _construct_primary_at_facing(self, facing):
+        if facing is None:
+            return IlwrathA1(self)
+        old_facing = self.heading, self.rotation
+        self.heading, self.rotation = facing
+        try:
+            return IlwrathA1(self)
+        finally:
+            self.heading, self.rotation = old_facing
 
     def face_opponent(self):
-        if self.opponent and self.opponent.trackable:
-            dx, dy = wrapped_delta(self.position, self.opponent.position)
+        facing = self._opponent_facing()
+        if facing is not None:
+            self.heading, self.rotation = facing
 
-            target_angle = math.degrees(math.atan2(dx, -dy))
-            if target_angle < 0:
-                target_angle += 360
-
-            direction_step = 360 / const.SHIP_DIRECTIONS
-            self.heading = int(target_angle / direction_step) % const.SHIP_DIRECTIONS
-            self.rotation = self.heading * const.TURN_ANGLE
+    def _opponent_facing(self):
+        if not self.opponent or not self.opponent.trackable:
+            return None
+        dx, dy = wrapped_delta(self.position, self.opponent.position)
+        target_angle = math.degrees(math.atan2(dx, -dy))
+        if target_angle < 0:
+            target_angle += 360
+        direction_step = 360 / const.SHIP_DIRECTIONS
+        heading = int(target_angle / direction_step) % const.SHIP_DIRECTIONS
+        return heading, heading * const.TURN_ANGLE
 
     def can_action2(self):
         if self.cloaked:

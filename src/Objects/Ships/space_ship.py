@@ -9,6 +9,7 @@ from src.collision_capabilities import (
     ShipImpactResult,
 )
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS, SHIPS_DATA
+from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, ActionResult
 from src.resources import default_assets
 
 
@@ -155,22 +156,28 @@ class SpaceShip(PlayerObject):
             if marker:
                 new_objects.append(marker)
 
-        # Handle actions based on active states
+        # Input processing consumes typed transactions directly. The
+        # perform_action* methods below remain compatibility wrappers.
         action1_active = self.action1_active or "action1" in self.newly_pressed_controls
         action2_active = self.action2_active or "action2" in self.newly_pressed_controls
         if action1_active and action2_active and (action1_ready or action2_ready):
-            result, is_valid = self.perform_action3()
+            dispatched = self._dispatch_action(3)
+            if isinstance(dispatched, tuple):
+                result, combination_handled = dispatched
+            else:
+                result = dispatched
+                combination_handled = self.handles_combined_action()
             self._add_action_result(new_objects, result)
-            if not is_valid:
+            if not combination_handled:
                 if action1_active and action1_ready:
-                    self._add_action_result(new_objects, self.perform_action1())
+                    self._add_action_result(new_objects, self._dispatch_action(1))
                 if action2_active and action2_ready:
-                    self._add_action_result(new_objects, self.perform_action2())
+                    self._add_action_result(new_objects, self._dispatch_action(2))
         else:
             if action1_active and action1_ready:
-                self._add_action_result(new_objects, self.perform_action1())
+                self._add_action_result(new_objects, self._dispatch_action(1))
             if action2_active and action2_ready:
-                self._add_action_result(new_objects, self.perform_action2())
+                self._add_action_result(new_objects, self._dispatch_action(2))
 
         if "action1" in self.released_controls:
             self._add_action_result(new_objects, self.perform_action1_release())
@@ -181,6 +188,8 @@ class SpaceShip(PlayerObject):
 
     @staticmethod
     def normalize_action_result(result):
+        if isinstance(result, ActionResult):
+            return list(result.spawned_objects) if result.valid else []
         if not result:
             return []
         if isinstance(result, (list, tuple)):
@@ -190,6 +199,19 @@ class SpaceShip(PlayerObject):
     @classmethod
     def _add_action_result(cls, new_objects, result):
         new_objects.extend(cls.normalize_action_result(result))
+
+    def _dispatch_action(self, action_number):
+        """Honor temporary instance-level action doubles, otherwise use plans."""
+        method_name = f"perform_action{action_number}"
+        if method_name in self.__dict__:
+            raw_result = getattr(self, method_name)()
+            if action_number == 3:
+                raw_result, handled = raw_result
+                return raw_result, handled
+            return raw_result
+        return self.commit_action(
+            getattr(self, f"plan_action{action_number}")()
+        )
 
     def turn_input_enabled(self):
         return True
@@ -370,39 +392,119 @@ class SpaceShip(PlayerObject):
             return None
         return masks[self.heading]
 
-    def execute_action(self, action_number, factory=None):
-        """Execute the common action transaction and return its raw result."""
+    def validate_action(self, action_number, factory=None) -> ActionPlan:
+        """Prepare a common action without changing ship state."""
         if not getattr(self, f"can_action{action_number}")():
-            return None
+            return ActionPlan.invalid(action_number)
 
+        raw_result = factory(self) if factory else None
+        return self.prepare_action_plan(action_number, raw_result)
+
+    def prepare_action_plan(
+            self,
+            action_number,
+            raw_result=None,
+            *,
+            energy_change=None,
+            crew_change=0,
+            side_effects=(),
+            launch_sound=None,
+            use_first_object_sound=True,
+            output=None,
+    ) -> ActionPlan:
+        """Build a plan after ship-specific validation has succeeded."""
         cost = getattr(self, f"a{action_number}_cost")
         wait = getattr(self, f"a{action_number}_wait")
-        self.current_energy -= cost
-        setattr(
-            self,
-            f"action{action_number}_timer",
-            int(wait * const.ACTION_WAIT_SCALE),
+        objects = tuple(self.normalize_action_result(raw_result))
+        if output is None:
+            if isinstance(raw_result, (list, tuple)):
+                output = ActionOutput.MANY
+            elif raw_result is None:
+                output = ActionOutput.NONE
+            else:
+                output = ActionOutput.SINGLE
+        return ActionPlan(
+            action_number=action_number,
+            valid=True,
+            spawned_objects=objects,
+            energy_change=-cost if energy_change is None else energy_change,
+            crew_change=crew_change,
+            cooldown_frames=int(wait * const.ACTION_WAIT_SCALE),
+            cooldown_committed=True,
+            side_effects=tuple(side_effects),
+            launch_sound=launch_sound,
+            use_first_object_sound=use_first_object_sound,
+            output=output,
         )
 
-        result = factory(self) if factory else None
-        for action_object in self.normalize_action_result(result):
-            launch_sound = getattr(action_object, "launch_sound", None)
-            if launch_sound:
-                launch_sound.play()
-                break
-        return result
+    def commit_action(self, plan: ActionPlan) -> ActionResult:
+        """Apply a validated plan and return its ordered typed outcome."""
+        if not plan.valid:
+            return ActionResult.invalid()
+
+        self.current_energy += plan.energy_change
+        self.current_hp += plan.crew_change
+        cooldown_action = None
+        if plan.cooldown_committed:
+            cooldown_action = plan.action_number
+            setattr(self, f"action{plan.action_number}_timer", plan.cooldown_frames)
+
+        for effect in plan.side_effects:
+            effect()
+
+        sound = plan.launch_sound
+        if sound is None and plan.use_first_object_sound:
+            for action_object in plan.spawned_objects:
+                sound = getattr(action_object, "launch_sound", None)
+                if sound:
+                    break
+        if sound:
+            sound.play()
+
+        return ActionResult(
+            valid=True,
+            spawned_objects=plan.spawned_objects,
+            energy_change=plan.energy_change,
+            crew_change=plan.crew_change,
+            cooldown_action=cooldown_action,
+            cooldown_frames=plan.cooldown_frames if cooldown_action else 0,
+            side_effects=plan.side_effects,
+            launch_sound_played=bool(sound),
+            output=plan.output,
+        )
+
+    def execute_action_result(self, action_number, factory=None) -> ActionResult:
+        """Validate and commit a common action, returning its typed result."""
+        return self.commit_action(self.validate_action(action_number, factory))
+
+    def execute_action(self, action_number, factory=None):
+        """Compatibility wrapper returning the historical raw action value."""
+        return self.execute_action_result(action_number, factory).compatibility_value()
+
+    def plan_action1(self):
+        return self.validate_action(1, self.action_factories.get(1))
+
+    def plan_action2(self):
+        return self.validate_action(2, self.action_factories.get(2))
+
+    def plan_action3(self):
+        return ActionPlan.invalid(3)
+
+    def handles_combined_action(self):
+        return False
 
     def perform_action1(self):
-        return self.execute_action(1, self.action_factories.get(1))
+        return self.commit_action(self.plan_action1()).compatibility_value()
 
     def perform_action1_release(self):
         return None
 
     def perform_action2(self):
-        return self.execute_action(2, self.action_factories.get(2))
+        return self.commit_action(self.plan_action2()).compatibility_value()
 
     def perform_action3(self):
-        return None, False
+        result = self.commit_action(self.plan_action3())
+        return result.compatibility_value(), self.handles_combined_action()
 
     def set_sprite(self):
         return self.sprites[self.heading]
