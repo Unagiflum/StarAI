@@ -5,6 +5,7 @@ import src.const as const
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
 from src.collision_capabilities import CollisionRole, ShipImpactContext
+from src.Objects.object import Object
 from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
@@ -693,8 +694,7 @@ def _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, pl
             continue
 
         laser.position = laser.parent.position.copy()
-        if hasattr(laser, "calculate_end_position"):
-            laser.calculate_end_position()
+        laser.calculate_end_position()
 
         targets = _laser_targets(laser, ships, projectiles, fighters, asteroids, planets)
         hit_infos = [
@@ -973,10 +973,17 @@ def _object_on_screen(obj, ships):
 
 
 def _set_projectile_hp(projectile, hp):
-    if hasattr(projectile, "set_hp"):
-        projectile.set_hp(max(0, hp))
-    else:
-        projectile.current_hp = max(0, hp)
+    hp = max(0, hp)
+    if isinstance(projectile, Ability):
+        projectile.set_hp(hp)
+        return
+
+    # Compatibility boundary for collision test doubles.
+    set_hp = getattr(projectile, "set_hp", None)
+    if set_hp is not None:
+        set_hp(hp)
+        return
+    projectile.current_hp = hp
 
 
 def _collision_info(obj, other):
@@ -1055,6 +1062,7 @@ def _swept_impact(obj, other):
 
 
 def _sweep_previous_position(obj):
+    # Defaults keep partially initialized collision test doubles compatible.
     if not getattr(obj, "can_move", True):
         return obj.position
     return getattr(obj, "previous_position", obj.position)
@@ -1114,9 +1122,12 @@ def _objects_overlap_at_positions(obj, other, obj_position, other_position):
 
 
 def _get_collision_mask(obj):
-    if hasattr(obj, "get_collision_mask"):
+    if isinstance(obj, Object):
         return obj.get_collision_mask()
-    return None
+
+    # Compatibility boundary for collision test doubles.
+    get_mask = getattr(obj, "get_collision_mask", None)
+    return get_mask() if get_mask is not None else None
 
 
 def _collision_size(obj):
@@ -1233,9 +1244,6 @@ def _mass(obj):
 
 
 def _elastic_bounce(obj, other, normal, distance, overlap):
-    if not hasattr(obj, "velocity") or not hasattr(other, "velocity"):
-        return
-
     obj_mass = _mass(obj)
     other_mass = _mass(other)
     relative_velocity = [
@@ -1257,9 +1265,6 @@ def _elastic_bounce(obj, other, normal, distance, overlap):
 
 
 def _bounce_off_static_body(obj, static_body, normal, overlap, extra_clearance=0.0):
-    if not hasattr(obj, "velocity"):
-        return False
-
     velocity_along_normal = _dot(obj.velocity, normal)
     if velocity_along_normal < 0:
         impulse = [
@@ -1268,7 +1273,7 @@ def _bounce_off_static_body(obj, static_body, normal, overlap, extra_clearance=0
         ]
         obj.velocity[0] += impulse[0]
         obj.velocity[1] += impulse[1]
-        if not getattr(obj, "inertia", True) and hasattr(obj, "collision_velocity"):
+        if isinstance(obj, SpaceShip) and not obj.inertia:
             obj.collision_velocity = obj.velocity.copy()
         collided_while_approaching = True
     else:
@@ -1279,11 +1284,10 @@ def _bounce_off_static_body(obj, static_body, normal, overlap, extra_clearance=0
 
 
 def _stop_at_static_body(obj, static_body, normal, overlap):
-    if hasattr(obj, "velocity"):
-        velocity_along_normal = _dot(obj.velocity, normal)
-        if velocity_along_normal < 0:
-            obj.velocity[0] -= velocity_along_normal * normal[0]
-            obj.velocity[1] -= velocity_along_normal * normal[1]
+    velocity_along_normal = _dot(obj.velocity, normal)
+    if velocity_along_normal < 0:
+        obj.velocity[0] -= velocity_along_normal * normal[0]
+        obj.velocity[1] -= velocity_along_normal * normal[1]
 
     _separate_from_static_body(obj, static_body, normal, overlap)
 

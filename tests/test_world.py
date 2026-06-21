@@ -13,7 +13,8 @@ pygame.init()
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
 from src.Battle import battle_init
-from src.Objects.object import ThrustMarker
+from src.Battle.battle import stop_tracking_projectiles, update_preserved_abilities
+from src.Objects.object import Object, ThrustMarker
 from src.Objects.Space.space_obj import Asteroid, Planet, Star
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
@@ -40,6 +41,73 @@ class WorldCharacterizationTests(unittest.TestCase):
 
         self.assertIs(world.objects, objects)
         self.assertEqual(objects, [second])
+
+    def test_base_object_supplies_hp_free_lifecycle_defaults(self):
+        obj = Object("plain", None, [10, 10])
+
+        self.assertTrue(obj.is_alive())
+        self.assertEqual(obj.drain_spawned_objects(), [])
+        self.assertIsNone(obj.get_collision_mask())
+        self.assertFalse(hasattr(obj, "current_hp"))
+
+        obj.currently_alive = False
+        self.assertFalse(World.is_alive(obj))
+
+    def test_ability_supplies_default_round_and_laser_hooks(self):
+        ability = Ability.__new__(Ability)
+        ability.currently_alive = True
+        ability.current_hp = 1
+
+        self.assertTrue(ability.is_alive())
+        self.assertIsNone(ability.stop_and_track())
+        self.assertIsNone(ability.calculate_end_position())
+
+        ability.current_hp = 0
+        self.assertFalse(World.is_alive(ability))
+
+    def test_update_contract_keeps_simple_double_compatibility(self):
+        class SimpleDouble:
+            def update(self):
+                return True
+
+        obj = SimpleDouble()
+        objects = [obj]
+
+        World(objects).update_objects()
+
+        self.assertEqual(objects, [obj])
+
+    def test_round_transition_calls_tracking_hook_only_for_live_abilities(self):
+        live = self.ability("projectile")
+        dead = self.ability("projectile", alive=False)
+        live.stop_and_track = mock.Mock()
+        dead.stop_and_track = mock.Mock()
+
+        stop_tracking_projectiles([live, dead])
+
+        live.stop_and_track.assert_called_once_with()
+        dead.stop_and_track.assert_not_called()
+
+    def test_preserved_ability_retargets_dead_opponent_and_keeps_planet(self):
+        player1 = SpaceShip.__new__(SpaceShip)
+        player1.player = 1
+        player2 = SpaceShip.__new__(SpaceShip)
+        player2.player = 2
+        old_target = SpaceShip.__new__(SpaceShip)
+        old_target.currently_alive = False
+        old_target.current_hp = 1
+        planet = object()
+        ability = self.ability("projectile")
+        ability.player = 1
+        ability.target = old_target
+        ability.stop_and_track = mock.Mock()
+
+        update_preserved_abilities([ability], player1, player2, planet)
+
+        ability.stop_and_track.assert_called_once_with()
+        self.assertIs(ability.opponent, player2)
+        self.assertIs(ability.target, player2)
+        self.assertIs(ability.planet, planet)
 
     def test_typed_snapshots_follow_authoritative_order_after_mutation(self):
         ship = SpaceShip.__new__(SpaceShip)

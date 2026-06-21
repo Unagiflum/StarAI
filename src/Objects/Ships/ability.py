@@ -231,6 +231,17 @@ class Ability(PlayerObject):
         """Apply fighter-specific recovery behavior."""
         return None
 
+    def stop_and_track(self):
+        """Apply any ability-specific round-transition tracking behavior."""
+        return None
+
+    def calculate_end_position(self):
+        """Update laser geometry when an ability supplies a directed beam."""
+        return None
+
+    def is_alive(self):
+        return self.currently_alive and self.current_hp > 0
+
 
     def set_hp(self, new_hp):
         """Override hp setting to handle evolution and death"""

@@ -217,6 +217,9 @@ class SpaceShip(PlayerObject):
         """Return optional behavior for a physical collision with another ship."""
         return ShipImpactResult()
 
+    def is_alive(self):
+        return self.currently_alive and self.current_hp > 0
+
     def update(self):
         self.previous_position = self.position.copy()
         self.update_physics()

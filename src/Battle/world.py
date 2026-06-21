@@ -4,7 +4,7 @@ from collections.abc import Iterable, Iterator
 from typing import Any, TypeVar
 
 from src.Battle.effects import BattleEffect
-from src.Objects.object import ThrustMarker
+from src.Objects.object import Object, ThrustMarker
 from src.Objects.Space.space_obj import Asteroid, Planet, Star
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
@@ -125,6 +125,10 @@ class World:
 
     @staticmethod
     def is_alive(obj: Any) -> bool:
+        if isinstance(obj, Object):
+            return obj.is_alive()
+
+        # Compatibility boundary for lightweight test and integration doubles.
         return (
             getattr(obj, "currently_alive", True)
             and getattr(obj, "current_hp", 1) > 0
@@ -132,6 +136,8 @@ class World:
 
     @staticmethod
     def participates_in_collision(obj: Any) -> bool:
+        if isinstance(obj, Object):
+            return obj.can_collide and World.is_alive(obj)
         return getattr(obj, "can_collide", False) and World.is_alive(obj)
 
     @staticmethod
@@ -200,6 +206,10 @@ class World:
                 if self.participates_in_collision(obj):
                     avoid_bodies.append(obj)
                 continue
+            if isinstance(obj, Object):
+                if obj.can_collide and obj.is_alive():
+                    avoid_bodies.append(obj)
+                continue
             if (
                 getattr(obj, "can_collide", False)
                 and getattr(obj, "currently_alive", True)
@@ -216,9 +226,17 @@ class World:
             if not obj.update():
                 self.remove(obj)
                 continue
-            if hasattr(obj, "drain_spawned_objects"):
-                spawned_objects.extend(obj.drain_spawned_objects())
+            spawned_objects.extend(self._drain_spawned_objects(obj))
         self.add_all(spawned_objects)
+
+    @staticmethod
+    def _drain_spawned_objects(obj: Any) -> Iterable[Any]:
+        if isinstance(obj, Object):
+            return obj.drain_spawned_objects()
+
+        # Compatibility boundary for lightweight simulation test doubles.
+        drain = getattr(obj, "drain_spawned_objects", None)
+        return drain() if drain is not None else ()
 
     def remove_dead_collision_objects(self) -> None:
         self.remove_where(

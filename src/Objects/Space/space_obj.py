@@ -281,10 +281,15 @@ class Asteroid(Object):
 
     def _position_is_away_from_bodies(self, position, bodies, minimum_distance):
         for body in bodies:
-            if not getattr(body, "currently_alive", True):
-                continue
-            if not getattr(body, "can_collide", True):
-                continue
+            if isinstance(body, Object):
+                if not body.is_alive() or not body.can_collide:
+                    continue
+            else:
+                # Compatibility for lightweight positioning test doubles.
+                if not getattr(body, "currently_alive", True):
+                    continue
+                if not getattr(body, "can_collide", True):
+                    continue
             if wrapped_distance(position, body.position) < minimum_distance:
                 return False
         return True
@@ -337,7 +342,7 @@ class Asteroid(Object):
         return False
 
     def _candidate_overlaps_object(self, candidate_mask, candidate_size, other):
-        other_mask = other.get_collision_mask() if hasattr(other, "get_collision_mask") else None
+        other_mask = other.get_collision_mask()
         other_size = other_mask.get_size() if other_mask else other.size
         delta = wrapped_delta(other.position, self.position)
         radius_sum = max(candidate_size) / 2 + max(other_size) / 2

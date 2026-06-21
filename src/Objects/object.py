@@ -37,6 +37,18 @@ class Object:
         self.sprites = []
         self.image = None
 
+    def drain_spawned_objects(self):
+        """Return objects created during this object's most recent update."""
+        return []
+
+    def get_collision_mask(self):
+        """Return the current pixel collision mask, if this object has one."""
+        return None
+
+    def is_alive(self):
+        """Return whether this object participates as a living object."""
+        return self.currently_alive
+
 class ThrustMarker(Object):
     def __init__(self, x, y):
         super().__init__(

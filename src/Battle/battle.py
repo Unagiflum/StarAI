@@ -479,7 +479,7 @@ def reset_round_objects(game_objects, player1, player2, previous_player1, previo
     selected_ships = [player1, player2]
     preserved_ships = {
         ship for ship in (previous_player1, previous_player2)
-        if ship in selected_ships and ship.currently_alive and ship.current_hp > 0
+        if ship in selected_ships and ship.is_alive()
     }
 
     persistent_objects = world.objects_excluding_types(
@@ -489,8 +489,7 @@ def reset_round_objects(game_objects, player1, player2, previous_player1, previo
         obj for obj in world.abilities
         if (
             obj.parent in preserved_ships and
-            obj.currently_alive and
-            obj.current_hp > 0
+            obj.is_alive()
         )
     ]
     world.retain(persistent_objects + preserved_abilities)
@@ -509,11 +508,7 @@ def reset_round_objects(game_objects, player1, player2, previous_player1, previo
 
 def stop_tracking_projectiles(game_objects):
     for obj in World.coerce(game_objects).abilities:
-        if (
-            obj.currently_alive and
-            obj.current_hp > 0 and
-            hasattr(obj, "stop_and_track")
-        ):
+        if obj.is_alive():
             obj.stop_and_track()
 
 
@@ -543,12 +538,10 @@ def update_preserved_abilities(abilities, player1, player2, planet):
     for ability in abilities:
         opponent = player2 if ability.player == player1.player else player1
         ability.opponent = opponent
-        if hasattr(ability, "stop_and_track"):
-            ability.stop_and_track()
-        if hasattr(ability, "target") and (
+        ability.stop_and_track()
+        if (
             ability.target is None or
-            not getattr(ability.target, "currently_alive", True) or
-            getattr(ability.target, "current_hp", 1) <= 0
+            not World.is_alive(ability.target)
         ):
             ability.target = opponent
         if planet:
