@@ -9,7 +9,7 @@ from src.collision_capabilities import (
     FighterCollisionCapabilities,
     LaserTargetCapabilities,
 )
-from src.Objects.Ships.catalog import ABILITIES_DATA
+from src.Objects.Ships.catalog import ABILITIES_DATA, ABILITY_DEFINITIONS
 from src.resources import default_assets
 from src.toroidal import nearest_position, wrapped_delta
 
@@ -28,13 +28,13 @@ class Ability(PlayerObject):
     sound_enabled = True
 
     def __init__(self, ability_name, parent):
-        ability_data = ABILITIES_DATA[ability_name]
+        ability_definition = ABILITY_DEFINITIONS[ability_name]
 
         # Initialize with temporary size, will be set after sprite loading
         super().__init__(
             name=ability_name,
-            sprite_location=const.source_path(ability_data['file_path']),
-            sprite_scale=ability_data.get('sprite_scale', 1.0),
+            sprite_location=const.source_path(ability_definition.file_path),
+            sprite_scale=ability_definition.sprite_scale,
             size=[0, 0],
             player=parent.player
         )
@@ -59,7 +59,7 @@ class Ability(PlayerObject):
         self.target = None
 
         # Basic properties
-        self.type = ability_data['type']
+        self.type = ability_definition.ability_type
         self.collision_capabilities = CollisionCapabilities({
             'projectile': CollisionRole.PROJECTILE,
             'fighter': CollisionRole.FIGHTER,
@@ -67,7 +67,7 @@ class Ability(PlayerObject):
         }.get(self.type, CollisionRole.NONE))
         self.laser_target_capabilities = LaserTargetCapabilities(
             targetable=self.type in ("projectile", "fighter"),
-            vulnerable=ability_data.get("laser_vulnerable", True),
+            vulnerable=ability_definition.laser_vulnerable,
         )
         self.area_damage_capabilities = AreaDamageCapabilities(
             emits=self.type == "area",
@@ -76,54 +76,42 @@ class Ability(PlayerObject):
         self.area_damage_pending = False
         self.fighter_collision_capabilities = (
             FighterCollisionCapabilities(
-                collides_with_planets=ability_data.get("collide_planets", True),
-                collides_with_asteroids=ability_data.get(
-                    "collide_asteroids", True
-                ),
-                damages_asteroids=ability_data.get("damage_asteroids", True),
-                collides_with_projectiles=ability_data.get(
-                    "collide_projectiles", True
-                ),
-                damages_projectiles=ability_data.get(
-                    "damage_projectiles", True
-                ),
-                collides_with_enemy_ships=ability_data.get(
-                    "collide_enemy_ships", True
-                ),
-                collides_with_friendly_ships=ability_data.get(
-                    "collide_friendly_ships", False
-                ),
-                collides_with_fighters=ability_data.get(
-                    "collide_fighters", True
-                ),
+                collides_with_planets=ability_definition.collide_planets,
+                collides_with_asteroids=ability_definition.collide_asteroids,
+                damages_asteroids=ability_definition.damage_asteroids,
+                collides_with_projectiles=ability_definition.collide_projectiles,
+                damages_projectiles=ability_definition.damage_projectiles,
+                collides_with_enemy_ships=ability_definition.collide_enemy_ships,
+                collides_with_friendly_ships=ability_definition.collide_friendly_ships,
+                collides_with_fighters=ability_definition.collide_fighters,
             )
             if self.type == "fighter"
             else None
         )
-        self.start_hp = ability_data['start_hp'][0]
+        self.start_hp = ability_definition.start_hp[0]
         self.current_hp = self.start_hp
-        self.damages = ability_data['damage']
+        self.damages = ability_definition.damage
         self.current_damage = self.damages[0]
-        self.tracking = ability_data['tracking']
-        self.parent_vel = ability_data['parent_vel']
-        self.speed = ability_data['speed'] * const.PROJ_SPEED_SCALE
-        self.life_time = ability_data['life_time']
-        self.turn_wait = ability_data.get('turn_wait', 0)
-        self.inertia = ability_data['inertia']
-        self.hit_parent = ability_data['hit_parent']
-        self.hit_self = ability_data['hit_self']
+        self.tracking = ability_definition.tracking
+        self.parent_vel = ability_definition.parent_vel
+        self.speed = ability_definition.speed * const.PROJ_SPEED_SCALE
+        self.life_time = ability_definition.life_time
+        self.turn_wait = ability_definition.turn_wait
+        self.inertia = ability_definition.inertia
+        self.hit_parent = ability_definition.hit_parent
+        self.hit_self = ability_definition.hit_self
         self.has_left_parent = False
-        self.omnidirectional = ability_data['omnidirectional']
-        self.end_anim_count = ability_data.get('end_anim', 0)
+        self.omnidirectional = ability_definition.omnidirectional
+        self.end_anim_count = ability_definition.end_anim
 
         # Animation properties
-        self.frames = ability_data.get('frames', 1)
-        self.frame_delay = ability_data.get('frame_delay', 0)
+        self.frames = ability_definition.frames
+        self.frame_delay = ability_definition.frame_delay
         self.current_frame = 0
         self.frame_timer = self.frame_delay
 
         # Store HP array for evolution
-        self.hp_array = ability_data['start_hp']
+        self.hp_array = ability_definition.start_hp
 
         # State flags
         self.turn_timer = int(self.turn_wait * const.TURN_WAIT_SCALE)

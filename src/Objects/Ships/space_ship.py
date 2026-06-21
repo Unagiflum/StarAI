@@ -8,7 +8,7 @@ from src.collision_capabilities import (
     CollisionRole,
     ShipImpactResult,
 )
-from src.Objects.Ships.catalog import SHIPS_DATA
+from src.Objects.Ships.catalog import SHIP_DEFINITIONS, SHIPS_DATA
 from src.resources import default_assets
 
 
@@ -28,8 +28,8 @@ class SpaceShip(PlayerObject):
 
     def __init__(self, ship_name, player_num, resources=None):
         # Get ship-specific data from cached data
-        ship_data = SHIPS_DATA[ship_name]
-        sprite_location = const.source_path(ship_data['sprite_path'])
+        ship_definition = SHIP_DEFINITIONS[ship_name]
+        sprite_location = const.source_path(ship_definition.sprite_path)
 
         # Initialize the PlayerObject base class
         super().__init__(
@@ -37,7 +37,7 @@ class SpaceShip(PlayerObject):
             sprite_location=sprite_location,
             size=[0,0],
             player=player_num,
-            sprite_scale=ship_data['sprite_scale']
+            sprite_scale=ship_definition.sprite_scale
         )
         self.resources = resources or default_assets()
         self.collision_capabilities = CollisionCapabilities(CollisionRole.SHIP)
@@ -51,31 +51,31 @@ class SpaceShip(PlayerObject):
         self.sprites = assets.sprites
 
         # Ship-specific attributes
-        self.ship_type = ship_data['ship_type']
-        self.cost = ship_data['cost']
-        self.max_hp = ship_data['max_hp']
-        self.start_hp = ship_data['start_hp']
-        self.max_energy = ship_data['max_energy']
-        self.start_energy = ship_data['start_energy']
-        self.energy_regen = ship_data['energy_regen']
-        self.energy_wait = ship_data['energy_wait']
-        self.max_thrust = ship_data['max_thrust']
-        self.thrust_increment = ship_data['thrust_increment']
-        self.thrust_wait = ship_data['thrust_wait']
-        self.turn_wait = ship_data['turn_wait']
-        self.a1_cost = ship_data['a1_cost']
-        self.a2_cost = ship_data['a2_cost']
-        self.a3_cost = ship_data['a3_cost']
-        self.a1_wait = ship_data['a1_wait']
-        self.a2_wait = ship_data['a2_wait']
-        self.a3_wait = ship_data['a3_wait']
-        self.mass = ship_data['mass']
-        self.inertia = ship_data['inertia']
+        self.ship_type = ship_definition.ship_type
+        self.cost = ship_definition.cost
+        self.max_hp = ship_definition.max_hp
+        self.start_hp = ship_definition.start_hp
+        self.max_energy = ship_definition.max_energy
+        self.start_energy = ship_definition.start_energy
+        self.energy_regen = ship_definition.energy_regen
+        self.energy_wait = ship_definition.energy_wait
+        self.max_thrust = ship_definition.max_thrust
+        self.thrust_increment = ship_definition.thrust_increment
+        self.thrust_wait = ship_definition.thrust_wait
+        self.turn_wait = ship_definition.turn_wait
+        self.a1_cost = ship_definition.a1_cost
+        self.a2_cost = ship_definition.a2_cost
+        self.a3_cost = ship_definition.a3_cost
+        self.a1_wait = ship_definition.a1_wait
+        self.a2_wait = ship_definition.a2_wait
+        self.a3_wait = ship_definition.a3_wait
+        self.mass = ship_definition.mass
+        self.inertia = ship_definition.inertia
         self.collision_velocity = [0.0, 0.0]
         self.planet_contacts = set()
 
-        self.current_hp = ship_data['start_hp']
-        self.current_energy = ship_data['start_energy']
+        self.current_hp = ship_definition.start_hp
+        self.current_energy = ship_definition.start_energy
         self.energy_timer = 0
 
         # Timers

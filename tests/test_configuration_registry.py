@@ -15,7 +15,14 @@ pygame.display.set_mode((1, 1))
 
 import src.const as const
 from src.Objects.Ships.ability import Ability
-from src.Objects.Ships.catalog import ABILITIES_DATA, SHIPS_DATA
+from src.Objects.Ships.catalog import (
+    ABILITIES_DATA,
+    ABILITY_DEFINITIONS,
+    SHIPS_DATA,
+    SHIP_DEFINITIONS,
+    AbilityDefinition,
+    ShipDefinition,
+)
 from src.Objects.Ships.registry import (
     ability_names_for_ship,
     create_ability,
@@ -85,6 +92,10 @@ class ShipRegistryTests(unittest.TestCase):
         self.assertEqual(get_ability_class("EarthlingA1").__name__, "EarthlingA1")
         self.assertIn("Earthling", SHIPS_DATA)
         self.assertIn("EarthlingA1", ABILITIES_DATA)
+        self.assertIsInstance(SHIP_DEFINITIONS["Earthling"], ShipDefinition)
+        self.assertIsInstance(
+            ABILITY_DEFINITIONS["EarthlingA1"], AbilityDefinition
+        )
         self.assertEqual(
             set(ability_names_for_ship("Earthling")),
             {"EarthlingA1", "EarthlingA2"},

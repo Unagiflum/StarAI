@@ -6,7 +6,7 @@ from pathlib import Path
 import pygame
 
 import src.const as const
-from src.Objects.Ships.catalog import ABILITIES_DATA, SHIPS_DATA
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 
 
 @dataclass(frozen=True)
@@ -61,9 +61,9 @@ class AssetManager:
 
     def ship(self, ship_name):
         if ship_name not in self._ships:
-            data = SHIPS_DATA[ship_name]
-            resource_dir = const.source_path(data["sprite_path"])
-            scale = data["sprite_scale"]
+            definition = SHIP_DEFINITIONS[ship_name]
+            resource_dir = const.source_path(definition.sprite_path)
+            scale = definition.sprite_scale
             sprites = tuple(
                 pygame.transform.smoothscale_by(
                     self._image(resource_dir / f"{ship_name}{index:02d}.png"),
@@ -84,17 +84,17 @@ class AssetManager:
         if ability_name in self._abilities:
             return self._abilities[ability_name]
 
-        data = ABILITIES_DATA[ability_name]
-        resource_dir = const.source_path(data["file_path"])
-        scale = data.get("sprite_scale", 1.0)
+        definition = ABILITY_DEFINITIONS[ability_name]
+        resource_dir = const.source_path(definition.file_path)
+        scale = definition.sprite_scale
         sprites = []
         masks = []
         sizes = []
 
-        if data.get("has_sprites", True):
-            if data["omnidirectional"] and data.get("frames", 1) > 1:
+        if definition.has_sprites:
+            if definition.omnidirectional and definition.frames > 1:
                 frames = []
-                for frame in range(data["frames"]):
+                for frame in range(definition.frames):
                     path = resource_dir / f"{ability_name}00_{frame:02d}.png"
                     if not path.exists():
                         path = resource_dir / f"{ability_name}{frame:02d}.png"
@@ -104,7 +104,7 @@ class AssetManager:
                     sizes.append(sprite.get_size())
                 sprites.append(tuple(frames))
             else:
-                directions = 1 if data["omnidirectional"] else const.SHIP_DIRECTIONS
+                directions = 1 if definition.omnidirectional else const.SHIP_DIRECTIONS
                 for index in range(directions):
                     path = resource_dir / f"{ability_name}{index:02d}.png"
                     sprite = pygame.transform.smoothscale_by(self._image(path), scale)
@@ -123,7 +123,7 @@ class AssetManager:
                 self._image(resource_dir / f"{ability_name}end{index:02d}.png"),
                 scale,
             )
-            for index in range(data.get("end_anim", 0))
+            for index in range(definition.end_anim)
         )
         assets = AbilityAssets(
             sprites=sprite_assets,
@@ -135,10 +135,10 @@ class AssetManager:
         return assets
 
     def ability_sound(self, ability_name, enabled=True):
-        data = ABILITIES_DATA[ability_name]
-        if not data.get("has_sound", True):
+        definition = ABILITY_DEFINITIONS[ability_name]
+        if not definition.has_sound:
             return None
-        path = const.source_path(data["file_path"]) / f"{ability_name}.wav"
+        path = const.source_path(definition.file_path) / f"{ability_name}.wav"
         return self.sound(path, const.SOUND_EFFECT_VOLUME, enabled)
 
     def black_ship_sprites(self, ship_name):
@@ -221,7 +221,7 @@ class AssetManager:
 
     def menu_ship_sprite(self, ship_name):
         if ship_name not in self._menu_ship_sprites:
-            resource_dir = const.source_path(SHIPS_DATA[ship_name]["sprite_path"])
+            resource_dir = const.source_path(SHIP_DEFINITIONS[ship_name].sprite_path)
             self._menu_ship_sprites[ship_name] = self._image(
                 resource_dir / f"{ship_name}00.png"
             )
