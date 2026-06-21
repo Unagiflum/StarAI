@@ -10,7 +10,7 @@ from src.Objects.Ships.ability import Ability
 from src.Objects.object import ThrustMarker
 from src.Battle.battle_init import initialize_battle
 from src.Battle.collisions import handle_collisions
-from src.Battle.battle_draw import draw_battle
+from src.Battle.battle_draw import StarFieldRenderer, draw_battle
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
 from src.resources import default_assets
@@ -357,6 +357,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
         screen, ship1, ship2, player1_ships, player2_ships,
         audio_service=audio_service,
     )
+    star_field_renderer = StarFieldRenderer()
 
     running = True
     pygame.event.clear(pygame.KEYDOWN)
@@ -411,6 +412,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
             simulation.world,
             simulation.border_rect,
             simulation.border_color,
+            star_field_renderer,
             camera_targets=aftermath_camera_targets(
                 simulation.aftermath,
                 simulation.player1,

@@ -107,9 +107,6 @@ class Star(Object):
     with open(Const.STARS_JSON_PATH, 'r') as f:
         _star_data = json.load(f)
 
-    depth_surfaces = [pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA) for _ in range(Const.STAR_DEPTHS)]
-    stars_by_depth = [[] for _ in range(Const.STAR_DEPTHS)]
-
     def __init__(self, resources=None):
         self.resources = resources or default_assets()
         weights = {
@@ -139,7 +136,6 @@ class Star(Object):
 
     @staticmethod
     def create_random_stars(count, resources=None):
-        Star.stars_by_depth = [[] for _ in range(Const.STAR_DEPTHS)]
         stars = []
         for _ in range(count):
             star = Star(resources)
@@ -147,39 +143,8 @@ class Star(Object):
                 random.randint(0, Const.ARENA_SIZE),
                 random.randint(0, Const.ARENA_SIZE)
             ]
-            Star.stars_by_depth[star.depth].append(star)
             stars.append(star)
         return stars
-
-    @staticmethod
-    def update_depth_surface(depth, stars, scale_factor, translation, midpoint, parallax_factor):
-        surface = Star.depth_surfaces[depth]
-        surface.fill((0, 0, 0, 0))
-
-        for star in Star.stars_by_depth[depth]:
-            dx, dy = wrapped_delta(midpoint, star.position)
-
-            relative_x = midpoint[0] + dx * parallax_factor
-            relative_y = midpoint[1] + dy * parallax_factor
-
-            screen_x = int((relative_x + translation[0]) * scale_factor)
-            screen_y = int((relative_y + translation[1]) * scale_factor)
-
-            scaled_image = pygame.transform.smoothscale_by(star.image, scale_factor)
-            scaled_image.set_alpha(Const.STAR_ALPHA)
-            star_size = scaled_image.get_width()
-
-            for dx in [-1, 0, 1]:
-                for dy in [-1, 0, 1]:
-                    pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
-                    pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
-
-                    if (-star_size <= pos_x <= Const.SCREEN_HEIGHT + star_size and
-                            -star_size <= pos_y <= Const.SCREEN_HEIGHT + star_size):
-                        surface.blit(scaled_image, (
-                            Const.SCREEN_LEFT + pos_x - star_size // 2,
-                            pos_y - star_size // 2
-                        ))
 
     def update(self):
         return True

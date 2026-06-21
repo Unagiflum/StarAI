@@ -1,10 +1,86 @@
 import pygame
 from src.UI import ui
-from src.Objects.Space.space_obj import Star
 from src.Battle.status_bar import draw_player_status
 import src.const as const
-from src.toroidal import view_center_and_size, wrapped_midpoint
+from src.toroidal import view_center_and_size, wrapped_delta, wrapped_midpoint
 from src.Battle.world import World
+
+
+class StarFieldRenderer:
+    def __init__(self):
+        self.depth_surfaces = [
+            pygame.Surface(
+                (const.SCREEN_WIDTH, const.SCREEN_HEIGHT), pygame.SRCALPHA
+            )
+            for _ in range(const.STAR_DEPTHS)
+        ]
+
+    def draw(self, screen, stars, scale_factor, translation, midpoint):
+        stars_by_depth = [[] for _ in range(const.STAR_DEPTHS)]
+        for star in stars:
+            stars_by_depth[star.depth].append(star)
+
+        for depth, depth_stars in enumerate(stars_by_depth):
+            parallax_factor = 0.5 + 0.5 * (
+                depth / (const.STAR_DEPTHS - 1)
+            )
+            self.update_depth_surface(
+                depth,
+                depth_stars,
+                scale_factor,
+                translation,
+                midpoint,
+                parallax_factor,
+            )
+            screen.blit(self.depth_surfaces[depth], (0, 0))
+
+    def update_depth_surface(
+        self,
+        depth,
+        stars,
+        scale_factor,
+        translation,
+        midpoint,
+        parallax_factor,
+    ):
+        surface = self.depth_surfaces[depth]
+        surface.fill((0, 0, 0, 0))
+
+        for star in stars:
+            dx, dy = wrapped_delta(midpoint, star.position)
+
+            relative_x = midpoint[0] + dx * parallax_factor
+            relative_y = midpoint[1] + dy * parallax_factor
+
+            screen_x = int((relative_x + translation[0]) * scale_factor)
+            screen_y = int((relative_y + translation[1]) * scale_factor)
+
+            scaled_image = pygame.transform.smoothscale_by(
+                star.image, scale_factor
+            )
+            scaled_image.set_alpha(const.STAR_ALPHA)
+            star_size = scaled_image.get_width()
+
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
+                    pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
+
+                    if (
+                        -star_size
+                        <= pos_x
+                        <= const.SCREEN_HEIGHT + star_size
+                        and -star_size
+                        <= pos_y
+                        <= const.SCREEN_HEIGHT + star_size
+                    ):
+                        surface.blit(
+                            scaled_image,
+                            (
+                                const.SCREEN_LEFT + pos_x - star_size // 2,
+                                pos_y - star_size // 2,
+                            ),
+                        )
 
 
 def calculate_view_parameters(game_objects, camera_targets=None):
@@ -37,7 +113,14 @@ def calculate_view_parameters(game_objects, camera_targets=None):
     return scale_factor, translation
 
 
-def draw_battle(screen, game_objects, border_rect, border_color, camera_targets=None):
+def draw_battle(
+    screen,
+    game_objects,
+    border_rect,
+    border_color,
+    star_field_renderer,
+    camera_targets=None,
+):
     world = World.coerce(game_objects)
     scale_factor, translation = calculate_view_parameters(world, camera_targets)
 
@@ -51,12 +134,9 @@ def draw_battle(screen, game_objects, border_rect, border_color, camera_targets=
     screen.fill(ui.BLACK)
     screen.set_clip(border_rect)
 
-    # Update and draw star layers
-    stars = world.stars
-    for depth in range(const.STAR_DEPTHS):
-        parallax_factor = 0.5 + 0.5 * (depth / (const.STAR_DEPTHS - 1))
-        Star.update_depth_surface(depth, stars, scale_factor, translation, midpoint, parallax_factor)
-        screen.blit(Star.depth_surfaces[depth], (0, 0))
+    star_field_renderer.draw(
+        screen, world.stars, scale_factor, translation, midpoint
+    )
 
     # Draw other objects normally
     for planet in world.planets:
