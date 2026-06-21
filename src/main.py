@@ -12,21 +12,17 @@ from src.audio import PygameAudioService
 import src.const as const
 
 
-def handle_menu_selection(module, screen, audio_service=None):
+def handle_menu_selection(
+        menu_callable, screen, menu_sound_manager=None, audio_service=None):
     """Handle the selected menu item."""
-    if module is None:
+    if menu_callable is None:
         pygame.quit()
         sys.exit()
-    try:
-        if hasattr(module, 'run'):
-            if module is pick_fleet:
-                module.run(screen, audio_service=audio_service)
-            else:
-                module.run(screen)
-        else:
-            print(f"Module '{module.__name__}' does not have a 'run' function. Continuing.")
-    except Exception as e:
-        print(f"An error occurred while running '{module.__name__}': {e}")
+    menu_callable(
+        screen=screen,
+        menu_sound_manager=menu_sound_manager,
+        audio_service=audio_service,
+    )
 
 
 def main():
@@ -34,9 +30,9 @@ def main():
     pygame.init()
     pygame.mixer.init()
     audio_service = PygameAudioService()
-    ui.sound_manager = ui.SoundManager(audio_service=audio_service)
-    ui.sound_manager.load_sounds()
-    ui.sound_manager.set_volume(0.30)
+    menu_sound_manager = ui.SoundManager(audio_service=audio_service)
+    menu_sound_manager.load_sounds()
+    menu_sound_manager.set_volume(0.30)
 
     screen = pygame.display.set_mode((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
     pygame.display.set_caption("StarAI")
@@ -50,22 +46,25 @@ def main():
     y_spacing = int(0.075 * const.SCREEN_HEIGHT)
 
     menu_items = [
-        ("Play Game", pick_fleet),
-        ("Game Settings", game_settings),
-        ("Training Settings", train_settings),
+        ("Play Game", pick_fleet.run),
+        ("Game Settings", game_settings.run),
+        ("Training Settings", train_settings.run),
         ("Quit", None)
     ]
 
     buttons = []
-    for i, (text, module) in enumerate(menu_items):
+    for i, (text, menu_callable) in enumerate(menu_items):
         button = ui_button.Button(
             x=int(const.SCREEN_WIDTH // 2 - button_width // 2),
             y=start_y + i * y_spacing,
             width=button_width,
             height=button_height,
             text=text,
-            callback=lambda m=module: handle_menu_selection(
-                m, screen, audio_service
+            callback=lambda selected=menu_callable: handle_menu_selection(
+                selected,
+                screen,
+                menu_sound_manager=menu_sound_manager,
+                audio_service=audio_service,
             ),
             bg_color=ui.MAIN_BUTTON_COLOR,
             hover_color=ui.MAIN_BUTTON_COLOR_HI
@@ -81,7 +80,7 @@ def main():
                 running = False
             # Handle button events
             for button in buttons:
-                button.handle_event(event, ui.sound_manager)
+                button.handle_event(event, menu_sound_manager)
 
         # Draw everything
         if background:

@@ -29,7 +29,7 @@ def save_settings(settings):
 
 
 
-def run(screen):
+def run(screen, menu_sound_manager=None, audio_service=None):
     """Run the Play Settings menu."""
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(0.03*const.SCREEN_HEIGHT))
@@ -117,9 +117,9 @@ def run(screen):
 
             # Handle events for key bindings and buttons
             for binding in key_bindings:
-                binding.handle_event(event, ui.sound_manager)
-            save_button.handle_event(event, ui.sound_manager)
-            cancel_button.handle_event(event, ui.sound_manager)
+                binding.handle_event(event, menu_sound_manager)
+            save_button.handle_event(event, menu_sound_manager)
+            cancel_button.handle_event(event, menu_sound_manager)
 
         # Check if we should return to the main menu
         if back_to_menu[0]:

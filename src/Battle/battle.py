@@ -351,7 +351,7 @@ class BattleSimulation:
 
 
 def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
-        player2_ships=None, audio_service=None):
+        player2_ships=None, audio_service=None, menu_sound_manager=None):
     clock = pygame.time.Clock()
     simulation = BattleSimulation(
         screen, ship1, ship2, player1_ships, player2_ships,
@@ -396,6 +396,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
                 preselect_player2=simulation.player2 if simulation.player2.currently_alive else None,
                 choose_second_player=simulation.aftermath.choose_second_player,
                 audio_service=simulation.audio,
+                menu_sound_manager=menu_sound_manager,
             )
             simulation.select_next_round(selected)
             pygame.event.clear(pygame.KEYDOWN)

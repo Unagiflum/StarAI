@@ -27,7 +27,7 @@ def save_settings(settings):
     except (OSError, PersistenceValidationError) as e:
         print(f"Error saving settings: {e}")
 
-def run(screen):
+def run(screen, menu_sound_manager=None, audio_service=None):
     """Run the Training Settings menu."""
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(0.03*Const.SCREEN_HEIGHT))
@@ -100,9 +100,9 @@ def run(screen):
                 pygame.quit()
                 sys.exit()
             for slider in sliders:
-                slider.handle_event(event, ui.sound_manager)
-            save_button.handle_event(event, ui.sound_manager)
-            cancel_button.handle_event(event, ui.sound_manager)
+                slider.handle_event(event, menu_sound_manager)
+            save_button.handle_event(event, menu_sound_manager)
+            cancel_button.handle_event(event, menu_sound_manager)
 
         if back_to_menu[0]:
             return

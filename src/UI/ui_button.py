@@ -18,8 +18,8 @@ class Button:
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if self.rect.collidepoint(event.pos):
-                if ui.sound_manager:
-                    ui.sound_manager.play_sound('menu')
+                if sound_manager:
+                    sound_manager.play_sound('menu')
                 self.callback()
 
     def draw(self, surface, font):
@@ -99,8 +99,8 @@ class ToggleButton(Button):
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if self.rect.collidepoint(event.pos):
-                if ui.sound_manager:
-                    ui.sound_manager.play_sound('menu')
+                if sound_manager:
+                    sound_manager.play_sound('menu')
                 self.is_on = not self.is_on
                 if self.callback:
                     self.callback(self.is_on)

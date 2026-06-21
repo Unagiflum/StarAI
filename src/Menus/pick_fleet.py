@@ -85,7 +85,7 @@ def load_fleets(left_fleet, right_fleet, fleet_sprites, ships_data):
     return fleets.player1.ai, fleets.player2.ai
 
 
-def run(screen: pygame.Surface, audio_service=None):
+def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     """Run the Pick Fleet module."""
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, cost_FONT_SIZE)
@@ -187,7 +187,11 @@ def run(screen: pygame.Surface, audio_service=None):
             )
             print("Fleets confirmed.")
 
-            pick_ship.run(screen, audio_service=audio_service)
+            pick_ship.run(
+                screen=screen,
+                menu_sound_manager=menu_sound_manager,
+                audio_service=audio_service,
+            )
 
     running = True
 
@@ -236,10 +240,10 @@ def run(screen: pygame.Surface, audio_service=None):
 
             for controls in (ai_toggles, one_of_each_buttons, clear_buttons):
                 for control in controls.values():
-                    control.handle_event(event, ui.sound_manager)
+                    control.handle_event(event, menu_sound_manager)
 
-            confirm_button.handle_event(event, ui.sound_manager)
-            cancel_button.handle_event(event, ui.sound_manager)
+            confirm_button.handle_event(event, menu_sound_manager)
+            cancel_button.handle_event(event, menu_sound_manager)
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 added = False
@@ -252,7 +256,8 @@ def run(screen: pygame.Surface, audio_service=None):
                                 success = fleet.add_ship(fleet_sprites[name], name, cost)
                                 if success:
                                     print(f"Added {name} to {fleet.title}")
-                                    ui.sound_manager.play_sound('menu')
+                                    if menu_sound_manager:
+                                        menu_sound_manager.play_sound('menu')
                                 else:
                                     print(f"{fleet.title} is full. Cannot add {name}.")
                                 added = True
@@ -265,7 +270,8 @@ def run(screen: pygame.Surface, audio_service=None):
                         if (fleet.rect.collidepoint(mouse_pos)
                                 and fleet.remove_ship_at_pos(mouse_pos)):
                             print(f"Removed a ship from Player {player} Fleet")
-                            ui.sound_manager.play_sound('menu')
+                            if menu_sound_manager:
+                                menu_sound_manager.play_sound('menu')
                             break
 
         # Update confirm button state

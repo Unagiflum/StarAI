@@ -108,5 +108,3 @@ class SoundManager:
         self.volume = max(0.0, min(1.0, volume))
         for sound in self.sounds.values():
             sound.set_volume(self.volume)
-
-sound_manager = SoundManager()

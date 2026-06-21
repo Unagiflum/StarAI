@@ -76,7 +76,7 @@ def load_ships_data(ships_data):
 
 def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
         preselect_player1=None, preselect_player2=None, choose_second_player=None,
-        audio_service=None):
+        audio_service=None, menu_sound_manager=None):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.03))
     state_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.025))
@@ -245,6 +245,7 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                     player1_ships,
                     player2_ships,
                     audio_service=audio_service,
+                    menu_sound_manager=menu_sound_manager,
                 )
                 return None, None
 
@@ -294,20 +295,23 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                         for index, (_, _, _, rect) in enumerate(panel.ships):
                             if rect and rect.collidepoint(mouse_pos):
                                 if selection_state.select_index(player, index):
-                                    ui.sound_manager.play_sound('menu')
+                                    if menu_sound_manager:
+                                        menu_sound_manager.play_sound('menu')
                                 break
                         break
 
             for button in random_buttons.values():
-                button.handle_event(event, ui.sound_manager)
+                button.handle_event(event, menu_sound_manager)
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if cancel_button.rect.collidepoint(event.pos):
-                    ui.sound_manager.play_sound('menu')
+                    if menu_sound_manager:
+                        menu_sound_manager.play_sound('menu')
                     running = False
                 elif (confirm_button.rect.collidepoint(event.pos)
                       and selection_state.confirmation_ready):
-                    ui.sound_manager.play_sound('menu')
+                    if menu_sound_manager:
+                        menu_sound_manager.play_sound('menu')
                     return confirm_callback()
 
         if selection_state.confirmation_ready:
