@@ -2,6 +2,8 @@ import pygame
 import sys
 import random
 import math
+from collections.abc import Mapping, MutableMapping
+from dataclasses import dataclass, field
 
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.ability import Ability
@@ -34,6 +36,95 @@ SHIP_CONTROL_NAMES = {
 }
 
 
+@dataclass
+class ScheduledExplosion(Mapping):
+    frame: int
+    ship: SpaceShip
+    position: list[float]
+    scale: float
+    is_final: bool
+
+    _COMPATIBILITY_KEYS = ("frame", "ship", "position", "scale", "is_final")
+
+    def __getitem__(self, key):
+        if key not in self._COMPATIBILITY_KEYS:
+            raise KeyError(key)
+        return getattr(self, key)
+
+    def __iter__(self):
+        return iter(self._COMPATIBILITY_KEYS)
+
+    def __len__(self):
+        return len(self._COMPATIBILITY_KEYS)
+
+    @classmethod
+    def from_mapping(cls, item):
+        return cls(
+            frame=item["frame"],
+            ship=item["ship"],
+            position=item["position"],
+            scale=item["scale"],
+            is_final=item["is_final"],
+        )
+
+
+@dataclass
+class AftermathState(Mapping):
+    started_frame: int
+    latest_death_frame: int
+    dead_players: set[int] = field(default_factory=set)
+    death_effects: dict[int, list[BattleEffect]] = field(default_factory=dict)
+    pending_explosions: list[ScheduledExplosion] = field(default_factory=list)
+    ships_pending_hide: set[SpaceShip] = field(default_factory=set)
+    camera_hold_targets: list[SpaceShip] = field(default_factory=list)
+    ditty_started: bool = False
+    tie_break_ship: SpaceShip | None = None
+    choose_second_player: int | None = None
+
+    _COMPATIBILITY_KEYS = (
+        "started_frame",
+        "latest_death_frame",
+        "dead_players",
+        "death_effects",
+        "pending_explosions",
+        "ships_pending_hide",
+        "camera_hold_targets",
+        "ditty_started",
+        "tie_break_ship",
+        "choose_second_player",
+    )
+
+    def __getitem__(self, key):
+        if key not in self._COMPATIBILITY_KEYS:
+            raise KeyError(key)
+        return getattr(self, key)
+
+    def __iter__(self):
+        return iter(self._COMPATIBILITY_KEYS)
+
+    def __len__(self):
+        return len(self._COMPATIBILITY_KEYS)
+
+    @classmethod
+    def from_mapping(cls, aftermath):
+        started_frame = aftermath["started_frame"]
+        return cls(
+            started_frame=started_frame,
+            latest_death_frame=aftermath.get("latest_death_frame", started_frame),
+            dead_players=aftermath.get("dead_players", set()),
+            death_effects=aftermath.get("death_effects", {}),
+            pending_explosions=[
+                item if isinstance(item, ScheduledExplosion) else ScheduledExplosion.from_mapping(item)
+                for item in aftermath.get("pending_explosions", [])
+            ],
+            ships_pending_hide=aftermath.get("ships_pending_hide", set()),
+            camera_hold_targets=aftermath.get("camera_hold_targets", []),
+            ditty_started=aftermath.get("ditty_started", False),
+            tie_break_ship=aftermath.get("tie_break_ship"),
+            choose_second_player=aftermath.get("choose_second_player"),
+        )
+
+
 class BattleSimulation:
     def __init__(self, screen, ship1: SpaceShip, ship2: SpaceShip,
                  player1_ships=None, player2_ships=None, sound_enabled=True):
@@ -57,7 +148,7 @@ class BattleSimulation:
         reset_ship_controls(self.player2)
         self.key_states = self._initial_key_states()
         self.frame_id = 0
-        self.aftermath = None
+        self.aftermath: AftermathState | None = None
         self.needs_selection = False
         self.running = True
 
@@ -186,21 +277,6 @@ class BattleSimulation:
         if self.aftermath is None:
             return
 
-        newly_dead = [
-            ship for ship in (self.player1, self.player2)
-            if ship.current_hp <= 0 and ship.currently_alive
-        ]
-        if newly_dead:
-            self.aftermath = start_or_update_aftermath(
-                self.aftermath,
-                newly_dead,
-                self.player1,
-                self.player2,
-                self.world,
-                self.frame_id,
-                self.sound_enabled,
-            )
-
         update_aftermath(
             self.aftermath,
             self.player1,
@@ -295,7 +371,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_
                 start_battle=False,
                 preselect_player1=simulation.player1 if simulation.player1.currently_alive else None,
                 preselect_player2=simulation.player2 if simulation.player2.currently_alive else None,
-                choose_second_player=simulation.aftermath.get("choose_second_player"),
+                choose_second_player=simulation.aftermath.choose_second_player,
             )
             simulation.select_next_round(selected)
             pygame.event.clear(pygame.KEYDOWN)
@@ -332,31 +408,22 @@ def set_battle_sound_enabled(enabled):
 
 def start_or_update_aftermath(aftermath, dead_ships, player1, player2, game_objects, frame_id, sound_enabled=True):
     if aftermath is None:
-        aftermath = {
-            "started_frame": frame_id,
-            "latest_death_frame": frame_id,
-            "dead_players": set(),
-            "death_effects": {},
-            "pending_explosions": [],
-            "ships_pending_hide": set(),
-            "camera_hold_targets": [],
-            "ditty_started": False,
-            "tie_break_ship": None,
-            "choose_second_player": None,
-        }
+        state = AftermathState(started_frame=frame_id, latest_death_frame=frame_id)
+    else:
+        state = _coerce_aftermath_state(aftermath)
 
     for ship in dead_ships:
         ship.current_hp = 0
         ship.currently_alive = False
         reset_ship_controls(ship)
-        aftermath["dead_players"].add(ship.player)
+        state.dead_players.add(ship.player)
         if sound_enabled:
             BattleEffect.play_ship_death()
-        aftermath["death_effects"][ship.player] = []
-        aftermath["pending_explosions"].extend(create_ship_explosion_schedule(ship, frame_id))
-        aftermath["ships_pending_hide"].add(ship)
-        aftermath["camera_hold_targets"].append(ship)
-        aftermath["latest_death_frame"] = frame_id
+        state.death_effects[ship.player] = []
+        state.pending_explosions.extend(create_ship_explosion_schedule(ship, frame_id))
+        state.ships_pending_hide.add(ship)
+        state.camera_hold_targets.append(ship)
+        state.latest_death_frame = frame_id
 
     if player1.current_hp <= 0 and player2.current_hp <= 0:
         self_destructors = [
@@ -364,14 +431,15 @@ def start_or_update_aftermath(aftermath, dead_ships, player1, player2, game_obje
             if getattr(ship, "shofixti_self_destruct", False)
         ]
         if len(self_destructors) == 1:
-            aftermath["tie_break_ship"] = self_destructors[0]
-            aftermath["choose_second_player"] = self_destructors[0].player
+            state.tie_break_ship = self_destructors[0]
+            state.choose_second_player = self_destructors[0].player
 
     if sound_enabled:
         pygame.mixer.music.stop()
-    aftermath["ditty_started"] = False
+    state.ditty_started = False
+    _sync_legacy_aftermath(aftermath, state)
 
-    return aftermath
+    return state
 
 
 def create_ship_explosion_schedule(ship, start_frame):
@@ -388,56 +456,59 @@ def create_ship_explosion_schedule(ship, start_frame):
             (ship.position[0] + local_x * cos_a - local_y * sin_a) % const.ARENA_SIZE,
             (ship.position[1] + local_x * sin_a + local_y * cos_a) % const.ARENA_SIZE,
         ]
-        schedule.append({
-            "frame": start_frame + index * EXPLOSION_PLACEMENT_INTERVAL_FRAMES,
-            "ship": ship,
-            "position": position,
-            "scale": random.uniform(0.85, 1.15),
-            "is_final": index == count - 1,
-        })
+        schedule.append(ScheduledExplosion(
+            frame=start_frame + index * EXPLOSION_PLACEMENT_INTERVAL_FRAMES,
+            ship=ship,
+            position=position,
+            scale=random.uniform(0.85, 1.15),
+            is_final=index == count - 1,
+        ))
 
     return schedule
 
 
 def update_aftermath(aftermath, player1, player2, game_objects, frame_id, sound_enabled=True):
+    state = _coerce_aftermath_state(aftermath)
     world = World.coerce(game_objects)
     ready_explosions = [
-        item for item in aftermath["pending_explosions"]
-        if item["frame"] <= frame_id
+        item for item in state.pending_explosions
+        if item.frame <= frame_id
     ]
-    aftermath["pending_explosions"] = [
-        item for item in aftermath["pending_explosions"]
-        if item["frame"] > frame_id
+    state.pending_explosions = [
+        item for item in state.pending_explosions
+        if item.frame > frame_id
     ]
 
     for item in ready_explosions:
-        effect = BattleEffect.ship_explosion(item["position"], scale=item["scale"])
-        aftermath["death_effects"][item["ship"].player].append(effect)
+        effect = BattleEffect.ship_explosion(item.position, scale=item.scale)
+        state.death_effects[item.ship.player].append(effect)
         world.add(effect)
-        if item["is_final"]:
+        if item.is_final:
             if sound_enabled:
                 BattleEffect.play_ship_death()
-            hide_dead_ship(item["ship"], world)
-            aftermath["ships_pending_hide"].discard(item["ship"])
+            hide_dead_ship(item.ship, world)
+            state.ships_pending_hide.discard(item.ship)
 
     living_ships = [
         ship for ship in (player1, player2)
         if ship.currently_alive and ship.current_hp > 0
     ]
-    death_view_done = frame_id - aftermath["started_frame"] >= const.POST_DEATH_ANIMATION_VIEW_FRAMES
-    if len(living_ships) == 1 and not aftermath["ditty_started"] and death_view_done:
+    death_view_done = frame_id - state.started_frame >= const.POST_DEATH_ANIMATION_VIEW_FRAMES
+    if len(living_ships) == 1 and not state.ditty_started and death_view_done:
         if sound_enabled:
             play_victory_ditty(living_ships[0])
-        aftermath["ditty_started"] = True
+        state.ditty_started = True
     elif (
         not living_ships and
-        aftermath.get("tie_break_ship") is not None and
-        not aftermath["ditty_started"] and
+        state.tie_break_ship is not None and
+        not state.ditty_started and
         death_view_done
     ):
         if sound_enabled:
-            play_victory_ditty(aftermath["tie_break_ship"])
-        aftermath["ditty_started"] = True
+            play_victory_ditty(state.tie_break_ship)
+        state.ditty_started = True
+
+    _sync_legacy_aftermath(aftermath, state)
 
 
 def hide_dead_ship(ship, game_objects):
@@ -447,14 +518,15 @@ def hide_dead_ship(ship, game_objects):
 def aftermath_camera_targets(aftermath, player1, player2, frame_id=None):
     if aftermath is None:
         return None
-    if frame_id is not None and frame_id - aftermath["started_frame"] >= const.POST_DEATH_ANIMATION_VIEW_FRAMES:
+    state = _coerce_aftermath_state(aftermath)
+    if frame_id is not None and frame_id - state.started_frame >= const.POST_DEATH_ANIMATION_VIEW_FRAMES:
         return None
 
     targets = [
         ship for ship in (player1, player2)
         if ship.currently_alive and ship.current_hp > 0
     ]
-    targets.extend(aftermath["camera_hold_targets"])
+    targets.extend(state.camera_hold_targets)
     return targets or None
 
 
@@ -470,8 +542,25 @@ def play_victory_ditty(ship):
 
 
 def aftermath_ready_for_selection(aftermath, frame_id, sound_enabled=True):
-    elapsed = frame_id - aftermath["started_frame"]
+    state = _coerce_aftermath_state(aftermath)
+    elapsed = frame_id - state.started_frame
     return elapsed >= const.POST_DEATH_CONTROL_FRAMES
+
+
+def _coerce_aftermath_state(aftermath):
+    if isinstance(aftermath, AftermathState):
+        return aftermath
+    return AftermathState.from_mapping(aftermath)
+
+
+def _sync_legacy_aftermath(aftermath, state):
+    if not isinstance(aftermath, MutableMapping):
+        return
+    for key in state:
+        value = state[key]
+        if key == "pending_explosions":
+            value = [dict(item) for item in value]
+        aftermath[key] = value
 
 
 def reset_round_objects(game_objects, player1, player2, previous_player1, previous_player2):

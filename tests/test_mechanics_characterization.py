@@ -27,7 +27,9 @@ from src.collision_capabilities import (
     ShipImpactResult,
 )
 from src.Battle.battle import (
+    AftermathState,
     BattleSimulation,
+    ScheduledExplosion,
     aftermath_camera_targets,
     aftermath_ready_for_selection,
     reset_round_objects,
@@ -486,6 +488,8 @@ class ObjectLifecycleCharacterizationTests(unittest.TestCase):
             )
 
         self.assertEqual(game_objects, [first, last, effect])
+        self.assertEqual(aftermath["pending_explosions"], [])
+        self.assertEqual(aftermath["ships_pending_hide"], set())
 
 
 class CollisionCharacterizationTests(unittest.TestCase):
@@ -2361,39 +2365,226 @@ class CollisionCharacterizationTests(unittest.TestCase):
 
 
 class AftermathCharacterizationTests(unittest.TestCase):
+    @staticmethod
+    def make_ship(player, hp=5, alive=True, size=(70, 70)):
+        ship = ShipState()
+        ship.player = player
+        ship.current_hp = hp
+        ship.currently_alive = alive
+        ship.size = list(size)
+        ship.rotation = 0
+        ship.position = [100 * player, 200]
+        ship.thrust_active = False
+        ship.turn_left_active = False
+        ship.turn_right_active = False
+        ship.action1_active = False
+        ship.action2_active = False
+        ship.input_pressed_frames = {}
+        ship.newly_pressed_controls = set()
+        ship.released_controls = set()
+        return ship
+
     def test_death_initializes_aftermath_and_holds_camera(self):
         random.seed(7)
-        dead = ShipState()
-        dead.player = 1
-        dead.current_hp = 0
-        dead.currently_alive = True
-        dead.size = [70, 70]
-        dead.rotation = 0
-        dead.position = [100, 200]
+        dead = self.make_ship(1, hp=0)
         dead.thrust_active = True
-        dead.turn_left_active = False
-        dead.turn_right_active = False
-        dead.action1_active = False
-        dead.action2_active = False
-        dead.input_pressed_frames = {}
-        dead.newly_pressed_controls = set()
-        dead.released_controls = set()
-        survivor = ShipState()
-        survivor.player = 2
-        survivor.current_hp = 5
-        survivor.currently_alive = True
+        survivor = self.make_ship(2)
 
         aftermath = start_or_update_aftermath(
             None, [dead], dead, survivor, [dead, survivor], 30, sound_enabled=False
         )
 
+        self.assertIsInstance(aftermath, AftermathState)
         self.assertFalse(dead.currently_alive)
+        self.assertFalse(dead.thrust_active)
         self.assertEqual(aftermath["dead_players"], {1})
+        self.assertEqual(aftermath.get("started_frame"), 30)
+        self.assertIsInstance(aftermath.pending_explosions[0], ScheduledExplosion)
+        self.assertEqual(aftermath.pending_explosions[0]["frame"], 30)
         self.assertEqual(aftermath_camera_targets(aftermath, dead, survivor, 30), [survivor, dead])
         self.assertFalse(aftermath_ready_for_selection(aftermath, 30, sound_enabled=False))
         self.assertTrue(
             aftermath_ready_for_selection(
                 aftermath, 30 + const.POST_DEATH_CONTROL_FRAMES, sound_enabled=False
+            )
+        )
+
+    def test_simultaneous_deaths_are_registered_once_in_player_order(self):
+        random.seed(11)
+        first = self.make_ship(1, hp=0)
+        second = self.make_ship(2, hp=0)
+        first.shofixti_self_destruct = True
+        simulation = BattleSimulation.__new__(BattleSimulation)
+        simulation.player1 = first
+        simulation.player2 = second
+        simulation.game_objects = [first, second]
+        simulation.frame_id = 40
+        simulation.aftermath = None
+        simulation.sound_enabled = False
+        simulation.needs_selection = False
+
+        with (
+            mock.patch(
+                "src.Battle.battle.start_or_update_aftermath",
+                wraps=start_or_update_aftermath,
+            ) as register_deaths,
+            mock.patch(
+                "src.Battle.battle.BattleEffect.ship_explosion",
+                side_effect=[object(), object()],
+            ),
+        ):
+            simulation._update_aftermath()
+
+        register_deaths.assert_called_once()
+        self.assertEqual(register_deaths.call_args.args[1], [first, second])
+        self.assertEqual(simulation.aftermath.dead_players, {1, 2})
+        self.assertEqual(simulation.aftermath.camera_hold_targets, [first, second])
+        self.assertIs(simulation.aftermath.tie_break_ship, first)
+        self.assertEqual(simulation.aftermath.choose_second_player, 1)
+        self.assertEqual(
+            [effect.ship for effect in simulation.aftermath.pending_explosions],
+            [first] * 4 + [second] * 4,
+        )
+
+    def test_scheduled_explosions_keep_frame_and_object_order(self):
+        random.seed(13)
+        dead = self.make_ship(1, hp=0)
+        survivor = self.make_ship(2)
+        game_objects = [dead, survivor]
+        aftermath = start_or_update_aftermath(
+            None, [dead], dead, survivor, game_objects, 10, sound_enabled=False
+        )
+
+        self.assertEqual(
+            [item.frame for item in aftermath.pending_explosions],
+            [10, 13, 16, 19, 22],
+        )
+        effects = [object() for _ in range(5)]
+        with mock.patch(
+            "src.Battle.battle.BattleEffect.ship_explosion",
+            side_effect=effects,
+        ):
+            update_aftermath(
+                aftermath, dead, survivor, game_objects, 16, sound_enabled=False
+            )
+            self.assertEqual(game_objects, [dead, survivor, *effects[:3]])
+            self.assertEqual(
+                [item.frame for item in aftermath.pending_explosions], [19, 22]
+            )
+            update_aftermath(
+                aftermath, dead, survivor, game_objects, 22, sound_enabled=False
+            )
+
+        self.assertEqual(game_objects, [survivor, *effects])
+        self.assertEqual(aftermath.death_effects[1], effects)
+        self.assertEqual(aftermath.pending_explosions, [])
+        self.assertEqual(aftermath.ships_pending_hide, set())
+
+    def test_camera_releases_on_animation_view_boundary(self):
+        dead = self.make_ship(1, hp=0)
+        survivor = self.make_ship(2)
+        aftermath = start_or_update_aftermath(
+            None, [dead], dead, survivor, [dead, survivor], 20, sound_enabled=False
+        )
+
+        self.assertEqual(
+            aftermath_camera_targets(
+                aftermath,
+                dead,
+                survivor,
+                20 + const.POST_DEATH_ANIMATION_VIEW_FRAMES - 1,
+            ),
+            [survivor, dead],
+        )
+        self.assertIsNone(
+            aftermath_camera_targets(
+                aftermath,
+                dead,
+                survivor,
+                20 + const.POST_DEATH_ANIMATION_VIEW_FRAMES,
+            )
+        )
+
+    def test_victory_audio_starts_once_at_view_boundary_and_honors_sound_setting(self):
+        dead = self.make_ship(1, hp=0, alive=False)
+        survivor = self.make_ship(2)
+        start_frame = 50
+        aftermath = AftermathState(start_frame, start_frame)
+
+        with mock.patch("src.Battle.battle.play_victory_ditty") as play_ditty:
+            update_aftermath(
+                aftermath,
+                dead,
+                survivor,
+                [],
+                start_frame + const.POST_DEATH_ANIMATION_VIEW_FRAMES - 1,
+                sound_enabled=True,
+            )
+            play_ditty.assert_not_called()
+            update_aftermath(
+                aftermath,
+                dead,
+                survivor,
+                [],
+                start_frame + const.POST_DEATH_ANIMATION_VIEW_FRAMES,
+                sound_enabled=True,
+            )
+            update_aftermath(
+                aftermath,
+                dead,
+                survivor,
+                [],
+                start_frame + const.POST_DEATH_ANIMATION_VIEW_FRAMES + 1,
+                sound_enabled=True,
+            )
+            play_ditty.assert_called_once_with(survivor)
+
+        muted_aftermath = AftermathState(start_frame, start_frame)
+        with mock.patch("src.Battle.battle.play_victory_ditty") as play_ditty:
+            update_aftermath(
+                muted_aftermath,
+                dead,
+                survivor,
+                [],
+                start_frame + const.POST_DEATH_ANIMATION_VIEW_FRAMES,
+                sound_enabled=False,
+            )
+        play_ditty.assert_not_called()
+        self.assertTrue(muted_aftermath.ditty_started)
+
+        other_dead = self.make_ship(2, hp=0, alive=False)
+        tie_aftermath = AftermathState(
+            start_frame,
+            start_frame,
+            tie_break_ship=dead,
+            choose_second_player=dead.player,
+        )
+        with mock.patch("src.Battle.battle.play_victory_ditty") as play_ditty:
+            update_aftermath(
+                tie_aftermath,
+                dead,
+                other_dead,
+                [],
+                start_frame + const.POST_DEATH_ANIMATION_VIEW_FRAMES,
+                sound_enabled=True,
+            )
+        play_ditty.assert_called_once_with(dead)
+
+    def test_selection_becomes_ready_on_exact_control_boundary(self):
+        aftermath = AftermathState(started_frame=75, latest_death_frame=75)
+
+        self.assertFalse(
+            aftermath_ready_for_selection(
+                aftermath,
+                75 + const.POST_DEATH_CONTROL_FRAMES - 1,
+                sound_enabled=True,
+            )
+        )
+        self.assertTrue(
+            aftermath_ready_for_selection(
+                aftermath,
+                75 + const.POST_DEATH_CONTROL_FRAMES,
+                sound_enabled=False,
             )
         )
 
