@@ -41,6 +41,7 @@ from src.Battle.battle_init import validate_ship_positions
 from src.Objects.object import PlayerObject
 from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.Ships.ability import Ability, wrapped_endpoint
+from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.Druuge.A1.DruugeA1 import DruugeA1
 from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
 from src.Objects.Ships.space_ship import SpaceShip
@@ -161,9 +162,34 @@ class ToroidalMechanicsTests(unittest.TestCase):
 
 
 class InputTimingTests(unittest.TestCase):
+    class TimingShip(SpaceShip):
+        def _observed_action(self, action_number):
+            return ActionPlan(
+                action_number=action_number,
+                valid=True,
+                side_effects=(
+                    lambda: self.observed_calls.append(f"action{action_number}"),
+                ),
+            )
+
+        def plan_action1(self):
+            return self._observed_action(1)
+
+        def plan_action2(self):
+            return self._observed_action(2)
+
+        def plan_action3(self):
+            return self._observed_action(3)
+
+        def handles_combined_action(self):
+            return self.combined_action_handled
+
+        def perform_action1_release(self):
+            self.observed_calls.append("release")
+
     @staticmethod
-    def make_ship():
-        ship = SpaceShip.__new__(SpaceShip)
+    def make_ship(combined_action_handled=False):
+        ship = InputTimingTests.TimingShip.__new__(InputTimingTests.TimingShip)
         ship.thrust_active = False
         ship.turn_left_active = False
         ship.turn_right_active = False
@@ -180,9 +206,12 @@ class InputTimingTests(unittest.TestCase):
         ship.energy_timer = 0
         ship.energy_wait = 100
         ship.current_energy = 0
+        ship.current_hp = 1
         ship.max_energy = 0
         ship.energy_regen = 0
         ship.inertia = True
+        ship.observed_calls = []
+        ship.combined_action_handled = combined_action_handled
         return ship
 
     def test_timers_advance_once_during_frame_processing(self):
@@ -196,19 +225,15 @@ class InputTimingTests(unittest.TestCase):
     def test_new_action_press_is_immediate_and_not_repeated_same_frame(self):
         ship = self.make_ship()
         ship.action1_timer = 0
-        calls = []
-        ship.perform_action1 = lambda: calls.append("action1")
 
         ship.set_control_state("action1", True, frame_id=10)
         ship.process_controls(frame_id=10)
 
-        self.assertEqual(calls, ["action1"])
+        self.assertEqual(ship.observed_calls, ["action1"])
 
     def test_held_action_observes_repeat_delay(self):
         ship = self.make_ship()
         ship.action1_timer = 0
-        calls = []
-        ship.perform_action1 = lambda: calls.append("action1")
 
         ship.set_control_state("action1", True, frame_id=10)
         ship.process_controls(frame_id=10)
@@ -216,64 +241,53 @@ class InputTimingTests(unittest.TestCase):
         ship.process_controls(frame_id=12)
         ship.process_controls(frame_id=13)
 
-        self.assertEqual(calls, ["action1", "action1"])
+        self.assertEqual(ship.observed_calls, ["action1", "action1"])
 
     def test_action_release_hook_runs_once(self):
         ship = self.make_ship()
         ship.action1_timer = 0
-        releases = []
-        ship.perform_action1 = lambda: None
-        ship.perform_action1_release = lambda: releases.append("release")
 
         ship.set_control_state("action1", True, frame_id=10)
         ship.process_controls(frame_id=10)
         ship.set_control_state("action1", False, frame_id=11)
         ship.process_controls(frame_id=11)
 
-        self.assertEqual(releases, ["release"])
+        self.assertEqual(ship.observed_calls, ["action1", "release"])
 
     def test_press_and_release_in_same_frame_keeps_both_edges(self):
         ship = self.make_ship()
         ship.action1_timer = 0
-        calls = []
-        ship.perform_action1 = lambda: calls.append("action1")
-        ship.perform_action1_release = lambda: calls.append("release")
 
         ship.set_control_state("action1", True, frame_id=10)
         ship.set_control_state("action1", False, frame_id=10)
         ship.process_controls(frame_id=10)
 
-        self.assertEqual(calls, ["action1", "release"])
+        self.assertEqual(ship.observed_calls, ["action1", "release"])
 
     def test_invalid_combined_action_falls_back_to_both_actions(self):
         ship = self.make_ship()
         ship.action1_timer = 0
         ship.action2_timer = 0
-        calls = []
-        ship.perform_action1 = lambda: calls.append("action1")
-        ship.perform_action2 = lambda: calls.append("action2")
-        ship.perform_action3 = lambda: (calls.append("action3"), False)
 
         ship.set_control_state("action1", True, frame_id=10)
         ship.set_control_state("action2", True, frame_id=10)
         ship.process_controls(frame_id=10)
 
-        self.assertEqual(calls, ["action3", "action1", "action2"])
+        self.assertEqual(
+            ship.observed_calls,
+            ["action3", "action1", "action2"],
+        )
 
     def test_valid_combined_action_runs_without_individual_actions(self):
-        ship = self.make_ship()
+        ship = self.make_ship(combined_action_handled=True)
         ship.action1_timer = 0
         ship.action2_timer = 0
-        calls = []
-        ship.perform_action1 = lambda: calls.append("action1")
-        ship.perform_action2 = lambda: calls.append("action2")
-        ship.perform_action3 = lambda: (calls.append("action3"), True)
 
         ship.set_control_state("action1", True, frame_id=10)
         ship.set_control_state("action2", True, frame_id=10)
         ship.process_controls(frame_id=10)
 
-        self.assertEqual(calls, ["action3"])
+        self.assertEqual(ship.observed_calls, ["action3"])
 
 
 class SimulationInputTests(unittest.TestCase):

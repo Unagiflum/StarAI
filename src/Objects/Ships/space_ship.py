@@ -162,26 +162,26 @@ class SpaceShip(PlayerObject):
         action1_active = self.action1_active or "action1" in self.newly_pressed_controls
         action2_active = self.action2_active or "action2" in self.newly_pressed_controls
         if action1_active and action2_active and (action1_ready or action2_ready):
-            dispatched = self._dispatch_action(3)
-            if isinstance(dispatched, tuple):
-                result, combination_handled = dispatched
-            else:
-                result = dispatched
-                combination_handled = self.handles_combined_action()
-            self._add_action_result(new_objects, result)
+            result = self.commit_action(self._select_action_plan(3))
+            new_objects.extend(result.spawned_objects)
+            combination_handled = self.handles_combined_action()
             if not combination_handled:
                 if action1_active and action1_ready:
-                    self._add_action_result(new_objects, self._dispatch_action(1))
+                    result = self.commit_action(self._select_action_plan(1))
+                    new_objects.extend(result.spawned_objects)
                 if action2_active and action2_ready:
-                    self._add_action_result(new_objects, self._dispatch_action(2))
+                    result = self.commit_action(self._select_action_plan(2))
+                    new_objects.extend(result.spawned_objects)
         else:
             if action1_active and action1_ready:
-                self._add_action_result(new_objects, self._dispatch_action(1))
+                result = self.commit_action(self._select_action_plan(1))
+                new_objects.extend(result.spawned_objects)
             if action2_active and action2_ready:
-                self._add_action_result(new_objects, self._dispatch_action(2))
+                result = self.commit_action(self._select_action_plan(2))
+                new_objects.extend(result.spawned_objects)
 
         if "action1" in self.released_controls:
-            self._add_action_result(new_objects, self.perform_action1_release())
+            self.perform_action1_release()
 
         self.newly_pressed_controls.clear()
         self.released_controls.clear()
@@ -197,22 +197,14 @@ class SpaceShip(PlayerObject):
             return list(result)
         return [result]
 
-    @classmethod
-    def _add_action_result(cls, new_objects, result):
-        new_objects.extend(cls.normalize_action_result(result))
-
-    def _dispatch_action(self, action_number):
-        """Honor temporary instance-level action doubles, otherwise use plans."""
-        method_name = f"perform_action{action_number}"
-        if method_name in self.__dict__:
-            raw_result = getattr(self, method_name)()
-            if action_number == 3:
-                raw_result, handled = raw_result
-                return raw_result, handled
-            return raw_result
-        return self.commit_action(
-            getattr(self, f"plan_action{action_number}")()
-        )
+    def _select_action_plan(self, action_number: int) -> ActionPlan:
+        if action_number == 1:
+            return self.plan_action1()
+        if action_number == 2:
+            return self.plan_action2()
+        if action_number == 3:
+            return self.plan_action3()
+        raise ValueError(f"Unsupported action number: {action_number}")
 
     def turn_input_enabled(self):
         return True
