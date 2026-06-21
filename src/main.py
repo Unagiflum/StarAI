@@ -8,17 +8,21 @@ if str(PROJECT_ROOT) not in sys.path:
 import pygame
 from src.Menus import pick_fleet, train_settings, game_settings
 from src.UI import ui, ui_button
+from src.audio import PygameAudioService
 import src.const as const
 
 
-def handle_menu_selection(module, screen):
+def handle_menu_selection(module, screen, audio_service=None):
     """Handle the selected menu item."""
     if module is None:
         pygame.quit()
         sys.exit()
     try:
         if hasattr(module, 'run'):
-            module.run(screen)
+            if module is pick_fleet:
+                module.run(screen, audio_service=audio_service)
+            else:
+                module.run(screen)
         else:
             print(f"Module '{module.__name__}' does not have a 'run' function. Continuing.")
     except Exception as e:
@@ -29,6 +33,8 @@ def main():
     # Initialize Pygame
     pygame.init()
     pygame.mixer.init()
+    audio_service = PygameAudioService()
+    ui.sound_manager = ui.SoundManager(audio_service=audio_service)
     ui.sound_manager.load_sounds()
     ui.sound_manager.set_volume(0.30)
 
@@ -58,7 +64,9 @@ def main():
             width=button_width,
             height=button_height,
             text=text,
-            callback=lambda m=module: handle_menu_selection(m, screen),
+            callback=lambda m=module: handle_menu_selection(
+                m, screen, audio_service
+            ),
             bg_color=ui.MAIN_BUTTON_COLOR,
             hover_color=ui.MAIN_BUTTON_COLOR_HI
         )

@@ -5,8 +5,8 @@ import src.const as const
 
 
 class KzerZa(SpaceShip):
-    def __init__(self, ship_name, player_num, resources=None):
-        super().__init__(ship_name, player_num, resources)
+    def __init__(self, ship_name, player_num, resources=None, audio_service=None):
+        super().__init__(ship_name, player_num, resources, audio_service)
         self.fighter_launch_count = 0
 
     action_factories = {1: KzerZaA1}

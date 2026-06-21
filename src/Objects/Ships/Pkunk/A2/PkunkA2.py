@@ -13,13 +13,12 @@ class PkunkA2(Ability):
         self.insults = tuple(
             sound
             for index in range(14)
-            if (sound := self.resources.sound(
+            if (sound := self.audio_service.load_effect(
                 sound_dir / f"PkunkA2{index:02d}.wav",
                 const.SOUND_EFFECT_VOLUME,
-                enabled=self.sound_enabled,
             )) is not None
         )
 
     def play_insult(self):
-        if self.sound_enabled and self.insults:
+        if self.insults:
             random.choice(self.insults).play()

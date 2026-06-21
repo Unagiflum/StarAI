@@ -5,6 +5,7 @@ import pygame
 import src.const as const
 from src.Objects.object import Object
 from src.resources import default_assets
+from src.audio import active_audio_service, compatibility_audio_service
 
 
 BATTLE_ASSET_PATH = const.source_path("Objects/Battle")
@@ -76,34 +77,25 @@ class BattleEffect(Object):
 
     @classmethod
     def play_ship_death(cls):
-        if not cls.sound_enabled:
-            return 0
-
-        sound = cls.resources.sound(
+        audio = active_audio_service() or compatibility_audio_service(
+            cls.sound_enabled, cls.resources
+        )
+        seconds = audio.play_effect(
             BATTLE_ASSET_PATH / "shipdies.wav",
             const.SOUND_EFFECT_VOLUME,
-            enabled=cls.sound_enabled,
         )
-
-        if sound:
-            sound.play()
-            return int(math.ceil(sound.get_length() * const.FPS))
-
-        return 0
+        return int(math.ceil(seconds * const.FPS))
 
     @classmethod
     def play_boom(cls, damage):
-        if not cls.sound_enabled:
-            return
-
         sound_name = cls._boom_name(damage)
-        sound = cls.resources.sound(
+        audio = active_audio_service() or compatibility_audio_service(
+            cls.sound_enabled, cls.resources
+        )
+        audio.play_effect(
             BATTLE_ASSET_PATH / sound_name,
             const.SOUND_EFFECT_VOLUME,
-            enabled=cls.sound_enabled,
         )
-        if sound:
-            sound.play()
 
     @staticmethod
     def _boom_name(damage):

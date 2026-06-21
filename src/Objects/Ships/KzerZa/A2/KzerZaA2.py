@@ -203,10 +203,9 @@ class KzerZaA2(Ability):
             "return": "KzerZaA2Return.wav",
         }
         return {
-            sound_name: self.resources.sound(
+            sound_name: self.audio_service.load_effect(
                 const.source_path(file_path) / filename,
                 const.SOUND_EFFECT_VOLUME,
-                enabled=self.sound_enabled,
             )
             for sound_name, filename in sound_files.items()
         }

@@ -11,6 +11,7 @@ from src.collision_capabilities import (
 )
 from src.Objects.Ships.catalog import ABILITIES_DATA, ABILITY_DEFINITIONS
 from src.resources import default_assets
+from src.audio import compatibility_audio_service
 from src.toroidal import nearest_position, wrapped_delta
 
 
@@ -32,6 +33,11 @@ class Ability(PlayerObject):
             player=parent.player
         )
         self.resources = getattr(parent, "resources", default_assets())
+        self.audio_service = getattr(parent, "audio_service", None)
+        if self.audio_service is None:
+            self.audio_service = compatibility_audio_service(
+                self.sound_enabled, self.resources
+            )
         assets = self.resources.ability(ability_name)
         self.sizes = assets.sizes
         self.size = list(self.sizes[0]) if self.sizes else [0, 0]
@@ -39,9 +45,13 @@ class Ability(PlayerObject):
         self.sprites = assets.sprites
         self.masks = assets.masks
         self.death_animation = assets.end_animation
-        self.launch_sound = self.resources.ability_sound(
-            ability_name, enabled=self.sound_enabled
-        )
+        ability_definition = ABILITY_DEFINITIONS[ability_name]
+        self.launch_sound = None
+        if ability_definition.has_sound:
+            self.launch_sound = self.audio_service.load_effect(
+                const.source_path(ability_definition.file_path) / f"{ability_name}.wav",
+                const.SOUND_EFFECT_VOLUME,
+            )
 
         # Rest of initialization code
         self.parent = parent

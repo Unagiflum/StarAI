@@ -1,6 +1,7 @@
 import pygame
 import src.const as Const
 from src.resources import default_assets
+from src.audio import compatibility_audio_service
 
 button_spaceH = int(Const.SCREEN_WIDTH * 0.005)
 button_spaceV = int(Const.SCREEN_HEIGHT * 0.00625)
@@ -69,9 +70,14 @@ def draw_title(screen, text, font_size=40, y_pos=50):
     screen.blit(title_surf, title_rect)
 
 class SoundManager:
-    def __init__(self, enabled=True, resources=None):
-        self.enabled = enabled
+    def __init__(self, enabled=True, resources=None, audio_service=None):
         self.resources = resources or default_assets()
+        self.audio_service = (
+            audio_service
+            if audio_service is not None
+            else compatibility_audio_service(enabled, self.resources)
+        )
+        self.enabled = self.audio_service.enabled
         self.sounds = {}
         self.volume = 1.0
 
@@ -83,7 +89,7 @@ class SoundManager:
         }
         for sound_name, path in sound_files.items():
             try:
-                sound = self.resources.sound(path, self.volume, enabled=True)
+                sound = self.audio_service.load_effect(path, self.volume)
                 if sound is None:
                     continue
                 self.sounds[sound_name] = sound

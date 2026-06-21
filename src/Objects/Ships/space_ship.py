@@ -23,7 +23,7 @@ CONTROL_STATE_ATTRIBUTES = {
 class SpaceShip(PlayerObject):
     action_factories = {}
 
-    def __init__(self, ship_name, player_num, resources=None):
+    def __init__(self, ship_name, player_num, resources=None, audio_service=None):
         # Get ship-specific data from cached data
         ship_definition = SHIP_DEFINITIONS[ship_name]
         sprite_location = const.source_path(ship_definition.sprite_path)
@@ -37,6 +37,9 @@ class SpaceShip(PlayerObject):
             sprite_scale=ship_definition.sprite_scale
         )
         self.resources = resources or default_assets()
+        # A battle composition root may bind this after fleet construction.
+        # None preserves legacy constructors and their Ability.sound_enabled fallback.
+        self.audio_service = audio_service
         self.collision_capabilities = CollisionCapabilities(CollisionRole.SHIP)
         self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
 

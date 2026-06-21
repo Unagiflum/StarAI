@@ -27,11 +27,16 @@ def get_ability_class(ability_name):
     return getattr(module, ability_name)
 
 
-def create_ship(ship_name, player_num, resources=None):
+def create_ship(ship_name, player_num, resources=None, audio_service=None):
     ship_class = get_ship_class(ship_name)
-    if resources is None:
+    if resources is None and audio_service is None:
         return ship_class(ship_name, player_num)
-    return ship_class(ship_name, player_num, resources=resources)
+    return ship_class(
+        ship_name,
+        player_num,
+        resources=resources,
+        audio_service=audio_service,
+    )
 
 
 def create_ability(ability_name, parent, *args, **kwargs):

@@ -45,14 +45,20 @@ def draw_x(surface, rect):
     surface.blit(x_surface, x_rect)
 
 
-def load_fleet_data():
+def load_fleet_data(audio_service=None):
     fleets = FleetsRepository(Const.FLEETS_JSON_PATH, SHIP_DEFINITIONS).load()
     ship_names = set(fleets.player1.ships + fleets.player2.ships)
     for ship_name in ship_names:
         preload_ship_ability_resources(ship_name)
 
-    player1_ships = [create_ship(ship_name, 1) for ship_name in fleets.player1.ships]
-    player2_ships = [create_ship(ship_name, 2) for ship_name in fleets.player2.ships]
+    player1_ships = [
+        create_ship(ship_name, 1, audio_service=audio_service)
+        for ship_name in fleets.player1.ships
+    ]
+    player2_ships = [
+        create_ship(ship_name, 2, audio_service=audio_service)
+        for ship_name in fleets.player2.ships
+    ]
     return fleets.to_json_dict(), player1_ships, player2_ships
 
 
@@ -69,14 +75,15 @@ def load_ships_data(ships_data):
 
 
 def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
-        preselect_player1=None, preselect_player2=None, choose_second_player=None):
+        preselect_player1=None, preselect_player2=None, choose_second_player=None,
+        audio_service=None):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.03))
     state_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.025))
     background = ui.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
 
     if player1_ships is None or player2_ships is None:
-        fleet_data, player1_ships, player2_ships = load_fleet_data()
+        fleet_data, player1_ships, player2_ships = load_fleet_data(audio_service)
     else:
         fleet_data = {
             "Player1": {"ships": [ship.name for ship in player1_ships]},
@@ -237,6 +244,7 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                     selected[1],
                     player1_ships,
                     player2_ships,
+                    audio_service=audio_service,
                 )
                 return None, None
 

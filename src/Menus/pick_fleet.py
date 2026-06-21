@@ -85,7 +85,7 @@ def load_fleets(left_fleet, right_fleet, fleet_sprites, ships_data):
     return fleets.player1.ai, fleets.player2.ai
 
 
-def run(screen: pygame.Surface):
+def run(screen: pygame.Surface, audio_service=None):
     """Run the Pick Fleet module."""
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, cost_FONT_SIZE)
@@ -187,7 +187,7 @@ def run(screen: pygame.Surface):
             )
             print("Fleets confirmed.")
 
-            pick_ship.run(screen)
+            pick_ship.run(screen, audio_service=audio_service)
 
     running = True
 

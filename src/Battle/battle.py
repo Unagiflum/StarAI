@@ -14,6 +14,11 @@ from src.Battle.battle_draw import draw_battle
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
 from src.resources import default_assets
+from src.audio import (
+    PygameAudioService,
+    compatibility_audio_service,
+    use_audio_service,
+)
 import src.const as const
 
 
@@ -127,12 +132,16 @@ class AftermathState(Mapping):
 
 class BattleSimulation:
     def __init__(self, screen, ship1: SpaceShip, ship2: SpaceShip,
-                 player1_ships=None, player2_ships=None, sound_enabled=True):
-        self.sound_enabled = sound_enabled
-        set_battle_sound_enabled(sound_enabled)
-
-        if self.sound_enabled:
-            play_battle_music()
+                 player1_ships=None, player2_ships=None, sound_enabled=True,
+                 audio_service=None):
+        self.audio = (
+            audio_service
+            if audio_service is not None
+            else compatibility_audio_service(sound_enabled)
+        )
+        self.sound_enabled = self.audio.enabled
+        self._bind_audio_to_ships(ship1, ship2, player1_ships, player2_ships)
+        self.audio.start_battle_music()
 
         battle_state = initialize_battle(screen, ship1, ship2)
         self.settings = battle_state['settings']
@@ -151,6 +160,13 @@ class BattleSimulation:
         self.aftermath: AftermathState | None = None
         self.needs_selection = False
         self.running = True
+
+    def _bind_audio_to_ships(self, *ship_groups):
+        for group in ship_groups:
+            ships = group if isinstance(group, (list, tuple)) else (group,)
+            for ship in ships or ():
+                if ship is not None:
+                    ship.audio_service = self.audio
 
     @property
     def game_objects(self):
@@ -181,11 +197,12 @@ class BattleSimulation:
         if actions is not None:
             self.apply_actions(actions)
 
-        self._process_ship_inputs()
-        self._update_tracking_lists()
-        self._update_objects()
-        handle_collisions(self.world)
-        self._update_aftermath()
+        with use_audio_service(getattr(self, "audio", None)):
+            self._process_ship_inputs()
+            self._update_tracking_lists()
+            self._update_objects()
+            handle_collisions(self.world)
+            self._update_aftermath()
 
         return self.state()
 
@@ -259,6 +276,7 @@ class BattleSimulation:
         self.world.update_objects()
 
     def _update_aftermath(self):
+        audio = getattr(self, "audio", None)
         newly_dead = [
             ship for ship in (self.player1, self.player2)
             if ship.current_hp <= 0 and ship.currently_alive
@@ -272,6 +290,7 @@ class BattleSimulation:
                 self.world,
                 self.frame_id,
                 self.sound_enabled,
+                audio,
             )
 
         if self.aftermath is None:
@@ -284,6 +303,7 @@ class BattleSimulation:
             self.world,
             self.frame_id,
             self.sound_enabled,
+            audio,
         )
 
         if aftermath_ready_for_selection(self.aftermath, self.frame_id, self.sound_enabled):
@@ -291,21 +311,20 @@ class BattleSimulation:
 
     def select_next_round(self, selected):
         if not selected or not all(selected):
-            if self.sound_enabled:
-                pygame.mixer.music.stop()
+            self.audio.stop_music()
             self.running = False
             return
 
         previous_player1, previous_player2 = self.player1, self.player2
         self.player1, self.player2 = selected
+        self._bind_audio_to_ships(self.player1, self.player2)
         reset_round_objects(self.world, self.player1, self.player2, previous_player1, previous_player2)
         reset_key_states(self.key_states)
         reset_ship_controls(self.player1)
         reset_ship_controls(self.player2)
         self.aftermath = None
         self.needs_selection = False
-        if self.sound_enabled:
-            play_battle_music()
+        self.audio.start_battle_music()
 
     def state(self):
         return {
@@ -331,9 +350,13 @@ class BattleSimulation:
         return None
 
 
-def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_ships=None):
+def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
+        player2_ships=None, audio_service=None):
     clock = pygame.time.Clock()
-    simulation = BattleSimulation(screen, ship1, ship2, player1_ships, player2_ships)
+    simulation = BattleSimulation(
+        screen, ship1, ship2, player1_ships, player2_ships,
+        audio_service=audio_service,
+    )
 
     running = True
     pygame.event.clear(pygame.KEYDOWN)
@@ -349,7 +372,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    pygame.mixer.music.stop()
+                    simulation.audio.stop_music()
                     running = False
                 elif event.key in simulation.key_states:
                     key_changes.append((event.key, True))
@@ -363,7 +386,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_
             from src.Menus import pick_ship
 
             stop_tracking_projectiles(simulation.world)
-            pygame.mixer.music.stop()
+            simulation.audio.stop_music()
             selected = pick_ship.run(
                 screen,
                 player1_ships,
@@ -372,6 +395,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_
                 preselect_player1=simulation.player1 if simulation.player1.currently_alive else None,
                 preselect_player2=simulation.player2 if simulation.player2.currently_alive else None,
                 choose_second_player=simulation.aftermath.choose_second_player,
+                audio_service=simulation.audio,
             )
             simulation.select_next_round(selected)
             pygame.event.clear(pygame.KEYDOWN)
@@ -396,17 +420,22 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None, player2_
 
 
 def play_battle_music():
-    default_assets().play_music(
-        const.BATTLE_MUSIC_PATH, const.BATTLE_MUSIC_VOLUME, loops=-1
-    )
+    compatibility_audio_service(True).start_battle_music()
 
 
 def set_battle_sound_enabled(enabled):
-    BattleEffect.sound_enabled = enabled
-    Ability.sound_enabled = enabled
+    """Compatibility helper returning an isolated service instead of mutating classes."""
+    return compatibility_audio_service(enabled)
 
 
-def start_or_update_aftermath(aftermath, dead_ships, player1, player2, game_objects, frame_id, sound_enabled=True):
+def start_or_update_aftermath(aftermath, dead_ships, player1, player2,
+                              game_objects, frame_id, sound_enabled=True,
+                              audio_service=None):
+    audio = (
+        audio_service
+        if audio_service is not None
+        else compatibility_audio_service(sound_enabled)
+    )
     if aftermath is None:
         state = AftermathState(started_frame=frame_id, latest_death_frame=frame_id)
     else:
@@ -417,7 +446,7 @@ def start_or_update_aftermath(aftermath, dead_ships, player1, player2, game_obje
         ship.currently_alive = False
         reset_ship_controls(ship)
         state.dead_players.add(ship.player)
-        if sound_enabled:
+        with use_audio_service(audio):
             BattleEffect.play_ship_death()
         state.death_effects[ship.player] = []
         state.pending_explosions.extend(create_ship_explosion_schedule(ship, frame_id))
@@ -434,8 +463,7 @@ def start_or_update_aftermath(aftermath, dead_ships, player1, player2, game_obje
             state.tie_break_ship = self_destructors[0]
             state.choose_second_player = self_destructors[0].player
 
-    if sound_enabled:
-        pygame.mixer.music.stop()
+    audio.stop_music()
     state.ditty_started = False
     _sync_legacy_aftermath(aftermath, state)
 
@@ -467,7 +495,13 @@ def create_ship_explosion_schedule(ship, start_frame):
     return schedule
 
 
-def update_aftermath(aftermath, player1, player2, game_objects, frame_id, sound_enabled=True):
+def update_aftermath(aftermath, player1, player2, game_objects, frame_id,
+                     sound_enabled=True, audio_service=None):
+    audio = (
+        audio_service
+        if audio_service is not None
+        else compatibility_audio_service(sound_enabled)
+    )
     state = _coerce_aftermath_state(aftermath)
     world = World.coerce(game_objects)
     ready_explosions = [
@@ -484,7 +518,7 @@ def update_aftermath(aftermath, player1, player2, game_objects, frame_id, sound_
         state.death_effects[item.ship.player].append(effect)
         world.add(effect)
         if item.is_final:
-            if sound_enabled:
+            with use_audio_service(audio):
                 BattleEffect.play_ship_death()
             hide_dead_ship(item.ship, world)
             state.ships_pending_hide.discard(item.ship)
@@ -495,8 +529,10 @@ def update_aftermath(aftermath, player1, player2, game_objects, frame_id, sound_
     ]
     death_view_done = frame_id - state.started_frame >= const.POST_DEATH_ANIMATION_VIEW_FRAMES
     if len(living_ships) == 1 and not state.ditty_started and death_view_done:
-        if sound_enabled:
+        if audio_service is None and sound_enabled:
             play_victory_ditty(living_ships[0])
+        else:
+            audio.play_victory_ditty(living_ships[0])
         state.ditty_started = True
     elif (
         not living_ships and
@@ -504,8 +540,10 @@ def update_aftermath(aftermath, player1, player2, game_objects, frame_id, sound_
         not state.ditty_started and
         death_view_done
     ):
-        if sound_enabled:
+        if audio_service is None and sound_enabled:
             play_victory_ditty(state.tie_break_ship)
+        else:
+            audio.play_victory_ditty(state.tie_break_ship)
         state.ditty_started = True
 
     _sync_legacy_aftermath(aftermath, state)
@@ -531,14 +569,9 @@ def aftermath_camera_targets(aftermath, player1, player2, frame_id=None):
 
 
 def play_victory_ditty(ship):
-    try:
-        resources = getattr(ship, "resources", default_assets())
-        resources.play_music(
-            resources.ship(ship.name).ditty_path,
-            const.BATTLE_MUSIC_VOLUME,
-        )
-    except pygame.error:
-        pass
+    PygameAudioService(
+        getattr(ship, "resources", default_assets())
+    ).play_victory_ditty(ship)
 
 
 def aftermath_ready_for_selection(aftermath, frame_id, sound_enabled=True):

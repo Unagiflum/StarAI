@@ -6,20 +6,23 @@ import src.const as const
 import math
 import pygame
 from src.toroidal import wrapped_delta
+from src.audio import compatibility_audio_service
 
 
 class Ilwrath(SpaceShip):
-    def __init__(self, ship_name, player_num, resources=None):
-        super().__init__(ship_name, player_num, resources)
+    def __init__(self, ship_name, player_num, resources=None, audio_service=None):
+        super().__init__(ship_name, player_num, resources, audio_service)
         ship_data = SHIPS_DATA[ship_name]
         self.FADE_DURATION = ship_data.get("FADE_DURATION", 8)
         self.fade_timer = self.FADE_DURATION
         self.ship_name = ship_name
 
-        self._uncloak_sound = self.resources.sound(
+        audio = self.audio_service or compatibility_audio_service(
+            Ability.sound_enabled, self.resources
+        )
+        self._uncloak_sound = audio.load_effect(
             self.sprite_location / "A2" / "IlwrathA2end.wav",
             const.SOUND_EFFECT_VOLUME,
-            enabled=Ability.sound_enabled,
         )
         self.black_sprites = self.resources.black_ship_sprites(ship_name)
 
@@ -41,7 +44,7 @@ class Ilwrath(SpaceShip):
         if self.can_action2():
             if self.cloaked:
                 self.uncloak()
-                if Ability.sound_enabled and self._uncloak_sound:
+                if self._uncloak_sound:
                     self._uncloak_sound.play()
             else:
                 self.current_energy -= self.a2_cost
