@@ -1,42 +1,30 @@
 import pygame
-import json
-import os
 import sys
 from src.UI import ui, ui_button
 import src.const as const
+from src.configuration import GameSettingsRepository
+from src.persistence import PersistenceValidationError
 
 TITLE_FONT_SIZE = int(const.SCREEN_HEIGHT*.08)
 SETTINGS_FILE = const.GAME_JSON_PATH
 
+
+def _settings_repository():
+    return GameSettingsRepository(SETTINGS_FILE, const.DEFAULT_KEYS)
+
 def load_settings():
     """Load settings from file or use defaults."""
-    default_settings = const.DEFAULT_KEYS
-    if os.path.isfile(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, 'r') as f:
-                settings = json.load(f)
-                # Convert saved integer values back to readable names
-                settings = {key: pygame.key.name(value) for key, value in settings.items()}
-            return {**default_settings, **settings}  # Merge defaults and loaded settings
-        except Exception as e:
-            print(f"Error loading settings: {e}. Using defaults.")
-            return {key: pygame.key.name(value) for key, value in default_settings.items()}
-    else:
-        return {key: pygame.key.name(value) for key, value in default_settings.items()}
+    return _settings_repository().load().key_names()
 
 
 def save_settings(settings):
     """Save settings to file."""
     try:
-        # Convert human-readable key names to Pygame constants
-        converted_settings = {
-            key: pygame.key.key_code(value) if isinstance(value, str) else value
-            for key, value in settings.items()
-        }
-        with open(SETTINGS_FILE, 'w') as f:
-            json.dump(converted_settings, f, indent=4)
+        repository = _settings_repository()
+        typed_settings = repository.codec.from_key_names(settings)
+        repository.save(typed_settings)
         print("Settings saved successfully.")
-    except Exception as e:
+    except (OSError, PersistenceValidationError) as e:
         print(f"Error saving settings: {e}")
 
 

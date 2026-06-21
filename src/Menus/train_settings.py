@@ -1,34 +1,30 @@
 import pygame
-import json
-import os
 import sys
 from src.UI import ui, ui_slider, ui_button
 import src.const as Const
+from src.configuration import TrainingSettingsRepository
+from src.persistence import PersistenceValidationError
 
 # Define constants
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT*.08)
 SETTINGS_FILE = Const.TRAINING_JSON_PATH
 
+
+def _settings_repository():
+    return TrainingSettingsRepository(SETTINGS_FILE, Const.DEFAULT_TRAINING)
+
 def load_settings():
     """Load settings from file or use defaults."""
-    default_settings = Const.DEFAULT_TRAINING
-    if os.path.isfile(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, 'r') as f:
-                settings = json.load(f)
-            return {**default_settings, **settings}
-        except Exception as e:
-            print(f"Error loading settings: {e}. Using defaults.")
-            return default_settings
-    return default_settings
+    return _settings_repository().load().to_dict()
 
 def save_settings(settings):
     """Save settings to file."""
     try:
-        with open(SETTINGS_FILE, 'w') as f:
-            json.dump(settings, f, indent=4)
+        repository = _settings_repository()
+        typed_settings = repository.codec.decode(settings)
+        repository.save(typed_settings)
         print("Settings saved successfully.")
-    except Exception as e:
+    except (OSError, PersistenceValidationError) as e:
         print(f"Error saving settings: {e}")
 
 def run(screen):

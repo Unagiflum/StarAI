@@ -1,13 +1,15 @@
 import pygame
 import sys
-import json
 
 from src.UI import ui, ui_button, ui_box
 import src.const as const
+from src.configuration import Fleets, FleetsRepository, PlayerFleet
 from src.Menus import pick_ship
+from src.persistence import PersistenceValidationError
 from typing import Dict, Tuple
 from src.Objects.Ships.catalog import SHIPS_DATA
 from src.resources import default_assets
+
 
 # Display settings
 SELECTION_ICON_SIZE = const.SELECTION_ICON_SIZE
@@ -18,19 +20,14 @@ PLAYER_FONT_SIZE = int(const.SCREEN_HEIGHT*0.03)
 
 
 def load_ships() -> Dict:
-    try:
-        simplified_data = {}
-        for ship_name, stats in SHIPS_DATA.items():
-            simplified_data[ship_name] = {
-                stats['ship_type']: stats['cost'],
-                'sprite_scale': stats['sprite_scale'],
-                'sprite_path': stats['sprite_path']
-            }
-
-        return simplified_data
-    except Exception as e:
-        print(f"Error loading Ships.json: {e}")
-        return {}
+    simplified_data = {}
+    for ship_name, stats in SHIPS_DATA.items():
+        simplified_data[ship_name] = {
+            stats['ship_type']: stats['cost'],
+            'sprite_scale': stats['sprite_scale'],
+            'sprite_path': stats['sprite_path']
+        }
+    return simplified_data
 
 
 def load_ship_sprites(ships_data: Dict, resources=None) -> Dict[str, pygame.Surface]:
@@ -40,7 +37,7 @@ def load_ship_sprites(ships_data: Dict, resources=None) -> Dict[str, pygame.Surf
     for ship_name in ships_data:
         try:
             sprites[ship_name] = resources.menu_ship_sprite(ship_name)
-        except Exception as e:
+        except (OSError, pygame.error) as e:
             print(f"Error loading sprite for {ship_name}: {e}")
             surface = pygame.Surface(SELECTION_ICON_SIZE, pygame.SRCALPHA)
             surface.fill(ui.GREY)
@@ -85,22 +82,14 @@ def scale_sprites(original_sprites: Dict[str, pygame.Surface], target_size: int,
 
 def save_fleets(left_fleet: ui_box.Fleet, right_fleet: ui_box.Fleet, left_ai: bool, right_ai: bool):
     """Save the current fleets and AI settings to fleets.json."""
-    fleets_data = {
-        "Player1": {
-            "ships": [name for _, name, _, _ in left_fleet.ships],
-            "ai": left_ai
-        },
-        "Player2": {
-            "ships": [name for _, name, _, _ in right_fleet.ships],
-            "ai": right_ai
-        }
-    }
+    fleets = Fleets(
+        PlayerFleet(tuple(name for _, name, _, _ in left_fleet.ships), left_ai),
+        PlayerFleet(tuple(name for _, name, _, _ in right_fleet.ships), right_ai),
+    )
     try:
-        const.FLEETS_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(const.FLEETS_JSON_PATH, 'w') as f:
-            json.dump(fleets_data, f, indent=4)
+        FleetsRepository(const.FLEETS_JSON_PATH, SHIPS_DATA).save(fleets)
         print("Fleets and AI settings saved to fleets.json")
-    except Exception as e:
+    except (OSError, PersistenceValidationError) as e:
         print(f"Error saving fleets.json: {e}")
 
 
@@ -110,33 +99,18 @@ def load_fleets(left_fleet: ui_box.Fleet, right_fleet: ui_box.Fleet, fleet_sprit
         print("fleets.json does not exist. Starting with empty fleets.")
         return False, False
 
-    try:
-        with open(const.FLEETS_JSON_PATH, 'r') as f:
-            fleets_data = json.load(f)
+    fleets = FleetsRepository(const.FLEETS_JSON_PATH, ships_data).load()
+    for ship_name in fleets.player1.ships:
+        ship_info = ships_data[ship_name]
+        ship_type = next(iter(ship_info))
+        left_fleet.add_ship(fleet_sprites[ship_name], ship_name, ship_info[ship_type])
+    for ship_name in fleets.player2.ships:
+        ship_info = ships_data[ship_name]
+        ship_type = next(iter(ship_info))
+        right_fleet.add_ship(fleet_sprites[ship_name], ship_name, ship_info[ship_type])
 
-        # Load Player 1 fleet
-        player1_data = fleets_data.get("Player1", {})
-        for ship_name in player1_data.get("ships", []):
-            ship_info = ships_data.get(ship_name, {})
-            if ship_info:
-                ship_type = list(ship_info.keys())[0]
-                ship_cost = ship_info[ship_type]
-                left_fleet.add_ship(fleet_sprites[ship_name], ship_name, ship_cost)
-
-        # Load Player 2 fleet
-        player2_data = fleets_data.get("Player2", {})
-        for ship_name in player2_data.get("ships", []):
-            ship_info = ships_data.get(ship_name, {})
-            if ship_info:
-                ship_type = list(ship_info.keys())[0]
-                ship_cost = ship_info[ship_type]
-                right_fleet.add_ship(fleet_sprites[ship_name], ship_name, ship_cost)
-
-        print("Fleets loaded from fleets.json")
-        return player1_data.get("ai", False), player2_data.get("ai", False)
-    except Exception as e:
-        print(f"Error loading fleets.json: {e}")
-        return False, False
+    print("Fleets loaded from fleets.json")
+    return fleets.player1.ai, fleets.player2.ai
 
 
 def run(screen: pygame.Surface):

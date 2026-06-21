@@ -2,11 +2,11 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-import json
 from types import MappingProxyType
 from typing import Any, ClassVar
 
 import src.const as const
+from src.persistence import read_json
 
 
 class CatalogValidationError(ValueError):
@@ -422,14 +422,9 @@ def build_catalogs(ship_entries, ability_entries):
     return MappingProxyType(ships), MappingProxyType(abilities)
 
 
-def _load_json(path):
-    with path.open("r", encoding="utf-8") as file:
-        return json.load(file)
-
-
 SHIP_DEFINITIONS, ABILITY_DEFINITIONS = build_catalogs(
-    _load_json(const.SHIPS_JSON_PATH),
-    _load_json(const.ABILITIES_JSON_PATH),
+    read_json(const.SHIPS_JSON_PATH),
+    read_json(const.ABILITIES_JSON_PATH),
 )
 
 # Temporary read-compatible aliases for specialized definitions and tests that

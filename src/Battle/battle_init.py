@@ -1,8 +1,8 @@
 import pygame
-import json
 import random
 
 import src.const as const
+from src.configuration import GameSettingsRepository
 from src.toroidal import wrapped_distance
 from src.Objects.Space.space_obj import Planet, Star, Asteroid
 from src.Objects.Ships.space_ship import SpaceShip
@@ -10,13 +10,8 @@ from src.Battle.world import World
 
 
 def load_settings():
-    try:
-        with open(const.GAME_JSON_PATH, 'r') as f:
-            loaded_settings = json.load(f)
-            return {key: value for key, value in loaded_settings.items()}
-    except Exception as e:
-        print(f"Error loading settings: {e}. Using default settings.")
-        return const.DEFAULT_KEYS
+    repository = GameSettingsRepository(const.GAME_JSON_PATH, const.DEFAULT_KEYS)
+    return repository.load().key_codes()
 
 
 def get_random_position():

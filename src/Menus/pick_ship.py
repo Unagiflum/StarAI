@@ -1,16 +1,17 @@
 import pygame
-import json
 import sys
 import random
 import math
 
 from src.UI import ui, ui_button, ui_box
 import src.const as Const
+from src.configuration import FleetsRepository
 
 from src.Battle import battle
 from src.Objects.Ships.catalog import SHIPS_DATA
 from src.Objects.Ships.registry import create_ship, preload_ship_ability_resources
 from src.resources import default_assets
+
 
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT * 0.08)
 HIGHLIGHT_COLOR = (50, 50, 75)
@@ -40,30 +41,21 @@ def draw_x(surface, rect):
 
 
 def load_fleet_data():
-    try:
-        with open(Const.FLEETS_JSON_PATH, 'r') as f:
-            fleet_data = json.load(f)
+    fleets = FleetsRepository(Const.FLEETS_JSON_PATH, SHIPS_DATA).load()
+    ship_names = set(fleets.player1.ships + fleets.player2.ships)
+    for ship_name in ship_names:
+        preload_ship_ability_resources(ship_name)
 
-        ship_names = set(
-            fleet_data["Player1"]["ships"] + fleet_data["Player2"]["ships"]
-        )
-        for ship_name in ship_names:
-            preload_ship_ability_resources(ship_name)
-
-        player1_ships = [create_ship(ship_name, 1) for ship_name in fleet_data["Player1"]["ships"]]
-        player2_ships = [create_ship(ship_name, 2) for ship_name in fleet_data["Player2"]["ships"]]
-        return fleet_data, player1_ships, player2_ships
-
-    except Exception as e:
-        print(f"Error loading Fleets.json: {e}")
-        return None, [], []
+    player1_ships = [create_ship(ship_name, 1) for ship_name in fleets.player1.ships]
+    player2_ships = [create_ship(ship_name, 2) for ship_name in fleets.player2.ships]
+    return fleets.to_json_dict(), player1_ships, player2_ships
 
 
 def load_ship_sprite(ship_name, resources=None):
     try:
         sprite = (resources or default_assets()).menu_ship_sprite(ship_name)
         return sprite, sprite.get_size()
-    except Exception as e:
+    except (OSError, pygame.error) as e:
         print(f"Error loading sprite for {ship_name}: {e}")
         return None, None
 
@@ -93,19 +85,15 @@ def scale_sprites(original_sprites, target_size, ships_data):
 
 
 def load_ships_data(ships_data):
-   try:
-       simplified_data = {}
-       original_sprites = {}
-       for ship_name, stats in ships_data.items():
-           simplified_data[ship_name] = {stats['ship_type']: stats['cost']}
-           sprite, _ = load_ship_sprite(ship_name)
-           if sprite:
-               original_sprites[ship_name] = sprite
+    simplified_data = {}
+    original_sprites = {}
+    for ship_name, stats in ships_data.items():
+        simplified_data[ship_name] = {stats['ship_type']: stats['cost']}
+        sprite, _ = load_ship_sprite(ship_name)
+        if sprite:
+            original_sprites[ship_name] = sprite
 
-       return simplified_data, original_sprites
-   except Exception as e:
-       print(f"Error loading ships data: {e}")
-       return None, None
+    return simplified_data, original_sprites
 
 
 def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
