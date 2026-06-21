@@ -16,13 +16,12 @@ import pygame
 pygame.init()
 
 import src.const as const
-from src.Battle.battle import (
+from src.Battle.battle import BattleSimulation, reset_round_objects
+from src.Battle.battle_aftermath import (
     AftermathState,
-    BattleSimulation,
     ScheduledExplosion,
     aftermath_camera_targets,
     aftermath_ready_for_selection,
-    reset_round_objects,
     start_or_update_aftermath,
     update_aftermath,
 )
@@ -426,23 +425,22 @@ class ObjectLifecycleCharacterizationTests(unittest.TestCase):
         last = object()
         effect = object()
         game_objects = [first, dead_ship, last]
-        aftermath = {
-            "started_frame": 10,
-            "pending_explosions": [{
-                "frame": 10,
-                "ship": dead_ship,
-                "position": [1, 2],
-                "scale": 1.0,
-                "is_final": True,
-            }],
-            "death_effects": {1: []},
-            "ships_pending_hide": {dead_ship},
-            "ditty_started": False,
-            "tie_break_ship": None,
-        }
+        aftermath = AftermathState(
+            started_frame=10,
+            latest_death_frame=10,
+            pending_explosions=[ScheduledExplosion(
+                frame=10,
+                ship=dead_ship,
+                position=[1, 2],
+                scale=1.0,
+                is_final=True,
+            )],
+            death_effects={1: []},
+            ships_pending_hide={dead_ship},
+        )
 
         with mock.patch(
-            "src.Battle.battle.BattleEffect.ship_explosion",
+            "src.Battle.battle_aftermath.BattleEffect.ship_explosion",
             return_value=effect,
         ):
             update_aftermath(
@@ -455,8 +453,8 @@ class ObjectLifecycleCharacterizationTests(unittest.TestCase):
             )
 
         self.assertEqual(game_objects, [first, last, effect])
-        self.assertEqual(aftermath["pending_explosions"], [])
-        self.assertEqual(aftermath["ships_pending_hide"], set())
+        self.assertEqual(aftermath.pending_explosions, [])
+        self.assertEqual(aftermath.ships_pending_hide, set())
 
 
 class AftermathCharacterizationTests(unittest.TestCase):
@@ -492,10 +490,10 @@ class AftermathCharacterizationTests(unittest.TestCase):
         self.assertIsInstance(aftermath, AftermathState)
         self.assertFalse(dead.currently_alive)
         self.assertFalse(dead.thrust_active)
-        self.assertEqual(aftermath["dead_players"], {1})
-        self.assertEqual(aftermath.get("started_frame"), 30)
+        self.assertEqual(aftermath.dead_players, {1})
+        self.assertEqual(aftermath.started_frame, 30)
         self.assertIsInstance(aftermath.pending_explosions[0], ScheduledExplosion)
-        self.assertEqual(aftermath.pending_explosions[0]["frame"], 30)
+        self.assertEqual(aftermath.pending_explosions[0].frame, 30)
         self.assertEqual(aftermath_camera_targets(aftermath, dead, survivor, 30), [survivor, dead])
         self.assertFalse(aftermath_ready_for_selection(aftermath, 30, sound_enabled=False))
         self.assertTrue(
@@ -520,11 +518,11 @@ class AftermathCharacterizationTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "src.Battle.battle.start_or_update_aftermath",
+                "src.Battle.battle_aftermath.start_or_update_aftermath",
                 wraps=start_or_update_aftermath,
             ) as register_deaths,
             mock.patch(
-                "src.Battle.battle.BattleEffect.ship_explosion",
+                "src.Battle.battle_aftermath.BattleEffect.ship_explosion",
                 side_effect=[object(), object()],
             ),
         ):
@@ -556,7 +554,7 @@ class AftermathCharacterizationTests(unittest.TestCase):
         )
         effects = [object() for _ in range(5)]
         with mock.patch(
-            "src.Battle.battle.BattleEffect.ship_explosion",
+            "src.Battle.battle_aftermath.BattleEffect.ship_explosion",
             side_effect=effects,
         ):
             update_aftermath(
@@ -606,7 +604,7 @@ class AftermathCharacterizationTests(unittest.TestCase):
         start_frame = 50
         aftermath = AftermathState(start_frame, start_frame)
 
-        with mock.patch("src.Battle.battle.play_victory_ditty") as play_ditty:
+        with mock.patch("src.Battle.battle_aftermath.play_victory_ditty") as play_ditty:
             update_aftermath(
                 aftermath,
                 dead,
@@ -635,7 +633,7 @@ class AftermathCharacterizationTests(unittest.TestCase):
             play_ditty.assert_called_once_with(survivor)
 
         muted_aftermath = AftermathState(start_frame, start_frame)
-        with mock.patch("src.Battle.battle.play_victory_ditty") as play_ditty:
+        with mock.patch("src.Battle.battle_aftermath.play_victory_ditty") as play_ditty:
             update_aftermath(
                 muted_aftermath,
                 dead,
@@ -654,7 +652,7 @@ class AftermathCharacterizationTests(unittest.TestCase):
             tie_break_ship=dead,
             choose_second_player=dead.player,
         )
-        with mock.patch("src.Battle.battle.play_victory_ditty") as play_ditty:
+        with mock.patch("src.Battle.battle_aftermath.play_victory_ditty") as play_ditty:
             update_aftermath(
                 tie_aftermath,
                 dead,

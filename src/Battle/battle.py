@@ -1,9 +1,6 @@
 import pygame
 import sys
 import random
-import math
-from collections.abc import Mapping, MutableMapping
-from dataclasses import dataclass, field
 
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.ability import Ability
@@ -11,18 +8,15 @@ from src.Objects.object import ThrustMarker
 from src.Battle.battle_init import initialize_battle
 from src.Battle.collisions import handle_collisions
 from src.Battle.battle_draw import StarFieldRenderer, draw_battle
+from src.Battle import battle_aftermath
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
-from src.resources import default_assets
 from src.audio import (
-    PygameAudioService,
     compatibility_audio_service,
     use_audio_service,
 )
 import src.const as const
 
-
-EXPLOSION_PLACEMENT_INTERVAL_FRAMES = 3
 
 CONTROL_NAMES = ("Forward", "Left", "Right", "Action 1", "Action 2")
 ACTION_ALIASES = {
@@ -39,95 +33,6 @@ SHIP_CONTROL_NAMES = {
     "Action 1": "action1",
     "Action 2": "action2",
 }
-
-
-@dataclass
-class ScheduledExplosion(Mapping):
-    frame: int
-    ship: SpaceShip
-    position: list[float]
-    scale: float
-    is_final: bool
-
-    _COMPATIBILITY_KEYS = ("frame", "ship", "position", "scale", "is_final")
-
-    def __getitem__(self, key):
-        if key not in self._COMPATIBILITY_KEYS:
-            raise KeyError(key)
-        return getattr(self, key)
-
-    def __iter__(self):
-        return iter(self._COMPATIBILITY_KEYS)
-
-    def __len__(self):
-        return len(self._COMPATIBILITY_KEYS)
-
-    @classmethod
-    def from_mapping(cls, item):
-        return cls(
-            frame=item["frame"],
-            ship=item["ship"],
-            position=item["position"],
-            scale=item["scale"],
-            is_final=item["is_final"],
-        )
-
-
-@dataclass
-class AftermathState(Mapping):
-    started_frame: int
-    latest_death_frame: int
-    dead_players: set[int] = field(default_factory=set)
-    death_effects: dict[int, list[BattleEffect]] = field(default_factory=dict)
-    pending_explosions: list[ScheduledExplosion] = field(default_factory=list)
-    ships_pending_hide: set[SpaceShip] = field(default_factory=set)
-    camera_hold_targets: list[SpaceShip] = field(default_factory=list)
-    ditty_started: bool = False
-    tie_break_ship: SpaceShip | None = None
-    choose_second_player: int | None = None
-
-    _COMPATIBILITY_KEYS = (
-        "started_frame",
-        "latest_death_frame",
-        "dead_players",
-        "death_effects",
-        "pending_explosions",
-        "ships_pending_hide",
-        "camera_hold_targets",
-        "ditty_started",
-        "tie_break_ship",
-        "choose_second_player",
-    )
-
-    def __getitem__(self, key):
-        if key not in self._COMPATIBILITY_KEYS:
-            raise KeyError(key)
-        return getattr(self, key)
-
-    def __iter__(self):
-        return iter(self._COMPATIBILITY_KEYS)
-
-    def __len__(self):
-        return len(self._COMPATIBILITY_KEYS)
-
-    @classmethod
-    def from_mapping(cls, aftermath):
-        started_frame = aftermath["started_frame"]
-        return cls(
-            started_frame=started_frame,
-            latest_death_frame=aftermath.get("latest_death_frame", started_frame),
-            dead_players=aftermath.get("dead_players", set()),
-            death_effects=aftermath.get("death_effects", {}),
-            pending_explosions=[
-                item if isinstance(item, ScheduledExplosion) else ScheduledExplosion.from_mapping(item)
-                for item in aftermath.get("pending_explosions", [])
-            ],
-            ships_pending_hide=aftermath.get("ships_pending_hide", set()),
-            camera_hold_targets=aftermath.get("camera_hold_targets", []),
-            ditty_started=aftermath.get("ditty_started", False),
-            tie_break_ship=aftermath.get("tie_break_ship"),
-            choose_second_player=aftermath.get("choose_second_player"),
-        )
 
 
 class BattleSimulation:
@@ -157,7 +62,7 @@ class BattleSimulation:
         reset_ship_controls(self.player2)
         self.key_states = self._initial_key_states()
         self.frame_id = 0
-        self.aftermath: AftermathState | None = None
+        self.aftermath: battle_aftermath.AftermathState | None = None
         self.needs_selection = False
         self.running = True
 
@@ -282,7 +187,7 @@ class BattleSimulation:
             if ship.current_hp <= 0 and ship.currently_alive
         ]
         if newly_dead:
-            self.aftermath = start_or_update_aftermath(
+            self.aftermath = battle_aftermath.start_or_update_aftermath(
                 self.aftermath,
                 newly_dead,
                 self.player1,
@@ -296,7 +201,7 @@ class BattleSimulation:
         if self.aftermath is None:
             return
 
-        update_aftermath(
+        battle_aftermath.update_aftermath(
             self.aftermath,
             self.player1,
             self.player2,
@@ -306,7 +211,11 @@ class BattleSimulation:
             audio,
         )
 
-        if aftermath_ready_for_selection(self.aftermath, self.frame_id, self.sound_enabled):
+        if battle_aftermath.aftermath_ready_for_selection(
+            self.aftermath,
+            self.frame_id,
+            self.sound_enabled,
+        ):
             self.needs_selection = True
 
     def select_next_round(self, selected):
@@ -413,7 +322,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
             simulation.border_rect,
             simulation.border_color,
             star_field_renderer,
-            camera_targets=aftermath_camera_targets(
+            camera_targets=battle_aftermath.aftermath_camera_targets(
                 simulation.aftermath,
                 simulation.player1,
                 simulation.player2,
@@ -429,174 +338,6 @@ def play_battle_music():
 def set_battle_sound_enabled(enabled):
     """Compatibility helper returning an isolated service instead of mutating classes."""
     return compatibility_audio_service(enabled)
-
-
-def start_or_update_aftermath(aftermath, dead_ships, player1, player2,
-                              game_objects, frame_id, sound_enabled=True,
-                              audio_service=None):
-    audio = (
-        audio_service
-        if audio_service is not None
-        else compatibility_audio_service(sound_enabled)
-    )
-    if aftermath is None:
-        state = AftermathState(started_frame=frame_id, latest_death_frame=frame_id)
-    else:
-        state = _coerce_aftermath_state(aftermath)
-
-    for ship in dead_ships:
-        ship.current_hp = 0
-        ship.currently_alive = False
-        reset_ship_controls(ship)
-        state.dead_players.add(ship.player)
-        with use_audio_service(audio):
-            BattleEffect.play_ship_death()
-        state.death_effects[ship.player] = []
-        state.pending_explosions.extend(create_ship_explosion_schedule(ship, frame_id))
-        state.ships_pending_hide.add(ship)
-        state.camera_hold_targets.append(ship)
-        state.latest_death_frame = frame_id
-
-    if player1.current_hp <= 0 and player2.current_hp <= 0:
-        self_destructors = [
-            ship for ship in (player1, player2)
-            if getattr(ship, "shofixti_self_destruct", False)
-        ]
-        if len(self_destructors) == 1:
-            state.tie_break_ship = self_destructors[0]
-            state.choose_second_player = self_destructors[0].player
-
-    audio.stop_music()
-    state.ditty_started = False
-    _sync_legacy_aftermath(aftermath, state)
-
-    return state
-
-
-def create_ship_explosion_schedule(ship, start_frame):
-    count = max(4, min(9, int(max(ship.size) / 35) + 3))
-    schedule = []
-    angle = math.radians(ship.rotation)
-    sin_a = math.sin(angle)
-    cos_a = math.cos(angle)
-
-    for index in range(count):
-        local_x = random.uniform(-ship.size[0] * 0.45, ship.size[0] * 0.45)
-        local_y = random.uniform(-ship.size[1] * 0.45, ship.size[1] * 0.45)
-        position = [
-            (ship.position[0] + local_x * cos_a - local_y * sin_a) % const.ARENA_SIZE,
-            (ship.position[1] + local_x * sin_a + local_y * cos_a) % const.ARENA_SIZE,
-        ]
-        schedule.append(ScheduledExplosion(
-            frame=start_frame + index * EXPLOSION_PLACEMENT_INTERVAL_FRAMES,
-            ship=ship,
-            position=position,
-            scale=random.uniform(0.85, 1.15),
-            is_final=index == count - 1,
-        ))
-
-    return schedule
-
-
-def update_aftermath(aftermath, player1, player2, game_objects, frame_id,
-                     sound_enabled=True, audio_service=None):
-    audio = (
-        audio_service
-        if audio_service is not None
-        else compatibility_audio_service(sound_enabled)
-    )
-    state = _coerce_aftermath_state(aftermath)
-    world = World.coerce(game_objects)
-    ready_explosions = [
-        item for item in state.pending_explosions
-        if item.frame <= frame_id
-    ]
-    state.pending_explosions = [
-        item for item in state.pending_explosions
-        if item.frame > frame_id
-    ]
-
-    for item in ready_explosions:
-        effect = BattleEffect.ship_explosion(item.position, scale=item.scale)
-        state.death_effects[item.ship.player].append(effect)
-        world.add(effect)
-        if item.is_final:
-            with use_audio_service(audio):
-                BattleEffect.play_ship_death()
-            hide_dead_ship(item.ship, world)
-            state.ships_pending_hide.discard(item.ship)
-
-    living_ships = [
-        ship for ship in (player1, player2)
-        if ship.currently_alive and ship.current_hp > 0
-    ]
-    death_view_done = frame_id - state.started_frame >= const.POST_DEATH_ANIMATION_VIEW_FRAMES
-    if len(living_ships) == 1 and not state.ditty_started and death_view_done:
-        if audio_service is None and sound_enabled:
-            play_victory_ditty(living_ships[0])
-        else:
-            audio.play_victory_ditty(living_ships[0])
-        state.ditty_started = True
-    elif (
-        not living_ships and
-        state.tie_break_ship is not None and
-        not state.ditty_started and
-        death_view_done
-    ):
-        if audio_service is None and sound_enabled:
-            play_victory_ditty(state.tie_break_ship)
-        else:
-            audio.play_victory_ditty(state.tie_break_ship)
-        state.ditty_started = True
-
-    _sync_legacy_aftermath(aftermath, state)
-
-
-def hide_dead_ship(ship, game_objects):
-    World.coerce(game_objects).remove_where(lambda obj: obj is ship)
-
-
-def aftermath_camera_targets(aftermath, player1, player2, frame_id=None):
-    if aftermath is None:
-        return None
-    state = _coerce_aftermath_state(aftermath)
-    if frame_id is not None and frame_id - state.started_frame >= const.POST_DEATH_ANIMATION_VIEW_FRAMES:
-        return None
-
-    targets = [
-        ship for ship in (player1, player2)
-        if ship.currently_alive and ship.current_hp > 0
-    ]
-    targets.extend(state.camera_hold_targets)
-    return targets or None
-
-
-def play_victory_ditty(ship):
-    PygameAudioService(
-        getattr(ship, "resources", default_assets())
-    ).play_victory_ditty(ship)
-
-
-def aftermath_ready_for_selection(aftermath, frame_id, sound_enabled=True):
-    state = _coerce_aftermath_state(aftermath)
-    elapsed = frame_id - state.started_frame
-    return elapsed >= const.POST_DEATH_CONTROL_FRAMES
-
-
-def _coerce_aftermath_state(aftermath):
-    if isinstance(aftermath, AftermathState):
-        return aftermath
-    return AftermathState.from_mapping(aftermath)
-
-
-def _sync_legacy_aftermath(aftermath, state):
-    if not isinstance(aftermath, MutableMapping):
-        return
-    for key in state:
-        value = state[key]
-        if key == "pending_explosions":
-            value = [dict(item) for item in value]
-        aftermath[key] = value
 
 
 def reset_round_objects(game_objects, player1, player2, previous_player1, previous_player2):
