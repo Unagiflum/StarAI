@@ -53,10 +53,6 @@ from src.toroidal import (
 
 
 PLANET_CONTACT_EXIT_MARGIN = 4.0
-_PAIR_COLLISION_HANDLERS = {}
-_LASER_TARGET_POLICIES = {}
-_LASER_IMPACT_POLICIES = {}
-_AREA_DAMAGE_IMPACT_POLICIES = {}
 
 
 @dataclass(frozen=True)
@@ -64,49 +60,61 @@ class CollisionEnvironment:
     ships: tuple = ()
 
 
-def _pair_collision_handler(first_role, second_role):
-    """Register one ordered collision-pair policy."""
-    def register(handler):
-        pair = (first_role, second_role)
-        if pair in _PAIR_COLLISION_HANDLERS:
-            raise ValueError(f"Collision handler already registered for {pair}")
-        _PAIR_COLLISION_HANDLERS[pair] = handler
-        return handler
-
-    return register
+def _object_on_screen(obj, ships):
+    return responses.object_on_screen(obj, ships)
 
 
-def _laser_target_policy(role):
-    """Register one laser target-eligibility policy by collision role."""
-    def register(policy):
-        if role in _LASER_TARGET_POLICIES:
-            raise ValueError(f"Laser target policy already registered for {role}")
-        _LASER_TARGET_POLICIES[role] = policy
-        return policy
-
-    return register
-
-
-def _laser_impact_policy(role):
-    """Register one laser impact policy by collision role."""
-    def register(policy):
-        if role in _LASER_IMPACT_POLICIES:
-            raise ValueError(f"Laser impact policy already registered for {role}")
-        _LASER_IMPACT_POLICIES[role] = policy
-        return policy
-
-    return register
+def _asteroid_impacts_planet(asteroid, planet, effects, environment):
+    """Supply the collision pipeline's visibility policy to the response."""
+    return responses.asteroid_impacts_planet(
+        asteroid,
+        planet,
+        effects,
+        environment,
+        object_on_screen_policy=_object_on_screen,
+    )
 
 
-def _area_damage_impact_policy(role):
-    """Register one area-damage impact policy by collision role."""
-    def register(policy):
-        if role in _AREA_DAMAGE_IMPACT_POLICIES:
-            raise ValueError(f"Area-damage policy already registered for {role}")
-        _AREA_DAMAGE_IMPACT_POLICIES[role] = policy
-        return policy
+_PAIR_COLLISION_HANDLERS = {
+    (CollisionRole.SHIP, CollisionRole.SHIP): responses.ship_impacts_ship,
+    (CollisionRole.SHIP, CollisionRole.ASTEROID): responses.ship_impacts_asteroid,
+    (CollisionRole.SHIP, CollisionRole.PLANET): responses.ship_impacts_planet,
+    (CollisionRole.ASTEROID, CollisionRole.PLANET): _asteroid_impacts_planet,
+    (CollisionRole.PROJECTILE, CollisionRole.PROJECTILE): responses.projectile_impacts_projectile,
+    (CollisionRole.PROJECTILE, CollisionRole.SHIP): responses.projectile_impacts_ship,
+    (CollisionRole.PROJECTILE, CollisionRole.ASTEROID): responses.projectile_impacts_asteroid,
+    (CollisionRole.PROJECTILE, CollisionRole.PLANET): responses.projectile_impacts_planet,
+    (CollisionRole.FIGHTER, CollisionRole.FIGHTER): responses.fighter_impacts_fighter,
+    (CollisionRole.FIGHTER, CollisionRole.PROJECTILE): responses.fighter_impacts_projectile,
+    (CollisionRole.FIGHTER, CollisionRole.SHIP): responses.fighter_impacts_ship,
+    (CollisionRole.FIGHTER, CollisionRole.ASTEROID): responses.fighter_impacts_asteroid,
+    (CollisionRole.FIGHTER, CollisionRole.PLANET): responses.fighter_impacts_planet,
+}
 
-    return register
+_LASER_TARGET_POLICIES = {
+    CollisionRole.SHIP: responses.ship_is_laser_target,
+    CollisionRole.PROJECTILE: responses.projectile_is_laser_target,
+    CollisionRole.FIGHTER: responses.fighter_is_laser_target,
+    CollisionRole.ASTEROID: responses.asteroid_is_laser_target,
+    CollisionRole.PLANET: responses.planet_is_laser_target,
+    CollisionRole.NONE: responses.generic_is_laser_target,
+}
+
+_LASER_IMPACT_POLICIES = {
+    CollisionRole.SHIP: responses.laser_impacts_ship,
+    CollisionRole.PROJECTILE: responses.laser_impacts_ability,
+    CollisionRole.FIGHTER: responses.laser_impacts_ability,
+    CollisionRole.ASTEROID: responses.laser_impacts_asteroid,
+    CollisionRole.PLANET: responses.laser_impacts_planet,
+}
+
+_AREA_DAMAGE_IMPACT_POLICIES = {
+    CollisionRole.SHIP: responses.area_damage_impacts_ship,
+    CollisionRole.NONE: responses.area_damage_impacts_ability,
+    CollisionRole.PROJECTILE: responses.area_damage_impacts_ability,
+    CollisionRole.FIGHTER: responses.area_damage_impacts_ability,
+    CollisionRole.ASTEROID: responses.area_damage_impacts_asteroid,
+}
 
 
 def _dispatch_collision_pairs(
@@ -196,7 +204,9 @@ def _handle_area_damage(game_objects, effects):
     for ability in area_abilities:
         ability.area_damage_pending = False
         for target in world:
-            if not _area_damage_target_is_eligible(ability, target):
+            if not responses.area_damage_target_is_eligible(
+                ability, target, _AREA_DAMAGE_IMPACT_POLICIES
+            ):
                 continue
 
             delta = _wrapped_delta(ability.position, target.position)
@@ -210,49 +220,10 @@ def _handle_area_damage(game_objects, effects):
             ]
             policy(target, effects, delta, distance, damage)
 
-
-def _area_damage_target_is_eligible(source, target):
-    return responses.area_damage_target_is_eligible(
-        source, target, _AREA_DAMAGE_IMPACT_POLICIES
-    )
-
-
-@_area_damage_impact_policy(CollisionRole.SHIP)
-def _area_damage_impacts_ship(target, effects, delta, distance, damage):
-    return responses.area_damage_impacts_ship(
-        target, effects, delta, distance, damage
-    )
-
-
-@_area_damage_impact_policy(CollisionRole.NONE)
-@_area_damage_impact_policy(CollisionRole.PROJECTILE)
-@_area_damage_impact_policy(CollisionRole.FIGHTER)
-def _area_damage_impacts_ability(target, effects, delta, distance, damage):
-    return responses.area_damage_impacts_ability(
-        target, effects, delta, distance, damage
-    )
-
-
-@_area_damage_impact_policy(CollisionRole.ASTEROID)
-def _area_damage_impacts_asteroid(target, effects, delta, distance, damage):
-    return responses.area_damage_impacts_asteroid(
-        target, effects, delta, distance, damage
-    )
-
-
 def _handle_ship_ship_collisions(ships, effects=None):
     if effects is None:
         effects = []
     _dispatch_unique_collision_pairs(ships, effects, lambda ship: True)
-
-
-@_pair_collision_handler(CollisionRole.SHIP, CollisionRole.SHIP)
-def _ship_impacts_ship(ship, other, effects, environment):
-    return responses.ship_impacts_ship(ship, other, effects, environment)
-
-
-def _apply_ship_impact_damage(ship, damage):
-    return responses.apply_ship_impact_damage(ship, damage)
 
 
 def _handle_ship_asteroid_collisions(ships, asteroids):
@@ -261,13 +232,6 @@ def _handle_ship_asteroid_collisions(ships, asteroids):
         asteroids,
         [],
         stop_after_handled=False,
-    )
-
-
-@_pair_collision_handler(CollisionRole.SHIP, CollisionRole.ASTEROID)
-def _ship_impacts_asteroid(ship, asteroid, effects, environment):
-    return responses.ship_impacts_asteroid(
-        ship, asteroid, effects, environment
     )
 
 
@@ -280,17 +244,6 @@ def _handle_ship_planet_collisions(ships, planets):
     )
 
 
-@_pair_collision_handler(CollisionRole.SHIP, CollisionRole.PLANET)
-def _ship_impacts_planet(ship, planet, effects, environment):
-    return responses.ship_impacts_planet(ship, planet, effects, environment)
-
-
-def _planet_contact_has_ended(ship, planet, distance):
-    return responses.planet_contact_has_ended(
-        ship, planet, distance, PLANET_CONTACT_EXIT_MARGIN
-    )
-
-
 def _handle_asteroid_planet_collisions(asteroids, planets, ships, effects):
     _dispatch_collision_pairs(
         asteroids,
@@ -300,31 +253,9 @@ def _handle_asteroid_planet_collisions(asteroids, planets, ships, effects):
     )
 
 
-@_pair_collision_handler(CollisionRole.ASTEROID, CollisionRole.PLANET)
-def _asteroid_impacts_planet(asteroid, planet, effects, environment):
-    return responses.asteroid_impacts_planet(
-        asteroid,
-        planet,
-        effects,
-        environment,
-        object_on_screen_policy=_object_on_screen,
-    )
-
-
 def _handle_projectile_projectile_collisions(projectiles, effects):
-    _dispatch_unique_collision_pairs(projectiles, effects, _is_live_projectile)
-
-
-@_pair_collision_handler(CollisionRole.PROJECTILE, CollisionRole.PROJECTILE)
-def _projectile_impacts_projectile(projectile, other, effects, environment):
-    return responses.projectile_impacts_projectile(
-        projectile, other, effects, environment
-    )
-
-
-def _projectiles_can_hit_each_other(projectile, other):
-    return responses.projectiles_can_hit_each_other(
-        projectile, other
+    _dispatch_unique_collision_pairs(
+        projectiles, effects, responses.is_live_projectile
     )
 
 
@@ -332,109 +263,37 @@ def _handle_projectile_ship_collisions(projectiles, ships, effects):
     _dispatch_collision_pairs(projectiles, ships, effects)
 
 
-@_pair_collision_handler(CollisionRole.PROJECTILE, CollisionRole.SHIP)
-def _projectile_impacts_ship(projectile, ship, effects, environment):
-    return responses.projectile_impacts_ship(
-        projectile, ship, effects, environment
-    )
-
-
 def _handle_projectile_asteroid_collisions(projectiles, asteroids, effects):
     _dispatch_collision_pairs(projectiles, asteroids, effects)
-
-
-@_pair_collision_handler(CollisionRole.PROJECTILE, CollisionRole.ASTEROID)
-def _projectile_impacts_asteroid(projectile, asteroid, effects, environment):
-    return responses.projectile_impacts_asteroid(
-        projectile, asteroid, effects, environment
-    )
 
 
 def _handle_projectile_planet_collisions(projectiles, planets, effects):
     _dispatch_collision_pairs(projectiles, planets, effects)
 
 
-@_pair_collision_handler(CollisionRole.PROJECTILE, CollisionRole.PLANET)
-def _projectile_impacts_planet(projectile, planet, effects, environment):
-    return responses.projectile_impacts_planet(
-        projectile, planet, effects, environment
-    )
-
-
 def _handle_fighter_fighter_collisions(fighters, effects):
-    _dispatch_unique_collision_pairs(fighters, effects, _is_live_fighter)
-
-
-@_pair_collision_handler(CollisionRole.FIGHTER, CollisionRole.FIGHTER)
-def _fighter_impacts_fighter(fighter, other, effects, environment):
-    return responses.fighter_impacts_fighter(
-        fighter, other, effects, environment
-    )
+    _dispatch_unique_collision_pairs(fighters, effects, responses.is_live_fighter)
 
 
 def _handle_fighter_projectile_collisions(fighters, projectiles, effects):
     _dispatch_collision_pairs(fighters, projectiles, effects)
 
 
-@_pair_collision_handler(CollisionRole.FIGHTER, CollisionRole.PROJECTILE)
-def _fighter_impacts_projectile(fighter, projectile, effects, environment):
-    return responses.fighter_impacts_projectile(
-        fighter, projectile, effects, environment
-    )
-
-
 def _handle_fighter_ship_collisions(fighters, ships, effects):
     _dispatch_collision_pairs(fighters, ships, effects)
-
-
-@_pair_collision_handler(CollisionRole.FIGHTER, CollisionRole.SHIP)
-def _fighter_impacts_ship(fighter, ship, effects, environment):
-    return responses.fighter_impacts_ship(
-        fighter, ship, effects, environment
-    )
 
 
 def _handle_fighter_asteroid_collisions(fighters, asteroids, effects):
     _dispatch_collision_pairs(fighters, asteroids, effects)
 
 
-@_pair_collision_handler(CollisionRole.FIGHTER, CollisionRole.ASTEROID)
-def _fighter_impacts_asteroid(fighter, asteroid, effects, environment):
-    return responses.fighter_impacts_asteroid(
-        fighter, asteroid, effects, environment
-    )
-
-
 def _handle_fighter_planet_collisions(fighters, planets):
     _dispatch_collision_pairs(fighters, planets, [])
 
 
-@_pair_collision_handler(CollisionRole.FIGHTER, CollisionRole.PLANET)
-def _fighter_impacts_planet(fighter, planet, effects, environment):
-    return responses.fighter_impacts_planet(
-        fighter, planet, effects, environment
-    )
-
-
-def _is_live_projectile(obj):
-    return responses.is_live_projectile(obj)
-
-
-def _is_live_fighter(obj):
-    return responses.is_live_fighter(obj)
-
-
-def _is_live_laser(obj):
-    return responses.is_live_laser(obj)
-
-
-def _projectile_can_hit_ship(projectile, ship):
-    return responses.projectile_can_hit_ship(projectile, ship)
-
-
 def _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, planets, effects):
     for laser in lasers:
-        if not _is_live_laser(laser):
+        if not responses.is_live_laser(laser):
             continue
 
         laser.position = laser.parent.position.copy()
@@ -466,35 +325,6 @@ def _apply_laser_impact(target, effects, normal, damage, contact):
     policy = _LASER_IMPACT_POLICIES.get(target.collision_capabilities.role)
     if policy is not None:
         policy(target, effects, normal, damage, contact)
-
-
-@_laser_impact_policy(CollisionRole.SHIP)
-def _laser_impacts_ship(target, effects, normal, damage, contact):
-    return responses.laser_impacts_ship(
-        target, effects, normal, damage, contact
-    )
-
-
-@_laser_impact_policy(CollisionRole.PROJECTILE)
-@_laser_impact_policy(CollisionRole.FIGHTER)
-def _laser_impacts_ability(target, effects, normal, damage, contact):
-    return responses.laser_impacts_ability(
-        target, effects, normal, damage, contact
-    )
-
-
-@_laser_impact_policy(CollisionRole.ASTEROID)
-def _laser_impacts_asteroid(target, effects, normal, damage, contact):
-    return responses.laser_impacts_asteroid(
-        target, effects, normal, damage, contact
-    )
-
-
-@_laser_impact_policy(CollisionRole.PLANET)
-def _laser_impacts_planet(target, effects, normal, damage, contact):
-    return responses.laser_impacts_planet(
-        target, effects, normal, damage, contact
-    )
 
 
 def _laser_targets(laser, ships, projectiles, fighters, asteroids, planets):
@@ -531,36 +361,6 @@ def _laser_target_is_eligible(laser, target, explicit=False):
     return policy(laser, target, explicit)
 
 
-@_laser_target_policy(CollisionRole.SHIP)
-def _ship_is_laser_target(laser, target, explicit):
-    return responses.ship_is_laser_target(laser, target, explicit)
-
-
-@_laser_target_policy(CollisionRole.PROJECTILE)
-def _projectile_is_laser_target(laser, target, explicit):
-    return responses.projectile_is_laser_target(laser, target, explicit)
-
-
-@_laser_target_policy(CollisionRole.FIGHTER)
-def _fighter_is_laser_target(laser, target, explicit):
-    return responses.fighter_is_laser_target(laser, target, explicit)
-
-
-@_laser_target_policy(CollisionRole.ASTEROID)
-def _asteroid_is_laser_target(laser, target, explicit):
-    return responses.asteroid_is_laser_target(laser, target, explicit)
-
-
-@_laser_target_policy(CollisionRole.PLANET)
-def _planet_is_laser_target(laser, target, explicit):
-    return responses.planet_is_laser_target(laser, target, explicit)
-
-
-@_laser_target_policy(CollisionRole.NONE)
-def _generic_is_laser_target(laser, target, explicit):
-    return responses.generic_is_laser_target(laser, target, explicit)
-
-
 def _remove_dead_collision_objects(game_objects):
     World.coerce(game_objects).remove_dead_collision_objects()
 
@@ -583,21 +383,3 @@ def _spawn_replacement_asteroids(game_objects, asteroids, ships, planets):
         asteroid.position = asteroid.get_respawn_position(planet, ships, avoid_bodies)
         avoid_bodies.append(asteroid)
         world.add(asteroid)
-
-
-def _destroy_projectile(projectile, effects, direction, damage, contact_position=None):
-    return responses.destroy_projectile(
-        projectile, effects, direction, damage, contact_position
-    )
-
-
-def _destroy_asteroid(asteroid, effects):
-    return responses.destroy_asteroid(asteroid, effects)
-
-
-def _object_on_screen(obj, ships):
-    return responses.object_on_screen(obj, ships)
-
-
-def _set_projectile_hp(projectile, hp):
-    return responses.set_projectile_hp(projectile, hp)
