@@ -1,12 +1,24 @@
 import pygame
 from . import ui
 import src.const as Const
+from src.menu_state import FleetModel
 
 # Constants for ShipList and Fleet
 SCROLLBAR_WIDTH = int(0.01*Const.SCREEN_WIDTH)
 SCROLL_BUTTON_HEIGHT = int(0.01*Const.SCREEN_HEIGHT)
 SCROLL_SPEED = 20
 SPACING = int(0.005*Const.SCREEN_WIDTH)
+
+
+def create_player_fleet_panels(column_lefts, top, width, height, icon_size):
+    """Create the two existing player fleet panels from shared layout data."""
+    return {
+        player: Fleet(
+            column_lefts[player], top, width, height,
+            f"Player {player} Fleet", icon_size,
+        )
+        for player in (1, 2)
+    }
 
 class ShipContainer:
     def __init__(self, x, y, width, height, title, icon_size):
@@ -201,9 +213,14 @@ class ShipList(ShipContainer):
         self.draw_scrollbar(screen)
 
 class Fleet(ShipContainer):
-    def __init__(self, x, y, width, height, title, icon_size):
+    """Pygame presentation for an ordered :class:`FleetModel`."""
+
+    def __init__(self, x, y, width, height, title, icon_size, model=None):
         super().__init__(x, y, width, height, title, icon_size)
         self.calculate_tiling()
+        self.model = model if model is not None else FleetModel(self.max_fleet_size)
+        if self.model.capacity != self.max_fleet_size:
+            raise ValueError("Fleet model capacity must match the panel layout")
 
     def calculate_tiling(self):
         # Subtract margins from available space
@@ -234,7 +251,7 @@ class Fleet(ShipContainer):
         self.max_fleet_size = Const.SHIP_COLS * Const.SHIP_ROWS
 
     def add_ship(self, sprite, name, cost):
-        if len(self.ships) < self.max_fleet_size:
+        if self.model.add_ship(name, cost):
             row = len(self.ships) // self.icons_per_row
             col = len(self.ships) % self.icons_per_row
 
@@ -248,10 +265,15 @@ class Fleet(ShipContainer):
             return True
         return False
 
+    def clear(self):
+        self.model.clear()
+        self.ships.clear()
+
     def remove_ship_at_pos(self, pos):
         for i, (_, _, _, rect) in enumerate(self.ships):
             if rect.collidepoint(pos):
                 self.ships.pop(i)
+                self.model.remove_ship(i)
                 self._update_ship_positions()
                 return True
         return False
@@ -270,7 +292,7 @@ class Fleet(ShipContainer):
             self.ships[i] = (sprite, name, cost, sprite_rect)
 
     def get_total_cost(self):
-        return sum(cost for _, _, cost, _ in self.ships)
+        return self.model.total_cost
 
     def draw(self, screen, font, player_font=None):
         pygame.draw.rect(screen, ui.BLACK, self.rect)

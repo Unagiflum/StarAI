@@ -4,13 +4,18 @@ import random
 import math
 
 from src.UI import ui, ui_button, ui_box
+from src.UI.ship_sprites import (
+    load_menu_ship_sprites,
+    populate_fleet_panel,
+    scale_ship_sprites,
+)
 import src.const as Const
 from src.configuration import FleetsRepository
+from src.menu_state import ShipSelectionState
 
 from src.Battle import battle
-from src.Objects.Ships.catalog import SHIPS_DATA
+from src.Objects.Ships.catalog import SHIP_DEFINITIONS
 from src.Objects.Ships.registry import create_ship, preload_ship_ability_resources
-from src.resources import default_assets
 
 
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT * 0.08)
@@ -41,7 +46,7 @@ def draw_x(surface, rect):
 
 
 def load_fleet_data():
-    fleets = FleetsRepository(Const.FLEETS_JSON_PATH, SHIPS_DATA).load()
+    fleets = FleetsRepository(Const.FLEETS_JSON_PATH, SHIP_DEFINITIONS).load()
     ship_names = set(fleets.player1.ships + fleets.player2.ships)
     for ship_name in ship_names:
         preload_ship_ability_resources(ship_name)
@@ -52,48 +57,15 @@ def load_fleet_data():
 
 
 def load_ship_sprite(ship_name, resources=None):
-    try:
-        sprite = (resources or default_assets()).menu_ship_sprite(ship_name)
-        return sprite, sprite.get_size()
-    except (OSError, pygame.error) as e:
-        print(f"Error loading sprite for {ship_name}: {e}")
-        return None, None
+    sprite = load_menu_ship_sprites([ship_name], resources=resources).get(ship_name)
+    return (sprite, sprite.get_size()) if sprite is not None else (None, None)
 
 
-def scale_sprites(original_sprites, target_size, ships_data):
-    # First find max dimension after applying sprite_scale
-    max_dim = 1
-    for name, sprite in original_sprites.items():
-        sprite_scale = ships_data[name]['sprite_scale']
-        width, height = sprite.get_size()
-        scaled_width = width * sprite_scale
-        scaled_height = height * sprite_scale
-        max_dim = max(max_dim, scaled_width, scaled_height)
-
-    base_scale_factor = target_size / max_dim
-    scaled_sprites = {}
-
-    # Now scale each sprite by both its sprite_scale and the base_scale_factor
-    for name, sprite in original_sprites.items():
-        sprite_scale = ships_data[name]['sprite_scale']
-        width, height = sprite.get_size()
-        new_width = int(width * sprite_scale * base_scale_factor)
-        new_height = int(height * sprite_scale * base_scale_factor)
-        scaled_sprites[name] = pygame.transform.scale(sprite, (new_width, new_height))
-
-    return scaled_sprites
+scale_sprites = scale_ship_sprites
 
 
 def load_ships_data(ships_data):
-    simplified_data = {}
-    original_sprites = {}
-    for ship_name, stats in ships_data.items():
-        simplified_data[ship_name] = {stats['ship_type']: stats['cost']}
-        sprite, _ = load_ship_sprite(ship_name)
-        if sprite:
-            original_sprites[ship_name] = sprite
-
-    return simplified_data, original_sprites
+    return ships_data, load_menu_ship_sprites(ships_data)
 
 
 def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
@@ -110,7 +82,7 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             "Player1": {"ships": [ship.name for ship in player1_ships]},
             "Player2": {"ships": [ship.name for ship in player2_ships]},
         }
-    ships_data, original_sprites = load_ships_data(SHIPS_DATA)
+    ships_data, original_sprites = load_ships_data(SHIP_DEFINITIONS)
     if not fleet_data or not ships_data or not original_sprites:
         return
 
@@ -134,82 +106,48 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
     SELECTION_R_LEFT = RIGHT_COLUMN_START
     RAND_TOP = SELECTION_TOP + SELECTION_BOX_SIZE + int(0.01 * Const.SCREEN_HEIGHT)
 
-    left_fleet = ui_box.Fleet(
-        LEFT_COLUMN_START,
-        FLEET_TOP,
-        ui.SELECTION_WIDTH,
-        ui.FLEET_HEIGHT,
-        "Player 1 Fleet",
-        FLEET_ICON_SIZE
+    columns = {1: LEFT_COLUMN_START, 2: RIGHT_COLUMN_START}
+    panels = ui_box.create_player_fleet_panels(
+        columns, FLEET_TOP, ui.SELECTION_WIDTH, ui.FLEET_HEIGHT,
+        FLEET_ICON_SIZE,
     )
-
-    right_fleet = ui_box.Fleet(
-        RIGHT_COLUMN_START,
-        FLEET_TOP,
-        ui.SELECTION_WIDTH,
-        ui.FLEET_HEIGHT,
-        "Player 2 Fleet",
-        FLEET_ICON_SIZE
+    fleet_sprites = scale_ship_sprites(
+        original_sprites, fleet_size, SHIP_DEFINITIONS
     )
-
-    fleet_sprites = scale_sprites(original_sprites, fleet_size, SHIPS_DATA)
-    selection_sprites = scale_sprites(original_sprites, SELECTION_BOX_SIZE, SHIPS_DATA)
-
-    # Load ships into fleets
-    for ship, ship_name in zip(player1_ships, fleet_data["Player1"]["ships"]):
-        ship_info = ships_data[ship_name]
-        ship_type = list(ship_info.keys())[0]
-        ship_cost = ship_info[ship_type]
-        left_fleet.add_ship(fleet_sprites[ship_name], ship_name, ship_cost)
-
-    for ship, ship_name in zip(player2_ships, fleet_data["Player2"]["ships"]):
-        ship_info = ships_data[ship_name]
-        ship_type = list(ship_info.keys())[0]
-        ship_cost = ship_info[ship_type]
-        right_fleet.add_ship(fleet_sprites[ship_name], ship_name, ship_cost)
-
-    left_selection = {"rect": pygame.Rect(SELECTION_L_LEFT,
-                                          SELECTION_TOP,
-                                          SELECTION_BOX_SIZE,
-                                          SELECTION_BOX_SIZE),
-                      "ship": None,
-                      "sprite": None,
-                      "ship_obj": None,
-                      "index": None}
-
-    right_selection = {"rect": pygame.Rect(SELECTION_R_LEFT,
-                                           SELECTION_TOP,
-                                           SELECTION_BOX_SIZE,
-                                           SELECTION_BOX_SIZE),
-                       "ship": None,
-                       "sprite": None,
-                       "ship_obj": None,
-                       "index": None}
-
-    selection_order = {
-        "active_player": 3 - choose_second_player
-        if choose_second_player in (1, 2) else None,
-        "first_player": 3 - choose_second_player
-        if choose_second_player in (1, 2) else None,
-        "first_locked": False,
+    selection_sprites = scale_ship_sprites(
+        original_sprites, SELECTION_BOX_SIZE, SHIP_DEFINITIONS
+    )
+    player_ships = {1: player1_ships, 2: player2_ships}
+    fleet_names = {
+        player: tuple(
+            name
+            for _, name in zip(
+                player_ships[player], fleet_data[f"Player{player}"]["ships"]
+            )
+        )
+        for player in (1, 2)
     }
-    survivor_locked_players = {
-        player
-        for player, ship in ((1, preselect_player1), (2, preselect_player2))
-        if ship is not None and ship.currently_alive and ship.current_hp > 0
+    for player in (1, 2):
+        populate_fleet_panel(
+            panels[player], fleet_names[player], fleet_sprites, ships_data
+        )
+
+    selection_rects = {
+        1: pygame.Rect(
+            SELECTION_L_LEFT, SELECTION_TOP,
+            SELECTION_BOX_SIZE, SELECTION_BOX_SIZE,
+        ),
+        2: pygame.Rect(
+            SELECTION_R_LEFT, SELECTION_TOP,
+            SELECTION_BOX_SIZE, SELECTION_BOX_SIZE,
+        ),
     }
-
-    def selection_allowed(player):
-        if player in survivor_locked_players:
-            return False
-        active_player = selection_order["active_player"]
-        return active_player is None or active_player == player
-
-    def advance_selection_order(player):
-        if selection_order["active_player"] == player and choose_second_player in (1, 2):
-            if player == selection_order["first_player"]:
-                selection_order["first_locked"] = True
-            selection_order["active_player"] = choose_second_player
+    selection_state = ShipSelectionState(
+        player_ships,
+        fleet_names,
+        preselected={1: preselect_player1, 2: preselect_player2},
+        choose_second_player=choose_second_player,
+    )
 
     def draw_panel_badge(panel, text, color):
         text_surface = state_font.render(text, True, ui.WHITE)
@@ -234,12 +172,12 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
         pygame.draw.rect(screen, LOCKED_COLOR, panel.rect, 4)
         draw_panel_badge(panel, "LOCKED", LOCKED_COLOR)
 
-    def draw_selection_label(selection, text, color, show_lock=False):
+    def draw_selection_label(selection_rect, text, color, show_lock=False):
         label_surface = state_font.render(text, True, ui.WHITE)
         label_rect = pygame.Rect(
-            selection["rect"].left,
-            selection["rect"].bottom - label_surface.get_height() - 12,
-            selection["rect"].width,
+            selection_rect.left,
+            selection_rect.bottom - label_surface.get_height() - 12,
+            selection_rect.width,
             label_surface.get_height() + 12,
         )
         label_surface_bg = pygame.Surface(label_rect.size, pygame.SRCALPHA)
@@ -265,85 +203,44 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             )
         screen.blit(label_surface, text_rect)
 
-    def set_selection(selection, selection_sprites, fleet, ships, ship_obj):
-        if not ship_obj or not ship_obj.currently_alive:
+    def pick_random(player):
+        if not selection_state.selection_allowed(player):
             return
+        alive_indices = selection_state.alive_indices(player)
+        if alive_indices:
+            selection_state.select_index(player, random.choice(alive_indices))
 
-        for idx, candidate in enumerate(ships):
-            if candidate == ship_obj:
-                _, name, _, _ = fleet.ships[idx]
-                selection["ship"] = name
-                selection["sprite"] = selection_sprites[name]
-                selection["ship_obj"] = candidate
-                selection["index"] = idx
-                return
-
-    set_selection(left_selection, selection_sprites, left_fleet, player1_ships, preselect_player1)
-    set_selection(right_selection, selection_sprites, right_fleet, player2_ships, preselect_player2)
-
-    def pick_random_left():
-        if not selection_allowed(1):
-            return
-        alive_ships = [(i, ship) for i, ship in enumerate(player1_ships) if ship.currently_alive]
-        if alive_ships:
-            idx, ship_obj = random.choice(alive_ships)
-            sprite, name, cost, _ = left_fleet.ships[idx]
-            left_selection["ship"] = name
-            left_selection["sprite"] = selection_sprites[name]
-            left_selection["ship_obj"] = ship_obj
-            left_selection["index"] = idx  # Add this line
-            advance_selection_order(1)
-
-    def pick_random_right():
-        if not selection_allowed(2):
-            return
-        alive_ships = [(i, ship) for i, ship in enumerate(player2_ships) if ship.currently_alive]
-        if alive_ships:
-            idx, ship_obj = random.choice(alive_ships)
-            sprite, name, cost, _ = right_fleet.ships[idx]
-            right_selection["ship"] = name
-            right_selection["sprite"] = selection_sprites[name]
-            right_selection["ship_obj"] = ship_obj
-            right_selection["index"] = idx  # Add this line
-            advance_selection_order(2)
-
-    random_left = ui_button.Button(
-        SELECTION_L_LEFT,
-        RAND_TOP,
-        SELECTION_BOX_SIZE,
-        int(0.05 * Const.SCREEN_HEIGHT),
-        "Pick Random",
-        pick_random_left,
-        bg_color=ui.MENU_BUTTON_COLOR,
-        hover_color=ui.MENU_BUTTON_COLOR_HI
-    )
-
-    random_right = ui_button.Button(
-        SELECTION_R_LEFT,
-        RAND_TOP,
-        SELECTION_BOX_SIZE,
-        int(0.05 * Const.SCREEN_HEIGHT),
-        "Pick Random",
-        pick_random_right,
-        bg_color=ui.MENU_BUTTON_COLOR,
-        hover_color=ui.MENU_BUTTON_COLOR_HI
-    )
+    random_buttons = {
+        player: ui_button.Button(
+            selection_rects[player].left,
+            RAND_TOP,
+            SELECTION_BOX_SIZE,
+            int(0.05 * Const.SCREEN_HEIGHT),
+            "Pick Random",
+            lambda player=player: pick_random(player),
+            bg_color=ui.MENU_BUTTON_COLOR,
+            hover_color=ui.MENU_BUTTON_COLOR_HI,
+        )
+        for player in (1, 2)
+    }
 
     def confirm_callback():
-        if (left_selection["ship_obj"] and right_selection["ship_obj"] and
-                left_selection["ship_obj"].currently_alive and right_selection["ship_obj"].currently_alive):
-            print("Ships selected:", left_selection["ship"], "vs", right_selection["ship"])
+        selected = selection_state.selected_ships()
+        if selected is not None:
+            left_selection = selection_state.selection(1)
+            right_selection = selection_state.selection(2)
+            print("Ships selected:", left_selection.name, "vs", right_selection.name)
             if start_battle:
                 battle.run(
                     screen,
-                    left_selection["ship_obj"],
-                    right_selection["ship_obj"],
+                    selected[0],
+                    selected[1],
                     player1_ships,
                     player2_ships,
                 )
                 return None, None
 
-            return left_selection["ship_obj"], right_selection["ship_obj"]
+            return selected
 
     confirm_button = ui_button.Button(
         ui.ok_button_left,
@@ -371,8 +268,8 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
     while running:
         clock.tick(Const.FPS)
 
-        random_left.enabled = selection_allowed(1)
-        random_right.enabled = selection_allowed(2)
+        for player, button in random_buttons.items():
+            button.enabled = selection_state.selection_allowed(player)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -382,45 +279,30 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mouse_pos = event.pos
 
-                if left_fleet.rect.collidepoint(mouse_pos) and selection_allowed(1):
-                    for i, (_, name, _, rect) in enumerate(left_fleet.ships):
-                        if rect and rect.collidepoint(mouse_pos) and player1_ships[i].currently_alive:
-                            left_selection["ship"] = name
-                            left_selection["sprite"] = selection_sprites[name]
-                            left_selection["ship_obj"] = player1_ships[i]
-                            left_selection["index"] = i
-                            ui.sound_manager.play_sound('menu')
-                            advance_selection_order(1)
-                            break
+                for player in (1, 2):
+                    panel = panels[player]
+                    if (panel.rect.collidepoint(mouse_pos)
+                            and selection_state.selection_allowed(player)):
+                        for index, (_, _, _, rect) in enumerate(panel.ships):
+                            if rect and rect.collidepoint(mouse_pos):
+                                if selection_state.select_index(player, index):
+                                    ui.sound_manager.play_sound('menu')
+                                break
+                        break
 
-                elif right_fleet.rect.collidepoint(mouse_pos) and selection_allowed(2):
-                    for i, (_, name, _, rect) in enumerate(right_fleet.ships):
-                        if rect and rect.collidepoint(mouse_pos) and player2_ships[i].currently_alive:
-                            right_selection["ship"] = name
-                            right_selection["sprite"] = selection_sprites[name]
-                            right_selection["ship_obj"] = player2_ships[i]
-                            right_selection["index"] = i
-                            ui.sound_manager.play_sound('menu')
-                            advance_selection_order(2)
-                            break
-
-            random_left.handle_event(event, ui.sound_manager)
-            random_right.handle_event(event, ui.sound_manager)
+            for button in random_buttons.values():
+                button.handle_event(event, ui.sound_manager)
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if cancel_button.rect.collidepoint(event.pos):
                     ui.sound_manager.play_sound('menu')
                     running = False
-                elif (confirm_button.rect.collidepoint(event.pos) and
-                      left_selection["ship_obj"] and right_selection["ship_obj"] and
-                      left_selection["ship_obj"].currently_alive and
-                      right_selection["ship_obj"].currently_alive):
+                elif (confirm_button.rect.collidepoint(event.pos)
+                      and selection_state.confirmation_ready):
                     ui.sound_manager.play_sound('menu')
                     return confirm_callback()
 
-        if (left_selection["ship_obj"] and right_selection["ship_obj"] and
-                left_selection["ship_obj"].currently_alive and
-                right_selection["ship_obj"].currently_alive):
+        if selection_state.confirmation_ready:
             confirm_button.bg_color = ui.OK_GREEN
             confirm_button.hover_color = ui.OK_GREEN_HI
         else:
@@ -428,8 +310,8 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             confirm_button.hover_color = ui.DISABLED_BUTTON
 
         # A first-player click can lock that side during this event loop.
-        random_left.enabled = selection_allowed(1)
-        random_right.enabled = selection_allowed(2)
+        for player, button in random_buttons.items():
+            button.enabled = selection_state.selection_allowed(player)
 
         # Draw everything
         if background:
@@ -437,17 +319,18 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
         else:
             screen.fill(ui.BG_COLOR)
 
-        active_player = selection_order["active_player"]
-        both_selected = bool(left_selection["ship_obj"] and right_selection["ship_obj"])
+        active_player = selection_state.active_player
+        both_selected = selection_state.both_selected
+        survivor_locked_players = selection_state.survivor_locked_players
         title_size = TITLE_FONT_SIZE
         if choose_second_player in (1, 2):
-            if not selection_order["first_locked"]:
+            if not selection_state.first_locked:
                 title = f"Player {active_player}: Select First"
             elif both_selected:
                 title = "Both Players Ready"
             else:
                 title = (
-                    f"Player {selection_order['first_player']} Locked - "
+                    f"Player {selection_state.first_player} Locked - "
                     f"Player {choose_second_player}: Select Second"
                 )
                 title_size = int(Const.SCREEN_HEIGHT * 0.055)
@@ -465,48 +348,40 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             title = "Players: Select Your Ships"
         ui.draw_title(screen, title, title_size, int(0.05 * Const.SCREEN_HEIGHT))
 
-        # Draw fleets
-        left_fleet.draw(screen, font)
-        right_fleet.draw(screen, font)
+        for panel in panels.values():
+            panel.draw(screen, font)
 
         # Draw highlight boxes under selected ships and X's over dead ships
 
-        if left_selection["ship"]:
-            rect = left_fleet.ships[left_selection["index"]][3]  # Get rect from stored index
-            highlight_rect = pygame.Rect(rect.centerx - FLEET_ICON_SIZE[0] // 2,
-                                         rect.centery - FLEET_ICON_SIZE[1] // 2,
-                                         FLEET_ICON_SIZE[0],
-                                         FLEET_ICON_SIZE[1])
-            pygame.draw.rect(screen, HIGHLIGHT_COLOR, highlight_rect)
-
-        if right_selection["ship"]:
-            rect = right_fleet.ships[right_selection["index"]][3]  # Get rect from stored index
-            highlight_rect = pygame.Rect(rect.centerx - FLEET_ICON_SIZE[0] // 2,
-                                         rect.centery - FLEET_ICON_SIZE[1] // 2,
-                                         FLEET_ICON_SIZE[0],
-                                         FLEET_ICON_SIZE[1])
-            pygame.draw.rect(screen, HIGHLIGHT_COLOR, highlight_rect)
+        for player, panel in panels.items():
+            selection = selection_state.selection(player)
+            if selection is not None:
+                rect = panel.ships[selection.index][3]
+                highlight_rect = pygame.Rect(
+                    rect.centerx - FLEET_ICON_SIZE[0] // 2,
+                    rect.centery - FLEET_ICON_SIZE[1] // 2,
+                    FLEET_ICON_SIZE[0], FLEET_ICON_SIZE[1],
+                )
+                pygame.draw.rect(screen, HIGHLIGHT_COLOR, highlight_rect)
 
         # Redraw ships to appear above highlights
-        for i, (sprite, _, _, rect) in enumerate(left_fleet.ships):
-            screen.blit(sprite, rect)
-            if not player1_ships[i].currently_alive:
-                draw_x(screen, rect)
+        for player, panel in panels.items():
+            for index, (sprite, _, _, rect) in enumerate(panel.ships):
+                screen.blit(sprite, rect)
+                if not player_ships[player][index].currently_alive:
+                    draw_x(screen, rect)
 
-        for i, (sprite, _, _, rect) in enumerate(right_fleet.ships):
-            screen.blit(sprite, rect)
-            if not player2_ships[i].currently_alive:
-                draw_x(screen, rect)
-
-        panels = {1: left_fleet, 2: right_fleet}
         for player in survivor_locked_players:
             draw_locked_panel(panels[player])
         if choose_second_player in (1, 2):
-            if selection_order["first_locked"]:
-                draw_locked_panel(panels[selection_order["first_player"]])
+            if selection_state.first_locked:
+                draw_locked_panel(panels[selection_state.first_player])
             active_panel = panels[active_player]
             pygame.draw.rect(screen, ACTIVE_SELECTION_COLOR, active_panel.rect, 4)
-            active_badge = "SELECT FIRST" if not selection_order["first_locked"] else "SELECT SECOND"
+            active_badge = (
+                "SELECT FIRST" if not selection_state.first_locked
+                else "SELECT SECOND"
+            )
             draw_panel_badge(active_panel, active_badge, ACTIVE_SELECTION_COLOR)
         elif survivor_locked_players:
             for player in (1, 2):
@@ -516,28 +391,31 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                 draw_panel_badge(panels[player], "SELECT SHIP", ACTIVE_SELECTION_COLOR)
 
         # Draw selection boxes
-        for selection in [left_selection, right_selection]:
-            pygame.draw.rect(screen, ui.BLACK, selection["rect"])
-            if selection["sprite"]:
-                sprite_rect = selection["sprite"].get_rect(center=selection["rect"].center)
-                screen.blit(selection["sprite"], sprite_rect)
-            pygame.draw.rect(screen, ui.WHITE, selection["rect"], 2)
+        for player, selection_rect in selection_rects.items():
+            pygame.draw.rect(screen, ui.BLACK, selection_rect)
+            selection = selection_state.selection(player)
+            if selection is not None:
+                sprite = selection_sprites[selection.name]
+                sprite_rect = sprite.get_rect(center=selection_rect.center)
+                screen.blit(sprite, sprite_rect)
+            pygame.draw.rect(screen, ui.WHITE, selection_rect, 2)
 
-        selections = {1: left_selection, 2: right_selection}
         visually_locked_players = set(survivor_locked_players)
-        if choose_second_player in (1, 2) and selection_order["first_locked"]:
-            visually_locked_players.add(selection_order["first_player"])
-        for player, selection in selections.items():
-            if not selection["ship_obj"]:
+        if choose_second_player in (1, 2) and selection_state.first_locked:
+            visually_locked_players.add(selection_state.first_player)
+        for player, selection_rect in selection_rects.items():
+            if selection_state.selection(player) is None:
                 continue
             if player in visually_locked_players:
                 label = "SURVIVOR LOCKED" if player in survivor_locked_players else "SELECTION LOCKED"
-                draw_selection_label(selection, label, LOCKED_COLOR, show_lock=True)
+                draw_selection_label(
+                    selection_rect, label, LOCKED_COLOR, show_lock=True
+                )
             else:
-                draw_selection_label(selection, "SELECTED", SELECTED_COLOR)
+                draw_selection_label(selection_rect, "SELECTED", SELECTED_COLOR)
 
-        random_left.draw(screen, font)
-        random_right.draw(screen, font)
+        for button in random_buttons.values():
+            button.draw(screen, font)
         confirm_button.draw(screen, font)
         cancel_button.draw(screen, font)
 
