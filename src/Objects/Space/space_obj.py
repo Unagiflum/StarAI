@@ -17,8 +17,9 @@ class Planet(Object):
     with open(Const.PLANETS_JSON_PATH, 'r') as f:
         _planet_data = json.load(f)
 
-    def __init__(self, resources=None):
+    def __init__(self, resources=None, rng=None):
         self.resources = resources or default_assets()
+        self.rng = rng or random
         weights = {
             name: Const.PLANET_WEIGHTS[0] if 'Gas' in name
             else Const.PLANET_WEIGHTS[1] if 'Ice' in name
@@ -26,7 +27,9 @@ class Planet(Object):
             else Const.PLANET_WEIGHTS[3] if 'Rocky' in name
             else 0 for name in Planet._planet_data.keys()
         }
-        planet_name = random.choices(list(Planet._planet_data.keys()), weights=list(weights.values()), k=1)[0]
+        planet_name = self.rng.choices(
+            list(Planet._planet_data.keys()), weights=list(weights.values()), k=1
+        )[0]
         planet_data = Planet._planet_data[planet_name]
 
         self.gravity = planet_data['Gravity']
@@ -54,8 +57,8 @@ class Planet(Object):
         return self.mask
 
     @staticmethod
-    def create_center(resources=None):
-        planet = Planet(resources)
+    def create_center(resources=None, rng=None):
+        planet = Planet(resources, rng=rng)
         planet.position = Const.PLANET_POSITION
         planet.previous_position = planet.position.copy()
         return planet
@@ -107,8 +110,9 @@ class Star(Object):
     with open(Const.STARS_JSON_PATH, 'r') as f:
         _star_data = json.load(f)
 
-    def __init__(self, resources=None):
+    def __init__(self, resources=None, rng=None):
         self.resources = resources or default_assets()
+        self.rng = rng or random
         weights = {
             name: Const.STAR_WEIGHTS[0] if 'e' in name
             else Const.STAR_WEIGHTS[1] if 'd' in name
@@ -117,11 +121,13 @@ class Star(Object):
             else Const.STAR_WEIGHTS[4] if 'a' in name
             else 0 for name in Star._star_data.keys()
         }
-        star_name = random.choices(list(Star._star_data.keys()), weights=list(weights.values()), k=1)[0]
+        star_name = self.rng.choices(
+            list(Star._star_data.keys()), weights=list(weights.values()), k=1
+        )[0]
         star_data = Star._star_data[star_name]
 
         self.diameter = star_data['Diameter']
-        self.depth = random.randint(0, Const.STAR_DEPTHS-1)
+        self.depth = self.rng.randint(0, Const.STAR_DEPTHS-1)
 
         super().__init__(
             name=star_name,
@@ -135,13 +141,15 @@ class Star(Object):
         self.can_collide = False
 
     @staticmethod
-    def create_random_stars(count, resources=None):
+    def create_random_stars(count, resources=None, rng=None):
+        explicit_rng = rng is not None
+        rng = rng or random
         stars = []
         for _ in range(count):
-            star = Star(resources)
+            star = Star(resources, rng=rng) if explicit_rng else Star(resources)
             star.position = [
-                random.randint(0, Const.ARENA_SIZE),
-                random.randint(0, Const.ARENA_SIZE)
+                rng.randint(0, Const.ARENA_SIZE),
+                rng.randint(0, Const.ARENA_SIZE)
             ]
             stars.append(star)
         return stars
@@ -151,8 +159,9 @@ class Star(Object):
 
 
 class Asteroid(Object):
-    def __init__(self, resources=None):
+    def __init__(self, resources=None, rng=None):
         self.resources = resources or default_assets()
+        self.rng = rng or random
         super().__init__(
             name="Asteroid",
             sprite_location=None,
@@ -161,8 +170,8 @@ class Asteroid(Object):
         assets = self.resources.asteroid()
 
         # Randomly rotate sprites for this instance
-        if random.random() < 0.0: # if 0 then no rotation will be applied
-            sprite_rot = random.random()*360
+        if self.rng.random() < 0.0: # if 0 then no rotation will be applied
+            sprite_rot = self.rng.random()*360
             self.sprites = [pygame.transform.rotate(sprite, sprite_rot) for sprite in assets.sprites]
             self.masks = [pygame.mask.from_surface(sprite) for sprite in self.sprites]
         else:
@@ -173,14 +182,14 @@ class Asteroid(Object):
         self.collision_capabilities = CollisionCapabilities(CollisionRole.ASTEROID)
         self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
 
-        self.current_sprite = random.randint(0, 29)
+        self.current_sprite = self.rng.randint(0, 29)
         self.size = [self.sprites[self.current_sprite].get_width(), self.sprites[self.current_sprite].get_height()]
 
-        self.rotation_delay = random.randint(0, 3)
+        self.rotation_delay = self.rng.randint(0, 3)
         self.rotation_timer = 0
 
-        speed = random.uniform(Const.ASTEROID_SPEED / 2, Const.ASTEROID_SPEED)
-        angle = random.uniform(0, 2*math.pi)
+        speed = self.rng.uniform(Const.ASTEROID_SPEED / 2, Const.ASTEROID_SPEED)
+        angle = self.rng.uniform(0, 2*math.pi)
         self.velocity = [speed * math.cos(angle), speed * math.sin(angle)]
 
         self.planet = None
@@ -215,15 +224,15 @@ class Asteroid(Object):
                 return position
 
         return [
-            random.randint(0, Const.ARENA_SIZE),
-            random.randint(0, Const.ARENA_SIZE)
+            self.rng.randint(0, Const.ARENA_SIZE),
+            self.rng.randint(0, Const.ARENA_SIZE)
         ]
 
     def _find_spawn_position(self, planet, view_bodies, avoid_bodies, rules):
         for _ in range(1000):
             position = [
-                random.randint(0, Const.ARENA_SIZE),
-                random.randint(0, Const.ARENA_SIZE)
+                self.rng.randint(0, Const.ARENA_SIZE),
+                self.rng.randint(0, Const.ARENA_SIZE)
             ]
 
             if not self._position_is_offscreen(position, view_bodies):

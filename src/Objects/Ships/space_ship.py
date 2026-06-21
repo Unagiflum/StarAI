@@ -2,6 +2,7 @@ from src.Objects.object import PlayerObject, ThrustMarker
 import src.const as const
 import math
 import pygame
+import random
 from src.Battle.collision_geometry import ship_rotation_blocked
 from src.collision_capabilities import (
     AreaDamageCapabilities,
@@ -39,6 +40,7 @@ class SpaceShip(PlayerObject):
             sprite_scale=ship_definition.sprite_scale
         )
         self.resources = resources or default_assets()
+        self.rng = random
         # A battle composition root may bind this after fleet construction.
         # None preserves legacy constructors and their Ability.sound_enabled fallback.
         self.audio_service = audio_service

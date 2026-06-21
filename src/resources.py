@@ -1,5 +1,7 @@
 """Central loading and caching of immutable Pygame resources."""
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -228,9 +230,38 @@ class AssetManager:
         return self._menu_ship_sprites[ship_name]
 
 
+class HeadlessAssetManager(AssetManager):
+    """Load collision assets without requiring an initialized display.
+
+    Pygame can decode images and construct masks before ``pygame.init()``.
+    The display-dependent operation is ``Surface.convert_alpha()``, so the
+    headless adapter deliberately keeps each image in its decoded format.
+    """
+
+    @staticmethod
+    def _image(path, convert_alpha=True):
+        path = const.source_path(path)
+        return pygame.image.load(str(path))
+
+
 _default_assets = AssetManager()
+_active_assets = ContextVar("starai_active_assets", default=None)
 
 
 def default_assets():
     """Return the narrowly scoped default provider used by legacy constructors."""
     return _default_assets
+
+
+@contextmanager
+def use_asset_manager(resources):
+    """Scope legacy effect factories to one simulation's asset provider."""
+    token = _active_assets.set(resources)
+    try:
+        yield
+    finally:
+        _active_assets.reset(token)
+
+
+def active_asset_manager():
+    return _active_assets.get()

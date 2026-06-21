@@ -14,7 +14,7 @@ class Arilou(SpaceShip):
         ability_obj = ArilouA2(self)
 
         def teleport():
-            self.position[0] = random.randint(0, const.ARENA_SIZE)
-            self.position[1] = random.randint(0, const.ARENA_SIZE)
+            self.position[0] = self.rng.randint(0, const.ARENA_SIZE)
+            self.position[1] = self.rng.randint(0, const.ARENA_SIZE)
 
         return self.prepare_action_plan(2, ability_obj, side_effects=(teleport,))

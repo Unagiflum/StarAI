@@ -127,7 +127,7 @@ def _dispatch_collision_pair(first, second, effects, environment=None):
     return handler(first, second, effects, environment)
 
 
-def handle_collisions(game_objects):
+def handle_collisions(game_objects, *, rng=None, resources=None):
     world = World.coerce(game_objects)
     effects = []
     all_asteroids = world.asteroids
@@ -154,7 +154,14 @@ def handle_collisions(game_objects):
     _handle_fighter_ship_collisions(fighters, ships, effects)
     _handle_fighter_asteroid_collisions(fighters, asteroids, effects)
     _handle_fighter_planet_collisions(fighters, planets)
-    _spawn_replacement_asteroids(world, all_asteroids, ships, planets)
+    _spawn_replacement_asteroids(
+        world,
+        all_asteroids,
+        ships,
+        planets,
+        rng=rng,
+        resources=resources,
+    )
 
     world.add_all(effects)
     world.remove_dead_collision_objects()
@@ -324,7 +331,15 @@ def _laser_target_is_eligible(laser, target, explicit=False):
     return policy(laser, target, explicit)
 
 
-def _spawn_replacement_asteroids(game_objects, asteroids, ships, planets):
+def _spawn_replacement_asteroids(
+    game_objects,
+    asteroids,
+    ships,
+    planets,
+    *,
+    rng=None,
+    resources=None,
+):
     world = World.coerce(game_objects)
     if not planets:
         return
@@ -337,7 +352,10 @@ def _spawn_replacement_asteroids(game_objects, asteroids, ships, planets):
     avoid_bodies = world.asteroid_spawn_avoid_bodies
 
     for _ in range(dead_count):
-        asteroid = Asteroid()
+        if resources is None and rng is None:
+            asteroid = Asteroid()
+        else:
+            asteroid = Asteroid(resources=resources, rng=rng)
         asteroid.set_planet(planet)
         asteroid.position = asteroid.get_respawn_position(planet, ships, avoid_bodies)
         avoid_bodies.append(asteroid)

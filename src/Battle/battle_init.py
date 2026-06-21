@@ -14,10 +14,11 @@ def load_settings():
     return repository.load().key_codes()
 
 
-def get_random_position():
+def get_random_position(rng=None):
+    rng = rng or random
     while True:
-        x = random.randint(0, const.ARENA_SIZE)
-        y = random.randint(0, const.ARENA_SIZE)
+        x = rng.randint(0, const.ARENA_SIZE)
+        y = rng.randint(0, const.ARENA_SIZE)
         center = const.ARENA_SIZE // 2
         dx = abs(x - center)
         dy = abs(y - center)
@@ -29,28 +30,50 @@ def validate_ship_positions(pos1, pos2):
     return wrapped_distance(pos1, pos2) >= const.MIN_SHIP_SEPARATION
 
 
-def get_valid_ship_positions():
+def get_valid_ship_positions(rng=None):
+    rng = rng or random
     while True:
-        pos1 = get_random_position()
-        pos2 = get_random_position()
+        pos1 = get_random_position(rng)
+        pos2 = get_random_position(rng)
         if validate_ship_positions(pos1, pos2):
             return pos1, pos2
 
 
-def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
+def initialize_battle(
+    screen,
+    ship1: SpaceShip,
+    ship2: SpaceShip,
+    *,
+    rng=None,
+    resources=None,
+    include_stars=True,
+):
+    explicit_runtime = rng is not None or resources is not None
+    rng = rng or random
+    resources = resources or getattr(ship1, "resources", None)
     settings = load_settings()
     world = World()
 
     # Create stars
-    world.add_all(Star.create_random_stars(const.STAR_COUNT))
+    if include_stars:
+        if explicit_runtime:
+            world.add_all(
+                Star.create_random_stars(const.STAR_COUNT, resources, rng)
+            )
+        else:
+            world.add_all(Star.create_random_stars(const.STAR_COUNT))
 
     # Initialize ships
-    pos1, pos2 = get_valid_ship_positions()
+    pos1, pos2 = (
+        get_valid_ship_positions(rng)
+        if explicit_runtime
+        else get_valid_ship_positions()
+    )
 
     player1 = ship1
-    player1.initialize_in_battle(pos1, random.randint(0, 15))
+    player1.initialize_in_battle(pos1, rng.randint(0, 15))
     player2 = ship2
-    player2.initialize_in_battle(pos2, random.randint(0, 15))
+    player2.initialize_in_battle(pos2, rng.randint(0, 15))
     player1.opponent = player2
     player2.opponent = player1
 
@@ -58,12 +81,16 @@ def initialize_battle(screen, ship1: SpaceShip, ship2: SpaceShip):
     world.add(player2)
 
     # Create planet
-    planet = Planet.create_center()
+    planet = (
+        Planet.create_center(resources, rng)
+        if explicit_runtime
+        else Planet.create_center()
+    )
     world.add(planet)
 
     asteroids = []
     for _ in range(const.ASTEROID_COUNT):
-        asteroid = Asteroid()
+        asteroid = Asteroid(resources, rng) if explicit_runtime else Asteroid()
         asteroid.set_planet(planet)
         pos = asteroid.get_valid_asteroid_position(planet, [player1, player2], [player1, player2, *asteroids])
         asteroid.position = pos

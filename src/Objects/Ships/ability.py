@@ -2,6 +2,7 @@ from src.Objects.object import PlayerObject
 import src.const as const
 import math
 import pygame
+import random
 from src.collision_capabilities import (
     AreaDamageCapabilities,
     CollisionCapabilities,
@@ -33,6 +34,7 @@ class Ability(PlayerObject):
             player=parent.player
         )
         self.resources = getattr(parent, "resources", default_assets())
+        self.rng = getattr(parent, "rng", random)
         self.audio_service = getattr(parent, "audio_service", None)
         if self.audio_service is None:
             self.audio_service = compatibility_audio_service(

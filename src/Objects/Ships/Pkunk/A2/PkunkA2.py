@@ -1,5 +1,4 @@
 from src.Objects.Ships.ability import Ability, ABILITIES_DATA
-import random
 import src.const as const
 
 
@@ -21,4 +20,4 @@ class PkunkA2(Ability):
 
     def play_insult(self):
         if self.insults:
-            random.choice(self.insults).play()
+            self.rng.choice(self.insults).play()

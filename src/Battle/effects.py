@@ -4,7 +4,7 @@ import pygame
 
 import src.const as const
 from src.Objects.object import Object
-from src.resources import default_assets
+from src.resources import active_asset_manager, default_assets
 from src.audio import active_audio_service, compatibility_audio_service
 
 
@@ -14,6 +14,10 @@ BATTLE_ASSET_PATH = const.source_path("Objects/Battle")
 class BattleEffect(Object):
     sound_enabled = True
     resources = default_assets()
+
+    @classmethod
+    def _resources(cls):
+        return active_asset_manager() or cls.resources
 
     def __init__(self, position, frames, frame_delay=2, scale=1.0):
         first_frame = frames[0] if frames else None
@@ -47,7 +51,7 @@ class BattleEffect(Object):
 
     @classmethod
     def from_blast(cls, position, direction_vector, damage, align_edge=False):
-        blast_sprites = cls.resources.animation(
+        blast_sprites = cls._resources().animation(
             "battle-blasts",
             tuple(BATTLE_ASSET_PATH / f"blast-{i:03d}.png" for i in range(8)),
         )
@@ -65,7 +69,7 @@ class BattleEffect(Object):
 
     @classmethod
     def ship_explosion(cls, position, frame_delay=2, scale=1.0):
-        ship_explosion_sprites = cls.resources.animation(
+        ship_explosion_sprites = cls._resources().animation(
             "ship-explosions",
             tuple(
                 BATTLE_ASSET_PATH / f"explosion-{index:03d}.png"

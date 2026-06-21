@@ -49,7 +49,9 @@ def start_or_update_aftermath(
     frame_id,
     sound_enabled=True,
     audio_service=None,
+    rng=None,
 ) -> AftermathState:
+    rng = rng or random
     audio = (
         audio_service
         if audio_service is not None
@@ -68,7 +70,9 @@ def start_or_update_aftermath(
         with use_audio_service(audio):
             BattleEffect.play_ship_death()
         state.death_effects[ship.player] = []
-        state.pending_explosions.extend(create_ship_explosion_schedule(ship, frame_id))
+        state.pending_explosions.extend(
+            create_ship_explosion_schedule(ship, frame_id, rng)
+        )
         state.ships_pending_hide.add(ship)
         state.camera_hold_targets.append(ship)
         state.latest_death_frame = frame_id
@@ -87,7 +91,8 @@ def start_or_update_aftermath(
     return state
 
 
-def create_ship_explosion_schedule(ship, start_frame):
+def create_ship_explosion_schedule(ship, start_frame, rng=None):
+    rng = rng or random
     count = max(4, min(9, int(max(ship.size) / 35) + 3))
     schedule = []
     angle = math.radians(ship.rotation)
@@ -95,8 +100,8 @@ def create_ship_explosion_schedule(ship, start_frame):
     cos_a = math.cos(angle)
 
     for index in range(count):
-        local_x = random.uniform(-ship.size[0] * 0.45, ship.size[0] * 0.45)
-        local_y = random.uniform(-ship.size[1] * 0.45, ship.size[1] * 0.45)
+        local_x = rng.uniform(-ship.size[0] * 0.45, ship.size[0] * 0.45)
+        local_y = rng.uniform(-ship.size[1] * 0.45, ship.size[1] * 0.45)
         position = [
             (ship.position[0] + local_x * cos_a - local_y * sin_a) % const.ARENA_SIZE,
             (ship.position[1] + local_x * sin_a + local_y * cos_a) % const.ARENA_SIZE,
@@ -105,7 +110,7 @@ def create_ship_explosion_schedule(ship, start_frame):
             frame=start_frame + index * EXPLOSION_PLACEMENT_INTERVAL_FRAMES,
             ship=ship,
             position=position,
-            scale=random.uniform(0.85, 1.15),
+            scale=rng.uniform(0.85, 1.15),
             is_final=index == count - 1,
         ))
 

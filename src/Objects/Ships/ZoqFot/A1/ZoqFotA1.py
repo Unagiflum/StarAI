@@ -1,6 +1,6 @@
 from src.Objects.Ships.ability import Ability, ABILITIES_DATA
 import src.const as const
-import math, random
+import math
 
 class ZoqFotA1(Ability):
     def __init__(self, parent):
@@ -11,7 +11,7 @@ class ZoqFotA1(Ability):
 
     def place_self(self):
 
-        direction = random.randint(-1, 1)
+        direction = self.rng.randint(-1, 1)
         angle_offset = direction * self.SPREAD_ANGLE
         angle_rad = math.radians(self.parent.rotation + angle_offset)
 

@@ -15,6 +15,7 @@ from src.audio import (
     compatibility_audio_service,
     use_audio_service,
 )
+from src.resources import use_asset_manager
 import src.const as const
 
 
@@ -38,17 +39,33 @@ SHIP_CONTROL_NAMES = {
 class BattleSimulation:
     def __init__(self, screen, ship1: SpaceShip, ship2: SpaceShip,
                  player1_ships=None, player2_ships=None, sound_enabled=True,
-                 audio_service=None):
+                 audio_service=None, seed=None, rng=None, resources=None,
+                 include_stars=True):
+        if seed is not None and rng is not None:
+            raise ValueError("Pass either seed or rng, not both")
+        self.rng = rng if rng is not None else (
+            random.Random(seed) if seed is not None else random
+        )
+        self.resources = resources or getattr(ship1, "resources", None)
         self.audio = (
             audio_service
             if audio_service is not None
             else compatibility_audio_service(sound_enabled)
         )
         self.sound_enabled = self.audio.enabled
-        self._bind_audio_to_ships(ship1, ship2, player1_ships, player2_ships)
+        self._bind_runtime_to_ships(
+            ship1, ship2, player1_ships, player2_ships
+        )
         self.audio.start_battle_music()
 
-        battle_state = initialize_battle(screen, ship1, ship2)
+        battle_state = initialize_battle(
+            screen,
+            ship1,
+            ship2,
+            rng=self.rng,
+            resources=self.resources,
+            include_stars=include_stars,
+        )
         self.settings = battle_state['settings']
         self.world = battle_state['world']
         self.border_rect = battle_state['border_rect']
@@ -66,12 +83,13 @@ class BattleSimulation:
         self.needs_selection = False
         self.running = True
 
-    def _bind_audio_to_ships(self, *ship_groups):
+    def _bind_runtime_to_ships(self, *ship_groups):
         for group in ship_groups:
             ships = group if isinstance(group, (list, tuple)) else (group,)
             for ship in ships or ():
                 if ship is not None:
                     ship.audio_service = self.audio
+                    ship.rng = self.rng
 
     @property
     def game_objects(self):
@@ -102,11 +120,18 @@ class BattleSimulation:
         if actions is not None:
             self.apply_actions(actions)
 
-        with use_audio_service(getattr(self, "audio", None)):
+        with (
+            use_audio_service(getattr(self, "audio", None)),
+            use_asset_manager(getattr(self, "resources", None)),
+        ):
             self._process_ship_inputs()
             self._update_tracking_lists()
             self._update_objects()
-            handle_collisions(self.world)
+            handle_collisions(
+                self.world,
+                rng=getattr(self, "rng", None),
+                resources=getattr(self, "resources", None),
+            )
             self._update_aftermath()
 
         return self.state()
@@ -196,6 +221,7 @@ class BattleSimulation:
                 self.frame_id,
                 self.sound_enabled,
                 audio,
+                getattr(self, "rng", random),
             )
 
         if self.aftermath is None:
@@ -226,8 +252,15 @@ class BattleSimulation:
 
         previous_player1, previous_player2 = self.player1, self.player2
         self.player1, self.player2 = selected
-        self._bind_audio_to_ships(self.player1, self.player2)
-        reset_round_objects(self.world, self.player1, self.player2, previous_player1, previous_player2)
+        self._bind_runtime_to_ships(self.player1, self.player2)
+        reset_round_objects(
+            self.world,
+            self.player1,
+            self.player2,
+            previous_player1,
+            previous_player2,
+            rng=self.rng,
+        )
         reset_key_states(self.key_states)
         reset_ship_controls(self.player1)
         reset_ship_controls(self.player2)
@@ -340,7 +373,16 @@ def set_battle_sound_enabled(enabled):
     return compatibility_audio_service(enabled)
 
 
-def reset_round_objects(game_objects, player1, player2, previous_player1, previous_player2):
+def reset_round_objects(
+    game_objects,
+    player1,
+    player2,
+    previous_player1,
+    previous_player2,
+    *,
+    rng=None,
+):
+    rng = rng or random
     world = World.coerce(game_objects)
     selected_ships = [player1, player2]
     preserved_ships = {
@@ -363,7 +405,9 @@ def reset_round_objects(game_objects, player1, player2, previous_player1, previo
     planets = world.planets
     planet = planets[0] if planets else None
 
-    initialize_new_round_ships(selected_ships, preserved_ships, planet)
+    initialize_new_round_ships(
+        selected_ships, preserved_ships, planet, rng=rng
+    )
 
     player1.opponent = player2
     player2.opponent = player1
@@ -378,19 +422,26 @@ def stop_tracking_projectiles(game_objects):
             obj.stop_and_track()
 
 
-def initialize_new_round_ships(selected_ships, preserved_ships, planet):
+def initialize_new_round_ships(
+    selected_ships, preserved_ships, planet, *, rng=None
+):
+    rng = rng or random
     new_ships = [ship for ship in selected_ships if ship not in preserved_ships]
     preserved_list = list(preserved_ships)
 
     if len(new_ships) == 2:
-        positions = list(random_ship_positions())
+        positions = list(random_ship_positions(rng))
     elif len(new_ships) == 1 and preserved_list:
-        positions = [random_position_away_from(preserved_list[0].position)]
+        positions = [random_position_away_from(
+            preserved_list[0].position, rng
+        )]
     else:
         positions = []
 
     for ship, position in zip(new_ships, positions):
-        ship.initialize_in_battle(position, random.randint(0, const.SHIP_DIRECTIONS - 1))
+        ship.initialize_in_battle(
+            position, rng.randint(0, const.SHIP_DIRECTIONS - 1)
+        )
         ship.currently_alive = True
         reset_ship_controls(ship)
 
@@ -414,20 +465,21 @@ def update_preserved_abilities(abilities, player1, player2, planet):
             ability.planet = planet
 
 
-def random_position_away_from(position):
+def random_position_away_from(position, rng=None):
     from src.Battle.battle_init import get_random_position, validate_ship_positions
+    rng = rng or random
 
     for _ in range(1000):
-        candidate = get_random_position()
+        candidate = get_random_position(rng)
         if validate_ship_positions(position, candidate):
             return candidate
 
-    return get_random_position()
+    return get_random_position(rng)
 
 
-def random_ship_positions():
+def random_ship_positions(rng=None):
     from src.Battle.battle_init import get_valid_ship_positions
-    return get_valid_ship_positions()
+    return get_valid_ship_positions(rng or random)
 
 
 def reset_key_states(key_states):
