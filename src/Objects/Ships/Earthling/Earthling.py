@@ -1,22 +1,11 @@
-from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
+from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Earthling.A1.EarthlingA1 import EarthlingA1
 from src.Objects.Ships.Earthling.A2.EarthlingA2 import EarthlingA2
 import src.const as const
 
 
 class Earthling(SpaceShip):
-    def __init__(self, ship_name, player_num, resources=None):
-        super().__init__(ship_name, player_num, resources)
-        ship_data = SHIPS_DATA[ship_name]
-
-    def perform_action1(self):
-        if self.can_action1():
-            self.current_energy -= self.a1_cost
-            self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
-            ability_obj = EarthlingA1(self)
-            if ability_obj.launch_sound: ability_obj.launch_sound.play()
-            return ability_obj
-        return None
+    action_factories = {1: EarthlingA1}
 
     def perform_action2(self):
         if self.can_action2():
@@ -38,6 +27,3 @@ class Earthling(SpaceShip):
 
             return projectiles
         return None
-
-    def perform_action3(self):
-        return None, False

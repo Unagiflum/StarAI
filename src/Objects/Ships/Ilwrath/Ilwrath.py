@@ -57,9 +57,6 @@ class Ilwrath(SpaceShip):
             self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
         return None
 
-    def perform_action3(self):
-        return None, False
-
     def face_opponent(self):
         if self.opponent and self.opponent.trackable:
             dx, dy = wrapped_delta(self.position, self.opponent.position)

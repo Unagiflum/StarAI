@@ -1,17 +1,10 @@
-from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
+from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Druuge.A1.DruugeA1 import DruugeA1
 from src.Objects.Ships.Druuge.A2.DruugeA2 import DruugeA2
 import src.const as const
 
 
 class Druuge(SpaceShip):
-    def __init__(self, ship_name, player_num, resources=None):
-        super().__init__(ship_name, player_num, resources)
-        ship_data = SHIPS_DATA[ship_name]
-        self.MAX_RECOIL = ship_data.get("MAX_RECOIL", 96)
-        self.RECOIL_INCREMENT = ship_data.get("RECOIL_INCREMENT", 24)
-        self.A2_ENERGY = ship_data.get("A2_ENERGY", 16)
-
     def perform_action1(self):
         if self.can_action1():
             self.current_energy -= self.a1_cost
@@ -27,7 +20,6 @@ class Druuge(SpaceShip):
             if ability_obj.launch_sound: ability_obj.launch_sound.play()
             return ability_obj
         return None
-
     def perform_action2(self):
         if self.can_action2() and self.current_energy < self.max_energy and self.current_hp > 1:
             self.current_energy -= self.a2_cost
@@ -40,6 +32,3 @@ class Druuge(SpaceShip):
             if ability_obj.launch_sound: ability_obj.launch_sound.play()
             return None
         return None
-
-    def perform_action3(self):
-        return None, False

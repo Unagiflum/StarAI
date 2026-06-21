@@ -1,24 +1,15 @@
-from src.Objects.Ships.space_ship import SpaceShip, SHIPS_DATA
+from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.KzerZa.A1.KzerZaA1 import KzerZaA1
 from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
 import src.const as const
-import math
 
 
 class KzerZa(SpaceShip):
     def __init__(self, ship_name, player_num, resources=None):
         super().__init__(ship_name, player_num, resources)
-        ship_data = SHIPS_DATA[ship_name]
         self.fighter_launch_count = 0
 
-    def perform_action1(self):
-        if self.can_action1():
-            self.current_energy -= self.a1_cost
-            self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
-            ability_obj = KzerZaA1(self)
-            if ability_obj.launch_sound: ability_obj.launch_sound.play()
-            return ability_obj
-        return None
+    action_factories = {1: KzerZaA1}
 
     def perform_action2(self):
         if self.can_action2() and self.current_hp > 1:
@@ -35,6 +26,3 @@ class KzerZa(SpaceShip):
                 fighters[0].launch_sound.play()
             return fighters
         return None
-
-    def perform_action3(self):
-        return None, False

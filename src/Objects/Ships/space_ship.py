@@ -24,6 +24,7 @@ class SpaceShip(PlayerObject):
     # Class-level storage for shared sprites
     _shared_sprites = {}
     _shared_masks = {}
+    action_factories = {}
 
     def __init__(self, ship_name, player_num, resources=None):
         # Get ship-specific data from cached data
@@ -181,12 +182,16 @@ class SpaceShip(PlayerObject):
         return new_objects
 
     @staticmethod
-    def _add_action_result(new_objects, result):
-        if result:
-            if isinstance(result, list):
-                new_objects.extend(result)
-            else:
-                new_objects.append(result)
+    def normalize_action_result(result):
+        if not result:
+            return []
+        if isinstance(result, (list, tuple)):
+            return list(result)
+        return [result]
+
+    @classmethod
+    def _add_action_result(cls, new_objects, result):
+        new_objects.extend(cls.normalize_action_result(result))
 
     def turn_input_enabled(self):
         return True
@@ -364,22 +369,36 @@ class SpaceShip(PlayerObject):
             return None
         return masks[self.heading]
 
-    def perform_action1(self):
-        if self.can_action1():
-            self.current_energy -= self.a1_cost
-            self.action1_timer = int(self.a1_wait * const.ACTION_WAIT_SCALE)
+    def execute_action(self, action_number, factory=None):
+        """Execute the common action transaction and return its raw result."""
+        if not getattr(self, f"can_action{action_number}")():
             return None
-        return None
+
+        cost = getattr(self, f"a{action_number}_cost")
+        wait = getattr(self, f"a{action_number}_wait")
+        self.current_energy -= cost
+        setattr(
+            self,
+            f"action{action_number}_timer",
+            int(wait * const.ACTION_WAIT_SCALE),
+        )
+
+        result = factory(self) if factory else None
+        for action_object in self.normalize_action_result(result):
+            launch_sound = getattr(action_object, "launch_sound", None)
+            if launch_sound:
+                launch_sound.play()
+                break
+        return result
+
+    def perform_action1(self):
+        return self.execute_action(1, self.action_factories.get(1))
 
     def perform_action1_release(self):
         return None
 
     def perform_action2(self):
-        if self.can_action2():
-            self.current_energy -= self.a2_cost
-            self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
-            return None
-        return None
+        return self.execute_action(2, self.action_factories.get(2))
 
     def perform_action3(self):
         return None, False

@@ -56,20 +56,10 @@ class KohrAh(SpaceShip):
         return None
 
     def perform_action2(self):
-        if self.can_action2():
-            self.current_energy -= self.a2_cost
-            self.action2_timer = int(self.a2_wait * const.ACTION_WAIT_SCALE)
-
-            projectiles = []
-
-            for ii in range(self.GAS_COUNT):
-                angle_offset = ii * self.angle_increment
-                ability_obj = KohrAhA2(self, angle_offset)
-                projectiles.append(ability_obj)
-
-            if ability_obj.launch_sound: ability_obj.launch_sound.play()
-            return projectiles
-        return None
-
-    def perform_action3(self):
-        return None, False
+        return self.execute_action(
+            2,
+            lambda ship: [
+                KohrAhA2(ship, index * ship.angle_increment)
+                for index in range(ship.GAS_COUNT)
+            ],
+        )
