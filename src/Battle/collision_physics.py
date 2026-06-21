@@ -11,7 +11,6 @@ from src.Battle.collision_geometry import (
     objects_overlap,
     radius,
 )
-from src.Objects.Ships.space_ship import SpaceShip
 
 
 def mass(obj):
@@ -52,8 +51,6 @@ def bounce_off_static_body(
         ]
         obj.velocity[0] += impulse[0]
         obj.velocity[1] += impulse[1]
-        if isinstance(obj, SpaceShip) and not obj.inertia:
-            obj.collision_velocity = obj.velocity.copy()
         collided_while_approaching = True
     else:
         collided_while_approaching = False

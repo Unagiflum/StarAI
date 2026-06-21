@@ -21,6 +21,28 @@ def body(position, size=(10, 10), *, previous_position=None, mask=None):
 
 
 class CollisionGeometryTests(unittest.TestCase):
+    def test_ship_rotation_is_blocked_by_live_overlapping_candidates(self):
+        ship = body([100, 100], size=(20, 20))
+        live_opponent = body([115, 100], size=(20, 20))
+        live_opponent.current_hp = 1
+        ship.opponent = live_opponent
+        ship.asteroids = []
+        ship.planet = None
+
+        self.assertTrue(collision_geometry.ship_rotation_blocked(ship))
+
+    def test_ship_rotation_ignores_dead_and_non_overlapping_candidates(self):
+        ship = body([100, 100], size=(20, 20))
+        dead_opponent = body([100, 100], size=(20, 20))
+        dead_opponent.current_hp = 0
+        dead_asteroid = body([100, 100], size=(20, 20))
+        dead_asteroid.currently_alive = False
+        ship.opponent = dead_opponent
+        ship.asteroids = [dead_asteroid]
+        ship.planet = body([200, 100], size=(20, 20))
+
+        self.assertFalse(collision_geometry.ship_rotation_blocked(ship))
+
     def test_contact_info_uses_shortest_toroidal_displacement(self):
         left = body([5, 100], size=(8, 8))
         right = body([const.ARENA_SIZE - 5, 100], size=(8, 8))

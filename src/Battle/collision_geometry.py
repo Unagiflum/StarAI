@@ -105,6 +105,22 @@ def objects_overlap(obj, other, overlap):
     return obj_mask.overlap(other_mask, offset) is not None
 
 
+def ship_rotation_blocked(ship):
+    candidates = []
+    if ship.opponent and ship.opponent.current_hp > 0:
+        candidates.append(ship.opponent)
+    candidates.extend([obj for obj in ship.asteroids if obj.currently_alive])
+    if ship.planet:
+        candidates.append(ship.planet)
+
+    for candidate in candidates:
+        _, _, overlap = collision_info(ship, candidate)
+        if objects_overlap(ship, candidate, overlap):
+            return True
+
+    return False
+
+
 def projectile_impact(projectile, other, overlap):
     swept = swept_impact(projectile, other)
     if swept[0] is not None:

@@ -26,6 +26,7 @@ from src.Battle.collision_geometry import (
     sample_laser_mask_hit as _sample_laser_mask_hit,
     segment_circle_intercept as _segment_circle_intercept,
     segment_direction as _segment_direction,
+    ship_rotation_blocked,
     sweep_previous_position as _sweep_previous_position,
     sweep_step_size as _sweep_step_size,
     swept_impact as _swept_impact,
@@ -558,22 +559,6 @@ def _planet_is_laser_target(laser, target, explicit):
 @_laser_target_policy(CollisionRole.NONE)
 def _generic_is_laser_target(laser, target, explicit):
     return responses.generic_is_laser_target(laser, target, explicit)
-
-
-def ship_rotation_blocked(ship):
-    candidates = []
-    if ship.opponent and ship.opponent.current_hp > 0:
-        candidates.append(ship.opponent)
-    candidates.extend([obj for obj in ship.asteroids if obj.currently_alive])
-    if ship.planet:
-        candidates.append(ship.planet)
-
-    for candidate in candidates:
-        _, _, overlap = _collision_info(ship, candidate)
-        if _objects_overlap(ship, candidate, overlap):
-            return True
-
-    return False
 
 
 def _remove_dead_collision_objects(game_objects):

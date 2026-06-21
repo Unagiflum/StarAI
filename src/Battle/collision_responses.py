@@ -144,6 +144,8 @@ def ship_impacts_planet(ship, planet, effects, environment):
         collided_while_approaching = bounce_off_static_body(
             ship, planet, normal, overlap
         )
+        if collided_while_approaching and not ship.inertia:
+            ship.collision_velocity = ship.velocity.copy()
     else:
         collided_while_approaching = False
         stop_at_static_body(ship, planet, normal, overlap)

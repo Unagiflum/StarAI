@@ -2,6 +2,7 @@ from src.Objects.object import PlayerObject, ThrustMarker
 import src.const as const
 import math
 import pygame
+from src.Battle.collision_geometry import ship_rotation_blocked
 from src.collision_capabilities import (
     AreaDamageCapabilities,
     CollisionCapabilities,
@@ -380,11 +381,7 @@ class SpaceShip(PlayerObject):
             self.turn_timer = int(self.turn_wait * const.TURN_WAIT_SCALE)
 
     def rotation_would_overlap(self):
-        try:
-            from src.Battle.collisions import ship_rotation_blocked
-            return ship_rotation_blocked(self)
-        except ImportError:
-            return False
+        return ship_rotation_blocked(self)
 
     def get_collision_mask(self):
         masks = getattr(self, "masks", None)
