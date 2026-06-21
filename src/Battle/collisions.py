@@ -1,58 +1,21 @@
-"""Ordered collision pipeline and its legacy compatibility surface."""
+"""Ordered collision pipeline."""
 
 import math
 from dataclasses import dataclass
 
 from src.Battle import collision_responses as responses
-# Legacy geometry helper names remain importable from this module.
 from src.Battle.collision_geometry import (
-    collision_info as _collision_info,
-    collision_size as _collision_size,
-    contact_point as _contact_point,
-    distance_between as _distance_between,
-    distance_from_segment_to_point as _distance_from_segment_to_point,
-    estimated_impact as _estimated_impact,
-    estimated_impact_at_positions as _estimated_impact_at_positions,
-    get_collision_mask as _get_collision_mask,
-    laser_hit_info as _laser_hit_info,
-    mask_broadphase_overlap as _mask_broadphase_overlap,
-    mask_broadphase_overlap_at_positions as _mask_broadphase_overlap_at_positions,
-    mask_radius as _mask_radius,
-    normal_from_target as _normal_from_target,
-    objects_overlap as _objects_overlap,
-    objects_overlap_at_positions as _objects_overlap_at_positions,
-    projectile_impact as _projectile_impact,
-    radius as _radius,
-    sample_laser_mask_hit as _sample_laser_mask_hit,
-    segment_circle_intercept as _segment_circle_intercept,
-    segment_direction as _segment_direction,
-    ship_rotation_blocked,
-    sweep_previous_position as _sweep_previous_position,
-    sweep_step_size as _sweep_step_size,
-    swept_impact as _swept_impact,
-    wrapped_segment as _wrapped_segment,
+    distance_between,
+    laser_hit_info,
 )
 # BattleEffect remains exposed here for existing callers and test patches.
 from src.Battle.effects import BattleEffect
-# Legacy physics helper names remain importable from this module.
-from src.Battle.collision_physics import (
-    bounce_off_static_body as _bounce_off_static_body,
-    dot as _dot,
-    elastic_bounce as _elastic_bounce,
-    mass as _mass,
-    separate_dynamic_bodies as _separate_dynamic_bodies,
-    separate_from_static_body as _separate_from_static_body,
-    stop_at_static_body as _stop_at_static_body,
-)
 from src.Battle.world import World
 from src.collision_capabilities import CollisionRole
 from src.Objects.Space.space_obj import Asteroid
 from src.toroidal import (
     wrapped_delta as _wrapped_delta,
 )
-
-
-PLANET_CONTACT_EXIT_MARGIN = 4.0
 
 
 @dataclass(frozen=True)
@@ -301,7 +264,7 @@ def _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, pl
 
         targets = _laser_targets(laser, ships, projectiles, fighters, asteroids, planets)
         hit_infos = [
-            hit_info for hit_info in (_laser_hit_info(laser, target) for target in targets)
+            hit_info for hit_info in (laser_hit_info(laser, target) for target in targets)
             if hit_info is not None
         ]
         if not hit_infos:
@@ -349,7 +312,7 @@ def _laser_targets(laser, ships, projectiles, fighters, asteroids, planets):
         for target in (*ships, *projectiles, *fighters, *asteroids, *planets)
         if _laser_target_is_eligible(laser, target)
     ]
-    return sorted(targets, key=lambda target: _distance_between(laser.parent, target))
+    return sorted(targets, key=lambda target: distance_between(laser.parent, target))
 
 
 def _laser_target_is_eligible(laser, target, explicit=False):
@@ -359,10 +322,6 @@ def _laser_target_is_eligible(laser, target, explicit=False):
     if policy is None:
         return False
     return policy(laser, target, explicit)
-
-
-def _remove_dead_collision_objects(game_objects):
-    World.coerce(game_objects).remove_dead_collision_objects()
 
 
 def _spawn_replacement_asteroids(game_objects, asteroids, ships, planets):
