@@ -32,6 +32,7 @@ from src.Objects.Ships.registry import (
     preload_ship_ability_resources,
 )
 from src.Menus.pick_fleet import load_fleets, load_ships
+from src.resources import AssetManager
 
 
 class ConfigurationPathTests(unittest.TestCase):
@@ -117,11 +118,19 @@ class ShipRegistryTests(unittest.TestCase):
         self.assertTrue(ability.sprite_location.is_absolute())
 
     def test_preloading_resources_does_not_construct_gameplay_objects(self):
-        with mock.patch("src.Objects.Ships.registry.get_ability_class") as get_class:
-            preload_ship_ability_resources("Earthling")
+        resources = AssetManager()
+        with (
+            mock.patch("src.Objects.Ships.registry.get_ability_class") as get_class,
+            mock.patch.object(resources, "ability", wraps=resources.ability) as ability,
+        ):
+            preload_ship_ability_resources("Earthling", resources)
 
         get_class.assert_not_called()
-        self.assertIn("EarthlingA1", Ability._sprites)
+        expected_names = ability_names_for_ship("Earthling")
+        self.assertEqual(
+            ability.call_args_list,
+            [mock.call(name) for name in expected_names],
+        )
 
     def test_unknown_catalog_names_fail_clearly(self):
         with self.assertRaisesRegex(KeyError, "Unknown ship"):

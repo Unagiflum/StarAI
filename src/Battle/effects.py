@@ -11,10 +11,6 @@ BATTLE_ASSET_PATH = const.source_path("Objects/Battle")
 
 
 class BattleEffect(Object):
-    _blast_sprites = None
-    _boom_sounds = {}
-    _ship_explosion_sprites = None
-    _ship_death_sound = None
     sound_enabled = True
     resources = default_assets()
 
@@ -50,51 +46,48 @@ class BattleEffect(Object):
 
     @classmethod
     def from_blast(cls, position, direction_vector, damage, align_edge=False):
-        if cls._blast_sprites is None:
-            cls._blast_sprites = cls.resources.animation(
-                "battle-blasts",
-                tuple(BATTLE_ASSET_PATH / f"blast-{i:03d}.png" for i in range(8)),
-            )
+        blast_sprites = cls.resources.animation(
+            "battle-blasts",
+            tuple(BATTLE_ASSET_PATH / f"blast-{i:03d}.png" for i in range(8)),
+        )
 
         index = cls._blast_index(direction_vector)
         scale = cls._blast_scale(damage)
         if align_edge:
             position = cls._edge_aligned_position(
                 position,
-                cls._blast_sprites[index],
+                blast_sprites[index],
                 scale,
                 direction_vector
             )
-        return cls(position, [cls._blast_sprites[index]], frame_delay=4, scale=scale)
+        return cls(position, [blast_sprites[index]], frame_delay=4, scale=scale)
 
     @classmethod
     def ship_explosion(cls, position, frame_delay=2, scale=1.0):
-        if cls._ship_explosion_sprites is None:
-            cls._ship_explosion_sprites = cls.resources.animation(
-                "ship-explosions",
-                tuple(
-                    BATTLE_ASSET_PATH / f"explosion-{index:03d}.png"
-                    for index in range(8)
-                ),
-            )
+        ship_explosion_sprites = cls.resources.animation(
+            "ship-explosions",
+            tuple(
+                BATTLE_ASSET_PATH / f"explosion-{index:03d}.png"
+                for index in range(8)
+            ),
+        )
 
-        return cls(position, cls._ship_explosion_sprites, frame_delay=frame_delay, scale=scale)
+        return cls(position, ship_explosion_sprites, frame_delay=frame_delay, scale=scale)
 
     @classmethod
     def play_ship_death(cls):
         if not cls.sound_enabled:
             return 0
 
-        if cls._ship_death_sound is None:
-            cls._ship_death_sound = cls.resources.sound(
-                BATTLE_ASSET_PATH / "shipdies.wav",
-                const.SOUND_EFFECT_VOLUME,
-                enabled=cls.sound_enabled,
-            )
+        sound = cls.resources.sound(
+            BATTLE_ASSET_PATH / "shipdies.wav",
+            const.SOUND_EFFECT_VOLUME,
+            enabled=cls.sound_enabled,
+        )
 
-        if cls._ship_death_sound:
-            cls._ship_death_sound.play()
-            return int(math.ceil(cls._ship_death_sound.get_length() * const.FPS))
+        if sound:
+            sound.play()
+            return int(math.ceil(sound.get_length() * const.FPS))
 
         return 0
 
@@ -104,14 +97,11 @@ class BattleEffect(Object):
             return
 
         sound_name = cls._boom_name(damage)
-        if sound_name not in cls._boom_sounds:
-            cls._boom_sounds[sound_name] = cls.resources.sound(
-                BATTLE_ASSET_PATH / sound_name,
-                const.SOUND_EFFECT_VOLUME,
-                enabled=cls.sound_enabled,
-            )
-
-        sound = cls._boom_sounds[sound_name]
+        sound = cls.resources.sound(
+            BATTLE_ASSET_PATH / sound_name,
+            const.SOUND_EFFECT_VOLUME,
+            enabled=cls.sound_enabled,
+        )
         if sound:
             sound.play()
 

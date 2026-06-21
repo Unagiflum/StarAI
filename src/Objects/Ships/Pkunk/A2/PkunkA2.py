@@ -4,15 +4,13 @@ import src.const as const
 
 
 class PkunkA2(Ability):
-    _insults = []
-
     def __init__(self, parent):
         super().__init__("PkunkA2", parent)
         ability_data = ABILITIES_DATA["PkunkA2"]
         self.ENERGY_GAIN = ability_data.get("ENERGY_GAIN", 2)
         self.file_path = ability_data.get("file_path")
         sound_dir = const.source_path(ability_data['file_path'])
-        self.__class__._insults = tuple(
+        self.insults = tuple(
             sound
             for index in range(14)
             if (sound := self.resources.sound(
@@ -23,5 +21,5 @@ class PkunkA2(Ability):
         )
 
     def play_insult(self):
-        if self.sound_enabled and self._insults:
-            random.choice(self._insults).play()
+        if self.sound_enabled and self.insults:
+            random.choice(self.insults).play()

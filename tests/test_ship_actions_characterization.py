@@ -310,6 +310,16 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertTrue(ship.trackable)
         flame.launch_sound.play.assert_called_once_with()
 
+    def test_ilwrath_cloak_fade_renders_a_blended_sprite(self):
+        ship = create_ship("Ilwrath", 1)
+        ship.cloak()
+
+        sprite = ship.set_sprite()
+
+        self.assertIsInstance(sprite, pygame.Surface)
+        self.assertEqual(sprite.get_size(), ship.sprites[ship.heading].get_size())
+        self.assertEqual(ship.fade_timer, 1)
+
     def test_supox_secondary_changes_movement_controls_without_action_cost(self):
         ship = create_ship("Supox", 1)
         ship.action2_active = True

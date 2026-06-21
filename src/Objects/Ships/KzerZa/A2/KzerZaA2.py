@@ -12,15 +12,13 @@ class KzerZaA2(Ability):
     LAUNCHING = "launching"
     ATTACKING = "attacking"
     RETURNING = "returning"
-    _fighter_sounds = {}
-
     def __init__(self, parent, launch_angle=0, formation_index=0):
         super().__init__("KzerZaA2", parent)
         data = ABILITIES_DATA["KzerZaA2"]
-        self._load_fighter_sounds(data["file_path"])
-        self.launch_sound = self._sound("launch")
-        self.laser_sound = self._sound("laser")
-        self.return_sound = self._sound("return")
+        fighter_sounds = self._load_fighter_sounds(data["file_path"])
+        self.launch_sound = fighter_sounds["launch"]
+        self.laser_sound = fighter_sounds["laser"]
+        self.return_sound = fighter_sounds["return"]
 
         self.one_way_flight = data["one_way_flight"]
         self.launch_distance = data["launch_distance"]
@@ -204,17 +202,14 @@ class KzerZaA2(Ability):
             "laser": "KzerZaA2Laser.wav",
             "return": "KzerZaA2Return.wav",
         }
-        for sound_name, filename in sound_files.items():
-            self.__class__._fighter_sounds[sound_name] = self.resources.sound(
+        return {
+            sound_name: self.resources.sound(
                 const.source_path(file_path) / filename,
                 const.SOUND_EFFECT_VOLUME,
                 enabled=self.sound_enabled,
             )
-
-    def _sound(self, sound_name):
-        if not self.sound_enabled:
-            return None
-        return self._fighter_sounds.get(sound_name)
+            for sound_name, filename in sound_files.items()
+        }
 
     def _live_trackable_opponent(self):
         if (

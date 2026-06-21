@@ -186,10 +186,6 @@ class Star(Object):
 
 
 class Asteroid(Object):
-    shared_sprites = None
-    shared_masks = None
-    shared_death_animation = None
-
     def __init__(self, resources=None):
         self.resources = resources or default_assets()
         super().__init__(
@@ -198,20 +194,17 @@ class Asteroid(Object):
             size=[0, 0]
         )
         assets = self.resources.asteroid()
-        Asteroid.shared_sprites = assets.sprites
-        Asteroid.shared_masks = assets.masks
-        Asteroid.shared_death_animation = assets.death_animation
 
         # Randomly rotate sprites for this instance
         if random.random() < 0.0: # if 0 then no rotation will be applied
             sprite_rot = random.random()*360
-            self.sprites = [pygame.transform.rotate(sprite, sprite_rot) for sprite in Asteroid.shared_sprites]
+            self.sprites = [pygame.transform.rotate(sprite, sprite_rot) for sprite in assets.sprites]
             self.masks = [pygame.mask.from_surface(sprite) for sprite in self.sprites]
         else:
-            self.sprites = Asteroid.shared_sprites
-            self.masks = Asteroid.shared_masks
+            self.sprites = assets.sprites
+            self.masks = assets.masks
 
-        self.death_animation = Asteroid.shared_death_animation
+        self.death_animation = assets.death_animation
         self.collision_capabilities = CollisionCapabilities(CollisionRole.ASTEROID)
         self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
 

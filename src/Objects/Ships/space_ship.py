@@ -21,9 +21,6 @@ CONTROL_STATE_ATTRIBUTES = {
 }
 
 class SpaceShip(PlayerObject):
-    # Class-level storage for shared sprites
-    _shared_sprites = {}
-    _shared_masks = {}
     action_factories = {}
 
     def __init__(self, ship_name, player_num, resources=None):
@@ -43,12 +40,10 @@ class SpaceShip(PlayerObject):
         self.collision_capabilities = CollisionCapabilities(CollisionRole.SHIP)
         self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
 
-        # Compatibility aliases remain while resource ownership moves to AssetManager.
         assets = self.resources.ship(ship_name)
-        self._shared_sprites[ship_name] = assets.sprites
-        self._shared_masks[ship_name] = assets.masks
         self.size = list(assets.size)
         self.sprites = assets.sprites
+        self.masks = assets.masks
 
         # Ship-specific attributes
         self.ship_type = ship_definition.ship_type
@@ -364,7 +359,7 @@ class SpaceShip(PlayerObject):
             return False
 
     def get_collision_mask(self):
-        masks = self._shared_masks.get(self.name)
+        masks = getattr(self, "masks", None)
         if not masks:
             return None
         return masks[self.heading]

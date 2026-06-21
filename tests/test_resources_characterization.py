@@ -15,6 +15,9 @@ import src.const as const
 from src.Battle.effects import BattleEffect
 from src.Objects.Space.space_obj import Asteroid, Planet, Star
 from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.Ilwrath.Ilwrath import Ilwrath
+from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
+from src.Objects.Ships.Pkunk.A2.PkunkA2 import PkunkA2
 from src.Objects.Ships.registry import create_ability, create_ship
 from src.Objects.Ships.space_ship import SpaceShip
 from src.UI.ui import SoundManager
@@ -36,9 +39,6 @@ class ResourceCharacterizationTests(unittest.TestCase):
         BattleEffect.sound_enabled = self.effect_sound_enabled
 
     def test_ship_instances_share_scaled_sprites_and_masks_but_not_state(self):
-        SpaceShip._shared_sprites.pop("Earthling", None)
-        SpaceShip._shared_masks.pop("Earthling", None)
-
         first = create_ship("Earthling", 1)
         second = create_ship("Earthling", 2)
 
@@ -54,9 +54,6 @@ class ResourceCharacterizationTests(unittest.TestCase):
         self.assertNotEqual(first.heading, second.heading)
 
     def test_ability_instances_share_frames_masks_and_end_animation_in_order(self):
-        for cache in (Ability._sprites, Ability._masks, Ability._end_anims, Ability._sizes):
-            cache.pop("MyconA1", None)
-
         parent = create_ship("Mycon", 1)
         first = create_ability("MyconA1", parent)
         second = create_ability("MyconA1", parent)
@@ -87,10 +84,6 @@ class ResourceCharacterizationTests(unittest.TestCase):
         self.assertNotEqual(first.frame_timer, second.frame_timer)
 
     def test_asteroids_share_ordered_visual_resources_but_not_animation_state(self):
-        Asteroid.shared_sprites = None
-        Asteroid.shared_masks = None
-        Asteroid.shared_death_animation = None
-
         first = Asteroid()
         second = Asteroid()
 
@@ -118,9 +111,6 @@ class ResourceCharacterizationTests(unittest.TestCase):
         self.assertEqual(planet.mask.get_size(), (planet.diameter, planet.diameter))
 
     def test_battle_animation_frames_follow_numeric_filename_order(self):
-        BattleEffect._blast_sprites = None
-        BattleEffect._ship_explosion_sprites = None
-
         blast = BattleEffect.from_blast([0, 0], (1, 0), 1)
         explosion = BattleEffect.ship_explosion([0, 0])
 
@@ -135,10 +125,6 @@ class ResourceCharacterizationTests(unittest.TestCase):
         self.assertEqual(surface_bytes(explosion.frames[-1]), surface_bytes(expected_last))
 
     def test_disabled_audio_never_attempts_to_load_ability_or_battle_sounds(self):
-        Ability._launch_sounds.pop("EarthlingA1", None)
-        Ability._sound_load_attempted.discard("EarthlingA1")
-        BattleEffect._ship_death_sound = None
-        BattleEffect._boom_sounds.clear()
         BattleEffect.sound_enabled = False
 
         with mock.patch("pygame.mixer.Sound") as sound:
@@ -160,6 +146,63 @@ class ResourceCharacterizationTests(unittest.TestCase):
         self.assertIs(ability.resources, resources)
         self.assertIs(ship.sprites, resources.ship("Earthling").sprites)
         self.assertIs(ability.sprites, resources.ability("EarthlingA1").sprites)
+
+    def test_assets_are_shared_only_within_their_resource_provider(self):
+        first_resources = AssetManager()
+        second_resources = AssetManager()
+
+        first_ship = create_ship("Earthling", 1, resources=first_resources)
+        same_manager_ship = create_ship("Earthling", 2, resources=first_resources)
+        second_ship = create_ship("Earthling", 2, resources=second_resources)
+        first_ability = create_ability("EarthlingA1", first_ship)
+        second_ability = create_ability("EarthlingA1", second_ship)
+        first_asteroid = Asteroid(first_resources)
+        second_asteroid = Asteroid(second_resources)
+        first_ilwrath = create_ship("Ilwrath", 1, resources=first_resources)
+        second_ilwrath = create_ship("Ilwrath", 2, resources=second_resources)
+
+        self.assertIs(first_ship.sprites, same_manager_ship.sprites)
+        self.assertIs(first_ship.masks, same_manager_ship.masks)
+        self.assertIs(first_ship.sprites, first_resources.ship("Earthling").sprites)
+        self.assertIs(first_ship.masks, first_resources.ship("Earthling").masks)
+        self.assertIsNot(first_ship.sprites, second_ship.sprites)
+        self.assertIsNot(first_ship.masks, second_ship.masks)
+        self.assertIs(first_ship.get_collision_mask(), first_ship.masks[0])
+
+        self.assertIs(first_ability.sprites, first_resources.ability("EarthlingA1").sprites)
+        self.assertIs(first_ability.masks, first_resources.ability("EarthlingA1").masks)
+        self.assertIsNot(first_ability.sprites, second_ability.sprites)
+        self.assertIsNot(first_ability.masks, second_ability.masks)
+
+        self.assertIs(first_asteroid.sprites, first_resources.asteroid().sprites)
+        self.assertIs(first_asteroid.masks, first_resources.asteroid().masks)
+        self.assertIsNot(first_asteroid.sprites, second_asteroid.sprites)
+        self.assertIsNot(first_asteroid.masks, second_asteroid.masks)
+
+        self.assertIs(
+            first_ilwrath.black_sprites,
+            first_resources.black_ship_sprites("Ilwrath"),
+        )
+        self.assertIsNot(first_ilwrath.black_sprites, second_ilwrath.black_sprites)
+
+    def test_gameplay_classes_do_not_own_immutable_asset_caches(self):
+        for owner, attributes in (
+            (SpaceShip, ("_shared_sprites", "_shared_masks")),
+            (Ability, (
+                "_sprites", "_masks", "_end_anims", "_sizes",
+                "_launch_sounds", "_sound_load_attempted",
+            )),
+            (Asteroid, ("shared_sprites", "shared_masks", "shared_death_animation")),
+            (BattleEffect, (
+                "_blast_sprites", "_ship_explosion_sprites",
+                "_ship_death_sound", "_boom_sounds",
+            )),
+            (Ilwrath, ("_shared_sprites_black", "_uncloak_sound")),
+            (KzerZaA2, ("_fighter_sounds",)),
+            (PkunkA2, ("_insults",)),
+        ):
+            for attribute in attributes:
+                self.assertFalse(hasattr(owner, attribute), f"{owner.__name__}.{attribute}")
 
     def test_planets_stars_and_menu_images_reuse_cached_surfaces(self):
         resources = AssetManager()

@@ -18,13 +18,6 @@ def wrapped_endpoint(start, end):
     return nearest_position(end, start)
 
 class Ability(PlayerObject):
-    # Class-level storage
-    _sprites = {}
-    _masks = {}
-    _end_anims = {}
-    _sizes = {}
-    _launch_sounds = {}
-    _sound_load_attempted = set()
     sound_enabled = True
 
     def __init__(self, ability_name, parent):
@@ -39,17 +32,16 @@ class Ability(PlayerObject):
             player=parent.player
         )
         self.resources = getattr(parent, "resources", default_assets())
-        self.preload_resources(ability_name, self.resources)
-        self.sizes = self._sizes[ability_name]
+        assets = self.resources.ability(ability_name)
+        self.sizes = assets.sizes
         self.size = list(self.sizes[0]) if self.sizes else [0, 0]
 
-        self.sprites = self._sprites[ability_name]
-        self.masks = self._masks[ability_name]
-        self.death_animation = self._end_anims[ability_name]
+        self.sprites = assets.sprites
+        self.masks = assets.masks
+        self.death_animation = assets.end_animation
         self.launch_sound = self.resources.ability_sound(
             ability_name, enabled=self.sound_enabled
         )
-        self._launch_sounds[ability_name] = self.launch_sound
 
         # Rest of initialization code
         self.parent = parent
@@ -128,14 +120,9 @@ class Ability(PlayerObject):
 
     @classmethod
     def preload_resources(cls, ability_name, resources=None):
-        """Load and cache an ability's shared visual and audio resources."""
+        """Warm the provider's cache without constructing an ability."""
         resources = resources or default_assets()
-        assets = resources.ability(ability_name)
-        cls._sprites[ability_name] = assets.sprites
-        cls._masks[ability_name] = assets.masks
-        cls._end_anims[ability_name] = assets.end_animation
-        cls._sizes[ability_name] = assets.sizes
-        cls._launch_sounds.setdefault(ability_name, None)
+        return resources.ability(ability_name)
 
     def update_heading(self):
 
