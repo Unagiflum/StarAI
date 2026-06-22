@@ -17,6 +17,7 @@ from src.Battle.battle import initialize_new_round_ships
 from src.Battle import collision_responses
 from src.Battle.status_bar import draw_boarded_marine_icons
 from src.audio import RecordingAudioService
+from src.Objects.object import ThrustMarker
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ability, create_ship
@@ -279,10 +280,95 @@ class OrzAbilityTests(unittest.TestCase):
             mock.Mock(currently_alive=True, is_boarded=True, hud_sprite=icon)
             for _ in range(6)
         ]
+        ship.returning_marines = []
 
         draw_boarded_marine_icons(screen, ship, 10, 100, 65)
 
         self.assertEqual(screen.blit.call_count, 6)
+
+    def test_a3_uses_red_boarding_icon_and_green_returning_icon(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+
+        marine.handle_ship_contact(enemy)
+        self.assertIs(marine.hud_sprite, marine.red_hud_sprite)
+        self.assertEqual(marine.hud_sprite.get_size(), (12, 16))
+
+        enemy.current_hp = 0
+        marine.update()
+        self.assertIs(marine.hud_sprite, marine.green_hud_sprite)
+        self.assertIn(marine, self.ship.returning_marines)
+        self.assertNotIn(marine, enemy.boarded_marines)
+
+    def test_accelerating_a3_emits_ship_thrust_markers(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+
+        marine.update()
+        markers = marine.drain_spawned_objects()
+
+        self.assertEqual(len(markers), 1)
+        self.assertIsInstance(markers[0], ThrustMarker)
+
+    def test_a3_bounces_without_boarding_an_active_shield(self):
+        enemy = create_ship("Yehat", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        enemy.perform_action2()
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+        marine.previous_position = [680, 500]
+        marine.position = enemy.position.copy()
+        marine.velocity = [10, 0]
+        starting_hp = enemy.current_hp
+
+        with mock.patch.object(collision_responses.BattleEffect, "play_boom"):
+            handled = collision_responses.fighter_impacts_ship(
+                marine, enemy, [], None
+            )
+
+        self.assertTrue(handled)
+        self.assertEqual(enemy.current_hp, starting_hp)
+        self.assertFalse(marine.is_boarded)
+        self.assertEqual(enemy.boarded_marines, [])
+        self.assertEqual(marine.velocity, [-10, 0])
+        self.assertGreater(marine.shield_bounce_timer, 0)
+
+    def test_boarded_a3_kill_plays_zap_sound(self):
+        audio = RecordingAudioService()
+        ship = create_ship("Orz", 1, audio_service=audio)
+        enemy = create_ship("Earthling", 2, audio_service=audio)
+        ship.initialize_in_battle([500, 500], 4)
+        enemy.initialize_in_battle([700, 500], 0)
+        ship.opponent = enemy
+        marine, _ = ship.perform_action3()
+        marine.handle_ship_contact(enemy)
+        marine.rng = mock.Mock()
+        marine.rng.randrange.return_value = 16
+        marine.boarding_timer = 1
+
+        marine.update()
+
+        played_names = [operation[1].name for operation in audio.operations]
+        self.assertEqual(
+            played_names,
+            ["OrzA3Launch.wav", "OrzA3Alarm.wav", "OrzA3Zap.wav"],
+        )
+
+    def test_shofixti_self_destruct_kills_boarded_marines(self):
+        enemy = create_ship("Shofixti", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+        marine.handle_ship_contact(enemy)
+
+        enemy.perform_action2()
+
+        self.assertFalse(marine.currently_alive)
+        self.assertEqual(enemy.boarded_marines, [])
 
 
 if __name__ == "__main__":

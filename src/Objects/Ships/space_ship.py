@@ -96,6 +96,7 @@ class SpaceShip(PlayerObject):
         self.cloaked = False
         self.trackable = True
         self.boarded_marines = []
+        self.returning_marines = []
         self.input_pressed_frames = {}
         self.newly_pressed_controls = set()
         self.released_controls = set()
@@ -116,6 +117,7 @@ class SpaceShip(PlayerObject):
         self.action2_timer = 0
         self.action3_timer = 0
         self.boarded_marines.clear()
+        self.returning_marines.clear()
         self.reset_controls()
         self.in_battle = True
 
@@ -258,6 +260,16 @@ class SpaceShip(PlayerObject):
             and shield.currently_alive
             and shield.blocks_damage
         )
+
+    def destroy_boarded_marines(self):
+        """Destroy every hostile unit currently carried by this ship."""
+        for marine in tuple(self.boarded_marines):
+            on_host_self_destruct = getattr(
+                marine, "on_host_self_destruct", None
+            )
+            if on_host_self_destruct is not None:
+                on_host_self_destruct()
+        self.boarded_marines.clear()
 
     def take_damage(self, damage, *, shieldable=True):
         """Apply hull/crew damage and return the amount actually taken.

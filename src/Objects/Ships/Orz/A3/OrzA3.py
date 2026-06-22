@@ -2,6 +2,7 @@ import math
 
 import src.const as const
 from src.collision_capabilities import AreaDamageCapabilities
+from src.Objects.object import ThrustMarker
 from src.Objects.Ships.ability import Ability
 from src.toroidal import wrapped_delta
 
@@ -17,6 +18,8 @@ class OrzA3(Ability):
     BOARDING_WAIT = int(12 * const.ACTION_WAIT_SCALE)
     DEATH_ROLL_LIMIT = 16
     KILL_ROLL_LIMIT = 144
+    THRUST_INCREMENT = 8 * const.PROJ_SPEED_SCALE
+    SHIELD_BOUNCE_FRAMES = 5
 
     def __init__(self, parent):
         super().__init__("OrzA3", parent)
@@ -24,17 +27,26 @@ class OrzA3(Ability):
         self.mode = self.OUTBOUND
         self.boarded_ship = None
         self.boarding_timer = self.BOARDING_WAIT
+        self.shield_bounce_timer = 0
+        self.spawned_objects = []
         self._death_sound_played = False
         self._load_marine_sounds()
-        self.hud_sprite = self.resources.image(
-            const.source_path("Objects/Ships/Orz/A3/OrzA3.png"),
-            size=(12, 12),
-        ).image
+        self._load_hud_sprites()
         self._place_at_parent_rear()
 
     @property
     def is_boarded(self):
         return self.mode == self.BOARDED
+
+    @property
+    def is_returning(self):
+        return self.mode == self.RETURNING
+
+    @property
+    def hud_sprite(self):
+        if self.is_returning:
+            return self.green_hud_sprite
+        return self.red_hud_sprite
 
     def _load_marine_sounds(self):
         directory = const.source_path("Objects/Ships/Orz/A3")
@@ -47,6 +59,18 @@ class OrzA3(Ability):
         self.die_sound = self.audio_service.load_effect(
             directory / "OrzA3Die.wav", const.SOUND_EFFECT_VOLUME
         )
+        self.zap_sound = self.audio_service.load_effect(
+            directory / "OrzA3Zap.wav", const.SOUND_EFFECT_VOLUME
+        )
+
+    def _load_hud_sprites(self):
+        directory = const.source_path("Objects/Ships/Orz/A3")
+        self.red_hud_sprite = self.resources.image(
+            directory / "OrzA3Red.png"
+        ).image
+        self.green_hud_sprite = self.resources.image(
+            directory / "OrzA3Green.png"
+        ).image
 
     def _place_at_parent_rear(self):
         self.rotation = (self.parent.rotation + 180) % 360
@@ -61,7 +85,7 @@ class OrzA3(Ability):
             ) % const.ARENA_SIZE,
         ]
         self.previous_position = self.position.copy()
-        self._set_velocity_toward_angle(self.rotation)
+        self.velocity = [0.0, 0.0]
 
     def update(self):
         if not self.currently_alive:
@@ -76,6 +100,11 @@ class OrzA3(Ability):
         self.previous_position = self.position.copy()
         if self.mode == self.BOARDED:
             return self._update_boarded()
+
+        if self.shield_bounce_timer > 0:
+            self.shield_bounce_timer -= 1
+            self._coast()
+            return True
 
         destination = self._flight_destination()
         if destination is not None:
@@ -102,7 +131,9 @@ class OrzA3(Ability):
             self._die()
             return False
         if roll < self.KILL_ROLL_LIMIT:
-            ship.take_damage(1, shieldable=False)
+            damage = ship.take_damage(1, shieldable=False)
+            if damage and self.zap_sound:
+                self.zap_sound.play()
             if ship.current_hp <= 0:
                 self._leave_ship()
         return self.currently_alive
@@ -112,7 +143,7 @@ class OrzA3(Ability):
             target = self._live_trackable_opponent()
             if target is not None:
                 return target.position
-            self.mode = self.RETURNING
+            self._begin_return()
         return self.parent.position if self._parent_alive() else None
 
     def _move_toward(self, destination):
@@ -121,9 +152,30 @@ class OrzA3(Ability):
         if distance <= 0:
             self.velocity = [0.0, 0.0]
             return
-        speed = min(self.speed, distance / const.SPEED_SCALE)
-        self.velocity = [dx / distance * speed, dy / distance * speed]
+        target_speed = min(self.speed, distance / const.SPEED_SCALE)
+        target_velocity = [
+            dx / distance * target_speed,
+            dy / distance * target_speed,
+        ]
+        change = [
+            target_velocity[0] - self.velocity[0],
+            target_velocity[1] - self.velocity[1],
+        ]
+        change_magnitude = math.hypot(*change)
+        if change_magnitude > self.THRUST_INCREMENT:
+            scale = self.THRUST_INCREMENT / change_magnitude
+            change = [change[0] * scale, change[1] * scale]
+
+        old_speed = math.hypot(*self.velocity)
+        self.velocity[0] += change[0]
+        self.velocity[1] += change[1]
+        new_speed = math.hypot(*self.velocity)
         self.rotation = math.degrees(math.atan2(dx, -dy)) % 360
+        if new_speed > old_speed + 1e-6:
+            self._spawn_thrust_marker()
+        self._coast()
+
+    def _coast(self):
         self.position[0] = (
             self.position[0] + self.velocity[0] * const.SPEED_SCALE
         ) % const.ARENA_SIZE
@@ -131,9 +183,18 @@ class OrzA3(Ability):
             self.position[1] + self.velocity[1] * const.SPEED_SCALE
         ) % const.ARENA_SIZE
 
-    def _set_velocity_toward_angle(self, angle_degrees):
-        angle = math.radians(angle_degrees)
-        self.velocity = [math.sin(angle) * self.speed, -math.cos(angle) * self.speed]
+    def _spawn_thrust_marker(self):
+        angle = math.radians(self.rotation)
+        offset = self.size[1] / 2 + 6
+        self.spawned_objects.append(ThrustMarker(
+            self.position[0] - math.sin(angle) * offset,
+            self.position[1] + math.cos(angle) * offset,
+        ))
+
+    def drain_spawned_objects(self):
+        result = self.spawned_objects
+        self.spawned_objects = []
+        return result
 
     def handle_ship_contact(self, ship):
         if (
@@ -143,9 +204,16 @@ class OrzA3(Ability):
         ):
             return False
 
+        if ship.damage_shield_is_active():
+            self.position = self.previous_position.copy()
+            self.velocity[0] *= -1
+            self.velocity[1] *= -1
+            self.shield_bounce_timer = self.SHIELD_BOUNCE_FRAMES
+            return True
+
         ship.take_damage(1, shieldable=False)
         if ship.current_hp <= 0:
-            self.mode = self.RETURNING
+            self._begin_return()
             return True
 
         self.mode = self.BOARDED
@@ -178,6 +246,7 @@ class OrzA3(Ability):
             return
         self.parent.current_hp = min(self.parent.max_hp, self.parent.current_hp + 1)
         self._detach_from_ship()
+        self._detach_from_parent_status()
         self.current_hp = 0
         self.currently_alive = False
 
@@ -188,20 +257,29 @@ class OrzA3(Ability):
     def on_opponent_lost(self, opponent):
         super().on_opponent_lost(opponent)
         if self.mode != self.BOARDED:
-            self.mode = self.RETURNING
+            self._begin_return()
+
+    def on_host_self_destruct(self):
+        self._die()
 
     def on_destroyed(self):
         self._detach_from_ship()
+        self._detach_from_parent_status()
         self._play_death_sound()
 
     def _leave_ship(self):
         self._detach_from_ship()
-        self.mode = self.RETURNING
+        self._begin_return()
         self.can_collide = True
         self.area_damage_capabilities = AreaDamageCapabilities(
             targetable=True
         )
         self.current_hp = max(1, self.current_hp)
+
+    def _begin_return(self):
+        self.mode = self.RETURNING
+        if self not in self.parent.returning_marines:
+            self.parent.returning_marines.append(self)
 
     def _detach_from_ship(self):
         if self.boarded_ship is not None:
@@ -212,10 +290,17 @@ class OrzA3(Ability):
         self.boarded_ship = None
         self.target = None
 
+    def _detach_from_parent_status(self):
+        try:
+            self.parent.returning_marines.remove(self)
+        except ValueError:
+            pass
+
     def _die(self):
         if not self.currently_alive:
             return
         self._detach_from_ship()
+        self._detach_from_parent_status()
         self.current_hp = 0
         self.currently_alive = False
         self._play_death_sound()

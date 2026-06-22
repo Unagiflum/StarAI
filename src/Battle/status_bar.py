@@ -62,23 +62,34 @@ def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing):
 
 
 def draw_boarded_marine_icons(screen, ship, base_x, bars_top, total_width):
+    status_marines = (
+        tuple(getattr(ship, "boarded_marines", ()))
+        + tuple(getattr(ship, "returning_marines", ()))
+    )
     marines = [
-        marine for marine in getattr(ship, "boarded_marines", ())
-        if marine.currently_alive and getattr(marine, "is_boarded", False)
+        marine for marine in status_marines
+        if (
+            marine.currently_alive
+            and (
+                getattr(marine, "is_boarded", False)
+                or getattr(marine, "is_returning", False)
+            )
+        )
     ]
     if not marines:
         return
 
-    icon_size = 12
+    icon_width = max(marine.hud_sprite.get_width() for marine in marines)
+    icon_height = max(marine.hud_sprite.get_height() for marine in marines)
     gap = 2
-    columns = max(1, total_width // (icon_size + gap))
+    columns = max(1, total_width // (icon_width + gap))
     rows = (len(marines) + columns - 1) // columns
-    top = bars_top - rows * (icon_size + gap)
+    top = bars_top - rows * (icon_height + gap)
     for index, marine in enumerate(marines):
         row, column = divmod(index, columns)
         row_count = min(columns, len(marines) - row * columns)
-        row_width = row_count * icon_size + (row_count - 1) * gap
-        x = base_x + (total_width - row_width) // 2 + column * (icon_size + gap)
-        y = top + row * (icon_size + gap)
+        row_width = row_count * icon_width + (row_count - 1) * gap
+        x = base_x + (total_width - row_width) // 2 + column * (icon_width + gap)
+        y = top + row * (icon_height + gap)
         icon = marine.hud_sprite
         screen.blit(icon, (x, y))

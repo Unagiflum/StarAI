@@ -29,3 +29,4 @@ class Shofixti(SpaceShip):
 
     def _mark_self_destruct(self):
         self.shofixti_self_destruct = True
+        self.destroy_boarded_marines()
