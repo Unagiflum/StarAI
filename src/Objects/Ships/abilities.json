@@ -686,7 +686,7 @@
         "sprite_scale": 1.0,
         "sprite_scale_x": 1.0,
         "sprite_scale_y": 2.5,
-        "offset": 0.55,
+        "offset": 0.5,
         "has_sprites": true,
         "has_sound": true
     }
