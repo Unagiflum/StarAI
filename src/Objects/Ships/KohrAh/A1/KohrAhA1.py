@@ -51,7 +51,7 @@ class KohrAhA1(Ability):
         return self.currently_alive and self.current_hp > 0
 
     def update_heading(self):
-        if not self.is_moving and self.opponent and self.opponent.trackable:
+        if not self.is_moving and self._live_trackable_opponent():
             # Calculate distance to opponent
             dx, dy = wrapped_delta(self.position, self.opponent.position)
 

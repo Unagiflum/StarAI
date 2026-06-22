@@ -77,6 +77,8 @@ def start_or_update_aftermath(
         state.camera_hold_targets.append(ship)
         state.latest_death_frame = frame_id
 
+    release_dead_opponents(game_objects, dead_ships)
+
     if player1.current_hp <= 0 and player2.current_hp <= 0:
         self_destructors = [
             ship for ship in (player1, player2)
@@ -89,6 +91,20 @@ def start_or_update_aftermath(
     audio.stop_music()
     state.ditty_started = False
     return state
+
+
+def release_dead_opponents(game_objects, dead_ships):
+    world = World.coerce(game_objects)
+    dead_ids = {id(ship) for ship in dead_ships}
+    for obj in world:
+        opponent = getattr(obj, "opponent", None)
+        if opponent is None or id(opponent) not in dead_ids:
+            continue
+        on_opponent_lost = getattr(obj, "on_opponent_lost", None)
+        if on_opponent_lost is not None:
+            on_opponent_lost(opponent)
+        else:
+            obj.opponent = None
 
 
 def create_ship_explosion_schedule(ship, start_frame, rng=None):

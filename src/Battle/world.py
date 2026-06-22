@@ -217,10 +217,13 @@ class World:
                 avoid_bodies.append(obj)
         return avoid_bodies
 
-    def update_objects(self) -> None:
+    def update_objects(self, excluded_objects=()) -> None:
         """Update one stable snapshot and append drained spawns afterward."""
+        excluded_ids = {id(obj) for obj in excluded_objects}
         spawned_objects = []
         for obj in self.snapshot():
+            if id(obj) in excluded_ids:
+                continue
             if isinstance(obj, SpaceShip) and obj.current_hp <= 0:
                 continue
             if not obj.update():

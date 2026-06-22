@@ -144,7 +144,7 @@ class Ability(PlayerObject):
             direction_step = 360 / const.SHIP_DIRECTIONS
             self.heading = int((self.rotation % 360) / direction_step) % const.SHIP_DIRECTIONS
 
-        if self.tracking and self.opponent:
+        if self.tracking and self._live_trackable_opponent():
             # Find opponent
             dx, dy = wrapped_delta(self.position, self.opponent.position)
 
@@ -245,6 +245,21 @@ class Ability(PlayerObject):
 
     def stop_and_track(self):
         """Apply any ability-specific round-transition tracking behavior."""
+        return None
+
+    def on_opponent_lost(self, opponent):
+        """Let an ability react without imposing one fighter behavior."""
+        if self.opponent is opponent:
+            self.opponent = None
+
+    def _live_trackable_opponent(self):
+        if (
+            self.opponent is not None
+            and self.opponent.currently_alive
+            and self.opponent.current_hp > 0
+            and self.opponent.trackable
+        ):
+            return self.opponent
         return None
 
     def calculate_end_position(self):

@@ -187,6 +187,11 @@ class KzerZaA2(Ability):
     def can_recover_with_parent(self):
         return self.mode == self.RETURNING
 
+    def on_opponent_lost(self, opponent):
+        super().on_opponent_lost(opponent)
+        if self._parent_alive() and self.mode != self.LAUNCHING:
+            self.mode = self.RETURNING
+
     def recover_with_parent(self):
         if not self.currently_alive or not self._parent_alive():
             return
@@ -209,16 +214,6 @@ class KzerZaA2(Ability):
             )
             for sound_name, filename in sound_files.items()
         }
-
-    def _live_trackable_opponent(self):
-        if (
-            self.opponent is not None and
-            self.opponent.currently_alive and
-            self.opponent.current_hp > 0 and
-            self.opponent.trackable
-        ):
-            return self.opponent
-        return None
 
     def _parent_alive(self):
         return self.parent.currently_alive and self.parent.current_hp > 0

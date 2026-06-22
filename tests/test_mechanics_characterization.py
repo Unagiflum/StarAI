@@ -30,6 +30,7 @@ from src.Battle.battle_init import validate_ship_positions
 from src.Objects.object import PlayerObject
 from src.Objects.Space.space_obj import Asteroid
 from src.Objects.Ships.ability import Ability, wrapped_endpoint
+from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.space_ship import SpaceShip
 from src.toroidal import (
@@ -501,6 +502,43 @@ class AftermathCharacterizationTests(unittest.TestCase):
                 aftermath, 30 + const.POST_DEATH_CONTROL_FRAMES, sound_enabled=False
             )
         )
+
+    def test_death_releases_tracking_projectiles_and_notifies_fighters(self):
+        dead = self.make_ship(1, hp=0)
+        dead.trackable = True
+        survivor = self.make_ship(2)
+        survivor.opponent = dead
+
+        projectile = Ability.__new__(Ability)
+        projectile.opponent = dead
+        projectile.omnidirectional = False
+        projectile.heading = 4
+        projectile.tracking = True
+        projectile.rotation = 90
+        projectile.velocity = [12, 0]
+
+        fighter = KzerZaA2.__new__(KzerZaA2)
+        fighter.opponent = dead
+        fighter.parent = survivor
+        fighter.mode = fighter.ATTACKING
+
+        start_or_update_aftermath(
+            None,
+            [dead],
+            dead,
+            survivor,
+            [dead, survivor, projectile, fighter],
+            30,
+            sound_enabled=False,
+        )
+        projectile.update_heading()
+
+        self.assertIsNone(survivor.opponent)
+        self.assertIsNone(projectile.opponent)
+        self.assertEqual(projectile.rotation, 90)
+        self.assertEqual(projectile.velocity, [12, 0])
+        self.assertIsNone(fighter.opponent)
+        self.assertEqual(fighter.mode, fighter.RETURNING)
 
     def test_simultaneous_deaths_are_registered_once_in_player_order(self):
         random.seed(11)

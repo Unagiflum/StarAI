@@ -61,6 +61,14 @@ SHIP_COLS = 8
 SHIP_ROWS = 4
 SOUND_EFFECT_VOLUME = 0.4
 
+# Battle entry animation. Trail spacing is deliberately based on the largest
+# supported ship rather than the current ship so every entry uses one path
+# cadence and adjacent silhouettes cannot overlap.
+ENTRY_TRAIL_SILHOUETTES = 12
+ENTRY_TRAIL_SPACING = MAX_SHIP_SIZE + 5
+ENTRY_TRAIL_STAGGER_FRAMES = 2
+ENTRY_TRAIL_FADE_FRAMES = 12
+
 #Projectiles
 PROJ_LIFE_SCALE = 1
 PROJ_SPEED_SCALE = 1.25

@@ -8,6 +8,12 @@ from src.Objects.object import ThrustMarker
 from src.Battle.battle_init import initialize_battle
 from src.Battle.collisions import handle_collisions
 from src.Battle.battle_draw import StarFieldRenderer, draw_battle
+from src.Battle.battle_entry import (
+    EntryState,
+    entry_complete,
+    finish_entry,
+    start_entry,
+)
 from src.Battle import battle_aftermath
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
@@ -80,6 +86,16 @@ class BattleSimulation:
         self.key_states = self._initial_key_states()
         self.frame_id = 0
         self.aftermath: battle_aftermath.AftermathState | None = None
+        self.entry_animations_enabled = screen is not None
+        self.entry: EntryState | None = (
+            start_entry(
+                (self.player1, self.player2),
+                self.player1,
+                self.player2,
+                self.frame_id,
+            )
+            if self.entry_animations_enabled else None
+        )
         self.needs_selection = False
         self.running = True
 
@@ -124,15 +140,21 @@ class BattleSimulation:
             use_audio_service(getattr(self, "audio", None)),
             use_asset_manager(getattr(self, "resources", None)),
         ):
-            self._process_ship_inputs()
+            entry = getattr(self, "entry", None)
+            excluded_ships = entry.entering_ships if entry else ()
+            self._process_ship_inputs(excluded_ships)
             self._update_tracking_lists()
-            self._update_objects()
+            self._update_objects(excluded_ships)
             handle_collisions(
                 self.world,
                 rng=getattr(self, "rng", None),
                 resources=getattr(self, "resources", None),
+                excluded_objects=excluded_ships,
             )
             self._update_aftermath()
+            if entry is not None and entry_complete(entry, self.frame_id):
+                finish_entry(entry)
+                self.entry = None
 
         return self.state()
 
@@ -175,9 +197,14 @@ class BattleSimulation:
                     return player, SHIP_CONTROL_NAMES[control]
         return None
 
-    def _process_ship_inputs(self):
+    def _process_ship_inputs(self, excluded_ships=()):
+        excluded_ids = {id(ship) for ship in excluded_ships}
         for ship in (self.player1, self.player2):
-            if ship.currently_alive and ship.current_hp > 0:
+            if (
+                id(ship) not in excluded_ids
+                and ship.currently_alive
+                and ship.current_hp > 0
+            ):
                 self.world.add_all(ship.process_controls(self.frame_id))
 
     def _update_tracking_lists(self):
@@ -202,8 +229,8 @@ class BattleSimulation:
             asteroid.ships = ships
             asteroid.asteroids = asteroids
 
-    def _update_objects(self):
-        self.world.update_objects()
+    def _update_objects(self, excluded_objects=()):
+        self.world.update_objects(excluded_objects)
 
     def _update_aftermath(self):
         audio = getattr(self, "audio", None)
@@ -248,12 +275,12 @@ class BattleSimulation:
         if not selected or not all(selected):
             self.audio.stop_music()
             self.running = False
-            return
+            return ()
 
         previous_player1, previous_player2 = self.player1, self.player2
         self.player1, self.player2 = selected
         self._bind_runtime_to_ships(self.player1, self.player2)
-        reset_round_objects(
+        entering_ships = reset_round_objects(
             self.world,
             self.player1,
             self.player2,
@@ -266,7 +293,17 @@ class BattleSimulation:
         reset_ship_controls(self.player2)
         self.aftermath = None
         self.needs_selection = False
+        self.entry = (
+            start_entry(
+                entering_ships,
+                self.player1,
+                self.player2,
+                self.frame_id,
+            )
+            if self.entry_animations_enabled else None
+        )
         self.audio.start_battle_music()
+        return entering_ships
 
     def state(self):
         return {
@@ -277,6 +314,7 @@ class BattleSimulation:
             "player2": self.player2,
             "game_objects": self.game_objects,
             "aftermath": self.aftermath,
+            "entry": getattr(self, "entry", None),
             "winner": self.winner(),
         }
 
@@ -355,12 +393,18 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
             simulation.border_rect,
             simulation.border_color,
             star_field_renderer,
-            camera_targets=battle_aftermath.aftermath_camera_targets(
-                simulation.aftermath,
-                simulation.player1,
-                simulation.player2,
-                simulation.frame_id,
+            camera_targets=(
+                simulation.entry.camera_targets
+                if simulation.entry
+                else battle_aftermath.aftermath_camera_targets(
+                    simulation.aftermath,
+                    simulation.player1,
+                    simulation.player2,
+                    simulation.frame_id,
+                )
             ),
+            entry_state=simulation.entry,
+            frame_id=simulation.frame_id,
         )
 
 
@@ -405,7 +449,7 @@ def reset_round_objects(
     planets = world.planets
     planet = planets[0] if planets else None
 
-    initialize_new_round_ships(
+    entering_ships = initialize_new_round_ships(
         selected_ships, preserved_ships, planet, rng=rng
     )
 
@@ -414,6 +458,7 @@ def reset_round_objects(
     update_preserved_abilities(preserved_abilities, player1, player2, planet)
 
     world.add_all(selected_ships)
+    return entering_ships
 
 
 def stop_tracking_projectiles(game_objects):
@@ -449,6 +494,8 @@ def initialize_new_round_ships(
         if planet:
             ship.set_planet(planet)
         reset_ship_controls(ship)
+
+    return new_ships
 
 
 def update_preserved_abilities(abilities, player1, player2, planet):

@@ -127,20 +127,36 @@ def _dispatch_collision_pair(first, second, effects, environment=None):
     return handler(first, second, effects, environment)
 
 
-def handle_collisions(game_objects, *, rng=None, resources=None):
+def handle_collisions(
+    game_objects,
+    *,
+    rng=None,
+    resources=None,
+    excluded_objects=(),
+):
     world = World.coerce(game_objects)
+    excluded_ids = {id(obj) for obj in excluded_objects}
     effects = []
     all_asteroids = world.asteroids
-    _handle_area_damage(world, effects)
+    _handle_area_damage(world, effects, excluded_ids)
 
-    ships = world.live_ships
+    ships = [ship for ship in world.live_ships if id(ship) not in excluded_ids]
     projectiles = world.colliding_projectiles
     fighters = world.colliding_fighters
     lasers = world.colliding_lasers
     asteroids = world.live_asteroids
     planets = world.planets
 
-    _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, planets, effects)
+    _handle_laser_collisions(
+        lasers,
+        ships,
+        projectiles,
+        fighters,
+        asteroids,
+        planets,
+        effects,
+        excluded_ids,
+    )
     _handle_ship_ship_collisions(ships, effects)
     _handle_ship_asteroid_collisions(ships, asteroids)
     _handle_ship_planet_collisions(ships, planets)
@@ -167,13 +183,15 @@ def handle_collisions(game_objects, *, rng=None, resources=None):
     world.remove_dead_collision_objects()
 
 
-def _handle_area_damage(game_objects, effects):
+def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):
     world = World.coerce(game_objects)
     area_abilities = world.pending_area_damage
 
     for ability in area_abilities:
         ability.area_damage_pending = False
         for target in world:
+            if id(target) in excluded_ids:
+                continue
             if not responses.area_damage_target_is_eligible(
                 ability, target, _AREA_DAMAGE_IMPACT_POLICIES
             ):
@@ -261,7 +279,16 @@ def _handle_fighter_planet_collisions(fighters, planets):
     _dispatch_collision_pairs(fighters, planets, [])
 
 
-def _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, planets, effects):
+def _handle_laser_collisions(
+    lasers,
+    ships,
+    projectiles,
+    fighters,
+    asteroids,
+    planets,
+    effects,
+    excluded_ids=frozenset(),
+):
     for laser in lasers:
         if not responses.is_live_laser(laser):
             continue
@@ -269,7 +296,15 @@ def _handle_laser_collisions(lasers, ships, projectiles, fighters, asteroids, pl
         laser.position = laser.parent.position.copy()
         laser.calculate_end_position()
 
-        targets = _laser_targets(laser, ships, projectiles, fighters, asteroids, planets)
+        targets = _laser_targets(
+            laser,
+            ships,
+            projectiles,
+            fighters,
+            asteroids,
+            planets,
+            excluded_ids,
+        )
         hit_infos = [
             hit_info for hit_info in (laser_hit_info(laser, target) for target in targets)
             if hit_info is not None
@@ -297,12 +332,25 @@ def _apply_laser_impact(target, effects, normal, damage, contact):
         policy(target, effects, normal, damage, contact)
 
 
-def _laser_targets(laser, ships, projectiles, fighters, asteroids, planets):
+def _laser_targets(
+    laser,
+    ships,
+    projectiles,
+    fighters,
+    asteroids,
+    planets,
+    excluded_ids=frozenset(),
+):
     explicit_target = laser.target
     if explicit_target is not None:
         targets = (
             [explicit_target]
-            if _laser_target_is_eligible(laser, explicit_target, explicit=True)
+            if (
+                id(explicit_target) not in excluded_ids
+                and _laser_target_is_eligible(
+                    laser, explicit_target, explicit=True
+                )
+            )
             else []
         )
         targets.extend(
@@ -317,7 +365,10 @@ def _laser_targets(laser, ships, projectiles, fighters, asteroids, planets):
     targets = [
         target
         for target in (*ships, *projectiles, *fighters, *asteroids, *planets)
-        if _laser_target_is_eligible(laser, target)
+        if (
+            id(target) not in excluded_ids
+            and _laser_target_is_eligible(laser, target)
+        )
     ]
     return sorted(targets, key=lambda target: distance_between(laser.parent, target))
 

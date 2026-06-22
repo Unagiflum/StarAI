@@ -1,6 +1,7 @@
 import pygame
 from src.UI import ui
 from src.Battle.status_bar import draw_player_status
+from src.Battle.battle_entry import draw_entry_silhouettes
 import src.const as const
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_midpoint
 from src.Battle.world import World
@@ -120,6 +121,8 @@ def draw_battle(
     border_color,
     star_field_renderer,
     camera_targets=None,
+    entry_state=None,
+    frame_id=0,
 ):
     world = World.coerce(game_objects)
     scale_factor, translation = calculate_view_parameters(world, camera_targets)
@@ -151,8 +154,21 @@ def draw_battle(
     for ability in world.abilities:
         ability.draw(screen, scale_factor, translation)
 
+    entering_ships = set(
+        entry_state.entering_ships if entry_state else ()
+    )
+    if entry_state:
+        draw_entry_silhouettes(
+            screen,
+            entry_state,
+            frame_id,
+            scale_factor,
+            translation,
+        )
+
     for ship in world.ships:
-        ship.draw(screen, scale_factor, translation)
+        if ship not in entering_ships:
+            ship.draw(screen, scale_factor, translation)
 
     for effect in world.effects:
         effect.draw(screen, scale_factor, translation)

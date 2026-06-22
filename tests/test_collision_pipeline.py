@@ -19,6 +19,22 @@ def run_collision_pipeline(game_objects, effects=None):
 
 class CollisionPipelineTests(CollisionTestCase):
 
+    def test_excluded_ship_is_not_hit_as_an_explicit_laser_target(self):
+        parent = self.make_ship()
+        parent.player = 1
+        parent.position = [100, 100]
+        target = self.make_ship()
+        target.position = [150, 100]
+        laser = self.make_laser(parent, target=target)
+        laser.calculate_end_position = mock.Mock()
+
+        collisions.handle_collisions(
+            [parent, target, laser],
+            excluded_objects=(target,),
+        )
+
+        self.assertEqual(target.current_hp, 10)
+
     def test_area_damage_is_consumed_once_and_uses_wrapped_distance(self):
         area = self.make_area_damage([const.ARENA_SIZE - 5, 100], lambda distance: 4 if distance == 10 else 0)
         ship = self.make_ship()
