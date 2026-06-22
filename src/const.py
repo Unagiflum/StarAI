@@ -61,13 +61,14 @@ SHIP_COLS = 8
 SHIP_ROWS = 4
 SOUND_EFFECT_VOLUME = 0.4
 
-# Battle entry animation. Trail spacing is deliberately based on the largest
-# supported ship rather than the current ship so every entry uses one path
-# cadence and adjacent silhouettes cannot overlap.
+# Battle entry animation.
 ENTRY_TRAIL_SILHOUETTES = 12
 ENTRY_TRAIL_SPACING = MAX_SHIP_SIZE + 5
 ENTRY_TRAIL_STAGGER_FRAMES = 2
 ENTRY_TRAIL_FADE_FRAMES = 12
+PKUNK_REBIRTH_TRAIL_GAP = 5
+PKUNK_REBIRTH_TRAIL_ANGLES = (45, 135, 225, 315)
+PKUNK_REBIRTH_PAUSE_FRAMES = FPS
 
 #Projectiles
 PROJ_LIFE_SCALE = 1

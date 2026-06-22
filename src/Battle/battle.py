@@ -86,6 +86,8 @@ class BattleSimulation:
         self.key_states = self._initial_key_states()
         self.frame_id = 0
         self.aftermath: battle_aftermath.AftermathState | None = None
+        self.pending_rebirths = set()
+        self.rebirth_pause_start_frames = {}
         self.entry_animations_enabled = screen is not None
         self.entry: EntryState | None = (
             start_entry(
@@ -238,6 +240,14 @@ class BattleSimulation:
             ship for ship in (self.player1, self.player2)
             if ship.current_hp <= 0 and ship.currently_alive
         ]
+        reborn_ships = [
+            ship for ship in newly_dead
+            if self._attempt_rebirth(ship)
+        ]
+        if reborn_ships:
+            if not hasattr(self, "pending_rebirths"):
+                self.pending_rebirths = set()
+            self.pending_rebirths.update(reborn_ships)
         if newly_dead:
             self.aftermath = battle_aftermath.start_or_update_aftermath(
                 self.aftermath,
@@ -250,6 +260,15 @@ class BattleSimulation:
                 audio,
                 getattr(self, "rng", random),
             )
+            permanent_deaths = [
+                ship for ship in newly_dead
+                if ship not in getattr(self, "pending_rebirths", ())
+            ]
+            winner = self.winner() if permanent_deaths else None
+            if winner is not None:
+                on_battle_won = getattr(winner, "on_battle_won", None)
+                if on_battle_won is not None:
+                    on_battle_won()
 
         if self.aftermath is None:
             return
@@ -262,14 +281,119 @@ class BattleSimulation:
             self.frame_id,
             self.sound_enabled,
             audio,
+            getattr(self, "pending_rebirths", ()),
         )
+        self._complete_ready_rebirths()
 
-        if battle_aftermath.aftermath_ready_for_selection(
-            self.aftermath,
-            self.frame_id,
-            self.sound_enabled,
+        if self.aftermath is None:
+            return
+
+        if (
+            not getattr(self, "pending_rebirths", ())
+            and battle_aftermath.aftermath_ready_for_selection(
+                self.aftermath,
+                self.frame_id,
+                self.sound_enabled,
+            )
         ):
             self.needs_selection = True
+
+    @staticmethod
+    def _attempt_rebirth(ship):
+        attempt_rebirth = getattr(ship, "attempt_rebirth", None)
+        return attempt_rebirth is not None and attempt_rebirth()
+
+    def _complete_ready_rebirths(self):
+        pending_rebirths = getattr(self, "pending_rebirths", set())
+        if not pending_rebirths or self.aftermath is None:
+            return
+
+        death_animation_finished = [
+            ship for ship in (self.player1, self.player2)
+            if (
+                ship in pending_rebirths
+                and ship not in self.aftermath.ships_pending_hide
+            )
+        ]
+        if not hasattr(self, "rebirth_pause_start_frames"):
+            self.rebirth_pause_start_frames = {}
+        for ship in death_animation_finished:
+            self.rebirth_pause_start_frames.setdefault(
+                ship,
+                self.aftermath.death_sound_end_frames.get(
+                    ship, self.frame_id
+                ),
+            )
+
+        ready = [
+            ship for ship in death_animation_finished
+            if (
+                self.frame_id
+                >= self.rebirth_pause_start_frames[ship]
+                + const.PKUNK_REBIRTH_PAUSE_FRAMES
+            )
+        ]
+        if not ready:
+            return
+
+        for ship in ready:
+            ship.complete_rebirth()
+        pending_rebirths.difference_update(ready)
+        for ship in ready:
+            self.rebirth_pause_start_frames.pop(ship, None)
+        self._reenter_reborn_ships(ready)
+        self.world.add_all(ready)
+        self.player1.opponent = self.player2
+        self.player2.opponent = self.player1
+
+        living_ships = [
+            ship for ship in (self.player1, self.player2)
+            if ship.currently_alive and ship.current_hp > 0
+        ]
+        if len(living_ships) == 2:
+            self.aftermath = None
+            self.audio.start_battle_music()
+        elif len(living_ships) == 1:
+            on_battle_won = getattr(living_ships[0], "on_battle_won", None)
+            if on_battle_won is not None:
+                on_battle_won()
+
+    def _reenter_reborn_ships(self, ships):
+        if len(ships) == 2:
+            positions = random_ship_positions(self.rng)
+        else:
+            ship = ships[0]
+            opponent = self.player2 if ship is self.player1 else self.player1
+            positions = (random_position_away_from(opponent.position, self.rng),)
+
+        for ship, position in zip(ships, positions):
+            ship.initialize_in_battle(
+                position,
+                self.rng.randint(0, const.SHIP_DIRECTIONS - 1),
+            )
+            ship.current_hp = ship.max_hp
+            ship.currently_alive = True
+            reset_ship_controls(ship)
+
+        if not self.entry_animations_enabled:
+            return
+
+        entering_ships = list(ships)
+        diagonal_trail_ships = set(ships)
+        if self.entry is not None:
+            entering_ships = [
+                *self.entry.entering_ships,
+                *entering_ships,
+            ]
+            diagonal_trail_ships.update(self.entry.diagonal_trail_ships)
+            finish_entry(self.entry)
+        self.entry = start_entry(
+            tuple(dict.fromkeys(entering_ships)),
+            self.player1,
+            self.player2,
+            self.frame_id,
+            diagonal_trail_ships=diagonal_trail_ships,
+        )
 
     def select_next_round(self, selected):
         if not selected or not all(selected):
@@ -319,6 +443,8 @@ class BattleSimulation:
         }
 
     def winner(self):
+        if getattr(self, "pending_rebirths", None):
+            return None
         living = [
             ship for ship in (self.player1, self.player2)
             if ship.currently_alive and ship.current_hp > 0

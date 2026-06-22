@@ -38,6 +38,7 @@ class AftermathState:
     ditty_started: bool = False
     tie_break_ship: SpaceShip | None = None
     choose_second_player: int | None = None
+    death_sound_end_frames: dict[SpaceShip, int] = field(default_factory=dict)
 
 
 def start_or_update_aftermath(
@@ -141,6 +142,7 @@ def update_aftermath(
     frame_id,
     sound_enabled=True,
     audio_service=None,
+    pending_rebirths=(),
 ):
     audio = (
         audio_service
@@ -163,7 +165,10 @@ def update_aftermath(
         world.add(effect)
         if item.is_final:
             with use_audio_service(audio):
-                BattleEffect.play_ship_death()
+                sound_frames = BattleEffect.play_ship_death()
+            aftermath.death_sound_end_frames[item.ship] = (
+                frame_id + sound_frames
+            )
             hide_dead_ship(item.ship, world)
             aftermath.ships_pending_hide.discard(item.ship)
 
@@ -175,6 +180,8 @@ def update_aftermath(
         frame_id - aftermath.started_frame
         >= const.POST_DEATH_ANIMATION_VIEW_FRAMES
     )
+    if pending_rebirths:
+        return
     if len(living_ships) == 1 and not aftermath.ditty_started and death_view_done:
         if audio_service is None and sound_enabled:
             play_victory_ditty(living_ships[0])

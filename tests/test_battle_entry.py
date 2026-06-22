@@ -17,6 +17,7 @@ from src.Battle.battle_entry import (
     entry_complete,
     entry_duration_frames,
     finish_entry,
+    pkunk_rebirth_silhouette_lines,
     silhouette_color,
     silhouette_positions,
     start_entry,
@@ -35,6 +36,7 @@ class Ship:
         self.currently_alive = True
         self.current_hp = 1
         self.trackable = True
+        self.size = [80, 60]
         self.processed_frames = []
         self.update_count = 0
 
@@ -51,9 +53,8 @@ class Ship:
 
 
 class BattleEntryAnimationTests(unittest.TestCase):
-    def test_trail_runs_from_farthest_to_nearest_behind_heading(self):
+    def test_standard_trail_runs_from_farthest_to_nearest_behind_heading(self):
         ship = Ship([1000, 1000], 90)
-
         positions = silhouette_positions(ship)
 
         self.assertEqual(len(positions), 12)
@@ -69,19 +70,35 @@ class BattleEntryAnimationTests(unittest.TestCase):
                 1000,
             ),
         )
-        self.assertEqual(
-            positions[-1],
-            (1000, 1000),
-        )
-        distances = [
-            (positions[index + 1][0] - positions[index][0])
-            % const.ARENA_SIZE
-            for index in range(len(positions) - 1)
-        ]
-        self.assertTrue(all(
-            distance == const.ENTRY_TRAIL_SPACING
-            for distance in distances
-        ))
+        self.assertEqual(positions[-1], (1000, 1000))
+
+    def test_pkunk_rebirth_has_four_close_diagonal_trails(self):
+        ship = Ship([1000, 1000], 0)
+        lines = pkunk_rebirth_silhouette_lines(ship)
+
+        self.assertEqual(len(lines), 4)
+        self.assertTrue(all(len(line) == 12 for line in lines))
+        self.assertTrue(all(line[-1] == (1000, 1000) for line in lines))
+        for line in lines:
+            for first, second in zip(line, line[1:]):
+                dx = (second[0] - first[0] + const.ARENA_SIZE / 2) \
+                    % const.ARENA_SIZE - const.ARENA_SIZE / 2
+                dy = (second[1] - first[1] + const.ARENA_SIZE / 2) \
+                    % const.ARENA_SIZE - const.ARENA_SIZE / 2
+                self.assertAlmostEqual(
+                    (dx ** 2 + dy ** 2) ** 0.5,
+                    max(ship.size) + const.PKUNK_REBIRTH_TRAIL_GAP,
+                )
+
+        first_points = [line[0] for line in lines]
+        self.assertLess(first_points[0][0], 1000)
+        self.assertGreater(first_points[0][1], 1000)
+        self.assertLess(first_points[1][0], 1000)
+        self.assertLess(first_points[1][1], 1000)
+        self.assertGreater(first_points[2][0], 1000)
+        self.assertLess(first_points[2][1], 1000)
+        self.assertGreater(first_points[3][0], 1000)
+        self.assertGreater(first_points[3][1], 1000)
 
     def test_trail_wraps_around_the_arena(self):
         ship = Ship([10, 10], 90)
@@ -128,6 +145,23 @@ class BattleEntryAnimationTests(unittest.TestCase):
         self.assertEqual(len(visible), 2)
         self.assertEqual(visible[0][0], arrival_positions[0])
         self.assertEqual(visible[1][0], arrival_positions[1])
+
+    def test_only_marked_entries_use_four_trails(self):
+        standard = Ship([1000, 1000], 0)
+        reborn_pkunk = Ship([2000, 2000], 0)
+        animation = start_entry(
+            (standard, reborn_pkunk),
+            standard,
+            reborn_pkunk,
+            frame_id=0,
+            diagonal_trail_ships=(reborn_pkunk,),
+        )
+
+        self.assertEqual(len(visible_silhouettes(animation, standard, 0)), 1)
+        self.assertEqual(
+            len(visible_silhouettes(animation, reborn_pkunk, 0)),
+            4,
+        )
 
     def test_animation_completes_after_full_trail_duration(self):
         ship = Ship([0, 0], 0)

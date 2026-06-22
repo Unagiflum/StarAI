@@ -72,6 +72,8 @@ class ShipDefinition(_DefinitionMapping):
     fade_duration: int = 8
     saw_count: int = 8
     gas_count: int = 16
+    initial_rebirth_chance: float | None = None
+    rebirth_chance_decay: float | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -100,6 +102,8 @@ class ShipDefinition(_DefinitionMapping):
         "FADE_DURATION": "fade_duration",
         "SAW_COUNT": "saw_count",
         "GAS_COUNT": "gas_count",
+        "initial_rebirth_chance": "initial_rebirth_chance",
+        "rebirth_chance_decay": "rebirth_chance_decay",
     }
 
 
@@ -275,7 +279,10 @@ def parse_ship_definition(name, data):
     kind = "Ship"
     data = _entry_mapping(kind, name, data)
     allowed = set(ShipDefinition._json_key_to_attribute)
-    required = allowed - {"sprite_scale", "FADE_DURATION", "SAW_COUNT", "GAS_COUNT"}
+    required = allowed - {
+        "sprite_scale", "FADE_DURATION", "SAW_COUNT", "GAS_COUNT",
+        "initial_rebirth_chance", "rebirth_chance_decay",
+    }
     _check_keys(kind, name, data, allowed, required)
 
     string_fields = ("ship_type", "sprite_path")
@@ -305,6 +312,12 @@ def parse_ship_definition(name, data):
     )
     values["saw_count"] = _optional_typed(kind, name, data, "SAW_COUNT", int, 8)
     values["gas_count"] = _optional_typed(kind, name, data, "GAS_COUNT", int, 16)
+    values["initial_rebirth_chance"] = _optional_typed(
+        kind, name, data, "initial_rebirth_chance", float, None
+    )
+    values["rebirth_chance_decay"] = _optional_typed(
+        kind, name, data, "rebirth_chance_decay", float, None
+    )
     values["_source_keys"] = tuple(data)
 
     if values["start_hp"] > values["max_hp"]:
@@ -313,6 +326,20 @@ def parse_ship_definition(name, data):
         raise CatalogValidationError(f"Ship '{name}' start_energy exceeds max_energy")
     if values["sprite_scale"] <= 0:
         raise CatalogValidationError(f"Ship '{name}' sprite_scale must be positive")
+    if (
+        values["initial_rebirth_chance"] is not None
+        and not 0 <= values["initial_rebirth_chance"] <= 1
+    ):
+        raise CatalogValidationError(
+            f"Ship '{name}' initial_rebirth_chance must be between 0 and 1"
+        )
+    if (
+        values["rebirth_chance_decay"] is not None
+        and not 0 <= values["rebirth_chance_decay"] <= 1
+    ):
+        raise CatalogValidationError(
+            f"Ship '{name}' rebirth_chance_decay must be between 0 and 1"
+        )
     return ShipDefinition(**values)
 
 

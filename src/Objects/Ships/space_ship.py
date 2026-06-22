@@ -73,7 +73,10 @@ class SpaceShip(PlayerObject):
         self.a3_wait = ship_definition.a3_wait
         self.mass = ship_definition.mass
         self.inertia = ship_definition.inertia
+        self.initial_rebirth_chance = ship_definition.initial_rebirth_chance
+        self.rebirth_chance_decay = ship_definition.rebirth_chance_decay
         self.collision_velocity = [0.0, 0.0]
+        self.accumulated_impulses = [0.0, 0.0]
         self.planet_contacts = set()
 
         self.current_hp = ship_definition.start_hp
@@ -102,6 +105,7 @@ class SpaceShip(PlayerObject):
         self.rotation = self.heading * const.TURN_ANGLE
         self.velocity = [0.0, 0.0]
         self.collision_velocity = [0.0, 0.0]
+        self.accumulated_impulses = [0.0, 0.0]
         self.planet_contacts.clear()
         self.thrust_timer = 0
         self.turn_timer = 0

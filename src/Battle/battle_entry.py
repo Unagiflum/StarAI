@@ -1,6 +1,6 @@
 """State, geometry, and rendering for ships entering a battle round."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 
 import pygame
@@ -36,27 +36,58 @@ def silhouette_color(age):
 
 
 def silhouette_positions(ship, arrival_position=None):
-    """Return trail positions ordered from farthest to nearest."""
+    """Return the standard trail ordered from farthest to nearest."""
     arrival_position = arrival_position or ship.position
-    angle = math.radians(ship.rotation)
-    forward_x = math.sin(angle)
-    forward_y = -math.cos(angle)
-    if abs(forward_x) < 1e-12:
-        forward_x = 0.0
-    if abs(forward_y) < 1e-12:
-        forward_y = 0.0
+    direction_x, direction_y = _direction(ship.rotation)
     count = const.ENTRY_TRAIL_SILHOUETTES
 
     return tuple(
         (
-            (arrival_position[0] - forward_x * distance) % const.ARENA_SIZE,
-            (arrival_position[1] - forward_y * distance) % const.ARENA_SIZE,
+            (arrival_position[0] - direction_x * distance) % const.ARENA_SIZE,
+            (arrival_position[1] - direction_y * distance) % const.ARENA_SIZE,
         )
         for distance in (
             const.ENTRY_TRAIL_SPACING * index
             for index in range(count - 1, -1, -1)
         )
     )
+
+
+def pkunk_rebirth_silhouette_lines(ship, arrival_position=None):
+    """Return the Pkunk rebirth's four close diagonal trails."""
+    arrival_position = arrival_position or ship.position
+    count = const.ENTRY_TRAIL_SILHOUETTES
+    spacing = max(ship.size) + const.PKUNK_REBIRTH_TRAIL_GAP
+    distances = tuple(
+        spacing * index for index in range(count - 1, -1, -1)
+    )
+
+    return tuple(
+        tuple(
+            (
+                (arrival_position[0] - direction_x * distance)
+                % const.ARENA_SIZE,
+                (arrival_position[1] - direction_y * distance)
+                % const.ARENA_SIZE,
+            )
+            for distance in distances
+        )
+        for direction_x, direction_y in (
+            _direction(ship.rotation + angle)
+            for angle in const.PKUNK_REBIRTH_TRAIL_ANGLES
+        )
+    )
+
+
+def _direction(rotation):
+    angle = math.radians(rotation)
+    direction_x = math.sin(angle)
+    direction_y = -math.cos(angle)
+    if abs(direction_x) < 1e-12:
+        direction_x = 0.0
+    if abs(direction_y) < 1e-12:
+        direction_y = 0.0
+    return direction_x, direction_y
 
 
 @dataclass(frozen=True)
@@ -71,9 +102,17 @@ class EntryState:
     arrival_targets: dict
     camera_targets: tuple
     trackable_states: dict
+    diagonal_trail_ships: frozenset = field(default_factory=frozenset)
 
 
-def start_entry(entering_ships, player1, player2, frame_id):
+def start_entry(
+    entering_ships,
+    player1,
+    player2,
+    frame_id,
+    *,
+    diagonal_trail_ships=(),
+):
     entering_ships = tuple(entering_ships)
     if not entering_ships:
         return None
@@ -100,6 +139,7 @@ def start_entry(entering_ships, player1, player2, frame_id):
         arrival_targets=arrival_targets,
         camera_targets=camera_targets,
         trackable_states=trackable_states,
+        diagonal_trail_ships=frozenset(diagonal_trail_ships),
     )
 
 
@@ -124,17 +164,21 @@ def entry_complete(entry, frame_id):
 def visible_silhouettes(entry, ship, frame_id):
     visible = []
     elapsed = frame_id - entry.started_frame
-    positions = silhouette_positions(ship, entry.arrival_targets[ship])
-    final_index = len(positions) - 1
-    for index, position in enumerate(positions):
+    if ship in entry.diagonal_trail_ships:
+        lines = pkunk_rebirth_silhouette_lines(
+            ship, entry.arrival_targets[ship]
+        )
+    else:
+        lines = (silhouette_positions(ship, entry.arrival_targets[ship]),)
+    for index in range(const.ENTRY_TRAIL_SILHOUETTES):
         age = elapsed - index * const.ENTRY_TRAIL_STAGGER_FRAMES
         color = (
             YELLOW
-            if index == final_index and age >= 0
+            if index == const.ENTRY_TRAIL_SILHOUETTES - 1 and age >= 0
             else silhouette_color(age)
         )
         if color is not None:
-            visible.append((position, color))
+            visible.extend((line[index], color) for line in lines)
     return visible
 
 
