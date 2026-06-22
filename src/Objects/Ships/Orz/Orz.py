@@ -1,7 +1,9 @@
-from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.Orz.A1.OrzA1 import OrzA1
 from src.Objects.Ships.Orz.A2.OrzA2 import OrzA2
+from src.Objects.Ships.space_ship import SpaceShip
+from src.resources import centered_overlay
+
 
 class Orz(SpaceShip):
     action_factories = {1: OrzA1}
@@ -14,6 +16,10 @@ class Orz(SpaceShip):
     @property
     def turret_heading(self):
         return self.turret.absolute_heading
+
+    def initialize_in_battle(self, position, heading):
+        super().initialize_in_battle(position, heading)
+        self.turret.reset()
 
     def plan_action1(self):
         if self.action2_active:
@@ -45,9 +51,8 @@ class Orz(SpaceShip):
     def set_sprite(self):
         key = (self.heading, self.turret_heading)
         if key not in self._turret_composites:
-            sprite = self.sprites[self.heading].copy()
-            turret_sprite = self.turret.get_sprite()
-            turret_rect = turret_sprite.get_rect(center=sprite.get_rect().center)
-            sprite.blit(turret_sprite, turret_rect)
-            self._turret_composites[key] = sprite
+            self._turret_composites[key] = centered_overlay(
+                self.sprites[self.heading],
+                self.turret.get_sprite(),
+            )
         return self._turret_composites[key]

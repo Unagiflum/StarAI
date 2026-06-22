@@ -12,6 +12,7 @@ pygame.init()
 pygame.display.set_mode((1, 1))
 
 import src.const as const
+from src.Battle.battle import initialize_new_round_ships
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ability, create_ship
@@ -117,15 +118,25 @@ class OrzAbilityTests(unittest.TestCase):
         self.assertIs(self.ship.get_collision_mask(), self.ship.masks[self.ship.heading])
         self.assertFalse(ABILITY_DEFINITIONS["OrzA2"].has_sound)
 
-    def test_battle_initialization_retains_winners_turret_orientation(self):
+    def test_new_battle_initialization_resets_turret_forward(self):
         self.ship.turret.relative_heading = 9
         self.ship.initialize_in_battle([100, 200], 12)
 
-        self.assertEqual(self.ship.turret.relative_heading, 9)
-        self.assertEqual(
-            self.ship.turret_heading,
-            (12 + 9) % const.SHIP_DIRECTIONS,
+        self.assertEqual(self.ship.turret.relative_heading, 0)
+        self.assertEqual(self.ship.turret_heading, 12)
+
+    def test_round_transition_retains_preserved_winners_turret_orientation(self):
+        self.ship.turret.relative_heading = 9
+        challenger = create_ship("Earthling", 2)
+
+        initialized = initialize_new_round_ships(
+            [self.ship, challenger],
+            [self.ship],
+            None,
         )
+
+        self.assertEqual(initialized, [challenger])
+        self.assertEqual(self.ship.turret.relative_heading, 9)
 
     def test_holding_a2_suppresses_a1_when_a1_is_then_pressed(self):
         self.ship.set_control_state("action2", True, 10)
@@ -141,9 +152,7 @@ class OrzAbilityTests(unittest.TestCase):
     def test_menu_icon_includes_forward_turret(self):
         resources = AssetManager()
         icon = resources.menu_ship_sprite("Orz")
-        ship = resources._image(
-            const.source_path("Objects/Ships/Orz/Orz00.png")
-        )
+        ship = resources.ship("Orz").sprites[0]
 
         self.assertEqual(icon.get_size(), ship.get_size())
         self.assertNotEqual(

@@ -194,6 +194,7 @@
         "mass": 4,
         "inertia": true,
         "sprite_path": "Objects/Ships/Orz/",
+        "menu_overlay_path": "Objects/Ships/Orz/A2/OrzA200.png",
         "sprite_scale": 1.0
     },
     "Pkunk": {

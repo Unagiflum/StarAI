@@ -49,6 +49,13 @@ class ImageAssets:
     mask: pygame.mask.Mask | None = None
 
 
+def centered_overlay(base, overlay):
+    """Return a copy of ``base`` with ``overlay`` aligned by center."""
+    composite = base.copy()
+    composite.blit(overlay, overlay.get_rect(center=composite.get_rect().center))
+    return composite
+
+
 class AssetManager:
     """Load immutable assets once without owning gameplay or animation state."""
 
@@ -296,15 +303,14 @@ class AssetManager:
 
     def menu_ship_sprite(self, ship_name):
         if ship_name not in self._menu_ship_sprites:
-            resource_dir = const.source_path(SHIP_DEFINITIONS[ship_name].sprite_path)
+            definition = SHIP_DEFINITIONS[ship_name]
+            resource_dir = const.source_path(definition.sprite_path)
             sprite = self._image(
                 resource_dir / f"{ship_name}00.png"
             )
-            if ship_name == "Orz":
-                turret = self._image(resource_dir / "A2" / "OrzA200.png")
-                turret_rect = turret.get_rect(center=sprite.get_rect().center)
-                sprite = sprite.copy()
-                sprite.blit(turret, turret_rect)
+            if definition.menu_overlay_path is not None:
+                overlay = self._image(definition.menu_overlay_path)
+                sprite = centered_overlay(sprite, overlay)
             self._menu_ship_sprites[ship_name] = sprite
         return self._menu_ship_sprites[ship_name]
 

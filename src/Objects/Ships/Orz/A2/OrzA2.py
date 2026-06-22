@@ -1,17 +1,15 @@
 import src.const as const
-from src.Objects.Ships.ability import Ability
 
 
-class OrzA2(Ability):
+class OrzA2:
     """Persistent visual and direction state for the Orz turret."""
 
     def __init__(self, parent):
-        super().__init__("OrzA2", parent)
+        self.name = "OrzA2"
         self.relative_heading = 0
-        self.can_move = False
-        self.can_collide = False
-        self.can_die = False
-        self.can_expire = False
+        self.parent = parent
+        self.resources = parent.resources
+        self.sprites = self.resources.ability(self.name).sprites
 
     @property
     def absolute_heading(self):
@@ -28,13 +26,4 @@ class OrzA2(Ability):
         ) % const.SHIP_DIRECTIONS
 
     def get_sprite(self):
-        self.heading = self.absolute_heading
-        return self.sprites[self.heading]
-
-    def update(self):
-        # The controller is owned and rendered by the parent ship rather than
-        # participating as an independent battle object.
-        return False
-
-    def draw(self, screen, scale_factor, translation):
-        return None
+        return self.sprites[self.absolute_heading]

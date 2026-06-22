@@ -69,6 +69,7 @@ class ShipDefinition(_DefinitionMapping):
     inertia: bool
     sprite_path: str
     sprite_scale: float = 1.0
+    menu_overlay_path: str | None = None
     fade_duration: int = 8
     saw_count: int = 8
     gas_count: int = 16
@@ -99,6 +100,7 @@ class ShipDefinition(_DefinitionMapping):
         "inertia": "inertia",
         "sprite_path": "sprite_path",
         "sprite_scale": "sprite_scale",
+        "menu_overlay_path": "menu_overlay_path",
         "FADE_DURATION": "fade_duration",
         "SAW_COUNT": "saw_count",
         "GAS_COUNT": "gas_count",
@@ -284,7 +286,8 @@ def parse_ship_definition(name, data):
     data = _entry_mapping(kind, name, data)
     allowed = set(ShipDefinition._json_key_to_attribute)
     required = allowed - {
-        "sprite_scale", "FADE_DURATION", "SAW_COUNT", "GAS_COUNT",
+        "sprite_scale", "menu_overlay_path", "FADE_DURATION", "SAW_COUNT",
+        "GAS_COUNT",
         "initial_rebirth_chance", "rebirth_chance_decay",
     }
     _check_keys(kind, name, data, allowed, required)
@@ -310,6 +313,9 @@ def parse_ship_definition(name, data):
     values["inertia"] = _typed(kind, name, "inertia", data["inertia"], bool)
     values["sprite_scale"] = _optional_typed(
         kind, name, data, "sprite_scale", float, 1.0
+    )
+    values["menu_overlay_path"] = _optional_typed(
+        kind, name, data, "menu_overlay_path", str, None
     )
     values["fade_duration"] = _optional_typed(
         kind, name, data, "FADE_DURATION", int, 8

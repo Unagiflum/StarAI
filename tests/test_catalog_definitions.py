@@ -63,6 +63,7 @@ class CatalogDefinitionTests(unittest.TestCase):
         ship_data.pop("sprite_scale")
         ship = parse_ship_definition("TestShip", ship_data)
         self.assertEqual(ship.sprite_scale, 1.0)
+        self.assertIsNone(ship.menu_overlay_path)
         self.assertEqual(ship.fade_duration, 8)
         self.assertEqual(ship.saw_count, 8)
         self.assertEqual(ship.gas_count, 16)
