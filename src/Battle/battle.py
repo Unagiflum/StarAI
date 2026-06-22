@@ -353,8 +353,9 @@ class BattleSimulation:
         if len(living_ships) == 2:
             self.aftermath = None
             self.audio.start_battle_music()
-        elif len(living_ships) == 1:
-            on_battle_won = getattr(living_ships[0], "on_battle_won", None)
+        else:
+            winner = self.winner()
+            on_battle_won = getattr(winner, "on_battle_won", None)
             if on_battle_won is not None:
                 on_battle_won()
 

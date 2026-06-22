@@ -14,6 +14,7 @@ pygame.display.set_mode((1, 1))
 
 import src.const as const
 from src.Battle.battle import BattleSimulation
+from src.Battle.battle_aftermath import AftermathState
 from src.Battle.world import World
 from src.Objects.Ships.registry import create_ship
 from src.audio import RecordingAudioService
@@ -143,6 +144,40 @@ class PkunkRebirthTests(unittest.TestCase):
 
         self.assertEqual(ship.rebirth_count, 0)
         self.assertEqual(ship.current_rebirth_chance, 0.75)
+
+    def test_staggered_pending_rebirth_does_not_count_as_a_win(self):
+        first = create_ship("Pkunk", 1)
+        second = create_ship("Pkunk", 2)
+        first.rebirth_count = 2
+        second.rebirth_count = 1
+        first.current_hp = 0
+        second.current_hp = 0
+        first.currently_alive = False
+        second.currently_alive = False
+
+        simulation = BattleSimulation.__new__(BattleSimulation)
+        simulation.player1 = first
+        simulation.player2 = second
+        simulation.world = World([])
+        simulation.frame_id = const.PKUNK_REBIRTH_PAUSE_FRAMES
+        simulation.aftermath = AftermathState(started_frame=0, latest_death_frame=0)
+        simulation.pending_rebirths = {first, second}
+        simulation.rebirth_pause_start_frames = {
+            first: 0,
+            second: simulation.frame_id,
+        }
+        simulation.entry = None
+        simulation.entry_animations_enabled = False
+        simulation.audio = RecordingAudioService()
+        simulation.rng = mock.Mock()
+        simulation.rng.randint.return_value = 0
+        simulation.rng.uniform.return_value = 0
+
+        simulation._complete_ready_rebirths()
+
+        self.assertTrue(first.currently_alive)
+        self.assertEqual(first.rebirth_count, 2)
+        self.assertEqual(simulation.pending_rebirths, {second})
 
 
 if __name__ == "__main__":
