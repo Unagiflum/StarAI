@@ -92,6 +92,7 @@ class SpaceShip(PlayerObject):
         self.action3_timer = 0
 
         self.can_die = True
+        self._active_damage_shield = None
         self.cloaked = False
         self.trackable = True
         self.input_pressed_frames = {}
@@ -247,6 +248,30 @@ class SpaceShip(PlayerObject):
 
     def is_alive(self):
         return self.currently_alive and self.current_hp > 0
+
+    def damage_shield_is_active(self):
+        shield = getattr(self, "_active_damage_shield", None)
+        return bool(
+            shield is not None
+            and shield.currently_alive
+            and shield.blocks_damage
+        )
+
+    def take_damage(self, damage, *, shieldable=True):
+        """Apply hull/crew damage and return the amount actually taken.
+
+        Non-damage effects should not use this method. Exceptional damage that
+        explicitly bypasses shields can pass ``shieldable=False``.
+        """
+        damage = max(0, damage)
+        if damage <= 0 or self.current_hp <= 0:
+            return 0
+        if shieldable and self.damage_shield_is_active():
+            return 0
+
+        previous_hp = self.current_hp
+        self.current_hp = max(0, self.current_hp - damage)
+        return previous_hp - self.current_hp
 
     def update(self):
         self.previous_position = self.position.copy()

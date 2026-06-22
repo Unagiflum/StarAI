@@ -27,6 +27,19 @@ from src.toroidal import view_center_and_size, wrapped_delta
 PLANET_CONTACT_EXIT_MARGIN = 4.0
 
 
+def damage_ship(ship, damage, *, shieldable=True):
+    """Route combat damage through a ship's defenses.
+
+    The fallback keeps lightweight collision test doubles compatible.
+    """
+    take_damage = getattr(ship, "take_damage", None)
+    if take_damage is not None:
+        return take_damage(damage, shieldable=shieldable)
+    previous_hp = ship.current_hp
+    ship.current_hp = max(0, ship.current_hp - max(0, damage))
+    return previous_hp - ship.current_hp
+
+
 def area_damage_target_is_eligible(source, target, impact_policies):
     capabilities = target.area_damage_capabilities
     return (
@@ -41,7 +54,7 @@ def area_damage_target_is_eligible(source, target, impact_policies):
 def area_damage_impacts_ship(target, effects, delta, distance, damage):
     if target.current_hp <= 0:
         return
-    target.current_hp = max(0, target.current_hp - damage)
+    damage_ship(target, damage)
 
 
 def area_damage_impacts_ability(
@@ -108,7 +121,7 @@ def apply_ship_impact_damage(ship, damage):
     damage = max(0.0, damage)
     if damage <= 0 or ship.current_hp <= 0:
         return
-    ship.current_hp = max(0, ship.current_hp - damage)
+    damage_ship(ship, damage)
     BattleEffect.play_boom(damage)
 
 
@@ -151,7 +164,7 @@ def ship_impacts_planet(ship, planet, effects, environment):
         stop_at_static_body(ship, planet, normal, overlap)
     if new_contact and collided_while_approaching and ship.current_hp > 0:
         damage = max(1, math.ceil(ship.current_hp * 0.15))
-        ship.current_hp = max(0, ship.current_hp - damage)
+        damage_ship(ship, damage)
         BattleEffect.play_boom(damage)
     return True
 
@@ -290,7 +303,7 @@ def projectile_impacts_ship(projectile, ship, effects, environment):
         return False
 
     damage = projectile.current_damage
-    ship.current_hp = max(0, ship.current_hp - damage)
+    damage_ship(ship, damage)
     projectile.on_ship_impact(ship)
     BattleEffect.play_boom(damage)
     destroy_projectile(
@@ -434,7 +447,7 @@ def fighter_impacts_ship(fighter, ship, effects, environment):
         fighter.recover_with_parent()
     else:
         damage = fighter.current_damage
-        ship.current_hp = max(0, ship.current_hp - damage)
+        damage_ship(ship, damage)
         BattleEffect.play_boom(damage)
         destroy_projectile(fighter, effects, normal, damage, contact)
     return True
@@ -531,7 +544,7 @@ def resolve_laser_hit(
 
 
 def laser_impacts_ship(target, effects, normal, damage, contact):
-    target.current_hp = max(0, target.current_hp - damage)
+    damage_ship(target, damage)
 
 
 def laser_impacts_ability(target, effects, normal, damage, contact):

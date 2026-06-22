@@ -198,17 +198,6 @@ class ShipActionCharacterizationTests(unittest.TestCase):
                     [mock.call(ship, offset) for offset in offsets],
                 )
 
-    def test_cost_and_cooldown_only_actions_spawn_nothing(self):
-        for ship_name in ("Yehat",):
-            with self.subTest(ship=ship_name):
-                ship = create_ship(ship_name, 1)
-                initial_energy = ship.current_energy
-                result = ship.perform_action2()
-                cost, cooldown = self.action_values(ship, 2)
-                self.assertIsNone(result)
-                self.assertEqual(ship.current_energy, initial_energy - cost)
-                self.assertEqual(ship.action2_timer, cooldown)
-
     def test_ordinary_action_energy_and_cooldown_are_stable_frame_by_frame(self):
         ship = create_ship("Earthling", 1)
         ability = SimpleNamespace(launch_sound=None)

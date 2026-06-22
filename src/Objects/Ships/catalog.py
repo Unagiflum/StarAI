@@ -425,7 +425,9 @@ def parse_ability_definition(name, data):
         values["laser_color"] = None
     values["_source_keys"] = tuple(data)
 
-    if values["ability_type"] not in {"area", "fighter", "laser", "other", "projectile"}:
+    if values["ability_type"] not in {
+        "area", "fighter", "laser", "other", "projectile", "shield"
+    }:
         raise CatalogValidationError(f"Ability '{name}' has unsupported type")
     if values["action"] not in {"A1", "A2", "A3"}:
         raise CatalogValidationError(f"Ability '{name}' has unsupported action")

@@ -236,7 +236,13 @@ class Ability(PlayerObject):
             return False
 
         if target.current_hp is not None:
-            target.current_hp = max(0, target.current_hp - self.current_damage)
+            take_damage = getattr(target, "take_damage", None)
+            if take_damage is not None:
+                take_damage(self.current_damage)
+            else:
+                target.current_hp = max(
+                    0, target.current_hp - self.current_damage
+                )
 
         return True
 
