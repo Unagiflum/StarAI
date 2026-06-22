@@ -50,7 +50,7 @@ class BattleEffect(Object):
         return cls(position, frames, frame_delay, scale)
 
     @classmethod
-    def from_blast(cls, position, direction_vector, damage, align_edge=False):
+    def from_blast(cls, position, direction_vector, damage):
         blast_sprites = cls._resources().animation(
             "battle-blasts",
             tuple(BATTLE_ASSET_PATH / f"blast-{i:03d}.png" for i in range(8)),
@@ -58,13 +58,6 @@ class BattleEffect(Object):
 
         index = cls._blast_index(direction_vector)
         scale = cls._blast_scale(damage)
-        if align_edge:
-            position = cls._edge_aligned_position(
-                position,
-                blast_sprites[index],
-                scale,
-                direction_vector
-            )
         return cls(position, [blast_sprites[index]], frame_delay=4, scale=scale)
 
     @classmethod
@@ -138,10 +131,33 @@ class BattleEffect(Object):
         if length == 0:
             return contact_position
 
-        radius = max(sprite.get_width(), sprite.get_height()) * scale / 2
+        nx = dx / length
+        ny = dy / length
+        mask = pygame.mask.from_surface(sprite)
+        bounds = mask.get_bounding_rects()
+        center_x = sprite.get_width() / 2
+        center_y = sprite.get_height() / 2
+        inward_projection = None
+        for rect in bounds:
+            for y in range(rect.top, rect.bottom):
+                for x in range(rect.left, rect.right):
+                    if not mask.get_at((x, y)):
+                        continue
+                    projection = (
+                        (x - center_x) * nx + (y - center_y) * ny
+                    )
+                    if inward_projection is None or projection < inward_projection:
+                        inward_projection = projection
+
+        if inward_projection is None:
+            inward_projection = -(
+                abs(nx) * sprite.get_width()
+                + abs(ny) * sprite.get_height()
+            ) / 2
+        offset = -inward_projection * scale
         return [
-            (contact_position[0] + dx / length * radius) % const.ARENA_SIZE,
-            (contact_position[1] + dy / length * radius) % const.ARENA_SIZE,
+            (contact_position[0] + nx * offset) % const.ARENA_SIZE,
+            (contact_position[1] + ny * offset) % const.ARENA_SIZE,
         ]
 
     def update(self):

@@ -54,7 +54,9 @@ def sample_laser_mask_hit(start, end, target, target_mask):
     dy = end[1] - start[1]
     steps = max(1, int(math.hypot(dx, dy) / 8))
     target_center = nearest_position(target.position, start)
-    target_size = collision_size(target)
+    # Pixel coordinates are relative to the full mask canvas. Gameplay bounds
+    # may intentionally exclude transparent sprite padding.
+    target_size = target_mask.get_size()
     left = target_center[0] - target_size[0] / 2
     top = target_center[1] - target_size[1] / 2
 
@@ -95,8 +97,8 @@ def objects_overlap(obj, other, overlap):
     if obj_mask is None or other_mask is None:
         return True
 
-    obj_size = collision_size(obj)
-    other_size = collision_size(other)
+    obj_size = obj_mask.get_size()
+    other_size = other_mask.get_size()
     delta = wrapped_delta(other.position, obj.position)
     offset = (
         int(round(-delta[0] + obj_size[0] / 2 - other_size[0] / 2)),
@@ -189,7 +191,10 @@ def sweep_step_size(obj, other):
 
 def estimated_impact(obj, other):
     normal, _, _ = collision_info(obj, other)
-    return contact_point(other, normal), normal
+    contact = mask_overlap_contact(
+        obj, other, obj.position, other.position
+    )
+    return contact or contact_point(other, normal), normal
 
 
 def estimated_impact_at_positions(
@@ -201,19 +206,92 @@ def estimated_impact_at_positions(
         normal = [1.0, 0.0]
     else:
         normal = [delta[0] / distance, delta[1] / distance]
+    contact = mask_overlap_contact(
+        obj, other, obj_position, other_position
+    )
+    return contact or contact_point_at_position(
+        other, normal, other_position
+    ), normal
+
+
+def mask_overlap_contact(obj, other, obj_position, other_position):
+    """Return the world-space centroid of the objects' opaque overlap."""
+    obj_mask = get_collision_mask(obj)
+    other_mask = get_collision_mask(other)
+    if obj_mask is None or other_mask is None:
+        return None
+
+    obj_size = obj_mask.get_size()
+    other_size = other_mask.get_size()
+    delta = wrapped_delta(other_position, obj_position)
+    offset = (
+        int(round(-delta[0] + obj_size[0] / 2 - other_size[0] / 2)),
+        int(round(-delta[1] + obj_size[1] / 2 - other_size[1] / 2)),
+    )
+    overlap = obj_mask.overlap_mask(other_mask, offset)
+    if overlap.count() == 0:
+        return None
+
+    centroid_x, centroid_y = overlap.centroid()
     return [
-        (other_position[0] + normal[0] * radius(other)) % const.ARENA_SIZE,
-        (other_position[1] + normal[1] * radius(other)) % const.ARENA_SIZE,
-    ], normal
+        (obj_position[0] + centroid_x - obj_size[0] / 2)
+        % const.ARENA_SIZE,
+        (obj_position[1] + centroid_y - obj_size[1] / 2)
+        % const.ARENA_SIZE,
+    ]
 
 
 def contact_point(target, normal):
+    return contact_point_at_position(target, normal, target.position)
+
+
+def contact_point_at_position(target, normal, target_position):
+    mask = get_collision_mask(target)
+    if mask is not None:
+        offset = opaque_mask_contact_offset(mask, normal)
+        if offset is not None:
+            return [
+                (target_position[0] + offset[0]) % const.ARENA_SIZE,
+                (target_position[1] + offset[1]) % const.ARENA_SIZE,
+            ]
+
     return [
-        (target.position[0] + normal[0] * radius(target))
+        (target_position[0] + normal[0] * radius(target))
         % const.ARENA_SIZE,
-        (target.position[1] + normal[1] * radius(target))
+        (target_position[1] + normal[1] * radius(target))
         % const.ARENA_SIZE,
     ]
+
+
+def opaque_mask_contact_offset(mask, normal):
+    """Find the outermost opaque pixel nearest the ray along ``normal``."""
+    length = math.hypot(normal[0], normal[1])
+    bounds = mask.get_bounding_rects()
+    if length == 0 or not bounds:
+        return None
+
+    nx = normal[0] / length
+    ny = normal[1] / length
+    center_x = mask.get_size()[0] / 2
+    center_y = mask.get_size()[1] / 2
+    best = None
+
+    for rect in bounds:
+        for y in range(rect.top, rect.bottom):
+            for x in range(rect.left, rect.right):
+                if not mask.get_at((x, y)):
+                    continue
+                offset_x = x - center_x
+                offset_y = y - center_y
+                forward = offset_x * nx + offset_y * ny
+                if forward < 0:
+                    continue
+                perpendicular = abs(offset_x * ny - offset_y * nx)
+                score = (perpendicular, -forward)
+                if best is None or score < best[0]:
+                    best = (score, [offset_x, offset_y])
+
+    return best[1] if best is not None else None
 
 
 def objects_overlap_at_positions(
@@ -232,8 +310,8 @@ def objects_overlap_at_positions(
     if obj_mask is None or other_mask is None:
         return True
 
-    obj_size = collision_size(obj)
-    other_size = collision_size(other)
+    obj_size = obj_mask.get_size()
+    other_size = other_mask.get_size()
     offset = (
         int(round(-delta[0] + obj_size[0] / 2 - other_size[0] / 2)),
         int(round(-delta[1] + obj_size[1] / 2 - other_size[1] / 2)),
@@ -251,12 +329,13 @@ def get_collision_mask(obj):
 
 
 def collision_size(obj):
-    mask = get_collision_mask(obj)
-    if mask is not None:
-        return mask.get_size()
     if isinstance(obj, Planet):
         return [obj.diameter, obj.diameter]
-    return obj.size
+    size = getattr(obj, "size", None)
+    if size is not None:
+        return size
+    mask = get_collision_mask(obj)
+    return mask.get_size() if mask is not None else [0, 0]
 
 
 def mask_broadphase_overlap(obj, other):

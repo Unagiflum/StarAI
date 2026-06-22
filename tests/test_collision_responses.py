@@ -99,7 +99,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         self.assertFalse(fighter.currently_alive)
         self.assertEqual(fighter.current_hp, 0)
         self.assertEqual(effects, [blast])
-        from_blast.assert_called_once_with(fighter.position, [0.0, 1.0], 2, align_edge=False)
+        from_blast.assert_called_once_with(fighter.position, [0.0, 1.0], 2)
 
     def test_area_damage_destroys_asteroid_without_hp_state(self):
         area = self.make_area_damage([100, 100], lambda distance: 1)
@@ -741,7 +741,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         self.assertEqual(laser.end_position, [140.0, 100.0])
         self.assertTrue(laser.intercepted)
         self.assertEqual(effects, [sentinel_effect])
-        from_blast.assert_called_once_with([140.0, 100.0], [-1.0, 0.0], 2, align_edge=True)
+        from_blast.assert_called_once_with([140.0, 100.0], [-1.0, 0.0], 2)
         play_boom.assert_called_once_with(2)
 
     def test_planet_absorbs_laser_without_damage_state(self):
@@ -919,7 +919,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         self.assertEqual(projectile.current_hp, 0)
         self.assertEqual(effects, [sentinel_effect])
         play_boom.assert_called_once_with(4)
-        from_blast.assert_called_once_with([98.0, 100.0], [-1.0, 0.0], 4, align_edge=True)
+        from_blast.assert_called_once_with([98.0, 100.0], [-1.0, 0.0], 4)
 
     def test_swept_projectile_impact_with_planet_is_not_tunneled(self):
         parent = self.make_ship()
@@ -949,6 +949,6 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         self.assertFalse(asteroid.currently_alive)
         self.assertEqual(effects, [sentinel_effect])
         play_boom.assert_called_once_with(4)
-        from_blast.assert_called_once_with([98.0, 100.0], [-1.0, 0.0], 4, align_edge=True)
+        from_blast.assert_called_once_with([98.0, 100.0], [-1.0, 0.0], 4)
 if __name__ == '__main__':
     unittest.main()

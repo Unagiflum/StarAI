@@ -421,6 +421,17 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertIsNone(ship.perform_action2())
         self.assertEqual(ship.current_energy, initial_energy)
 
+    def test_supox_lateral_thrust_marker_uses_opaque_ship_width(self):
+        ship = create_ship("Supox", 1)
+        ship.position = [100, 100]
+        ship.rotation = 0
+
+        marker = ship.get_thrust_marker_position(90)
+        expected_offset = ((ship.size[0] / 2) + 6) / 2
+
+        self.assertAlmostEqual(marker[0], 100 - expected_offset)
+        self.assertAlmostEqual(marker[1], 100)
+
     def test_shofixti_secondary_marks_self_destruct_only_in_battle(self):
         setup_ship = create_ship("Shofixti", 1)
         setup_ship.shofixti_self_destruct = False

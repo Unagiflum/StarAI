@@ -7,6 +7,8 @@ import src.const as const
 from collision_test_support import CollisionTestCase
 from src.Battle.collision_geometry import (
     collision_info,
+    contact_point,
+    estimated_impact,
     laser_hit_info,
     objects_overlap,
     segment_circle_intercept,
@@ -74,6 +76,55 @@ class CollisionGeometryTests(CollisionTestCase):
             objects_overlap(first, second, overlap)
         )
 
+    def test_collision_radius_uses_logical_size_not_padded_mask_canvas(self):
+        padded_mask = pygame.mask.Mask((100, 100), fill=False)
+        padded_mask.draw(pygame.mask.Mask((20, 10), fill=True), (40, 45))
+        first = body([100, 100], size=(20, 10), mask=padded_mask)
+        second = body([130, 100], size=(20, 10), mask=padded_mask)
+
+        _, _, overlap = collision_info(first, second)
+
+        self.assertEqual(overlap, -10)
+
+    def test_exact_mask_overlap_keeps_full_canvas_alignment(self):
+        large_canvas = pygame.mask.Mask((100, 100), fill=False)
+        large_canvas.draw(pygame.mask.Mask((20, 20), fill=True), (40, 40))
+        small_canvas = pygame.mask.Mask((40, 40), fill=False)
+        small_canvas.draw(pygame.mask.Mask((20, 20), fill=True), (10, 10))
+        first = body([100, 100], size=(20, 20), mask=large_canvas)
+        second = body([100, 100], size=(20, 20), mask=small_canvas)
+        _, _, overlap = collision_info(first, second)
+
+        self.assertTrue(objects_overlap(first, second, overlap))
+
+    def test_contact_point_uses_opaque_boundary_inside_padded_canvas(self):
+        padded_mask = pygame.mask.Mask((100, 100), fill=False)
+        padded_mask.draw(pygame.mask.Mask((20, 10), fill=True), (40, 45))
+        target = body([100, 100], size=(20, 10), mask=padded_mask)
+
+        self.assertEqual(contact_point(target, [0, -1]), [100.0, 95.0])
+        self.assertEqual(contact_point(target, [-1, 0]), [90.0, 100.0])
+
+    def test_estimated_impact_uses_actual_mask_overlap(self):
+        projectile_mask = pygame.mask.Mask((10, 10), fill=True)
+        target_mask = pygame.mask.Mask((100, 100), fill=False)
+        target_mask.draw(pygame.mask.Mask((10, 10), fill=True), (20, 20))
+        projectile = body([75, 70], size=(10, 10), mask=projectile_mask)
+        target = body([100, 100], size=(10, 10), mask=target_mask)
+
+        contact, _ = estimated_impact(projectile, target)
+        projectile_local = (
+            int(contact[0] - projectile.position[0] + 5),
+            int(contact[1] - projectile.position[1] + 5),
+        )
+        target_local = (
+            int(contact[0] - target.position[0] + 50),
+            int(contact[1] - target.position[1] + 50),
+        )
+
+        self.assertTrue(projectile_mask.get_at(projectile_local))
+        self.assertTrue(target_mask.get_at(target_local))
+
     def test_swept_impact_finds_contact_between_frame_endpoints(self):
         projectile = body([100, 200], previous_position=[0, 200])
         target = body([50, 200])
@@ -140,6 +191,18 @@ class CollisionGeometryTests(CollisionTestCase):
         target.get_collision_mask = lambda: full_mask
         self.assertIsNotNone(laser_hit_info(laser, target))
 
+    def test_laser_sampling_keeps_padded_mask_canvas_alignment(self):
+        parent = self.make_ship()
+        parent.position = [100, 100]
+        laser = self.make_laser(parent)
+        laser.start_position = [130, 100]
+        laser.end_position = [170, 100]
+        target = body([150, 100], size=(20, 20))
+        padded_mask = pygame.mask.Mask((100, 100), fill=False)
+        padded_mask.draw(pygame.mask.Mask((20, 20), fill=True), (40, 40))
+        target.get_collision_mask = lambda: padded_mask
+
+        self.assertIsNotNone(laser_hit_info(laser, target))
+
 if __name__ == "__main__":
     unittest.main()
-

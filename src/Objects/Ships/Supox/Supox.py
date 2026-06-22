@@ -45,7 +45,7 @@ class Supox(SpaceShip):
             return super().get_thrust_marker_position(thrust_angle)
 
         angle_rad = math.radians(self.rotation + thrust_angle)
-        offset = ((self.size[1] / 2) + 6) / 2
+        offset = ((self.size[0] / 2) + 6) / 2
         marker_x = self.position[0] - math.sin(angle_rad) * offset
         marker_y = self.position[1] + math.cos(angle_rad) * offset
         return marker_x, marker_y

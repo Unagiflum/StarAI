@@ -28,6 +28,15 @@ def surface_bytes(surface):
     return pygame.image.tobytes(surface, "RGBA")
 
 
+def opaque_size(mask):
+    bounds = mask.get_bounding_rects()
+    left = min(rect.left for rect in bounds)
+    top = min(rect.top for rect in bounds)
+    right = max(rect.right for rect in bounds)
+    bottom = max(rect.bottom for rect in bounds)
+    return [right - left, bottom - top]
+
+
 class ResourceCharacterizationTests(unittest.TestCase):
     def setUp(self):
         self.sound_enabled = Ability.sound_enabled
@@ -38,6 +47,12 @@ class ResourceCharacterizationTests(unittest.TestCase):
         Ability.sound_enabled = self.sound_enabled
         BattleEffect.sound_enabled = self.effect_sound_enabled
 
+    def test_ship_logical_size_excludes_transparent_canvas_padding(self):
+        mask = pygame.mask.Mask((100, 100), fill=False)
+        mask.draw(pygame.mask.Mask((30, 20), fill=True), (35, 40))
+
+        self.assertEqual(AssetManager._opaque_size(mask), (30, 20))
+
     def test_ship_instances_share_scaled_sprites_and_masks_but_not_state(self):
         first = create_ship("Earthling", 1)
         second = create_ship("Earthling", 2)
@@ -45,8 +60,11 @@ class ResourceCharacterizationTests(unittest.TestCase):
         self.assertIs(first.sprites, second.sprites)
         self.assertIs(first.sprites[0], second.sprites[0])
         self.assertIs(first.get_collision_mask(), second.get_collision_mask())
-        self.assertEqual(first.size, list(first.sprites[0].get_size()))
-        self.assertEqual(first.get_collision_mask().get_size(), tuple(first.size))
+        self.assertEqual(first.size, opaque_size(first.get_collision_mask()))
+        self.assertEqual(
+            first.get_collision_mask().get_size(),
+            first.sprites[0].get_size(),
+        )
 
         first.current_hp -= 1
         first.heading = 3
@@ -140,6 +158,21 @@ class ResourceCharacterizationTests(unittest.TestCase):
             str(const.source_path("Objects/Battle/explosion-007.png"))
         ).convert_alpha()
         self.assertEqual(surface_bytes(explosion.frames[-1]), surface_bytes(expected_last))
+
+    def test_impact_effect_aligns_its_opaque_edge_to_contact(self):
+        sprite = pygame.Surface((20, 20), pygame.SRCALPHA)
+        sprite.fill((255, 255, 255, 255), pygame.Rect(5, 8, 10, 4))
+
+        position = BattleEffect._edge_aligned_position(
+            [100, 100], sprite, 2.0, [1, 0]
+        )
+
+        self.assertEqual(position, [110.0, 100.0])
+
+    def test_single_frame_blast_is_centered_at_contact(self):
+        effect = BattleEffect.from_blast([100, 100], [1, 0], 1)
+
+        self.assertEqual(effect.position, [100, 100])
 
     def test_disabled_audio_never_attempts_to_load_ability_or_battle_sounds(self):
         BattleEffect.sound_enabled = False

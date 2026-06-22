@@ -16,6 +16,7 @@ from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 class ShipAssets:
     sprites: tuple
     masks: tuple
+    # Opaque bounds from heading 00, in scaled gameplay pixels.
     size: tuple
     ditty_path: Path
 
@@ -70,6 +71,19 @@ class AssetManager:
         image = pygame.image.load(str(path))
         return image.convert_alpha() if convert_alpha else image
 
+    @staticmethod
+    def _opaque_size(mask):
+        """Return the combined opaque-pixel bounds of a sprite mask."""
+        bounds = mask.get_bounding_rects()
+        if not bounds:
+            return (0, 0)
+
+        left = min(rect.left for rect in bounds)
+        top = min(rect.top for rect in bounds)
+        right = max(rect.right for rect in bounds)
+        bottom = max(rect.bottom for rect in bounds)
+        return (right - left, bottom - top)
+
     def ship(self, ship_name):
         if ship_name not in self._ships:
             definition = SHIP_DEFINITIONS[ship_name]
@@ -86,7 +100,7 @@ class AssetManager:
             self._ships[ship_name] = ShipAssets(
                 sprites=sprites,
                 masks=masks,
-                size=sprites[0].get_size(),
+                size=self._opaque_size(masks[0]),
                 ditty_path=resource_dir / f"{ship_name}-ditty.mp3",
             )
         return self._ships[ship_name]

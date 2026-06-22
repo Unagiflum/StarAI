@@ -535,9 +535,7 @@ def resolve_laser_hit(
     laser.intercepted = True
 
     effects.append(
-        BattleEffect.from_blast(
-            contact, normal, damage, align_edge=True
-        )
+        BattleEffect.from_blast(contact, normal, damage)
     )
     BattleEffect.play_boom(damage)
     apply_impact(target, effects, normal, damage, contact)
@@ -635,7 +633,6 @@ def destroy_projectile(
                 effect_position,
                 direction,
                 damage,
-                align_edge=contact_position is not None,
             )
         )
 

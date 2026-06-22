@@ -5,7 +5,7 @@ from src.Objects.Ships.Yehat.A2.YehatA2 import YehatA2
 
 class Yehat(SpaceShip):
     def plan_action1(self):
-        side_offset = self.size[0] / 3
+        side_offset = self.size[0] / 2
         return self.validate_action(
             1,
             lambda ship: [
