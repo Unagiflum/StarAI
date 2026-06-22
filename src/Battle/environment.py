@@ -61,8 +61,9 @@ class BattleTransition:
 class HeadlessBattleEnvironment:
     """Own a reproducible single-round battle without display or audio setup.
 
-    The environment intentionally ends when either active ship reaches zero
-    hit points. Fleet selection and multi-round orchestration remain concerns
+    The environment exposes every simulation frame through the complete
+    aftermath and ends when the interactive application would request fleet
+    selection. Fleet selection and multi-round orchestration remain concerns
     of the interactive application.
     """
 
@@ -138,12 +139,7 @@ class HeadlessBattleEnvironment:
             raise RuntimeError("Episode is complete; call reset() before step()")
 
         state = simulation.step(actions=actions or {})
-        living_players = tuple(
-            ship.player
-            for ship in (simulation.player1, simulation.player2)
-            if ship.current_hp > 0
-        )
-        terminated = len(living_players) < 2
+        terminated = simulation.needs_selection
         truncated = (
             not terminated
             and self.max_steps is not None
@@ -151,7 +147,8 @@ class HeadlessBattleEnvironment:
         )
         self._episode_done = terminated or truncated
 
-        winner = living_players[0] if len(living_players) == 1 else None
+        winner_ship = simulation.winner() if terminated else None
+        winner = winner_ship.player if winner_ship is not None else None
         rewards = {1: 0.0, 2: 0.0}
         if winner is not None:
             rewards[winner] = 1.0

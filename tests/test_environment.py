@@ -4,6 +4,9 @@ import random
 import subprocess
 import sys
 import unittest
+from unittest import mock
+
+import src.const as const
 
 from src.Battle.environment import (
     BattleObservation,
@@ -64,12 +67,58 @@ class HeadlessBattleEnvironmentTests(unittest.TestCase):
 
         transition = environment.step({})
 
-        self.assertTrue(transition.terminated)
+        self.assertFalse(transition.terminated)
         self.assertFalse(transition.truncated)
+        self.assertEqual(transition.rewards, {1: 0.0, 2: 0.0})
+        self.assertIsNone(transition.info["winner"])
+
+        previous_frame = transition.observation.frame_id
+        transition = environment.step({1: {"forward": True}, 2: {}})
+        self.assertTrue(environment.simulation.player1.thrust_active)
+        self.assertEqual(transition.observation.frame_id, previous_frame + 1)
+        previous_frame = transition.observation.frame_id
+        while not transition.terminated:
+            transition = environment.step({1: {"forward": True}, 2: {}})
+            self.assertEqual(transition.observation.frame_id, previous_frame + 1)
+            previous_frame = transition.observation.frame_id
+
         self.assertEqual(transition.rewards, {1: 1.0, 2: -1.0})
         self.assertEqual(transition.info["winner"], 1)
         with self.assertRaisesRegex(RuntimeError, "reset"):
             environment.step({})
+
+    def test_pending_rebirth_completes_in_headless_episode_and_starts_entry(self):
+        environment = HeadlessBattleEnvironment("Pkunk", "Earthling", seed=9)
+        environment.reset()
+        simulation = environment.simulation
+        simulation.player1.current_hp = 0
+        simulation.player1.attempt_rebirth = mock.Mock(return_value=True)
+
+        transition = environment.step({})
+
+        self.assertFalse(transition.terminated)
+        self.assertIn(simulation.player1, simulation.aftermath.pending_rebirths)
+        final_explosion_frame = max(
+            item.frame
+            for item in simulation.aftermath.pending_explosions
+            if item.ship is simulation.player1
+        )
+        while simulation.aftermath is not None:
+            transition = environment.step({2: {"forward": True}})
+            self.assertFalse(transition.terminated)
+
+        self.assertEqual(
+            simulation.frame_id,
+            final_explosion_frame + const.PKUNK_REBIRTH_PAUSE_FRAMES,
+        )
+        self.assertEqual(simulation.player1.current_hp, simulation.player1.max_hp)
+        self.assertIsNotNone(simulation.entry)
+        self.assertEqual(simulation.entry.entering_ships, (simulation.player1,))
+        self.assertEqual(
+            simulation.entry.camera_targets[0].position,
+            tuple(simulation.player1.position),
+        )
+        self.assertIs(simulation.entry.camera_targets[1], simulation.player2)
 
     def test_max_steps_truncates_a_live_episode(self):
         environment = HeadlessBattleEnvironment(seed=7, max_steps=1)

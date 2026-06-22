@@ -18,8 +18,19 @@ SCREEN_WIDTH = int(SCREEN_HEIGHT*1.6)
 SCREEN_LEFT = int((SCREEN_WIDTH - SCREEN_HEIGHT)/2)
 FPS = 30
 INPUT_REPEAT_DELAY_FRAMES = 3
-POST_DEATH_ANIMATION_VIEW_FRAMES = FPS
-POST_DEATH_CONTROL_FRAMES = FPS * 5
+# Aftermath timing is simulation-owned rather than derived from audio playback.
+# shipdies.wav is about 50 frames and the eight-frame explosion animation lasts
+# 16 frames, so two seconds leaves a small buffer after both complete.  The
+# longest current victory ditty is about 156 frames; six seconds leaves another
+# small buffer before ship selection.
+POST_DEATH_EFFECT_FRAMES = FPS * 2
+VICTORY_DITTY_VIEW_FRAMES = FPS * 6
+
+# Compatibility names retained for callers that import the older constants.
+POST_DEATH_ANIMATION_VIEW_FRAMES = POST_DEATH_EFFECT_FRAMES
+POST_DEATH_CONTROL_FRAMES = (
+    POST_DEATH_EFFECT_FRAMES + VICTORY_DITTY_VIEW_FRAMES
+)
 
 #Arena
 ARENA_SIZE = 8000
@@ -66,7 +77,7 @@ ENTRY_TRAIL_SILHOUETTES = 12
 ENTRY_TRAIL_SPACING = MAX_SHIP_SIZE + 5
 ENTRY_TRAIL_STAGGER_FRAMES = 2
 ENTRY_TRAIL_FADE_FRAMES = 12
-PKUNK_REBIRTH_PAUSE_FRAMES = FPS
+PKUNK_REBIRTH_PAUSE_FRAMES = POST_DEATH_EFFECT_FRAMES
 
 #Projectiles
 PROJ_LIFE_SCALE = 1

@@ -497,9 +497,20 @@ class AftermathCharacterizationTests(unittest.TestCase):
         self.assertEqual(aftermath.pending_explosions[0].frame, 30)
         self.assertEqual(aftermath_camera_targets(aftermath, dead, survivor, 30), [survivor, dead])
         self.assertFalse(aftermath_ready_for_selection(aftermath, 30, sound_enabled=False))
+        conclusion_frame = aftermath.death_sequence_ready_frame
+        update_aftermath(
+            aftermath,
+            dead,
+            survivor,
+            [dead, survivor],
+            conclusion_frame,
+            sound_enabled=False,
+        )
         self.assertTrue(
             aftermath_ready_for_selection(
-                aftermath, 30 + const.POST_DEATH_CONTROL_FRAMES, sound_enabled=False
+                aftermath,
+                conclusion_frame + const.VICTORY_DITTY_VIEW_FRAMES,
+                sound_enabled=False,
             )
         )
 
@@ -618,12 +629,13 @@ class AftermathCharacterizationTests(unittest.TestCase):
             None, [dead], dead, survivor, [dead, survivor], 20, sound_enabled=False
         )
 
+        release_frame = aftermath.death_sequence_ready_frame
         self.assertEqual(
             aftermath_camera_targets(
                 aftermath,
                 dead,
                 survivor,
-                20 + const.POST_DEATH_ANIMATION_VIEW_FRAMES - 1,
+                release_frame - 1,
             ),
             [survivor, dead],
         )
@@ -632,7 +644,7 @@ class AftermathCharacterizationTests(unittest.TestCase):
                 aftermath,
                 dead,
                 survivor,
-                20 + const.POST_DEATH_ANIMATION_VIEW_FRAMES,
+                release_frame,
             )
         )
 
@@ -640,7 +652,12 @@ class AftermathCharacterizationTests(unittest.TestCase):
         dead = self.make_ship(1, hp=0, alive=False)
         survivor = self.make_ship(2)
         start_frame = 50
-        aftermath = AftermathState(start_frame, start_frame)
+        conclusion_frame = start_frame + const.POST_DEATH_EFFECT_FRAMES
+        aftermath = AftermathState(
+            start_frame,
+            start_frame,
+            death_sequence_ready_frame=conclusion_frame,
+        )
 
         with mock.patch("src.Battle.battle_aftermath.play_victory_ditty") as play_ditty:
             update_aftermath(
@@ -648,7 +665,7 @@ class AftermathCharacterizationTests(unittest.TestCase):
                 dead,
                 survivor,
                 [],
-                start_frame + const.POST_DEATH_ANIMATION_VIEW_FRAMES - 1,
+                conclusion_frame - 1,
                 sound_enabled=True,
             )
             play_ditty.assert_not_called()
@@ -657,7 +674,7 @@ class AftermathCharacterizationTests(unittest.TestCase):
                 dead,
                 survivor,
                 [],
-                start_frame + const.POST_DEATH_ANIMATION_VIEW_FRAMES,
+                conclusion_frame,
                 sound_enabled=True,
             )
             update_aftermath(
@@ -665,19 +682,23 @@ class AftermathCharacterizationTests(unittest.TestCase):
                 dead,
                 survivor,
                 [],
-                start_frame + const.POST_DEATH_ANIMATION_VIEW_FRAMES + 1,
+                conclusion_frame + 1,
                 sound_enabled=True,
             )
             play_ditty.assert_called_once_with(survivor)
 
-        muted_aftermath = AftermathState(start_frame, start_frame)
+        muted_aftermath = AftermathState(
+            start_frame,
+            start_frame,
+            death_sequence_ready_frame=conclusion_frame,
+        )
         with mock.patch("src.Battle.battle_aftermath.play_victory_ditty") as play_ditty:
             update_aftermath(
                 muted_aftermath,
                 dead,
                 survivor,
                 [],
-                start_frame + const.POST_DEATH_ANIMATION_VIEW_FRAMES,
+                conclusion_frame,
                 sound_enabled=False,
             )
         play_ditty.assert_not_called()
@@ -689,6 +710,7 @@ class AftermathCharacterizationTests(unittest.TestCase):
             start_frame,
             tie_break_ship=dead,
             choose_second_player=dead.player,
+            death_sequence_ready_frame=conclusion_frame,
         )
         with mock.patch("src.Battle.battle_aftermath.play_victory_ditty") as play_ditty:
             update_aftermath(
@@ -696,25 +718,29 @@ class AftermathCharacterizationTests(unittest.TestCase):
                 dead,
                 other_dead,
                 [],
-                start_frame + const.POST_DEATH_ANIMATION_VIEW_FRAMES,
+                conclusion_frame,
                 sound_enabled=True,
             )
         play_ditty.assert_called_once_with(dead)
 
     def test_selection_becomes_ready_on_exact_control_boundary(self):
-        aftermath = AftermathState(started_frame=75, latest_death_frame=75)
+        aftermath = AftermathState(
+            started_frame=20,
+            latest_death_frame=20,
+            conclusion_started_frame=75,
+        )
 
         self.assertFalse(
             aftermath_ready_for_selection(
                 aftermath,
-                75 + const.POST_DEATH_CONTROL_FRAMES - 1,
+                75 + const.VICTORY_DITTY_VIEW_FRAMES - 1,
                 sound_enabled=True,
             )
         )
         self.assertTrue(
             aftermath_ready_for_selection(
                 aftermath,
-                75 + const.POST_DEATH_CONTROL_FRAMES,
+                75 + const.VICTORY_DITTY_VIEW_FRAMES,
                 sound_enabled=False,
             )
         )

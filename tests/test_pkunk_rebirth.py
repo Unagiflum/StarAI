@@ -14,10 +14,20 @@ pygame.display.set_mode((1, 1))
 
 import src.const as const
 from src.Battle.battle import BattleSimulation
-from src.Battle.battle_aftermath import AftermathState, PendingRebirth
+from src.Battle.battle_aftermath import (
+    AftermathState,
+    PendingRebirth,
+    aftermath_camera_targets,
+)
 from src.Battle.world import World
 from src.Objects.Ships.registry import create_ship
 from src.audio import RecordingAudioService
+
+
+class LongDurationRecordingAudioService(RecordingAudioService):
+    def play_effect(self, path, volume=const.SOUND_EFFECT_VOLUME):
+        super().play_effect(path, volume)
+        return 999.0
 
 
 class PkunkRebirthTests(unittest.TestCase):
@@ -69,7 +79,7 @@ class PkunkRebirthTests(unittest.TestCase):
         ship.current_hp = 0
         ship.position = [100, 100]
         opponent.position = [4000, 4000]
-        audio = RecordingAudioService()
+        audio = LongDurationRecordingAudioService()
         rng = mock.Mock()
         rng.random.return_value = 0
         rng.randint.return_value = 7
@@ -102,6 +112,15 @@ class PkunkRebirthTests(unittest.TestCase):
             self.assertFalse(ship.currently_alive)
             self.assertIsNone(simulation.entry)
             self.assertIsNotNone(simulation.aftermath)
+            self.assertEqual(
+                aftermath_camera_targets(
+                    simulation.aftermath,
+                    ship,
+                    opponent,
+                    simulation.frame_id,
+                ),
+                [opponent, ship],
+            )
             final_death_frame = max(
                 item.frame
                 for item in simulation.aftermath.pending_explosions
@@ -114,6 +133,16 @@ class PkunkRebirthTests(unittest.TestCase):
             ):
                 simulation.frame_id += 1
                 simulation._update_aftermath()
+                if simulation.aftermath is not None:
+                    self.assertEqual(
+                        aftermath_camera_targets(
+                            simulation.aftermath,
+                            ship,
+                            opponent,
+                            simulation.frame_id,
+                        ),
+                        [opponent, ship],
+                    )
 
         self.assertEqual(ship.position, [2000, 2500])
         self.assertEqual(ship.heading, 7)

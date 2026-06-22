@@ -47,6 +47,8 @@ class AftermathState:
     pending_rebirths: dict[SpaceShip, PendingRebirth] = field(
         default_factory=dict
     )
+    death_sequence_ready_frame: int | None = None
+    conclusion_started_frame: int | None = None
 
     def register_rebirths(self, ships):
         for ship in ships:
@@ -101,8 +103,16 @@ def start_or_update_aftermath(
         with use_audio_service(audio):
             BattleEffect.play_ship_death()
         state.death_effects[ship.player] = []
-        state.pending_explosions.extend(
-            create_ship_explosion_schedule(ship, frame_id, rng)
+        explosion_schedule = create_ship_explosion_schedule(
+            ship, frame_id, rng
+        )
+        state.pending_explosions.extend(explosion_schedule)
+        sequence_ready_frame = (
+            explosion_schedule[-1].frame + const.POST_DEATH_EFFECT_FRAMES
+        )
+        state.death_sequence_ready_frame = max(
+            state.death_sequence_ready_frame or sequence_ready_frame,
+            sequence_ready_frame,
         )
         state.ships_pending_hide.add(ship)
         state.camera_hold_targets.append(ship)
@@ -121,6 +131,7 @@ def start_or_update_aftermath(
 
     audio.stop_music()
     state.ditty_started = False
+    state.conclusion_started_frame = None
     return state
 
 
@@ -194,10 +205,8 @@ def update_aftermath(
         world.add(effect)
         if item.is_final:
             with use_audio_service(audio):
-                sound_frames = BattleEffect.play_ship_death()
-            aftermath.mark_rebirth_ready_after(
-                item.ship, frame_id + sound_frames
-            )
+                BattleEffect.play_ship_death()
+            aftermath.mark_rebirth_ready_after(item.ship, frame_id)
             hide_dead_ship(item.ship, world)
             aftermath.ships_pending_hide.discard(item.ship)
 
@@ -206,28 +215,27 @@ def update_aftermath(
         if ship.currently_alive and ship.current_hp > 0
     ]
     death_view_done = (
-        frame_id - aftermath.started_frame
-        >= const.POST_DEATH_ANIMATION_VIEW_FRAMES
+        aftermath.death_sequence_ready_frame is not None
+        and frame_id >= aftermath.death_sequence_ready_frame
     )
     if aftermath.pending_rebirths:
         return
-    if len(living_ships) == 1 and not aftermath.ditty_started and death_view_done:
+    if not death_view_done or aftermath.conclusion_started_frame is not None:
+        return
+
+    victory_ship = None
+    if len(living_ships) == 1:
+        victory_ship = living_ships[0]
+    elif not living_ships and aftermath.tie_break_ship is not None:
+        victory_ship = aftermath.tie_break_ship
+
+    if victory_ship is not None:
         if audio_service is None and sound_enabled:
-            play_victory_ditty(living_ships[0])
+            play_victory_ditty(victory_ship)
         else:
-            audio.play_victory_ditty(living_ships[0])
+            audio.play_victory_ditty(victory_ship)
         aftermath.ditty_started = True
-    elif (
-        not living_ships
-        and aftermath.tie_break_ship is not None
-        and not aftermath.ditty_started
-        and death_view_done
-    ):
-        if audio_service is None and sound_enabled:
-            play_victory_ditty(aftermath.tie_break_ship)
-        else:
-            audio.play_victory_ditty(aftermath.tie_break_ship)
-        aftermath.ditty_started = True
+    aftermath.conclusion_started_frame = frame_id
 
 
 def hide_dead_ship(ship, game_objects):
@@ -242,17 +250,25 @@ def aftermath_camera_targets(
 ):
     if aftermath is None:
         return None
-    if (
-        frame_id is not None
-        and frame_id - aftermath.started_frame
-        >= const.POST_DEATH_ANIMATION_VIEW_FRAMES
-    ):
-        return None
 
     targets = [
         ship for ship in (player1, player2)
         if ship.currently_alive and ship.current_hp > 0
     ]
+    if aftermath.pending_rebirths:
+        targets.extend(
+            ship for ship in aftermath.camera_hold_targets
+            if ship in aftermath.pending_rebirths
+        )
+        return targets or None
+
+    if (
+        frame_id is not None
+        and aftermath.death_sequence_ready_frame is not None
+        and frame_id >= aftermath.death_sequence_ready_frame
+    ):
+        return None
+
     targets.extend(aftermath.camera_hold_targets)
     return targets or None
 
@@ -262,8 +278,13 @@ def aftermath_ready_for_selection(
     frame_id,
     sound_enabled=True,
 ):
-    elapsed = frame_id - aftermath.started_frame
-    return elapsed >= const.POST_DEATH_CONTROL_FRAMES
+    if (
+        aftermath.pending_rebirths
+        or aftermath.conclusion_started_frame is None
+    ):
+        return False
+    elapsed = frame_id - aftermath.conclusion_started_frame
+    return elapsed >= const.VICTORY_DITTY_VIEW_FRAMES
 
 
 def play_victory_ditty(ship):

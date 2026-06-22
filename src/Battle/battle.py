@@ -343,9 +343,6 @@ class BattleSimulation:
             ship.currently_alive = True
             reset_ship_controls(ship)
 
-        if not self.entry_animations_enabled:
-            return
-
         entering_ships = list(ships)
         trail_styles = {
             ship: ship.rebirth_entry_trail_style()
