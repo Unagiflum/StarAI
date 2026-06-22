@@ -297,9 +297,15 @@ class AssetManager:
     def menu_ship_sprite(self, ship_name):
         if ship_name not in self._menu_ship_sprites:
             resource_dir = const.source_path(SHIP_DEFINITIONS[ship_name].sprite_path)
-            self._menu_ship_sprites[ship_name] = self._image(
+            sprite = self._image(
                 resource_dir / f"{ship_name}00.png"
             )
+            if ship_name == "Orz":
+                turret = self._image(resource_dir / "A2" / "OrzA200.png")
+                turret_rect = turret.get_rect(center=sprite.get_rect().center)
+                sprite = sprite.copy()
+                sprite.blit(turret, turret_rect)
+            self._menu_ship_sprites[ship_name] = sprite
         return self._menu_ship_sprites[ship_name]
 
 
