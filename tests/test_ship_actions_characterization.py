@@ -31,6 +31,7 @@ ORDINARY_SINGLE_ACTIONS = (
     ("Supox", 1, "src.Objects.Ships.Supox.Supox.SupoxA1"),
     ("Thraddash", 1, "src.Objects.Ships.Thraddash.Thraddash.ThraddashA1"),
     ("ZoqFot", 1, "src.Objects.Ships.ZoqFot.ZoqFot.ZoqFotA1"),
+    ("ZoqFot", 2, "src.Objects.Ships.ZoqFot.ZoqFot.ZoqFotA2"),
 )
 
 
@@ -198,7 +199,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
                 )
 
     def test_cost_and_cooldown_only_actions_spawn_nothing(self):
-        for ship_name in ("Yehat", "ZoqFot"):
+        for ship_name in ("Yehat",):
             with self.subTest(ship=ship_name):
                 ship = create_ship(ship_name, 1)
                 initial_energy = ship.current_energy

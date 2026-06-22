@@ -126,6 +126,8 @@ class AbilityDefinition(_DefinitionMapping):
     turn_wait: float = 0
     end_anim: int = 0
     sprite_scale: float = 1.0
+    sprite_scale_x: float = 1.0
+    sprite_scale_y: float = 1.0
     frames: int = 1
     frame_delay: int = 0
     has_sprites: bool = True
@@ -182,6 +184,8 @@ class AbilityDefinition(_DefinitionMapping):
         "file_path": "file_path",
         "end_anim": "end_anim",
         "sprite_scale": "sprite_scale",
+        "sprite_scale_x": "sprite_scale_x",
+        "sprite_scale_y": "sprite_scale_y",
         "has_sprites": "has_sprites",
         "has_sound": "has_sound",
         "laser_vulnerable": "laser_vulnerable",
@@ -349,7 +353,8 @@ def parse_ability_definition(name, data):
     data = _entry_mapping(kind, name, data)
     allowed = set(AbilityDefinition._json_key_to_attribute)
     optional = {
-        "turn_wait", "end_anim", "sprite_scale", "frames", "frame_delay",
+        "turn_wait", "end_anim", "sprite_scale", "sprite_scale_x",
+        "sprite_scale_y", "frames", "frame_delay",
         "has_sprites", "has_sound", "laser_vulnerable", "collide_planets",
         "collide_asteroids", "damage_asteroids", "collide_projectiles",
         "damage_projectiles", "collide_enemy_ships", "collide_friendly_ships",
@@ -378,6 +383,7 @@ def parse_ability_definition(name, data):
     defaults = {
         "turn_wait": (float, 0), "end_anim": (int, 0),
         "sprite_scale": (float, 1.0), "frames": (int, 1),
+        "sprite_scale_x": (float, 1.0), "sprite_scale_y": (float, 1.0),
         "frame_delay": (int, 0), "has_sprites": (bool, True),
         "has_sound": (bool, True), "laser_vulnerable": (bool, True),
         "collide_planets": (bool, True), "collide_asteroids": (bool, True),
@@ -427,6 +433,10 @@ def parse_ability_definition(name, data):
         raise CatalogValidationError(f"Ability '{name}' frames must be positive")
     if values["sprite_scale"] <= 0:
         raise CatalogValidationError(f"Ability '{name}' sprite_scale must be positive")
+    if values["sprite_scale_x"] <= 0 or values["sprite_scale_y"] <= 0:
+        raise CatalogValidationError(
+            f"Ability '{name}' directional sprite scales must be positive"
+        )
     return AbilityDefinition(**values)
 
 

@@ -639,7 +639,32 @@
         "sprite_scale": 0.7,
         "has_sprites": true,
         "has_sound": true,
-
         "SPREAD_ANGLE": 3
+    },
+    "ZoqFotA2": {
+        "ship_name": "ZoqFot",
+        "type": "area",
+        "action": "A2",
+        "start_hp": [1],
+        "damage": [12],
+        "tracking": false,
+        "parent_vel": 1.0,
+        "speed": 0,
+        "life_time": 10,
+        "turn_wait": 0,
+        "inertia": false,
+        "hit_parent": false,
+        "hit_self": false,
+        "omnidirectional": false,
+        "frames": 1,
+        "frame_delay": 0,
+        "file_path": "Objects/Ships/ZoqFot/A2/",
+        "end_anim": 0,
+        "sprite_scale": 1.0,
+        "sprite_scale_x": 1.0,
+        "sprite_scale_y": 2.5,
+        "offset": 0.55,
+        "has_sprites": true,
+        "has_sound": true
     }
 }

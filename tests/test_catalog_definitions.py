@@ -77,6 +77,8 @@ class CatalogDefinitionTests(unittest.TestCase):
         self.assertEqual(ability.turn_wait, 0)
         self.assertEqual(ability.end_anim, 0)
         self.assertEqual(ability.sprite_scale, 1.0)
+        self.assertEqual(ability.sprite_scale_x, 1.0)
+        self.assertEqual(ability.sprite_scale_y, 1.0)
         self.assertEqual(ability.frames, 1)
         self.assertEqual(ability.frame_delay, 0)
         self.assertTrue(ability.has_sprites)
