@@ -1,7 +1,5 @@
 import math
 
-import pygame
-
 import src.const as const
 from src.Battle.collision_geometry import collision_info, objects_overlap
 from src.collision_capabilities import AreaDamageCapabilities, CollisionRole
@@ -12,24 +10,17 @@ from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 class ZoqFotA2(Ability):
     """A parent-mounted, sprite-shaped area attack that retracts toward the ship."""
 
-    persistent_area_damage = True
-    plays_area_impact_sound = True
-
     def __init__(self, parent):
         super().__init__("ZoqFotA2", parent)
         definition = ABILITY_DEFINITIONS["ZoqFotA2"]
         self.sprite_scale_x = definition.sprite_scale_x
         self.sprite_scale_y = definition.sprite_scale_y
-        self._source_sprites = tuple(
-            self._scale_directional_sprite(sprite, heading)
-            for heading, sprite in enumerate(self.sprites)
-        )
-        self._source_masks = tuple(
-            pygame.mask.from_surface(sprite) for sprite in self._source_sprites
-        )
         self._damaged_targets = set()
         self._age = 0
         self._duration = max(1, int(self.life_time * const.PROJ_LIFE_SCALE))
+        self._retraction_assets = self.resources.ability_retraction(
+            "ZoqFotA2", self._duration
+        )
         self.base_offset = definition.offset
         self.velocity = [0.0, 0.0]
         self.can_move = False
@@ -40,31 +31,12 @@ class ZoqFotA2(Ability):
             emits=True,
             targetable=True,
             vulnerable=False,
+            persistent=True,
+            plays_impact_sound=True,
         )
+        self._current_sprite = None
         self._current_mask = None
-        self._sync_to_parent(1.0)
-
-    def _scale_directional_sprite(self, sprite, heading):
-        scale_x = self.sprite_scale_x
-        scale_y = self.sprite_scale_y
-        if scale_x == scale_y:
-            return pygame.transform.smoothscale_by(sprite, scale_x)
-
-        angle = heading * const.TURN_ANGLE
-        local_sprite = pygame.transform.rotate(sprite, angle)
-        local_bounds = local_sprite.get_bounding_rect(min_alpha=1)
-        if local_bounds.width and local_bounds.height:
-            local_sprite = local_sprite.subsurface(local_bounds).copy()
-        local_size = (
-            max(1, round(local_sprite.get_width() * scale_x)),
-            max(1, round(local_sprite.get_height() * scale_y)),
-        )
-        local_sprite = pygame.transform.smoothscale(local_sprite, local_size)
-        scaled_sprite = pygame.transform.rotate(local_sprite, -angle)
-        scaled_bounds = scaled_sprite.get_bounding_rect(min_alpha=1)
-        if scaled_bounds.width and scaled_bounds.height:
-            scaled_sprite = scaled_sprite.subsurface(scaled_bounds).copy()
-        return scaled_sprite
+        self._sync_to_parent(0)
 
     @staticmethod
     def _projection_bounds(mask, heading):
@@ -83,54 +55,22 @@ class ZoqFotA2(Ability):
         projections = tuple(projections)
         return (min(projections), max(projections)) if projections else (0.0, 0.0)
 
-    def _retracted_sprite(self, heading, ratio):
-        source_sprite = self._source_sprites[heading]
-        source_mask = self._source_masks[heading]
-        if ratio >= 1.0:
-            return source_sprite, source_mask
-
-        visible_mask = source_mask.copy()
-        minimum, maximum = self._projection_bounds(source_mask, heading)
-        cutoff = minimum + (maximum - minimum) * max(0.0, ratio)
-        width, height = source_mask.get_size()
-        center_x = (width - 1) / 2
-        center_y = (height - 1) / 2
-        angle = math.radians(heading * const.TURN_ANGLE)
-        forward_x = math.sin(angle)
-        forward_y = -math.cos(angle)
-        for y in range(height):
-            for x in range(width):
-                projection = (
-                    (x - center_x) * forward_x
-                    + (y - center_y) * forward_y
-                )
-                if projection > cutoff:
-                    visible_mask.set_at((x, y), 0)
-
-        sprite = source_sprite.copy()
-        alpha_mask = visible_mask.to_surface(
-            setcolor=(255, 255, 255, 255),
-            unsetcolor=(255, 255, 255, 0),
-        )
-        sprite.blit(alpha_mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-        return sprite, visible_mask
-
-    def _sync_to_parent(self, retraction_ratio):
+    def _sync_to_parent(self, retraction_frame):
         self.heading = self.parent.heading % const.SHIP_DIRECTIONS
         self.rotation = self.parent.rotation
-        sprite, self._current_mask = self._retracted_sprite(
-            self.heading, retraction_ratio
-        )
-        displayed_sprites = list(self._source_sprites)
-        displayed_sprites[self.heading] = sprite
-        self.sprites = tuple(displayed_sprites)
-        self.size = list(sprite.get_size())
+        self._current_sprite = self._retraction_assets.sprites[
+            self.heading
+        ][retraction_frame]
+        self._current_mask = self._retraction_assets.masks[
+            self.heading
+        ][retraction_frame]
+        self.size = list(self._current_sprite.get_size())
 
         parent_mask = self.parent.get_collision_mask()
         parent_forward = self._projection_bounds(parent_mask, self.heading)[1]
-        effect_rear = self._projection_bounds(
-            self._source_masks[self.heading], self.heading
-        )[0]
+        effect_rear = self._retraction_assets.projection_bounds[
+            self.heading
+        ][0]
         base_distance = (
             parent_forward + const.PROJ_GAP
         ) * self.base_offset
@@ -151,13 +91,12 @@ class ZoqFotA2(Ability):
             return False
 
         self.previous_position = self.position.copy()
-        ratio = 1.0 - self._age / self._duration
-        self._sync_to_parent(ratio)
+        self._sync_to_parent(self._age)
         self._age += 1
         self.area_damage_pending = self.parent.in_battle
         return True
 
-    def area_damage_for_target(self, target):
+    def area_damage_for_target(self, target, distance):
         if target in self._damaged_targets:
             return 0
 
@@ -176,8 +115,11 @@ class ZoqFotA2(Ability):
             return 0
         return self.current_damage
 
-    def record_area_damage_hit(self, target):
+    def on_area_damage_hit(self, target, damage):
         self._damaged_targets.add(target)
 
     def get_collision_mask(self):
         return self._current_mask
+
+    def get_sprite(self):
+        return self._current_sprite

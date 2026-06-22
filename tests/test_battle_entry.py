@@ -12,13 +12,14 @@ import src.const as const
 from src.Battle.battle import BattleSimulation
 from src.Battle.battle_entry import (
     BLACK,
+    EntryTrailStyle,
     RED,
     YELLOW,
     entry_complete,
     entry_duration_frames,
     finish_entry,
-    pkunk_rebirth_silhouette_lines,
     silhouette_color,
+    silhouette_lines,
     silhouette_positions,
     start_entry,
     visible_silhouettes,
@@ -72,9 +73,13 @@ class BattleEntryAnimationTests(unittest.TestCase):
         )
         self.assertEqual(positions[-1], (1000, 1000))
 
-    def test_pkunk_rebirth_has_four_close_diagonal_trails(self):
+    def test_style_can_render_four_close_diagonal_trails(self):
         ship = Ship([1000, 1000], 0)
-        lines = pkunk_rebirth_silhouette_lines(ship)
+        style = EntryTrailStyle(
+            angles=(45, 135, 225, 315),
+            spacing=max(ship.size) + 5,
+        )
+        lines = silhouette_lines(ship, style)
 
         self.assertEqual(len(lines), 4)
         self.assertTrue(all(len(line) == 12 for line in lines))
@@ -87,7 +92,7 @@ class BattleEntryAnimationTests(unittest.TestCase):
                     % const.ARENA_SIZE - const.ARENA_SIZE / 2
                 self.assertAlmostEqual(
                     (dx ** 2 + dy ** 2) ** 0.5,
-                    max(ship.size) + const.PKUNK_REBIRTH_TRAIL_GAP,
+                    style.spacing,
                 )
 
         first_points = [line[0] for line in lines]
@@ -154,7 +159,12 @@ class BattleEntryAnimationTests(unittest.TestCase):
             standard,
             reborn_pkunk,
             frame_id=0,
-            diagonal_trail_ships=(reborn_pkunk,),
+            trail_styles={
+                reborn_pkunk: EntryTrailStyle(
+                    angles=(45, 135, 225, 315),
+                    spacing=85,
+                ),
+            },
         )
 
         self.assertEqual(len(visible_silhouettes(animation, standard, 0)), 1)

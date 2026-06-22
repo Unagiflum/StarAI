@@ -86,8 +86,6 @@ class BattleSimulation:
         self.key_states = self._initial_key_states()
         self.frame_id = 0
         self.aftermath: battle_aftermath.AftermathState | None = None
-        self.pending_rebirths = set()
-        self.rebirth_pause_start_frames = {}
         self.entry_animations_enabled = screen is not None
         self.entry: EntryState | None = (
             start_entry(
@@ -244,10 +242,6 @@ class BattleSimulation:
             ship for ship in newly_dead
             if self._attempt_rebirth(ship)
         ]
-        if reborn_ships:
-            if not hasattr(self, "pending_rebirths"):
-                self.pending_rebirths = set()
-            self.pending_rebirths.update(reborn_ships)
         if newly_dead:
             self.aftermath = battle_aftermath.start_or_update_aftermath(
                 self.aftermath,
@@ -259,10 +253,11 @@ class BattleSimulation:
                 self.sound_enabled,
                 audio,
                 getattr(self, "rng", random),
+                rebirth_ships=reborn_ships,
             )
             permanent_deaths = [
                 ship for ship in newly_dead
-                if ship not in getattr(self, "pending_rebirths", ())
+                if ship not in self.aftermath.pending_rebirths
             ]
             winner = self.winner() if permanent_deaths else None
             if winner is not None:
@@ -281,7 +276,6 @@ class BattleSimulation:
             self.frame_id,
             self.sound_enabled,
             audio,
-            getattr(self, "pending_rebirths", ()),
         )
         self._complete_ready_rebirths()
 
@@ -289,7 +283,7 @@ class BattleSimulation:
             return
 
         if (
-            not getattr(self, "pending_rebirths", ())
+            not self.aftermath.pending_rebirths
             and battle_aftermath.aftermath_ready_for_selection(
                 self.aftermath,
                 self.frame_id,
@@ -304,43 +298,16 @@ class BattleSimulation:
         return attempt_rebirth is not None and attempt_rebirth()
 
     def _complete_ready_rebirths(self):
-        pending_rebirths = getattr(self, "pending_rebirths", set())
-        if not pending_rebirths or self.aftermath is None:
+        if self.aftermath is None or not self.aftermath.pending_rebirths:
             return
 
-        death_animation_finished = [
-            ship for ship in (self.player1, self.player2)
-            if (
-                ship in pending_rebirths
-                and ship not in self.aftermath.ships_pending_hide
-            )
-        ]
-        if not hasattr(self, "rebirth_pause_start_frames"):
-            self.rebirth_pause_start_frames = {}
-        for ship in death_animation_finished:
-            self.rebirth_pause_start_frames.setdefault(
-                ship,
-                self.aftermath.death_sound_end_frames.get(
-                    ship, self.frame_id
-                ),
-            )
-
-        ready = [
-            ship for ship in death_animation_finished
-            if (
-                self.frame_id
-                >= self.rebirth_pause_start_frames[ship]
-                + const.PKUNK_REBIRTH_PAUSE_FRAMES
-            )
-        ]
+        ready = self.aftermath.rebirths_ready(self.frame_id)
         if not ready:
             return
 
         for ship in ready:
             ship.complete_rebirth()
-        pending_rebirths.difference_update(ready)
-        for ship in ready:
-            self.rebirth_pause_start_frames.pop(ship, None)
+        self.aftermath.finish_rebirths(ready)
         self._reenter_reborn_ships(ready)
         self.world.add_all(ready)
         self.player1.opponent = self.player2
@@ -380,20 +347,26 @@ class BattleSimulation:
             return
 
         entering_ships = list(ships)
-        diagonal_trail_ships = set(ships)
+        trail_styles = {
+            ship: ship.rebirth_entry_trail_style()
+            for ship in ships
+        }
         if self.entry is not None:
             entering_ships = [
                 *self.entry.entering_ships,
                 *entering_ships,
             ]
-            diagonal_trail_ships.update(self.entry.diagonal_trail_ships)
+            trail_styles = {
+                **self.entry.trail_styles,
+                **trail_styles,
+            }
             finish_entry(self.entry)
         self.entry = start_entry(
             tuple(dict.fromkeys(entering_ships)),
             self.player1,
             self.player2,
             self.frame_id,
-            diagonal_trail_ships=diagonal_trail_ships,
+            trail_styles=trail_styles,
         )
 
     def select_next_round(self, selected):
@@ -444,7 +417,7 @@ class BattleSimulation:
         }
 
     def winner(self):
-        if getattr(self, "pending_rebirths", None):
+        if self.aftermath is not None and self.aftermath.pending_rebirths:
             return None
         living = [
             ship for ship in (self.player1, self.player2)

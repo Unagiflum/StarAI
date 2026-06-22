@@ -136,6 +136,19 @@ class Ability(PlayerObject):
         resources = resources or default_assets()
         return resources.ability(ability_name)
 
+    def damage_at_distance(self, distance):
+        """Return area damage at a radial distance from this ability."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not define radial area damage"
+        )
+
+    def area_damage_for_target(self, target, distance):
+        """Return damage for one eligible area-damage target."""
+        return self.damage_at_distance(distance)
+
+    def on_area_damage_hit(self, target, damage):
+        """Handle ability-owned state after area damage is applied."""
+
     def update_heading(self):
 
         if self.omnidirectional:
@@ -286,12 +299,13 @@ class Ability(PlayerObject):
 
         self.current_hp = new_hp
 
-    def draw(self, screen, scale_factor, translation):
+    def get_sprite(self):
         if self.frames > 1:
-            sprite = self.sprites[0][self.current_frame]  # Get current animation frame
-        else:
-            sprite = self.sprites[self.heading]
+            return self.sprites[0][self.current_frame]
+        return self.sprites[self.heading]
 
+    def draw(self, screen, scale_factor, translation):
+        sprite = self.get_sprite()
         scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
         scaled_rect = scaled_sprite.get_rect()
 

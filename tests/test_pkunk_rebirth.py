@@ -14,7 +14,7 @@ pygame.display.set_mode((1, 1))
 
 import src.const as const
 from src.Battle.battle import BattleSimulation
-from src.Battle.battle_aftermath import AftermathState
+from src.Battle.battle_aftermath import AftermathState, PendingRebirth
 from src.Battle.world import World
 from src.Objects.Ships.registry import create_ship
 from src.audio import RecordingAudioService
@@ -108,7 +108,10 @@ class PkunkRebirthTests(unittest.TestCase):
                 if item.ship is ship
             )
 
-            while ship in simulation.pending_rebirths:
+            while (
+                simulation.aftermath is not None
+                and ship in simulation.aftermath.pending_rebirths
+            ):
                 simulation.frame_id += 1
                 simulation._update_aftermath()
 
@@ -119,7 +122,10 @@ class PkunkRebirthTests(unittest.TestCase):
         self.assertFalse(ship.trackable)
         self.assertIsNone(simulation.aftermath)
         self.assertEqual(simulation.entry.entering_ships, (ship,))
-        self.assertEqual(simulation.entry.diagonal_trail_ships, frozenset((ship,)))
+        self.assertEqual(
+            simulation.entry.trail_styles,
+            {ship: ship.rebirth_entry_trail_style()},
+        )
         self.assertEqual(
             simulation.frame_id,
             final_death_frame + const.PKUNK_REBIRTH_PAUSE_FRAMES,
@@ -160,12 +166,19 @@ class PkunkRebirthTests(unittest.TestCase):
         simulation.player2 = second
         simulation.world = World([])
         simulation.frame_id = const.PKUNK_REBIRTH_PAUSE_FRAMES
-        simulation.aftermath = AftermathState(started_frame=0, latest_death_frame=0)
-        simulation.pending_rebirths = {first, second}
-        simulation.rebirth_pause_start_frames = {
-            first: 0,
-            second: simulation.frame_id,
-        }
+        simulation.aftermath = AftermathState(
+            started_frame=0,
+            latest_death_frame=0,
+            pending_rebirths={
+                first: PendingRebirth(first, ready_frame=simulation.frame_id),
+                second: PendingRebirth(
+                    second,
+                    ready_frame=(
+                        simulation.frame_id + const.PKUNK_REBIRTH_PAUSE_FRAMES
+                    ),
+                ),
+            },
+        )
         simulation.entry = None
         simulation.entry_animations_enabled = False
         simulation.audio = RecordingAudioService()
@@ -177,7 +190,7 @@ class PkunkRebirthTests(unittest.TestCase):
 
         self.assertTrue(first.currently_alive)
         self.assertEqual(first.rebirth_count, 2)
-        self.assertEqual(simulation.pending_rebirths, {second})
+        self.assertEqual(set(simulation.aftermath.pending_rebirths), {second})
 
 
 if __name__ == "__main__":

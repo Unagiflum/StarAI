@@ -199,13 +199,7 @@ def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):
 
             delta = _wrapped_delta(ability.position, target.position)
             distance = math.hypot(delta[0], delta[1])
-            damage_for_target = getattr(
-                ability, "area_damage_for_target", None
-            )
-            if damage_for_target is None:
-                damage = ability.damage_at_distance(distance)
-            else:
-                damage = damage_for_target(target)
+            damage = ability.area_damage_for_target(target, distance)
             if damage <= 0:
                 continue
 
@@ -213,14 +207,12 @@ def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):
                 target.collision_capabilities.role
             ]
             policy(target, effects, delta, distance, damage)
-            if getattr(ability, "plays_area_impact_sound", False):
+            if ability.area_damage_capabilities.plays_impact_sound:
                 BattleEffect.play_boom(damage)
-            record_hit = getattr(ability, "record_area_damage_hit", None)
-            if record_hit is not None:
-                record_hit(target)
+            ability.on_area_damage_hit(target, damage)
 
         ability.area_damage_pending = bool(
-            getattr(ability, "persistent_area_damage", False)
+            ability.area_damage_capabilities.persistent
             and ability.currently_alive
         )
 

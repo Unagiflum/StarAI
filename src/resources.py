@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
+import math
 
 import pygame
 
@@ -28,6 +29,13 @@ class AbilityAssets:
 
 
 @dataclass(frozen=True)
+class DirectionalRetractionAssets:
+    sprites: tuple
+    masks: tuple
+    projection_bounds: tuple
+
+
+@dataclass(frozen=True)
 class AsteroidAssets:
     sprites: tuple
     masks: tuple
@@ -46,6 +54,7 @@ class AssetManager:
     def __init__(self):
         self._ships = {}
         self._abilities = {}
+        self._ability_retractions = {}
         self._asteroids = None
         self._images = {}
         self._sounds = {}
@@ -110,6 +119,13 @@ class AssetManager:
                 for index in range(directions):
                     path = resource_dir / f"{ability_name}{index:02d}.png"
                     sprite = pygame.transform.smoothscale_by(self._image(path), scale)
+                    if not definition.omnidirectional:
+                        sprite = _scale_directional_sprite(
+                            sprite,
+                            index,
+                            definition.sprite_scale_x,
+                            definition.sprite_scale_y,
+                        )
                     sprites.append(sprite)
                     masks.append(pygame.mask.from_surface(sprite))
                     if index == 0:
@@ -134,6 +150,49 @@ class AssetManager:
             sizes=tuple(sizes),
         )
         self._abilities[ability_name] = assets
+        return assets
+
+    def ability_retraction(self, ability_name, frame_count):
+        """Return cached directional sprites clipped toward their rear edge."""
+        if frame_count <= 0:
+            raise ValueError("frame_count must be positive")
+        key = (ability_name, frame_count)
+        if key in self._ability_retractions:
+            return self._ability_retractions[key]
+
+        source = self.ability(ability_name)
+        if source.sprites is None or source.masks is None:
+            raise ValueError(f"Ability '{ability_name}' has no directional sprites")
+        if len(source.sprites) != const.SHIP_DIRECTIONS:
+            raise ValueError(f"Ability '{ability_name}' is not directional")
+
+        sprites = []
+        masks = []
+        bounds = []
+        for heading, (source_sprite, source_mask) in enumerate(
+            zip(source.sprites, source.masks)
+        ):
+            projection_bounds = _projection_bounds(source_mask, heading)
+            heading_visuals = tuple(
+                _retracted_visual(
+                    source_sprite,
+                    source_mask,
+                    heading,
+                    1.0 - frame / frame_count,
+                    projection_bounds,
+                )
+                for frame in range(frame_count)
+            )
+            sprites.append(tuple(visual[0] for visual in heading_visuals))
+            masks.append(tuple(visual[1] for visual in heading_visuals))
+            bounds.append(projection_bounds)
+
+        assets = DirectionalRetractionAssets(
+            sprites=tuple(sprites),
+            masks=tuple(masks),
+            projection_bounds=tuple(bounds),
+        )
+        self._ability_retractions[key] = assets
         return assets
 
     def ability_sound(self, ability_name, enabled=True):
@@ -228,6 +287,83 @@ class AssetManager:
                 resource_dir / f"{ship_name}00.png"
             )
         return self._menu_ship_sprites[ship_name]
+
+
+def _scale_directional_sprite(sprite, heading, scale_x, scale_y):
+    if scale_x == scale_y == 1.0:
+        return sprite
+    if scale_x == scale_y:
+        return pygame.transform.smoothscale_by(sprite, scale_x)
+
+    angle = heading * const.TURN_ANGLE
+    local_sprite = pygame.transform.rotate(sprite, angle)
+    local_bounds = local_sprite.get_bounding_rect(min_alpha=1)
+    if local_bounds.width and local_bounds.height:
+        local_sprite = local_sprite.subsurface(local_bounds).copy()
+    local_size = (
+        max(1, round(local_sprite.get_width() * scale_x)),
+        max(1, round(local_sprite.get_height() * scale_y)),
+    )
+    local_sprite = pygame.transform.smoothscale(local_sprite, local_size)
+    scaled_sprite = pygame.transform.rotate(local_sprite, -angle)
+    scaled_bounds = scaled_sprite.get_bounding_rect(min_alpha=1)
+    if scaled_bounds.width and scaled_bounds.height:
+        scaled_sprite = scaled_sprite.subsurface(scaled_bounds).copy()
+    return scaled_sprite
+
+
+def _projection_bounds(mask, heading):
+    width, height = mask.get_size()
+    center_x = (width - 1) / 2
+    center_y = (height - 1) / 2
+    angle = math.radians(heading * const.TURN_ANGLE)
+    forward_x = math.sin(angle)
+    forward_y = -math.cos(angle)
+    projections = (
+        (x - center_x) * forward_x + (y - center_y) * forward_y
+        for y in range(height)
+        for x in range(width)
+        if mask.get_at((x, y))
+    )
+    projections = tuple(projections)
+    return (min(projections), max(projections)) if projections else (0.0, 0.0)
+
+
+def _retracted_visual(
+    source_sprite,
+    source_mask,
+    heading,
+    ratio,
+    projection_bounds,
+):
+    if ratio >= 1.0:
+        return source_sprite, source_mask
+
+    visible_mask = source_mask.copy()
+    minimum, maximum = projection_bounds
+    cutoff = minimum + (maximum - minimum) * max(0.0, ratio)
+    width, height = source_mask.get_size()
+    center_x = (width - 1) / 2
+    center_y = (height - 1) / 2
+    angle = math.radians(heading * const.TURN_ANGLE)
+    forward_x = math.sin(angle)
+    forward_y = -math.cos(angle)
+    for y in range(height):
+        for x in range(width):
+            projection = (
+                (x - center_x) * forward_x
+                + (y - center_y) * forward_y
+            )
+            if projection > cutoff:
+                visible_mask.set_at((x, y), 0)
+
+    sprite = source_sprite.copy()
+    alpha_mask = visible_mask.to_surface(
+        setcolor=(255, 255, 255, 255),
+        unsetcolor=(255, 255, 255, 0),
+    )
+    sprite.blit(alpha_mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    return sprite, visible_mask
 
 
 class HeadlessAssetManager(AssetManager):

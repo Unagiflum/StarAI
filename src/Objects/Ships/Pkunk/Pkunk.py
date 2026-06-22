@@ -1,4 +1,5 @@
 import src.const as const
+from src.entry_styles import EntryTrailStyle
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.Pkunk.A1.PkunkA1 import PkunkA1
@@ -6,6 +7,9 @@ from src.Objects.Ships.Pkunk.A2.PkunkA2 import PkunkA2
 
 
 class Pkunk(SpaceShip):
+    REBIRTH_TRAIL_GAP = 5
+    REBIRTH_TRAIL_ANGLES = (45, 135, 225, 315)
+
     def __init__(self, ship_name, player_num, resources=None, audio_service=None):
         super().__init__(ship_name, player_num, resources, audio_service)
         self.rebirth_count = 0
@@ -38,6 +42,12 @@ class Pkunk(SpaceShip):
 
     def on_battle_won(self):
         self.rebirth_count = 0
+
+    def rebirth_entry_trail_style(self):
+        return EntryTrailStyle(
+            angles=self.REBIRTH_TRAIL_ANGLES,
+            spacing=max(self.size) + self.REBIRTH_TRAIL_GAP,
+        )
 
     def plan_action1(self):
         return self.validate_action(

@@ -27,6 +27,12 @@ class ScheduledExplosion:
 
 
 @dataclass
+class PendingRebirth:
+    ship: SpaceShip
+    ready_frame: int | None = None
+
+
+@dataclass
 class AftermathState:
     started_frame: int
     latest_death_frame: int
@@ -38,7 +44,29 @@ class AftermathState:
     ditty_started: bool = False
     tie_break_ship: SpaceShip | None = None
     choose_second_player: int | None = None
-    death_sound_end_frames: dict[SpaceShip, int] = field(default_factory=dict)
+    pending_rebirths: dict[SpaceShip, PendingRebirth] = field(
+        default_factory=dict
+    )
+
+    def register_rebirths(self, ships):
+        for ship in ships:
+            self.pending_rebirths[ship] = PendingRebirth(ship)
+
+    def mark_rebirth_ready_after(self, ship, frame):
+        pending = self.pending_rebirths.get(ship)
+        if pending is not None:
+            pending.ready_frame = frame + const.PKUNK_REBIRTH_PAUSE_FRAMES
+
+    def rebirths_ready(self, frame):
+        return [
+            pending.ship
+            for pending in self.pending_rebirths.values()
+            if pending.ready_frame is not None and frame >= pending.ready_frame
+        ]
+
+    def finish_rebirths(self, ships):
+        for ship in ships:
+            self.pending_rebirths.pop(ship, None)
 
 
 def start_or_update_aftermath(
@@ -51,6 +79,7 @@ def start_or_update_aftermath(
     sound_enabled=True,
     audio_service=None,
     rng=None,
+    rebirth_ships=(),
 ) -> AftermathState:
     rng = rng or random
     audio = (
@@ -62,6 +91,7 @@ def start_or_update_aftermath(
         started_frame=frame_id,
         latest_death_frame=frame_id,
     )
+    state.register_rebirths(rebirth_ships)
 
     for ship in dead_ships:
         ship.current_hp = 0
@@ -142,7 +172,6 @@ def update_aftermath(
     frame_id,
     sound_enabled=True,
     audio_service=None,
-    pending_rebirths=(),
 ):
     audio = (
         audio_service
@@ -166,8 +195,8 @@ def update_aftermath(
         if item.is_final:
             with use_audio_service(audio):
                 sound_frames = BattleEffect.play_ship_death()
-            aftermath.death_sound_end_frames[item.ship] = (
-                frame_id + sound_frames
+            aftermath.mark_rebirth_ready_after(
+                item.ship, frame_id + sound_frames
             )
             hide_dead_ship(item.ship, world)
             aftermath.ships_pending_hide.discard(item.ship)
@@ -180,7 +209,7 @@ def update_aftermath(
         frame_id - aftermath.started_frame
         >= const.POST_DEATH_ANIMATION_VIEW_FRAMES
     )
-    if pending_rebirths:
+    if aftermath.pending_rebirths:
         return
     if len(living_ships) == 1 and not aftermath.ditty_started and death_view_done:
         if audio_service is None and sound_enabled:

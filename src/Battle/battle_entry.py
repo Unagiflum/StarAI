@@ -6,6 +6,7 @@ import math
 import pygame
 
 import src.const as const
+from src.entry_styles import EntryTrailStyle, STANDARD_ENTRY_TRAIL
 
 
 YELLOW = (255, 255, 0)
@@ -37,29 +38,15 @@ def silhouette_color(age):
 
 def silhouette_positions(ship, arrival_position=None):
     """Return the standard trail ordered from farthest to nearest."""
-    arrival_position = arrival_position or ship.position
-    direction_x, direction_y = _direction(ship.rotation)
-    count = const.ENTRY_TRAIL_SILHOUETTES
-
-    return tuple(
-        (
-            (arrival_position[0] - direction_x * distance) % const.ARENA_SIZE,
-            (arrival_position[1] - direction_y * distance) % const.ARENA_SIZE,
-        )
-        for distance in (
-            const.ENTRY_TRAIL_SPACING * index
-            for index in range(count - 1, -1, -1)
-        )
-    )
+    return silhouette_lines(ship, STANDARD_ENTRY_TRAIL, arrival_position)[0]
 
 
-def pkunk_rebirth_silhouette_lines(ship, arrival_position=None):
-    """Return the Pkunk rebirth's four close diagonal trails."""
+def silhouette_lines(ship, style=STANDARD_ENTRY_TRAIL, arrival_position=None):
+    """Return styled trail lines ordered from farthest to nearest."""
     arrival_position = arrival_position or ship.position
     count = const.ENTRY_TRAIL_SILHOUETTES
-    spacing = max(ship.size) + const.PKUNK_REBIRTH_TRAIL_GAP
     distances = tuple(
-        spacing * index for index in range(count - 1, -1, -1)
+        style.spacing * index for index in range(count - 1, -1, -1)
     )
 
     return tuple(
@@ -74,7 +61,7 @@ def pkunk_rebirth_silhouette_lines(ship, arrival_position=None):
         )
         for direction_x, direction_y in (
             _direction(ship.rotation + angle)
-            for angle in const.PKUNK_REBIRTH_TRAIL_ANGLES
+            for angle in style.angles
         )
     )
 
@@ -102,7 +89,7 @@ class EntryState:
     arrival_targets: dict
     camera_targets: tuple
     trackable_states: dict
-    diagonal_trail_ships: frozenset = field(default_factory=frozenset)
+    trail_styles: dict = field(default_factory=dict)
 
 
 def start_entry(
@@ -111,13 +98,18 @@ def start_entry(
     player2,
     frame_id,
     *,
-    diagonal_trail_ships=(),
+    trail_styles=None,
 ):
     entering_ships = tuple(entering_ships)
     if not entering_ships:
         return None
 
     entering_set = set(entering_ships)
+    trail_styles = {
+        ship: style
+        for ship, style in (trail_styles or {}).items()
+        if ship in entering_set
+    }
     arrival_targets = {
         ship: tuple(ship.position)
         for ship in entering_ships
@@ -139,7 +131,7 @@ def start_entry(
         arrival_targets=arrival_targets,
         camera_targets=camera_targets,
         trackable_states=trackable_states,
-        diagonal_trail_ships=frozenset(diagonal_trail_ships),
+        trail_styles=trail_styles,
     )
 
 
@@ -164,12 +156,8 @@ def entry_complete(entry, frame_id):
 def visible_silhouettes(entry, ship, frame_id):
     visible = []
     elapsed = frame_id - entry.started_frame
-    if ship in entry.diagonal_trail_ships:
-        lines = pkunk_rebirth_silhouette_lines(
-            ship, entry.arrival_targets[ship]
-        )
-    else:
-        lines = (silhouette_positions(ship, entry.arrival_targets[ship]),)
+    style = entry.trail_styles.get(ship, STANDARD_ENTRY_TRAIL)
+    lines = silhouette_lines(ship, style, entry.arrival_targets[ship])
     for index in range(const.ENTRY_TRAIL_SILHOUETTES):
         age = elapsed - index * const.ENTRY_TRAIL_STAGGER_FRAMES
         color = (

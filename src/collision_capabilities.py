@@ -30,6 +30,8 @@ class AreaDamageCapabilities:
     emits: bool = False
     targetable: bool = False
     vulnerable: bool = True
+    persistent: bool = False
+    plays_impact_sound: bool = False
 
 
 @dataclass(frozen=True)

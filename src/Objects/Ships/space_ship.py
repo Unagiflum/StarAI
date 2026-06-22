@@ -13,6 +13,7 @@ from src.collision_capabilities import (
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS, SHIPS_DATA
 from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, ActionResult
 from src.resources import default_assets
+from src.entry_styles import STANDARD_ENTRY_TRAIL
 
 
 CONTROL_STATE_ATTRIBUTES = {
@@ -121,6 +122,9 @@ class SpaceShip(PlayerObject):
         self.input_pressed_frames.clear()
         self.newly_pressed_controls.clear()
         self.released_controls.clear()
+
+    def rebirth_entry_trail_style(self):
+        return STANDARD_ENTRY_TRAIL
 
     def set_control_state(self, control_name, pressed, frame_id=None):
         attribute = CONTROL_STATE_ATTRIBUTES[control_name]

@@ -47,6 +47,8 @@ class ZoqFotA2Tests(CollisionTestCase):
         self.assertTrue(area.area_damage_pending)
         self.assertFalse(area.can_collide)
         self.assertFalse(area.area_damage_capabilities.vulnerable)
+        self.assertTrue(area.area_damage_capabilities.persistent)
+        self.assertTrue(area.area_damage_capabilities.plays_impact_sound)
         definition = ABILITY_DEFINITIONS["ZoqFotA2"]
         self.assertEqual(
             area.size,
@@ -62,9 +64,9 @@ class ZoqFotA2Tests(CollisionTestCase):
         parent_forward = area._projection_bounds(
             self.parent.get_collision_mask(), area.heading
         )[1]
-        effect_rear = area._projection_bounds(
-            area._source_masks[area.heading], area.heading
-        )[0]
+        effect_rear = area._retraction_assets.projection_bounds[
+            area.heading
+        ][0]
         effect_center_distance = self.parent.position[1] - area.position[1]
         self.assertAlmostEqual(
             effect_center_distance + effect_rear,
@@ -143,24 +145,20 @@ class ZoqFotA2Tests(CollisionTestCase):
             self.assertTrue(area.update())
         self.assertFalse(area.update())
 
-    def test_directional_scaling_keeps_y_forward_and_x_lateral(self):
-        area = ZoqFotA2(self.parent)
-        area.sprite_scale_x = 2.0
-        area.sprite_scale_y = 1.0
+    def test_instances_share_cached_retraction_visuals_without_sharing_age(self):
+        first = ZoqFotA2(self.parent)
+        second = ZoqFotA2(self.parent)
 
-        up_source = area.sprites[0]
-        right_source = area.sprites[4]
-        facing_up = area._scale_directional_sprite(up_source, 0)
-        facing_right = area._scale_directional_sprite(right_source, 4)
+        self.assertIs(first._retraction_assets, second._retraction_assets)
+        self.assertIs(first.get_sprite(), second.get_sprite())
+        self.assertIs(first.get_collision_mask(), second.get_collision_mask())
 
-        self.assertEqual(
-            facing_up.get_size(),
-            (up_source.get_width() * 2, up_source.get_height()),
-        )
-        self.assertEqual(
-            facing_right.get_size(),
-            (right_source.get_width(), right_source.get_height() * 2),
-        )
+        first.update()
+        first.update()
+
+        self.assertEqual(first._age, 2)
+        self.assertEqual(second._age, 0)
+        self.assertIsNot(first.get_sprite(), second.get_sprite())
 
 
 if __name__ == "__main__":
