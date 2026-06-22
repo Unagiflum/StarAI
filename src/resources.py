@@ -139,6 +139,8 @@ class AssetManager:
                 directions = 1 if definition.omnidirectional else const.SHIP_DIRECTIONS
                 for index in range(directions):
                     path = resource_dir / f"{ability_name}{index:02d}.png"
+                    if definition.omnidirectional and not path.exists():
+                        path = resource_dir / f"{ability_name}.png"
                     sprite = pygame.transform.smoothscale_by(self._image(path), scale)
                     if not definition.omnidirectional:
                         sprite = _scale_directional_sprite(

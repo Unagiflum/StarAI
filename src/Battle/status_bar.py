@@ -52,3 +52,33 @@ def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing):
     energy_bar.y = energy_y
     hp_bar.draw(screen, ship.current_hp, HP_COLOR)
     energy_bar.draw(screen, ship.current_energy, ENERGY_COLOR)
+    draw_boarded_marine_icons(
+        screen,
+        ship,
+        base_x,
+        min(hp_y, energy_y),
+        bar_width * 2 + bar_spacing,
+    )
+
+
+def draw_boarded_marine_icons(screen, ship, base_x, bars_top, total_width):
+    marines = [
+        marine for marine in getattr(ship, "boarded_marines", ())
+        if marine.currently_alive and getattr(marine, "is_boarded", False)
+    ]
+    if not marines:
+        return
+
+    icon_size = 12
+    gap = 2
+    columns = max(1, total_width // (icon_size + gap))
+    rows = (len(marines) + columns - 1) // columns
+    top = bars_top - rows * (icon_size + gap)
+    for index, marine in enumerate(marines):
+        row, column = divmod(index, columns)
+        row_count = min(columns, len(marines) - row * columns)
+        row_width = row_count * icon_size + (row_count - 1) * gap
+        x = base_x + (total_width - row_width) // 2 + column * (icon_size + gap)
+        y = top + row * (icon_size + gap)
+        icon = marine.hud_sprite
+        screen.blit(icon, (x, y))

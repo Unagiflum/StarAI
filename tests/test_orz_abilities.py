@@ -1,6 +1,7 @@
 import math
 import os
 import unittest
+from unittest import mock
 
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -13,9 +14,13 @@ pygame.display.set_mode((1, 1))
 
 import src.const as const
 from src.Battle.battle import initialize_new_round_ships
+from src.Battle import collision_responses
+from src.Battle.status_bar import draw_boarded_marine_icons
+from src.audio import RecordingAudioService
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ability, create_ship
+from src.Objects.Ships.Orz.A3.OrzA3 import OrzA3
 from src.resources import AssetManager
 
 
@@ -159,6 +164,125 @@ class OrzAbilityTests(unittest.TestCase):
             pygame.image.tobytes(icon, "RGBA"),
             pygame.image.tobytes(ship, "RGBA"),
         )
+
+    def test_a3_launches_a_three_hp_marine_and_spends_one_crew(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+
+        marine, handled = self.ship.perform_action3()
+
+        self.assertTrue(handled)
+        self.assertIsInstance(marine, OrzA3)
+        self.assertEqual(marine.current_hp, 3)
+        self.assertEqual(self.ship.current_hp, self.ship.max_hp - 1)
+        self.assertIn(marine, self.ship.active_marines)
+
+    def test_a3_boards_after_immediate_crew_kill_and_registers_hud_icon(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+        marine.position = enemy.position.copy()
+        marine.previous_position = marine.position.copy()
+
+        with mock.patch.object(collision_responses.BattleEffect, "play_boom"):
+            handled = collision_responses.fighter_impacts_ship(
+                marine, enemy, [], None
+            )
+
+        self.assertTrue(handled)
+        self.assertEqual(enemy.current_hp, enemy.max_hp - 1)
+        self.assertTrue(marine.is_boarded)
+        self.assertFalse(marine.can_collide)
+        self.assertEqual(enemy.boarded_marines, [marine])
+
+    def test_boarded_a3_uses_original_death_kill_and_no_result_ranges(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+        marine.handle_ship_contact(enemy)
+
+        marine.rng = mock.Mock()
+        marine.rng.randrange.return_value = 144
+        marine.boarding_timer = 1
+        marine.update()
+        self.assertEqual(enemy.current_hp, enemy.max_hp - 1)
+
+        marine.rng.randrange.return_value = 16
+        marine.boarding_timer = 1
+        marine.update()
+        self.assertEqual(enemy.current_hp, enemy.max_hp - 2)
+
+        marine.rng.randrange.return_value = 0
+        marine.boarding_timer = 1
+        self.assertFalse(marine.update())
+        self.assertNotIn(marine, enemy.boarded_marines)
+
+    def test_surviving_a3_returns_and_restores_parent_crew(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+        marine.handle_ship_contact(enemy)
+        enemy.current_hp = 0
+
+        marine.update()
+        self.assertEqual(marine.mode, OrzA3.RETURNING)
+        self.assertTrue(marine.can_collide)
+        marine.recover_with_parent()
+
+        self.assertEqual(self.ship.current_hp, self.ship.max_hp)
+        self.assertFalse(marine.currently_alive)
+
+    def test_a3_uses_named_launch_alarm_and_death_sounds(self):
+        audio = RecordingAudioService()
+        ship = create_ship("Orz", 1, audio_service=audio)
+        enemy = create_ship("Earthling", 2, audio_service=audio)
+        ship.initialize_in_battle([500, 500], 4)
+        enemy.initialize_in_battle([700, 500], 0)
+        ship.opponent = enemy
+
+        marine, _ = ship.perform_action3()
+        marine.handle_ship_contact(enemy)
+        marine.rng = mock.Mock()
+        marine.rng.randrange.return_value = 0
+        marine.boarding_timer = 1
+        marine.update()
+
+        played_names = [operation[1].name for operation in audio.operations]
+        self.assertEqual(
+            played_names,
+            ["OrzA3Launch.wav", "OrzA3Alarm.wav", "OrzA3Die.wav"],
+        )
+
+    def test_a3_limits_parent_to_eight_active_marines(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+
+        for _ in range(OrzA3.MAX_MARINES):
+            marine, _ = self.ship.perform_action3()
+            self.assertIsInstance(marine, OrzA3)
+            self.ship.action3_timer = 0
+
+        ninth, _ = self.ship.perform_action3()
+        self.assertIsNone(ninth)
+        self.assertEqual(len(self.ship.active_marines), OrzA3.MAX_MARINES)
+
+    def test_status_draws_one_icon_for_each_boarded_marine(self):
+        screen = mock.Mock()
+        icon = pygame.Surface((12, 12), pygame.SRCALPHA)
+        ship = mock.Mock()
+        ship.boarded_marines = [
+            mock.Mock(currently_alive=True, is_boarded=True, hud_sprite=icon)
+            for _ in range(6)
+        ]
+
+        draw_boarded_marine_icons(screen, ship, 10, 100, 65)
+
+        self.assertEqual(screen.blit.call_count, 6)
 
 
 if __name__ == "__main__":

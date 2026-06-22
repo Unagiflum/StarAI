@@ -95,6 +95,7 @@ class SpaceShip(PlayerObject):
         self._active_damage_shield = None
         self.cloaked = False
         self.trackable = True
+        self.boarded_marines = []
         self.input_pressed_frames = {}
         self.newly_pressed_controls = set()
         self.released_controls = set()
@@ -114,6 +115,7 @@ class SpaceShip(PlayerObject):
         self.action1_timer = 0
         self.action2_timer = 0
         self.action3_timer = 0
+        self.boarded_marines.clear()
         self.reset_controls()
         self.in_battle = True
 

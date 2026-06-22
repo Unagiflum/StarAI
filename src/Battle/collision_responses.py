@@ -415,9 +415,14 @@ def fighter_impacts_projectile(
         else:
             set_projectile_hp(projectile, projectile_hp)
     BattleEffect.play_boom(fighter.current_damage)
-    destroy_projectile(
-        fighter, effects, normal, fighter.current_damage, contact
+    contact_handler = getattr(fighter, "handle_projectile_contact", None)
+    contact_handled = bool(
+        contact_handler is not None and contact_handler(projectile)
     )
+    if not contact_handled or fighter.current_hp <= 0:
+        destroy_projectile(
+            fighter, effects, normal, fighter.current_damage, contact
+        )
     return True
 
 
@@ -446,6 +451,9 @@ def fighter_impacts_ship(fighter, ship, effects, environment):
     if ship is fighter.parent:
         fighter.recover_with_parent()
     else:
+        contact_handler = getattr(fighter, "handle_ship_contact", None)
+        if contact_handler is not None and contact_handler(ship):
+            return True
         damage = fighter.current_damage
         damage_ship(ship, damage)
         BattleEffect.play_boom(damage)
@@ -638,6 +646,9 @@ def destroy_projectile(
 
     projectile.current_hp = 0
     projectile.currently_alive = False
+    on_destroyed = getattr(projectile, "on_destroyed", None)
+    if on_destroyed is not None:
+        on_destroyed()
 
 
 def destroy_asteroid(asteroid, effects):

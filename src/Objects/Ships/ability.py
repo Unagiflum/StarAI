@@ -254,6 +254,18 @@ class Ability(PlayerObject):
         """React to fighter separation from a planet."""
         return None
 
+    def handle_ship_contact(self, ship):
+        """Handle a fighter-specific ship collision instead of the default hit."""
+        return False
+
+    def handle_projectile_contact(self, projectile):
+        """Handle damage from a projectile without the default fighter removal."""
+        return False
+
+    def on_destroyed(self):
+        """React once when collision handling destroys this ability."""
+        return None
+
     def can_recover_with_parent(self):
         """Return whether this fighter may currently recover into its parent."""
         return False

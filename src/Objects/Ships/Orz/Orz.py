@@ -1,6 +1,7 @@
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.Orz.A1.OrzA1 import OrzA1
 from src.Objects.Ships.Orz.A2.OrzA2 import OrzA2
+from src.Objects.Ships.Orz.A3.OrzA3 import OrzA3
 from src.Objects.Ships.space_ship import SpaceShip
 from src.resources import centered_overlay
 
@@ -12,6 +13,7 @@ class Orz(SpaceShip):
         super().__init__(ship_name, player_num, resources, audio_service)
         self.turret = OrzA2(self)
         self._turret_composites = {}
+        self.active_marines = []
 
     @property
     def turret_heading(self):
@@ -43,7 +45,32 @@ class Orz(SpaceShip):
         return not self.action2_active
 
     def plan_action3(self):
-        return self.validate_action(3)
+        self.active_marines = [
+            marine for marine in self.active_marines
+            if marine.currently_alive
+        ]
+        opponent = self.opponent
+        if opponent is None:
+            # Preserve the existing combined-input cooldown outside a bound
+            # battle (menus and characterization tests have no opponent).
+            return self.validate_action(3)
+        if (
+            not self.can_action3()
+            or self.current_hp <= 1
+            or len(self.active_marines) >= OrzA3.MAX_MARINES
+            or not opponent.currently_alive
+            or opponent.current_hp <= 0
+            or not opponent.trackable
+        ):
+            return ActionPlan.invalid(3)
+
+        marine = OrzA3(self)
+        return self.prepare_action_plan(
+            3,
+            marine,
+            crew_change=-1,
+            side_effects=(lambda: self.active_marines.append(marine),),
+        )
 
     def handles_combined_action(self):
         return True
