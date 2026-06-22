@@ -15,17 +15,16 @@ class ArilouA1(Ability):
         self.calculate_end_position()
 
     def calculate_end_position(self):
-        if not self.opponent:
-            return
-        if self.opponent.trackable:
+        opponent = self._live_trackable_opponent()
+        if opponent is not None:
             # Calculate direction to opponent
-            dx, dy = wrapped_delta(self.position, self.opponent.position)
+            dx, dy = wrapped_delta(self.position, opponent.position)
 
             # Calculate angle and quantize to nearest SHIP_DIRECTION
             angle = math.atan2(dx, -dy)
             direction = round(angle / (2 * math.pi) * const.SHIP_DIRECTIONS) % const.SHIP_DIRECTIONS
         else:
-            direction = self.parent.heading  # When untracked, use parent's heading directly
+            direction = self.parent.heading
 
         angle = direction * (2 * math.pi / const.SHIP_DIRECTIONS)
 

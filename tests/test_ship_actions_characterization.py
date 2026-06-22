@@ -289,6 +289,34 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(ship.action2_timer, int(ship.a2_wait * const.ACTION_WAIT_SCALE))
         effect.launch_sound.play.assert_called_once_with()
 
+    def test_arilou_laser_fires_forward_without_a_target(self):
+        ship = create_ship("Arilou", 1)
+        ship.position = [1000, 2000]
+        ship.heading = 4
+
+        laser = create_ability("ArilouA1", ship)
+        laser.position = ship.position.copy()
+        laser.calculate_end_position()
+
+        self.assertAlmostEqual(laser.end_position[0], 1000 + laser.LASER_RANGE)
+        self.assertAlmostEqual(laser.end_position[1], 2000)
+
+    def test_arilou_laser_fires_forward_when_target_is_cloaked(self):
+        ship = create_ship("Arilou", 1)
+        target = create_ship("Ilwrath", 2)
+        ship.position = [1000, 2000]
+        ship.heading = 8
+        ship.opponent = target
+        target.position = [1500, 2000]
+        target.trackable = False
+
+        laser = create_ability("ArilouA1", ship)
+        laser.position = ship.position.copy()
+        laser.calculate_end_position()
+
+        self.assertAlmostEqual(laser.end_position[0], 1000)
+        self.assertAlmostEqual(laser.end_position[1], 2000 + laser.LASER_RANGE)
+
     def test_kohr_ah_primary_is_press_only_and_release_stops_live_saws(self):
         ship = create_ship("KohrAh", 1)
         ship.action1_active = True
