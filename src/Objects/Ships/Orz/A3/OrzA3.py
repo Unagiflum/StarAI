@@ -116,13 +116,10 @@ class OrzA3(Ability):
 
         if self.shield_bounce_timer > 0:
             self.shield_bounce_timer -= 1
-            if self.inertia:
-                self.apply_verlet()
-            else:
-                self._coast()
+            self.update_physics()
             return True
 
-        if self.mode != self.AVOIDING and self._predict_planet_collision():
+        if self.mode != self.AVOIDING and self.predict_planet_collision():
             self.previous_mode = self.mode
             self.mode = self.AVOIDING
 
@@ -135,14 +132,7 @@ class OrzA3(Ability):
             else:
                 self.velocity = [0.0, 0.0]
 
-        self.velocity[0] += self.accumulated_impulses[0]
-        self.velocity[1] += self.accumulated_impulses[1]
-        self.accumulated_impulses = [0.0, 0.0]
-
-        if self.inertia:
-            self.apply_verlet()
-        else:
-            self._coast()
+        self.update_physics()
             
         return self.currently_alive
 
@@ -196,29 +186,7 @@ class OrzA3(Ability):
         else:
             self.thrust_timer -= 1
 
-    def _predict_planet_collision(self):
-        if not self.planet: return False
-        
-        dx, dy = wrapped_delta(self.position, self.planet.position)
-        current_dist = math.hypot(dx, dy)
-        if current_dist >= const.GRAVITY_RANGE:
-            return False
 
-        pos = list(self.position)
-        vel = list(self.velocity)
-        for _ in range(60):
-            dx, dy = wrapped_delta(pos, self.planet.position)
-            dist = math.hypot(dx, dy)
-            if dist < self.planet.diameter / 2:
-                return True
-            if dist < const.GRAVITY_RANGE:
-                gf = const.GRAVITY_MULTIPLIER * self.planet.gravity
-                if dist > 0:
-                    vel[0] += gf * dx / dist
-                    vel[1] += gf * dy / dist
-            pos[0] = (pos[0] + vel[0] * const.SPEED_SCALE) % const.ARENA_SIZE
-            pos[1] = (pos[1] + vel[1] * const.SPEED_SCALE) % const.ARENA_SIZE
-        return False
 
     def _update_avoiding(self):
         if not self.planet:

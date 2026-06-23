@@ -13,7 +13,6 @@ class Druuge(SpaceShip):
             cannon.MAX_RECOIL,
             cannon.RECOIL_INCREMENT,
             180,
-            True,
             False,
         )
         return self.prepare_action_plan(1, cannon, side_effects=(recoil,))

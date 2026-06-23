@@ -15,7 +15,6 @@ class Thraddash(SpaceShip):
             afterburner.REUNK_THRUST,
             afterburner.REUNK_INCREMENT,
             0,
-            True,
             False,
         )
         return self.prepare_action_plan(2, afterburner, side_effects=(thrust,))

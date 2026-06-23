@@ -285,29 +285,23 @@ class SpaceShip(PlayerObject):
         self.current_hp = max(0, self.current_hp - damage)
         return previous_hp - self.current_hp
 
+
     def update(self):
         self.previous_position = self.position.copy()
         self.update_physics()
         return True
 
     def update_physics(self):
-        if self.inertia:
-            self.velocity[0] += self.accumulated_impulses[0]
-            self.velocity[1] += self.accumulated_impulses[1]
-            self.accumulated_impulses = [0.0, 0.0]
-            self.apply_verlet()
-            self.apply_speed_limit()
-        else:
+        if not self.inertia:
             if self.collision_velocity != [0.0, 0.0]:
                 self.velocity = self.collision_velocity.copy()
                 self.collision_velocity = [0.0, 0.0]
             else:
                 self.velocity = self.accumulated_impulses.copy()
             self.accumulated_impulses = [0.0, 0.0]
-            self.apply_speed_limit()
-            self.position[0] = (self.position[0] + self.velocity[0] * const.SPEED_SCALE) % const.ARENA_SIZE
-            self.position[1] = (self.position[1] + self.velocity[1] * const.SPEED_SCALE) % const.ARENA_SIZE
 
+        super().update_physics()
+        self.apply_speed_limit()
 
     def can_thrust(self):
         return self.thrust_timer == 0

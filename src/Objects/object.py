@@ -154,6 +154,41 @@ class PlayerObject(Object):
             self.velocity[0] *= scale
             self.velocity[1] *= scale
 
+    def update_physics(self):
+        self.velocity[0] += self.accumulated_impulses[0]
+        self.velocity[1] += self.accumulated_impulses[1]
+        self.accumulated_impulses = [0.0, 0.0]
+
+        if self.inertia:
+            self.apply_verlet()
+        else:
+            self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+            self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+
+    def predict_planet_collision(self, frames=60):
+        if not self.planet: return False
+        
+        dx, dy = wrapped_delta(self.position, self.planet.position)
+        current_dist = math.hypot(dx, dy)
+        if current_dist >= Const.GRAVITY_RANGE:
+            return False
+
+        pos = list(self.position)
+        vel = list(self.velocity)
+        for _ in range(frames):
+            dx, dy = wrapped_delta(pos, self.planet.position)
+            dist = math.hypot(dx, dy)
+            if dist < self.planet.diameter / 2:
+                return True
+            if dist < Const.GRAVITY_RANGE:
+                gf = Const.GRAVITY_MULTIPLIER * self.planet.gravity
+                if dist > 0:
+                    vel[0] += gf * dx / dist
+                    vel[1] += gf * dy / dist
+            pos[0] = (pos[0] + vel[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+            pos[1] = (pos[1] + vel[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+        return False
+
     def add_impulse(self, dx, dy):
         if self.can_move:
             self.accumulated_impulses[0] += dx

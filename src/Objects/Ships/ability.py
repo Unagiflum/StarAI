@@ -195,12 +195,8 @@ class Ability(PlayerObject):
 
     def update_physics(self):
         self.update_heading()
+        super().update_physics()
         self.apply_speed_limit()
-        if self.inertia:
-            self.apply_verlet()
-        else:
-            self.position[0] = (self.position[0] + self.velocity[0] * const.SPEED_SCALE) % const.ARENA_SIZE
-            self.position[1] = (self.position[1] + self.velocity[1] * const.SPEED_SCALE) % const.ARENA_SIZE
 
     def update(self):
         if not self.currently_alive:
