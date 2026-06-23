@@ -114,6 +114,8 @@ class PlayerObject(Object):
     def set_planet(self, planet):
         self.planet = planet
 
+
+
     def distance_to(self, obj):
         dx, dy = wrapped_delta(self.position, obj.position)
         distance = math.sqrt(dx * dx + dy * dy)
@@ -151,3 +153,60 @@ class PlayerObject(Object):
             scale = Const.SPEED_LIMIT / speed
             self.velocity[0] *= scale
             self.velocity[1] *= scale
+
+    def add_impulse(self, dx, dy):
+        if self.can_move:
+            self.accumulated_impulses[0] += dx
+            self.accumulated_impulses[1] += dy
+
+    def get_thrust_marker_position(self, thrust_angle=0):
+        angle_rad = math.radians(self.rotation + thrust_angle)
+        offset = (self.size[1] / 2) + 6
+        marker_x = self.position[0] - math.sin(angle_rad) * offset
+        marker_y = self.position[1] + math.cos(angle_rad) * offset
+        return marker_x, marker_y
+
+    def apply_thrust(self, max_thrust, thrust_increment, angle, make_marker):
+        angle_rad = math.radians(self.rotation + angle)
+        thrust_direction = [math.sin(angle_rad), -math.cos(angle_rad)]
+
+        if self.inertia:
+            new_velocity = [
+                self.velocity[0] + thrust_direction[0] * thrust_increment,
+                self.velocity[1] + thrust_direction[1] * thrust_increment
+            ]
+
+            speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
+            scale = 1.0
+
+            if self.planet:
+                _, planet_distance = self.distance_to(self.planet)
+            else:
+                planet_distance = float('inf')
+
+            if speed > max_thrust and planet_distance > Const.GRAVITY_RANGE:
+                scale = max_thrust / speed
+            if speed > Const.MAX_GRAV_WHIP:
+                scale = Const.MAX_GRAV_WHIP / speed
+
+            target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
+
+            diff_vector = [target_velocity[0] - self.velocity[0], target_velocity[1] - self.velocity[1]]
+
+            diff_magnitude = math.sqrt(diff_vector[0] ** 2 + diff_vector[1] ** 2)
+            if diff_magnitude > thrust_increment:
+                scale_diff = thrust_increment / diff_magnitude
+                self.add_impulse(diff_vector[0] * scale_diff, diff_vector[1] * scale_diff)
+            else:
+                self.add_impulse(diff_vector[0], diff_vector[1])
+        else:
+            self.add_impulse(
+                thrust_direction[0] * max_thrust,
+                thrust_direction[1] * max_thrust
+            )
+
+        if make_marker:
+            marker_x, marker_y = self.get_thrust_marker_position(angle)
+            marker = ThrustMarker(marker_x, marker_y)
+            return marker
+        return None

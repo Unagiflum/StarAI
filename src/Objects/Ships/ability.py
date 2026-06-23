@@ -254,8 +254,12 @@ class Ability(PlayerObject):
         """React to fighter separation from a planet."""
         return None
 
-    def handle_ship_contact(self, ship):
+    def handle_ship_contact(self, ship, normal=None):
         """Handle a fighter-specific ship collision instead of the default hit."""
+        return False
+
+    def handle_asteroid_contact(self, asteroid, normal=None):
+        """Handle a fighter-specific asteroid collision instead of the default hit."""
         return False
 
     def handle_projectile_contact(self, projectile):

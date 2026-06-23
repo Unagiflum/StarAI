@@ -4,6 +4,7 @@ import src.const as const
 from src.collision_capabilities import AreaDamageCapabilities
 from src.Objects.object import ThrustMarker
 from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.toroidal import wrapped_delta
 
 
@@ -14,11 +15,12 @@ class OrzA3(Ability):
     BOARDED = "boarded"
     RETURNING = "returning"
 
+    AVOIDING = "avoiding"
+
     MAX_MARINES = 8
     BOARDING_WAIT = int(12 * const.ACTION_WAIT_SCALE)
     DEATH_ROLL_LIMIT = 16
     KILL_ROLL_LIMIT = 144
-    THRUST_INCREMENT = 8 * const.PROJ_SPEED_SCALE
     SHIELD_BOUNCE_FRAMES = 5
 
     def __init__(self, parent):
@@ -28,6 +30,14 @@ class OrzA3(Ability):
         self.boarded_ship = None
         self.boarding_timer = self.BOARDING_WAIT
         self.shield_bounce_timer = 0
+        
+        ability_def = ABILITY_DEFINITIONS["OrzA3"]
+        self.max_thrust = ability_def.max_thrust * const.PROJ_SPEED_SCALE if ability_def.max_thrust else self.speed
+        self.thrust_increment = ability_def.thrust_increment * const.PROJ_SPEED_SCALE if ability_def.thrust_increment else 8 * const.PROJ_SPEED_SCALE
+        self.thrust_wait = ability_def.thrust_wait if ability_def.thrust_wait else 1
+        self.thrust_timer = 0
+        self.previous_mode = self.OUTBOUND
+
         self.spawned_objects = []
         self._death_sound_played = False
         self._load_marine_sounds()
@@ -106,14 +116,34 @@ class OrzA3(Ability):
 
         if self.shield_bounce_timer > 0:
             self.shield_bounce_timer -= 1
-            self._coast()
+            if self.inertia:
+                self.apply_verlet()
+            else:
+                self._coast()
             return True
 
-        destination = self._flight_destination()
-        if destination is not None:
-            self._move_toward(destination)
+        if self.mode != self.AVOIDING and self._predict_planet_collision():
+            self.previous_mode = self.mode
+            self.mode = self.AVOIDING
+
+        if self.mode == self.AVOIDING:
+            self._update_avoiding()
         else:
-            self.velocity = [0.0, 0.0]
+            destination = self._flight_destination()
+            if destination is not None:
+                self._move_toward(destination)
+            else:
+                self.velocity = [0.0, 0.0]
+
+        self.velocity[0] += self.accumulated_impulses[0]
+        self.velocity[1] += self.accumulated_impulses[1]
+        self.accumulated_impulses = [0.0, 0.0]
+
+        if self.inertia:
+            self.apply_verlet()
+        else:
+            self._coast()
+            
         return self.currently_alive
 
     def _update_boarded(self):
@@ -153,30 +183,71 @@ class OrzA3(Ability):
         dx, dy = wrapped_delta(self.position, destination)
         distance = math.hypot(dx, dy)
         if distance <= 0:
-            self.velocity = [0.0, 0.0]
             return
-        target_speed = min(self.speed, distance / const.SPEED_SCALE)
-        target_velocity = [
-            dx / distance * target_speed,
-            dy / distance * target_speed,
-        ]
-        change = [
-            target_velocity[0] - self.velocity[0],
-            target_velocity[1] - self.velocity[1],
-        ]
-        change_magnitude = math.hypot(*change)
-        if change_magnitude > self.THRUST_INCREMENT:
-            scale = self.THRUST_INCREMENT / change_magnitude
-            change = [change[0] * scale, change[1] * scale]
 
-        old_speed = math.hypot(*self.velocity)
-        self.velocity[0] += change[0]
-        self.velocity[1] += change[1]
-        new_speed = math.hypot(*self.velocity)
-        self.rotation = math.degrees(math.atan2(dx, -dy)) % 360
-        if new_speed > old_speed + 1e-6:
-            self._spawn_thrust_marker()
-        self._coast()
+        if self.thrust_timer <= 0:
+            thrust_dir_x = dx / distance
+            thrust_dir_y = dy / distance
+            self.rotation = math.degrees(math.atan2(thrust_dir_x, -thrust_dir_y)) % 360
+            marker = self.apply_thrust(self.max_thrust, self.thrust_increment, 0, True)
+            if marker:
+                self.spawned_objects.append(marker)
+            self.thrust_timer = self.thrust_wait
+        else:
+            self.thrust_timer -= 1
+
+    def _predict_planet_collision(self):
+        if not self.planet: return False
+        
+        dx, dy = wrapped_delta(self.position, self.planet.position)
+        current_dist = math.hypot(dx, dy)
+        if current_dist >= const.GRAVITY_RANGE:
+            return False
+
+        pos = list(self.position)
+        vel = list(self.velocity)
+        for _ in range(60):
+            dx, dy = wrapped_delta(pos, self.planet.position)
+            dist = math.hypot(dx, dy)
+            if dist < self.planet.diameter / 2:
+                return True
+            if dist < const.GRAVITY_RANGE:
+                gf = const.GRAVITY_MULTIPLIER * self.planet.gravity
+                if dist > 0:
+                    vel[0] += gf * dx / dist
+                    vel[1] += gf * dy / dist
+            pos[0] = (pos[0] + vel[0] * const.SPEED_SCALE) % const.ARENA_SIZE
+            pos[1] = (pos[1] + vel[1] * const.SPEED_SCALE) % const.ARENA_SIZE
+        return False
+
+    def _update_avoiding(self):
+        if not self.planet:
+            self.mode = self.previous_mode
+            return
+        dx, dy = wrapped_delta(self.position, self.planet.position)
+        dot_product = dx * self.velocity[0] + dy * self.velocity[1]
+        if dot_product <= 0:
+            self.mode = self.previous_mode
+            return
+
+        perp1 = (-self.velocity[1], self.velocity[0])
+        perp2 = (self.velocity[1], -self.velocity[0])
+        dot1 = perp1[0] * (-dx) + perp1[1] * (-dy)
+        dot2 = perp2[0] * (-dx) + perp2[1] * (-dy)
+        outward_dir = perp1 if dot1 > dot2 else perp2
+        mag = math.hypot(*outward_dir)
+
+        if mag > 0:
+            if self.thrust_timer <= 0:
+                thrust_dir_x = outward_dir[0] / mag
+                thrust_dir_y = outward_dir[1] / mag
+                self.rotation = math.degrees(math.atan2(thrust_dir_x, -thrust_dir_y)) % 360
+                marker = self.apply_thrust(self.max_thrust, self.thrust_increment, 0, True)
+                if marker:
+                    self.spawned_objects.append(marker)
+                self.thrust_timer = self.thrust_wait
+            else:
+                self.thrust_timer -= 1
 
     def _coast(self):
         self.position[0] = (
@@ -199,7 +270,13 @@ class OrzA3(Ability):
         self.spawned_objects = []
         return result
 
-    def handle_ship_contact(self, ship):
+    def on_collide(self, target):
+        target_name = getattr(target, "name", None)
+        if target_name in ("OrzA3", "KzerZaA2"):
+            return False
+        return super().on_collide(target)
+
+    def handle_ship_contact(self, ship, normal=None):
         if (
             self.mode != self.OUTBOUND
             or ship.player == self.player
@@ -208,9 +285,14 @@ class OrzA3(Ability):
             return False
 
         if ship.damage_shield_is_active():
+            if normal:
+                dot = self.velocity[0] * normal[0] + self.velocity[1] * normal[1]
+                self.velocity[0] -= 2 * dot * normal[0]
+                self.velocity[1] -= 2 * dot * normal[1]
+            else:
+                self.velocity[0] *= -1
+                self.velocity[1] *= -1
             self.position = self.previous_position.copy()
-            self.velocity[0] *= -1
-            self.velocity[1] *= -1
             self.shield_bounce_timer = self.SHIELD_BOUNCE_FRAMES
             return True
 
@@ -234,8 +316,24 @@ class OrzA3(Ability):
             self.alarm_sound.play()
         return True
 
+    def handle_asteroid_contact(self, asteroid, normal=None):
+        if normal:
+            dot = self.velocity[0] * normal[0] + self.velocity[1] * normal[1]
+            self.velocity[0] -= 2 * dot * normal[0]
+            self.velocity[1] -= 2 * dot * normal[1]
+        else:
+            self.velocity[0] *= -1
+            self.velocity[1] *= -1
+        self.position = self.previous_position.copy()
+        self.shield_bounce_timer = self.SHIELD_BOUNCE_FRAMES
+        return True
+
     def handle_projectile_contact(self, projectile):
         self.current_hp = max(0, self.current_hp - projectile.current_damage)
+        if hasattr(projectile, "set_hp"):
+            projectile.set_hp(projectile.current_hp - 1)
+        else:
+            projectile.current_hp = max(0, projectile.current_hp - 1)
         return True
 
     def begin_planet_avoidance(self, planet, outward_normal):

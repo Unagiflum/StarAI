@@ -452,7 +452,7 @@ def fighter_impacts_ship(fighter, ship, effects, environment):
         fighter.recover_with_parent()
     else:
         contact_handler = getattr(fighter, "handle_ship_contact", None)
-        if contact_handler is not None and contact_handler(ship):
+        if contact_handler is not None and contact_handler(ship, normal):
             return True
         damage = fighter.current_damage
         damage_ship(ship, damage)
@@ -473,6 +473,9 @@ def fighter_impacts_asteroid(fighter, asteroid, effects, environment):
     contact, normal = projectile_impact(fighter, asteroid, overlap)
     if contact is None:
         return False
+    contact_handler = getattr(fighter, "handle_asteroid_contact", None)
+    if contact_handler is not None and contact_handler(asteroid, normal):
+        return True
 
     BattleEffect.play_boom(fighter.current_damage)
     destroy_projectile(

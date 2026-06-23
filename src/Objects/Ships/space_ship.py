@@ -160,17 +160,18 @@ class SpaceShip(PlayerObject):
             self.turn_left()
         if self.turn_right_active and turn_right_ready and self.turn_input_enabled():
             self.turn_right()
-        for thrust_angle in self.get_active_thrust_angles(
-                thrust_ready, turn_left_ready, turn_right_ready):
-            marker = self.apply_thrust(
-                self.max_thrust,
-                self.thrust_increment,
-                thrust_angle,
-                self.can_thrust(),
-                not self.cloaked
-            )
-            if marker:
-                new_objects.append(marker)
+        thrust_angles = self.get_active_thrust_angles(thrust_ready, turn_left_ready, turn_right_ready)
+        if thrust_angles and self.can_thrust():
+            self.thrust_timer = int(self.thrust_wait * const.THRUST_WAIT_SCALE)
+            for thrust_angle in thrust_angles:
+                marker = self.apply_thrust(
+                    self.max_thrust,
+                    self.thrust_increment,
+                    thrust_angle,
+                    not self.cloaked
+                )
+                if marker:
+                    new_objects.append(marker)
 
         # Input processing consumes typed transactions directly. The
         # perform_action* methods below remain compatibility wrappers.
@@ -241,10 +242,7 @@ class SpaceShip(PlayerObject):
 
         return frame_id - pressed_frame >= const.INPUT_REPEAT_DELAY_FRAMES
 
-    def add_impulse(self, dx, dy):
-        if self.can_move:
-            self.accumulated_impulses[0] += dx
-            self.accumulated_impulses[1] += dy
+
 
     def on_ship_impact(self, other, impact):
         """Return optional behavior for a physical collision with another ship."""
@@ -342,60 +340,12 @@ class SpaceShip(PlayerObject):
 
         self.energy_timer += 1
         if self.energy_timer >= self.energy_wait*const.RECHARGE_DELAY_SCALE:
+
+
             self.energy_timer = 0
             if self.current_energy < self.max_energy:
                 self.current_energy = min(self.max_energy,
                                           self.current_energy + self.energy_regen)
-
-    def apply_thrust(self, max_thrust, thrust_increment, angle, can_thrust, make_marker):
-        if can_thrust:
-            angle_rad = math.radians(self.rotation + angle)
-            thrust_direction = [math.sin(angle_rad), -math.cos(angle_rad)]
-
-            if self.inertia:
-                new_velocity = [
-                    self.velocity[0] + thrust_direction[0] * thrust_increment,
-                    self.velocity[1] + thrust_direction[1] * thrust_increment
-                ]
-
-                speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
-                scale = 1.0
-
-                _, planet_distance = self.distance_to(self.planet)
-                if speed > max_thrust and planet_distance > const.GRAVITY_RANGE:
-                    scale = max_thrust / speed
-                if speed > const.MAX_GRAV_WHIP:
-                    scale = const.MAX_GRAV_WHIP / speed
-
-                target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
-
-                diff_vector = [target_velocity[0] - self.velocity[0], target_velocity[1] - self.velocity[1]]
-
-                diff_magnitude = math.sqrt(diff_vector[0] ** 2 + diff_vector[1] ** 2)
-                if diff_magnitude > thrust_increment:
-                    scale = thrust_increment / diff_magnitude
-                    self.add_impulse(diff_vector[0] * scale, diff_vector[1] * scale)
-                else:
-                    self.add_impulse(diff_vector[0] , diff_vector[1] )
-            else:
-                self.add_impulse(
-                    thrust_direction[0] * max_thrust,
-                    thrust_direction[1] * max_thrust
-                )
-
-            self.thrust_timer = int(self.thrust_wait * const.THRUST_WAIT_SCALE)
-            if make_marker:
-                marker_x, marker_y = self.get_thrust_marker_position(angle)
-                marker = ThrustMarker(marker_x, marker_y)
-                return marker
-        return None
-
-    def get_thrust_marker_position(self, thrust_angle=0):
-        angle_rad = math.radians(self.rotation + thrust_angle)
-        offset = (self.size[1] / 2) + 6
-        marker_x = self.position[0] - math.sin(angle_rad) * offset
-        marker_y = self.position[1] + math.cos(angle_rad) * offset
-        return marker_x, marker_y
 
     def turn_left(self):
         if self.can_turn():

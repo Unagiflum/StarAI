@@ -164,6 +164,9 @@ class AbilityDefinition(_DefinitionMapping):
     reunk_thrust: float | None = None
     reunk_increment: float | None = None
     spread_angle: float | None = None
+    max_thrust: float | None = None
+    thrust_increment: float | None = None
+    thrust_wait: float | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -220,6 +223,9 @@ class AbilityDefinition(_DefinitionMapping):
         "REUNK_THRUST": "reunk_thrust",
         "REUNK_INCREMENT": "reunk_increment",
         "SPREAD_ANGLE": "spread_angle",
+        "max_thrust": "max_thrust",
+        "thrust_increment": "thrust_increment",
+        "thrust_wait": "thrust_wait",
     }
 
 
@@ -369,7 +375,7 @@ def parse_ability_definition(name, data):
         "LASER_RANGE", "LASER_COLOR", "LASER_WIDTH", "MAX_RECOIL",
         "RECOIL_INCREMENT", "ENERGY_GAIN", "HP_GAIN", "TRACK_SPEED",
         "TRACK_RANGE", "DMG_TO_PROJ", "REUNK_THRUST", "REUNK_INCREMENT",
-        "SPREAD_ANGLE",
+        "SPREAD_ANGLE", "max_thrust", "thrust_increment", "thrust_wait",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -414,6 +420,9 @@ def parse_ability_definition(name, data):
         "REUNK_THRUST": ("reunk_thrust", float),
         "REUNK_INCREMENT": ("reunk_increment", float),
         "SPREAD_ANGLE": ("spread_angle", float),
+        "max_thrust": ("max_thrust", float),
+        "thrust_increment": ("thrust_increment", float),
+        "thrust_wait": ("thrust_wait", float),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(

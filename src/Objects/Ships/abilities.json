@@ -3,8 +3,12 @@
         "ship_name": "Arilou",
         "type": "laser",
         "action": "A1",
-        "start_hp": [1],
-        "damage": [1],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
         "tracking": true,
         "parent_vel": 1.0,
         "speed": 100,
@@ -21,17 +25,26 @@
         "sprite_scale": 1.0,
         "has_sprites": false,
         "has_sound": true,
-
         "LASER_RANGE": 400,
-        "LASER_COLOR": [255, 255, 0],
+        "LASER_COLOR": [
+            255,
+            255,
+            0
+        ],
         "LASER_WIDTH": 6
     },
     "ArilouA2": {
         "ship_name": "Arilou",
         "type": "other",
         "action": "A2",
-        "start_hp": [1,1],
-        "damage": [0,0],
+        "start_hp": [
+            1,
+            1
+        ],
+        "damage": [
+            0,
+            0
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 0,
@@ -53,8 +66,12 @@
         "ship_name": "Druuge",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [4],
-        "damage": [6],
+        "start_hp": [
+            4
+        ],
+        "damage": [
+            6
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 120,
@@ -71,7 +88,6 @@
         "sprite_scale": 1.0,
         "has_sprites": true,
         "has_sound": true,
-
         "MAX_RECOIL": 96,
         "RECOIL_INCREMENT": 24
     },
@@ -79,8 +95,12 @@
         "ship_name": "Druuge",
         "type": "other",
         "action": "A2",
-        "start_hp": [1],
-        "damage": [0],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            0
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 0,
@@ -97,15 +117,18 @@
         "sprite_scale": 1.0,
         "has_sprites": false,
         "has_sound": true,
-
         "ENERGY_GAIN": 16
     },
     "EarthlingA1": {
         "ship_name": "Earthling",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [1],
-        "damage": [4],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            4
+        ],
         "tracking": true,
         "parent_vel": 0.0,
         "speed": 40,
@@ -127,8 +150,12 @@
         "ship_name": "Earthling",
         "type": "laser",
         "action": "A2",
-        "start_hp": [1],
-        "damage": [1],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
         "tracking": true,
         "parent_vel": 1.0,
         "speed": 100,
@@ -145,17 +172,38 @@
         "sprite_scale": 1.0,
         "has_sprites": false,
         "has_sound": true,
-
         "LASER_RANGE": 400,
-        "LASER_COLOR": [255, 255, 255],
+        "LASER_COLOR": [
+            255,
+            255,
+            255
+        ],
         "LASER_WIDTH": 4
     },
     "IlwrathA1": {
         "ship_name": "Ilwrath",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [1, 1, 1, 1, 1, 1, 1, 1],
-        "damage": [1, 1, 1, 1, 1, 1, 1, 1],
+        "start_hp": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "damage": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
         "tracking": false,
         "parent_vel": 1.0,
         "speed": 25,
@@ -177,8 +225,12 @@
         "ship_name": "Ilwrath",
         "type": "other",
         "action": "A2",
-        "start_hp": [1],
-        "damage": [0],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            0
+        ],
         "tracking": false,
         "parent_vel": 1.0,
         "speed": 0,
@@ -200,8 +252,14 @@
         "ship_name": "KohrAh",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [8, 8],
-        "damage": [4, 4],
+        "start_hp": [
+            8,
+            8
+        ],
+        "damage": [
+            4,
+            4
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 64,
@@ -218,7 +276,6 @@
         "sprite_scale": 1.0,
         "has_sprites": true,
         "has_sound": true,
-
         "TRACK_SPEED": 5,
         "TRACK_RANGE": 900
     },
@@ -226,8 +283,26 @@
         "ship_name": "KohrAh",
         "type": "projectile",
         "action": "A2",
-        "start_hp": [100, 100, 100, 100, 100, 100, 100, 100],
-        "damage": [3, 3, 3, 3, 3, 3, 3, 3],
+        "start_hp": [
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100
+        ],
+        "damage": [
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3
+        ],
         "tracking": false,
         "parent_vel": 1.05,
         "speed": 16,
@@ -244,15 +319,18 @@
         "sprite_scale": 1.0,
         "has_sprites": true,
         "has_sound": true,
-
         "DMG_TO_PROJ": 50
     },
     "KzerZaA1": {
         "ship_name": "KzerZa",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [10],
-        "damage": [6],
+        "start_hp": [
+            10
+        ],
+        "damage": [
+            6
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 80,
@@ -274,8 +352,12 @@
         "ship_name": "KzerZa",
         "type": "fighter",
         "action": "A2",
-        "start_hp": [1],
-        "damage": [1],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
         "tracking": true,
         "parent_vel": 0.0,
         "speed": 32,
@@ -314,8 +396,12 @@
         "ship_name": "KzerZa",
         "type": "laser",
         "action": "A2",
-        "start_hp": [1],
-        "damage": [1],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 0,
@@ -337,8 +423,30 @@
         "ship_name": "Mycon",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [10,9,8,7,6,5,4,3,2,1],
-        "damage": [10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+        "start_hp": [
+            10,
+            9,
+            8,
+            7,
+            6,
+            5,
+            4,
+            3,
+            2,
+            1
+        ],
+        "damage": [
+            10,
+            9,
+            8,
+            7,
+            6,
+            5,
+            4,
+            3,
+            2,
+            1
+        ],
         "tracking": true,
         "parent_vel": 0.0,
         "speed": 32,
@@ -360,8 +468,12 @@
         "ship_name": "Mycon",
         "type": "other",
         "action": "A2",
-        "start_hp": [1],
-        "damage": [0],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            0
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 0,
@@ -378,15 +490,18 @@
         "sprite_scale": 1.0,
         "has_sprites": false,
         "has_sound": true,
-
         "HP_GAIN": 4
     },
     "OrzA1": {
         "ship_name": "Orz",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [2],
-        "damage": [3],
+        "start_hp": [
+            2
+        ],
+        "damage": [
+            3
+        ],
         "tracking": false,
         "parent_vel": 1.0,
         "speed": 120,
@@ -408,8 +523,12 @@
         "ship_name": "Orz",
         "type": "projectile",
         "action": "A2",
-        "start_hp": [0],
-        "damage": [0],
+        "start_hp": [
+            0
+        ],
+        "damage": [
+            0
+        ],
         "tracking": false,
         "parent_vel": 1.0,
         "speed": 0,
@@ -431,14 +550,21 @@
         "ship_name": "Orz",
         "type": "fighter",
         "action": "A3",
-        "start_hp": [3],
-        "damage": [0],
+        "start_hp": [
+            3
+        ],
+        "damage": [
+            0
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 32,
+        "max_thrust": 32,
+        "thrust_increment": 8,
+        "thrust_wait": 0,
         "life_time": 0,
         "turn_wait": 1,
-        "inertia": false,
+        "inertia": true,
         "hit_parent": true,
         "hit_self": false,
         "omnidirectional": true,
@@ -462,8 +588,12 @@
         "ship_name": "Pkunk",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [1],
-        "damage": [1],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
         "tracking": false,
         "parent_vel": 1.0,
         "speed": 96,
@@ -485,8 +615,12 @@
         "ship_name": "Pkunk",
         "type": "other",
         "action": "A2",
-        "start_hp": [1],
-        "damage": [0],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            0
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 0,
@@ -503,15 +637,18 @@
         "sprite_scale": 1.0,
         "has_sprites": false,
         "has_sound": false,
-
         "ENERGY_GAIN": 2
     },
     "ShofixtiA1": {
         "ship_name": "Shofixti",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [1],
-        "damage": [1],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 96,
@@ -533,9 +670,13 @@
         "ship_name": "Shofixti",
         "type": "area",
         "action": "A2",
-        "start_hp": [100],
+        "start_hp": [
+            100
+        ],
         "range": 720,
-        "damage": [18],
+        "damage": [
+            18
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 0,
@@ -557,8 +698,12 @@
         "ship_name": "Spathi",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [1],
-        "damage": [1],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 120,
@@ -580,8 +725,12 @@
         "ship_name": "Spathi",
         "type": "projectile",
         "action": "A2",
-        "start_hp": [1],
-        "damage": [2],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            2
+        ],
         "tracking": true,
         "parent_vel": 0.0,
         "speed": 32,
@@ -603,8 +752,12 @@
         "ship_name": "Supox",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [1],
-        "damage": [1],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 120,
@@ -626,8 +779,12 @@
         "ship_name": "Thraddash",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [2],
-        "damage": [1],
+        "start_hp": [
+            2
+        ],
+        "damage": [
+            1
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 120,
@@ -649,8 +806,26 @@
         "ship_name": "Thraddash",
         "type": "projectile",
         "action": "A2",
-        "start_hp": [1,1,1,1,1,1,1,1],
-        "damage": [2,2,2,2,2,2,2,2],
+        "start_hp": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+        ],
+        "damage": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 0,
@@ -667,7 +842,6 @@
         "sprite_scale": 1.0,
         "has_sprites": true,
         "has_sound": true,
-
         "REUNK_THRUST": 72,
         "REUNK_INCREMENT": 12
     },
@@ -675,8 +849,12 @@
         "ship_name": "Yehat",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [1],
-        "damage": [1],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
         "tracking": false,
         "parent_vel": 0.0,
         "speed": 80,
@@ -698,8 +876,12 @@
         "ship_name": "Yehat",
         "type": "shield",
         "action": "A2",
-        "start_hp": [0],
-        "damage": [0],
+        "start_hp": [
+            0
+        ],
+        "damage": [
+            0
+        ],
         "tracking": false,
         "parent_vel": 1.0,
         "speed": 0,
@@ -721,8 +903,12 @@
         "ship_name": "ZoqFot",
         "type": "projectile",
         "action": "A1",
-        "start_hp": [1],
-        "damage": [1],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
         "tracking": false,
         "parent_vel": 1.0,
         "speed": 120,
@@ -745,8 +931,12 @@
         "ship_name": "ZoqFot",
         "type": "area",
         "action": "A2",
-        "start_hp": [1],
-        "damage": [12],
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            12
+        ],
         "tracking": false,
         "parent_vel": 1.0,
         "speed": 0,
