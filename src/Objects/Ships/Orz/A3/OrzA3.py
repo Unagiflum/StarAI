@@ -15,8 +15,6 @@ class OrzA3(Ability):
     BOARDED = "boarded"
     RETURNING = "returning"
 
-    AVOIDING = "avoiding"
-
     MAX_MARINES = 8
     BOARDING_WAIT = int(12 * const.ACTION_WAIT_SCALE)
     DEATH_ROLL_LIMIT = 16
@@ -36,7 +34,6 @@ class OrzA3(Ability):
         self.thrust_increment = ability_def.thrust_increment * const.PROJ_SPEED_SCALE if ability_def.thrust_increment else 8 * const.PROJ_SPEED_SCALE
         self.thrust_wait = ability_def.thrust_wait if ability_def.thrust_wait else 1
         self.thrust_timer = 0
-        self.previous_mode = self.OUTBOUND
 
         self.spawned_objects = []
         self._death_sound_played = False
@@ -119,18 +116,28 @@ class OrzA3(Ability):
             self.update_physics()
             return True
 
-        if self.mode != self.AVOIDING and self.predict_planet_collision():
-            self.previous_mode = self.mode
-            self.mode = self.AVOIDING
+        destination = self._flight_destination()
+        
+        avoid = False
+        target = self._live_trackable_opponent() if self.mode == self.OUTBOUND else None
+        
+        margin = self.size[1]
+        t_planet = self.predict_planet_collision(frames=90, margin=margin)
+        
+        if t_planet is not None:
+            t_target = None
+            if target:
+                t_target = self.predict_target_interception(target, frames=90)
+            
+            if t_target is None or t_planet < t_target:
+                avoid = True
 
-        if self.mode == self.AVOIDING:
-            self._update_avoiding()
+        if avoid:
+            self._apply_avoidance_thrust()
+        elif destination is not None:
+            self._move_toward(destination)
         else:
-            destination = self._flight_destination()
-            if destination is not None:
-                self._move_toward(destination)
-            else:
-                self.velocity = [0.0, 0.0]
+            self.velocity = [0.0, 0.0]
 
         self.update_physics()
             
@@ -188,28 +195,60 @@ class OrzA3(Ability):
 
 
 
-    def _update_avoiding(self):
+    def predict_target_interception(self, target, frames=90):
+        m_pos = list(self.position)
+        m_vel = list(self.velocity)
+        t_traj = target.predict_unhindered_trajectory(frames=frames)
+        
+        for f in range(frames):
+            if f >= len(t_traj):
+                break
+            t_pos = t_traj[f]
+            dx, dy = wrapped_delta(m_pos, t_pos)
+            dist = math.hypot(dx, dy)
+            if dist < (self.size[0] + target.size[0]) / 2:
+                return f
+            
+            if dist > 0:
+                dir_x = dx / dist
+                dir_y = dy / dist
+                m_vel[0] += dir_x * self.thrust_increment
+                m_vel[1] += dir_y * self.thrust_increment
+                
+                speed = math.hypot(m_vel[0], m_vel[1])
+                if speed > self.max_thrust:
+                    m_vel[0] = m_vel[0] * self.max_thrust / speed
+                    m_vel[1] = m_vel[1] * self.max_thrust / speed
+            
+            if self.planet:
+                px, py = wrapped_delta(m_pos, self.planet.position)
+                p_dist = math.hypot(px, py)
+                if p_dist < const.GRAVITY_RANGE and p_dist > self.planet.diameter / 2:
+                    gf = const.GRAVITY_MULTIPLIER * self.planet.gravity
+                    if p_dist > 0:
+                        m_vel[0] += gf * px / p_dist
+                        m_vel[1] += gf * py / p_dist
+            
+            speed = math.hypot(m_vel[0], m_vel[1])
+            if speed > const.SPEED_LIMIT:
+                m_vel[0] = m_vel[0] * const.SPEED_LIMIT / speed
+                m_vel[1] = m_vel[1] * const.SPEED_LIMIT / speed
+
+            m_pos[0] = (m_pos[0] + m_vel[0] * const.SPEED_SCALE) % const.ARENA_SIZE
+            m_pos[1] = (m_pos[1] + m_vel[1] * const.SPEED_SCALE) % const.ARENA_SIZE
+            
+        return None
+
+    def _apply_avoidance_thrust(self):
         if not self.planet:
-            self.mode = self.previous_mode
             return
         dx, dy = wrapped_delta(self.position, self.planet.position)
-        dot_product = dx * self.velocity[0] + dy * self.velocity[1]
-        if dot_product <= 0:
-            self.mode = self.previous_mode
-            return
-
-        perp1 = (-self.velocity[1], self.velocity[0])
-        perp2 = (self.velocity[1], -self.velocity[0])
-        dot1 = perp1[0] * (-dx) + perp1[1] * (-dy)
-        dot2 = perp2[0] * (-dx) + perp2[1] * (-dy)
-        outward_dir = perp1 if dot1 > dot2 else perp2
-        mag = math.hypot(*outward_dir)
-
-        if mag > 0:
+        dist = math.hypot(dx, dy)
+        if dist > 0:
+            thrust_dir_x = -dx / dist
+            thrust_dir_y = -dy / dist
+            self.rotation = math.degrees(math.atan2(thrust_dir_x, -thrust_dir_y)) % 360
             if self.thrust_timer <= 0:
-                thrust_dir_x = outward_dir[0] / mag
-                thrust_dir_y = outward_dir[1] / mag
-                self.rotation = math.degrees(math.atan2(thrust_dir_x, -thrust_dir_y)) % 360
                 marker = self.apply_thrust(self.max_thrust, self.thrust_increment, 0, True)
                 if marker:
                     self.spawned_objects.append(marker)

@@ -74,7 +74,7 @@ class Object:
             vel[1] += acc_imp[1]
 
         planet = getattr(self, 'planet', None)
-        expiration = getattr(self, 'expiration_timer', float('inf'))
+        expiration = getattr(self, 'expiration_timer', float('inf')) if getattr(self, 'can_expire', False) else float('inf')
         
         trajectory = []
         for f in range(frames):
@@ -224,29 +224,31 @@ class PlayerObject(Object):
             self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
             self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
 
-    def predict_planet_collision(self, frames=60):
-        if not self.planet: return False
+    def predict_planet_collision(self, frames=60, margin=0):
+        if not self.planet: return None
         
-        dx, dy = wrapped_delta(self.position, self.planet.position)
-        current_dist = math.hypot(dx, dy)
-        if current_dist >= Const.GRAVITY_RANGE:
-            return False
-
         pos = list(self.position)
         vel = list(self.velocity)
-        for _ in range(frames):
+        for f in range(frames):
             dx, dy = wrapped_delta(pos, self.planet.position)
             dist = math.hypot(dx, dy)
-            if dist < self.planet.diameter / 2:
-                return True
+            if dist < (self.planet.diameter / 2) + margin:
+                return f
             if dist < Const.GRAVITY_RANGE:
                 gf = Const.GRAVITY_MULTIPLIER * self.planet.gravity
                 if dist > 0:
                     vel[0] += gf * dx / dist
                     vel[1] += gf * dy / dist
+                    
+            speed = math.hypot(vel[0], vel[1])
+            if speed > Const.SPEED_LIMIT:
+                scale = Const.SPEED_LIMIT / speed
+                vel[0] *= scale
+                vel[1] *= scale
+                
             pos[0] = (pos[0] + vel[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
             pos[1] = (pos[1] + vel[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
-        return False
+        return None
 
     def add_impulse(self, dx, dy):
         if self.can_move:
