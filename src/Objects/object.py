@@ -49,6 +49,65 @@ class Object:
         """Return whether this object participates as a living object."""
         return self.currently_alive
 
+    def predict_unhindered_trajectory(self, frames=60):
+        pos = list(self.position)
+        if not hasattr(self, 'velocity'):
+            return [pos] * frames
+
+        vel = list(self.velocity)
+        
+        # Asteroids don't have inertia attribute explicitly, but are inertial
+        inertia = getattr(self, 'inertia', True)
+        
+        # SpaceShips have collision_velocity that overrides normal velocity if set
+        has_col_vel = hasattr(self, 'collision_velocity')
+        acc_imp = getattr(self, 'accumulated_impulses', [0.0, 0.0])
+        col_vel = getattr(self, 'collision_velocity', [0.0, 0.0])
+
+        if not inertia and has_col_vel:
+            if col_vel != [0.0, 0.0]:
+                vel = list(col_vel)
+            else:
+                vel = list(acc_imp)
+        elif hasattr(self, 'accumulated_impulses'):
+            vel[0] += acc_imp[0]
+            vel[1] += acc_imp[1]
+
+        planet = getattr(self, 'planet', None)
+        expiration = getattr(self, 'expiration_timer', float('inf'))
+        
+        trajectory = []
+        for f in range(frames):
+            if f >= expiration:
+                break
+
+            if inertia and planet:
+                dx, dy = wrapped_delta(pos, planet.position)
+                dist = math.hypot(dx, dy)
+                if dist < Const.GRAVITY_RANGE and dist > planet.diameter / 2:
+                    gf = Const.GRAVITY_MULTIPLIER * planet.gravity
+                    if dist > 0:
+                        vel[0] += gf * dx / dist
+                        vel[1] += gf * dy / dist
+
+            # Apply speed limit
+            speed = math.hypot(vel[0], vel[1])
+            if speed > Const.SPEED_LIMIT:
+                scale = Const.SPEED_LIMIT / speed
+                vel[0] *= scale
+                vel[1] *= scale
+
+            pos[0] = (pos[0] + vel[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+            pos[1] = (pos[1] + vel[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+
+            trajectory.append(list(pos))
+
+            # Non-inertial ships drop their velocity to zero after applying impulses in the first frame
+            if not inertia and has_col_vel:
+                vel = [0.0, 0.0]
+
+        return trajectory
+
 class ThrustMarker(Object):
     def __init__(self, x, y):
         super().__init__(
