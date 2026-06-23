@@ -31,7 +31,7 @@ class OrzA3(Ability):
         self.spawned_objects = []
         self._death_sound_played = False
         self._load_marine_sounds()
-        self._load_hud_sprites()
+        self._load_flight_sprites()
         self._place_at_parent_rear()
 
     @property
@@ -44,9 +44,12 @@ class OrzA3(Ability):
 
     @property
     def hud_sprite(self):
+        return self.red_flight_sprite
+
+    def get_sprite(self):
         if self.is_returning:
-            return self.green_hud_sprite
-        return self.red_hud_sprite
+            return self.green_flight_sprite
+        return self.red_flight_sprite
 
     def _load_marine_sounds(self):
         directory = const.source_path("Objects/Ships/Orz/A3")
@@ -63,12 +66,12 @@ class OrzA3(Ability):
             directory / "OrzA3Zap.wav", const.SOUND_EFFECT_VOLUME
         )
 
-    def _load_hud_sprites(self):
+    def _load_flight_sprites(self):
         directory = const.source_path("Objects/Ships/Orz/A3")
-        self.red_hud_sprite = self.resources.image(
+        self.red_flight_sprite = self.resources.image(
             directory / "OrzA3Red.png"
         ).image
-        self.green_hud_sprite = self.resources.image(
+        self.green_flight_sprite = self.resources.image(
             directory / "OrzA3Green.png"
         ).image
 

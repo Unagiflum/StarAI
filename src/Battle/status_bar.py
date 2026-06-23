@@ -79,17 +79,13 @@ def draw_boarded_marine_icons(screen, ship, base_x, bars_top, total_width):
     if not marines:
         return
 
-    icon_width = max(marine.hud_sprite.get_width() for marine in marines)
-    icon_height = max(marine.hud_sprite.get_height() for marine in marines)
     gap = 2
-    columns = max(1, total_width // (icon_width + gap))
-    rows = (len(marines) + columns - 1) // columns
+    icons = [marine.hud_sprite for marine in marines]
+    icon_height = max(icon.get_height() for icon in icons)
+    rows = len(icons)
     top = bars_top - rows * (icon_height + gap)
-    for index, marine in enumerate(marines):
-        row, column = divmod(index, columns)
-        row_count = min(columns, len(marines) - row * columns)
-        row_width = row_count * icon_width + (row_count - 1) * gap
-        x = base_x + (total_width - row_width) // 2 + column * (icon_width + gap)
-        y = top + row * (icon_height + gap)
-        icon = marine.hud_sprite
+    
+    for index, icon in enumerate(icons):
+        x = base_x + (total_width - icon.get_width()) // 2
+        y = top + index * (icon_height + gap)
         screen.blit(icon, (x, y))

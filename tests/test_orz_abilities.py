@@ -286,19 +286,21 @@ class OrzAbilityTests(unittest.TestCase):
 
         self.assertEqual(screen.blit.call_count, 6)
 
-    def test_a3_uses_red_boarding_icon_and_green_returning_icon(self):
+    def test_a3_uses_red_and_green_flight_sprites_and_original_hud_sprite(self):
         enemy = create_ship("Earthling", 2)
         enemy.initialize_in_battle([700, 500], 0)
         self.ship.opponent = enemy
         marine, _ = self.ship.perform_action3()
 
         marine.handle_ship_contact(enemy)
-        self.assertIs(marine.hud_sprite, marine.red_hud_sprite)
+        self.assertIs(marine.get_sprite(), marine.red_flight_sprite)
+        self.assertEqual(marine.get_sprite().get_size(), (12, 16))
+        self.assertIs(marine.hud_sprite, marine.red_flight_sprite)
         self.assertEqual(marine.hud_sprite.get_size(), (12, 16))
 
         enemy.current_hp = 0
         marine.update()
-        self.assertIs(marine.hud_sprite, marine.green_hud_sprite)
+        self.assertIs(marine.get_sprite(), marine.green_flight_sprite)
         self.assertIn(marine, self.ship.returning_marines)
         self.assertNotIn(marine, enemy.boarded_marines)
 
