@@ -6,6 +6,25 @@ import src.const as const
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_midpoint
 from src.Battle.world import World
 
+# HUD layout constants
+VIEWPORT_SIZE = 200
+VIEWPORT_MARGIN = 7
+BAR_WIDTH = 30
+BAR_SPACING = VIEWPORT_SIZE + 2 * VIEWPORT_MARGIN
+
+# Shared HUD colours
+HUD_FILL = (0, 0, 0)
+HUD_BORDER = (100, 100, 100)
+
+# Cached viewport surface (module-level instead of function attribute).
+_viewport_surface = None
+
+
+def _draw_empty_rect(surface, rect):
+    """Draw a black rect with a grey border — used for dead-ship HUD slots."""
+    pygame.draw.rect(surface, HUD_FILL, rect)
+    pygame.draw.rect(surface, HUD_BORDER, rect, 1)
+
 
 class StarFieldRenderer:
     def __init__(self):
@@ -126,10 +145,12 @@ def _render_world_to_surface(
     entry_state,
     frame_id,
     star_field_renderer,
+    skip_stars=False,
 ):
-    star_field_renderer.draw(
-        surface, world.stars, scale_factor, translation, midpoint
-    )
+    if not skip_stars:
+        star_field_renderer.draw(
+            surface, world.stars, scale_factor, translation, midpoint
+        )
 
     for planet in world.planets:
         planet.draw(surface, scale_factor, translation)
@@ -202,28 +223,36 @@ def draw_battle(
     screen.set_clip(None)
 
     # Draw status bars and viewports for both players.
-    VIEWPORT_SIZE = 200
-    BAR_WIDTH = 30
-    BAR_SPACING = VIEWPORT_SIZE + 14
-
-    # Calculate total width of both bars + spacing
     TOTAL_WIDTH = (BAR_WIDTH * 2) + BAR_SPACING
 
-    # Calculate panel widths (space between arena edge and screen edge)
     LEFT_PANEL_WIDTH = const.SCREEN_LEFT
     RIGHT_PANEL_WIDTH = const.SCREEN_WIDTH - (const.SCREEN_LEFT + const.SCREEN_HEIGHT)
 
-    # Center layout horizontally in panels
     P1_X = const.SCREEN_LEFT - TOTAL_WIDTH - ((LEFT_PANEL_WIDTH - TOTAL_WIDTH) // 2)
     P2_X = (const.SCREEN_LEFT + const.SCREEN_HEIGHT) + ((RIGHT_PANEL_WIDTH - TOTAL_WIDTH) // 2)
 
-    # Position at the bottom of the margin, with a bit of padding
     BASE_Y = const.SCREEN_HEIGHT - 20
 
-    viewport_surface = getattr(draw_battle, "_viewport_surface", None)
-    if viewport_surface is None or viewport_surface.get_size() != (const.SCREEN_WIDTH, const.SCREEN_HEIGHT):
-        viewport_surface = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
-        draw_battle._viewport_surface = viewport_surface
+    # Object draw methods cull against SCREEN_HEIGHT and offset x by
+    # SCREEN_LEFT, so the viewport translation must keep objects in the
+    # range that passes those checks.  The surface is sized to just
+    # contain the clip region rather than the full screen.
+    VP_CENTER_X = const.SCREEN_LEFT + const.SCREEN_HEIGHT // 2
+    VP_CENTER_Y = const.SCREEN_HEIGHT // 2
+    VP_SURF_W = VP_CENTER_X + VIEWPORT_SIZE // 2
+    VP_SURF_H = VP_CENTER_Y + VIEWPORT_SIZE // 2
+
+    global _viewport_surface
+    if _viewport_surface is None or _viewport_surface.get_size() != (VP_SURF_W, VP_SURF_H):
+        _viewport_surface = pygame.Surface((VP_SURF_W, VP_SURF_H))
+    viewport_surface = _viewport_surface
+
+    clip_rect = pygame.Rect(
+        VP_CENTER_X - VIEWPORT_SIZE // 2,
+        VP_CENTER_Y - VIEWPORT_SIZE // 2,
+        VIEWPORT_SIZE,
+        VIEWPORT_SIZE,
+    )
 
     for player_id in (1, 2):
         status_x = P1_X if player_id == 1 else P2_X
@@ -232,43 +261,26 @@ def draw_battle(
         
         # Draw status bars
         if live_ship:
-            draw_player_status(screen, live_ship, status_x, BASE_Y, BAR_WIDTH, BAR_SPACING)
+            draw_player_status(screen, live_ship, status_x, BASE_Y, BAR_WIDTH, BAR_SPACING,
+                               viewport_size=VIEWPORT_SIZE)
         else:
-            dark_gray = (0, 0, 0)
-            border_color_hud = (100, 100, 100)
-            
             if original_ships:
                 dead_ship = next((s for s in original_ships if s.player == player_id), None)
             else:
                 dead_ship = ship_to_track
-                
+
             hp_height = 200
             energy_height = 200
-            
+
             if dead_ship:
                 hp_height = StatusBar.calculate_height(dead_ship.max_hp)
                 energy_height = StatusBar.calculate_height(dead_ship.max_energy)
-            
-            hp_rect = pygame.Rect(status_x, BASE_Y - hp_height, BAR_WIDTH, hp_height)
-            energy_rect = pygame.Rect(status_x + BAR_WIDTH + BAR_SPACING, BASE_Y - energy_height, BAR_WIDTH, energy_height)
-            
-            pygame.draw.rect(screen, dark_gray, hp_rect)
-            pygame.draw.rect(screen, border_color_hud, hp_rect, 1)
-            
-            pygame.draw.rect(screen, dark_gray, energy_rect)
-            pygame.draw.rect(screen, border_color_hud, energy_rect, 1)
+
+            _draw_empty_rect(screen, pygame.Rect(status_x, BASE_Y - hp_height, BAR_WIDTH, hp_height))
+            _draw_empty_rect(screen, pygame.Rect(status_x + BAR_WIDTH + BAR_SPACING, BASE_Y - energy_height, BAR_WIDTH, energy_height))
 
         # Draw viewport
         if ship_to_track:
-            center_x = const.SCREEN_LEFT + const.SCREEN_HEIGHT // 2
-            center_y = const.SCREEN_HEIGHT // 2
-            
-            clip_rect = pygame.Rect(
-                center_x - VIEWPORT_SIZE // 2,
-                center_y - VIEWPORT_SIZE // 2,
-                VIEWPORT_SIZE,
-                VIEWPORT_SIZE
-            )
             viewport_surface.set_clip(clip_rect)
             viewport_surface.fill((0, 0, 0))
 
@@ -287,25 +299,20 @@ def draw_battle(
                 entry_state,
                 frame_id,
                 star_field_renderer,
+                skip_stars=True,
             )
 
             viewport_surface.set_clip(None)
 
-            dest_x = status_x + BAR_WIDTH + 7
+            dest_x = status_x + BAR_WIDTH + VIEWPORT_MARGIN
             dest_y = BASE_Y - VIEWPORT_SIZE
             dest_rect = pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE)
 
             screen.blit(viewport_surface, dest_rect, area=clip_rect)
-            pygame.draw.rect(screen, (100, 100, 100), dest_rect, 1)
+            pygame.draw.rect(screen, HUD_BORDER, dest_rect, 1)
         else:
-            dark_gray = (0, 0, 0)
-            border_color_hud = (100, 100, 100)
-            
-            dest_x = status_x + BAR_WIDTH + 7
+            dest_x = status_x + BAR_WIDTH + VIEWPORT_MARGIN
             dest_y = BASE_Y - VIEWPORT_SIZE
-            dest_rect = pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE)
-            
-            pygame.draw.rect(screen, dark_gray, dest_rect)
-            pygame.draw.rect(screen, border_color_hud, dest_rect, 1)
+            _draw_empty_rect(screen, pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE))
 
     pygame.display.flip()
