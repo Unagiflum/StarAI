@@ -3,6 +3,7 @@ from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.Ilwrath.A1.IlwrathA1 import IlwrathA1
 from src.Objects.Ships.Ilwrath.A2.IlwrathA2 import IlwrathA2
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 import src.const as const
 import math
 import pygame
@@ -26,6 +27,9 @@ class Ilwrath(SpaceShip):
             const.SOUND_EFFECT_VOLUME,
         )
         self.black_sprites = self.resources.black_ship_sprites(ship_name)
+        
+        a2_def = ABILITY_DEFINITIONS.get(f"{ship_name}A2")
+        self.uncloak_look_ahead = a2_def.look_ahead if a2_def and a2_def.look_ahead is not None else 0
 
     def plan_action1(self):
         if not self.can_action1():
@@ -84,7 +88,14 @@ class Ilwrath(SpaceShip):
     def _opponent_facing(self):
         if not self.opponent or not self.opponent.trackable:
             return None
-        dx, dy = wrapped_delta(self.position, self.opponent.position)
+            
+        target_pos = self.opponent.position
+        if self.uncloak_look_ahead > 0:
+            t_traj = self.opponent.predict_unhindered_trajectory(frames=self.uncloak_look_ahead)
+            if t_traj:
+                target_pos = t_traj[-1]
+                
+        dx, dy = wrapped_delta(self.position, target_pos)
         target_angle = math.degrees(math.atan2(dx, -dy))
         if target_angle < 0:
             target_angle += 360

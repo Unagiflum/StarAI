@@ -33,6 +33,7 @@ class OrzA3(Ability):
         self.max_thrust = ability_def.max_thrust * const.PROJ_SPEED_SCALE if ability_def.max_thrust else self.speed
         self.thrust_increment = ability_def.thrust_increment * const.PROJ_SPEED_SCALE if ability_def.thrust_increment else 8 * const.PROJ_SPEED_SCALE
         self.thrust_wait = ability_def.thrust_wait if ability_def.thrust_wait else 1
+        self.look_ahead = ability_def.look_ahead if ability_def.look_ahead is not None else 15
         self.thrust_timer = 0
 
         self.spawned_objects = []
@@ -172,10 +173,10 @@ class OrzA3(Ability):
         if self.mode == self.OUTBOUND:
             target = self._live_trackable_opponent()
             if target is not None:
-                intercept_frame = self.predict_target_interception(target, frames=15)
-                t_traj = target.predict_unhindered_trajectory(frames=15)
+                intercept_frame = self.predict_target_interception(target, frames=self.look_ahead)
+                t_traj = target.predict_unhindered_trajectory(frames=self.look_ahead)
                 
-                if intercept_frame is None or intercept_frame >= 15:
+                if intercept_frame is None or intercept_frame >= self.look_ahead:
                     if len(t_traj) > 0:
                         return t_traj[-1]
                     return target.position

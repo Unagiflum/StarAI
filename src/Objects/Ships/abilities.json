@@ -246,7 +246,8 @@
         "end_anim": 0,
         "sprite_scale": 1.0,
         "has_sprites": false,
-        "has_sound": true
+        "has_sound": true,
+        "look_ahead": 4
     },
     "KohrAhA1": {
         "ship_name": "KohrAh",
@@ -582,7 +583,8 @@
         "damage_projectiles": false,
         "collide_enemy_ships": true,
         "collide_friendly_ships": false,
-        "collide_fighters": false
+        "collide_fighters": false,
+        "look_ahead": 15
     },
     "PkunkA1": {
         "ship_name": "Pkunk",
