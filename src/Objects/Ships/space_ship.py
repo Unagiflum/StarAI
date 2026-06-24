@@ -383,7 +383,10 @@ class SpaceShip(PlayerObject):
                 self.velocity = self.collision_velocity.copy()
                 self.collision_velocity = [0.0, 0.0]
             else:
-                self.velocity = self.accumulated_impulses.copy()
+                if self.accumulated_impulses != [0.0, 0.0]:
+                    self.velocity = self.accumulated_impulses.copy()
+                elif not self.thrust_active:
+                    self.velocity = [0.0, 0.0]
             self.accumulated_impulses = [0.0, 0.0]
 
         super().update_physics()
