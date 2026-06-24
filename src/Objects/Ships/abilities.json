@@ -254,8 +254,8 @@
         "type": "projectile",
         "action": "A1",
         "start_hp": [
-            8,
-            8
+            10,
+            10
         ],
         "damage": [
             4,
@@ -278,7 +278,7 @@
         "has_sprites": true,
         "has_sound": true,
         "TRACK_SPEED": 5,
-        "TRACK_RANGE": 900
+        "TRACK_RANGE": 896
     },
     "KohrAhA2": {
         "ship_name": "KohrAh",
@@ -305,7 +305,7 @@
             3
         ],
         "tracking": false,
-        "parent_vel": 1.05,
+        "parent_vel": 1.0,
         "speed": 16,
         "life_time": 24,
         "turn_wait": 0,
@@ -452,7 +452,7 @@
         "parent_vel": 0.0,
         "speed": 32,
         "life_time": 143,
-        "turn_wait": 0,
+        "turn_wait": 1,
         "inertia": true,
         "hit_parent": true,
         "hit_self": false,
