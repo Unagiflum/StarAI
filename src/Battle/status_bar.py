@@ -9,7 +9,7 @@ class StatusBar:
         row_count = (max_value + 1) // 2
         return row_count * (dash_height + dash_gap) + dash_gap
 
-    def __init__(self, x, y, width, max_value, dash_height=6, dash_gap=2):  # Increased dash_height
+    def __init__(self, x, y, width, max_value, dash_height=6, dash_gap=2):
         self.x = x
         self.y = y
         self.width = width
@@ -41,20 +41,34 @@ class StatusBar:
             pygame.draw.rect(screen, color, dash_rect)
 
 
+_status_bar_cache = {}
+
+
+def _get_status_bar(width, max_value):
+    """Return a cached StatusBar, creating one if needed."""
+    key = (width, max_value)
+    bar = _status_bar_cache.get(key)
+    if bar is None:
+        bar = StatusBar(0, 0, width, max_value)
+        _status_bar_cache[key] = bar
+    return bar
+
+
 def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing,
                        viewport_size=0):
     HP_COLOR = (0, 255, 0)
     ENERGY_COLOR = (255, 0, 0)
 
-    # Create bars to calculate heights
-    hp_bar = StatusBar(base_x, 0, bar_width, ship.max_hp)
-    energy_bar = StatusBar(base_x + bar_width + bar_spacing, 0, bar_width, ship.max_energy)
+    hp_bar = _get_status_bar(bar_width, ship.max_hp)
+    energy_bar = _get_status_bar(bar_width, ship.max_energy)
 
-    # Calculate y positions to align bottoms at base_y
+    # Set positions and align bottoms at base_y
+    hp_bar.x = base_x
+    energy_bar.x = base_x + bar_width + bar_spacing
+
     hp_y = base_y - hp_bar.height
     energy_y = base_y - energy_bar.height
 
-    # Update bar positions and draw
     hp_bar.y = hp_y
     energy_bar.y = energy_y
     hp_bar.draw(screen, ship.current_hp, HP_COLOR)
@@ -72,6 +86,19 @@ def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing,
         highest_point,
         bar_width * 2 + bar_spacing,
     )
+
+
+_scaled_icon_cache = {}
+
+
+def _get_scaled_icon(icon, new_width, new_height):
+    """Return a cached smoothscale result, scaling only on first call per size."""
+    key = (id(icon), new_width, new_height)
+    result = _scaled_icon_cache.get(key)
+    if result is None:
+        result = pygame.transform.smoothscale(icon, (new_width, new_height))
+        _scaled_icon_cache[key] = result
+    return result
 
 
 def draw_boarded_marine_icons(screen, ship, base_x, highest_point, total_width):
@@ -99,7 +126,7 @@ def draw_boarded_marine_icons(screen, ship, base_x, highest_point, total_width):
         if scale < 1.0:
             new_width = max(1, int(icon.get_width() * scale))
             new_height = max(1, int(icon.get_height() * scale))
-            scaled_icons.append(pygame.transform.smoothscale(icon, (new_width, new_height)))
+            scaled_icons.append(_get_scaled_icon(icon, new_width, new_height))
         else:
             scaled_icons.append(icon)
 
