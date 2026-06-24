@@ -240,7 +240,7 @@ def _render_world_to_surface(
 
     for ship in world.ships:
         if ship not in entering_ships:
-            if is_mirror:
+            if is_mirror or getattr(const, "ALWAYS_SHOW_CROSSHAIRS", False):
                 _draw_dashed_circle(surface, ship, scale_factor, translation)
             ship.draw(surface, scale_factor, translation)
 
