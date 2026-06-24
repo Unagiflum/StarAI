@@ -913,8 +913,8 @@
             1
         ],
         "tracking": false,
-        "parent_vel": 1.0,
-        "speed": 40,
+        "parent_vel": 0.0,
+        "speed": 80,
         "life_time": 10,
         "turn_wait": 1,
         "inertia": true,
@@ -928,7 +928,7 @@
         "sprite_scale": 0.7,
         "has_sprites": true,
         "has_sound": true,
-        "SPREAD_ANGLE": 3
+        "SPREAD_ANGLE": 8
     },
     "ZoqFotA2": {
         "ship_name": "ZoqFot",
