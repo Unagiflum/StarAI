@@ -380,7 +380,7 @@ def parse_ability_definition(name, data):
         "RECOIL_INCREMENT", "ENERGY_GAIN", "HP_GAIN", "TRACK_SPEED",
         "TRACK_RANGE", "DMG_TO_PROJ", "REUNK_THRUST", "REUNK_INCREMENT",
         "SPREAD_ANGLE", "max_thrust", "thrust_increment", "thrust_wait",
-        "look_ahead",
+        "look_ahead", "max_marines",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -429,6 +429,7 @@ def parse_ability_definition(name, data):
         "thrust_increment": ("thrust_increment", float),
         "thrust_wait": ("thrust_wait", float),
         "look_ahead": ("look_ahead", int),
+        "max_marines": ("max_marines", int),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(
