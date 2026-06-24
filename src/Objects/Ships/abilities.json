@@ -773,7 +773,7 @@
         "frames": 1,
         "frame_delay": 0,
         "file_path": "Objects/Ships/Supox/A1/",
-        "end_anim": 0,
+        "end_anim": 5,
         "sprite_scale": 1.0,
         "has_sprites": true,
         "has_sound": true
