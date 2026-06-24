@@ -138,13 +138,12 @@ class SpaceShip(PlayerObject):
         self.turn_wait = min(255, start_turn_wait + self.limpets_attached)
         self.thrust_wait = min(255, start_thrust_wait + self.limpets_attached)
         
-        new_thrust_inc = max(4, start_thrust_inc - self.limpets_attached)
-        self.thrust_increment = new_thrust_inc
-        
-        if self.thrust_increment <= 4:
-            self.max_thrust = 8
-        else:
+        if start_thrust_inc > 4:
+            self.thrust_increment = max(4, start_thrust_inc - self.limpets_attached)
             self.max_thrust = int(start_max_thrust * self.thrust_increment / start_thrust_inc)
+        else:
+            self.thrust_increment = start_thrust_inc
+            self.max_thrust = 8
 
         # Draw limpet onto the ship's sprites
         limpet_assets = self.resources.ability("VuxA2")
@@ -385,7 +384,7 @@ class SpaceShip(PlayerObject):
             else:
                 if self.accumulated_impulses != [0.0, 0.0]:
                     self.velocity = self.accumulated_impulses.copy()
-                elif not self.thrust_active:
+                elif self.thrust_timer == 0 and not self.thrust_active:
                     self.velocity = [0.0, 0.0]
             self.accumulated_impulses = [0.0, 0.0]
 
