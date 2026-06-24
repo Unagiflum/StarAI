@@ -301,7 +301,7 @@ class OrzAbilityTests(unittest.TestCase):
         enemy.current_hp = 0
         marine.update()
         self.assertIs(marine.get_sprite(), marine.green_flight_sprite)
-        self.assertIn(marine, self.ship.returning_marines)
+        self.assertIn(marine, self.ship.active_marines)
         self.assertNotIn(marine, enemy.boarded_marines)
 
     def test_accelerating_a3_emits_ship_thrust_markers(self):

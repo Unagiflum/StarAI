@@ -458,7 +458,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
             mock.patch.object(ship, "apply_thrust") as apply_thrust,
         ):
             self.assertIs(ship.perform_action1(), cannon)
-        apply_thrust.assert_called_once_with(96, 24, 180, True, False)
+        apply_thrust.assert_called_once_with(96, 24, 180, False)
 
         ship.action2_timer = 0
         ship.current_energy = 1

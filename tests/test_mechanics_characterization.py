@@ -190,6 +190,8 @@ class InputTimingTests(unittest.TestCase):
         ship.inertia = True
         ship.observed_calls = []
         ship.combined_action_handled = combined_action_handled
+        ship.camera_freeze_timer = 0
+        ship.frozen_camera_position = [0.0, 0.0]
         return ship
 
     def test_timers_advance_once_during_frame_processing(self):
