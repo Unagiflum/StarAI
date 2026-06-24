@@ -133,6 +133,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         player: ui_button.ToggleButton(
             columns[player], top_button_start, AI_toggle_width,
             top_button_height, "AI", initial_state=False,
+            bg_color=(*const.P1_COLOR, 75) if player == 1 else (*const.P2_COLOR, 75),
+            hover_color=(*const.P1_COLOR, 255) if player == 1 else (*const.P2_COLOR, 255),
         )
         for player in (1, 2)
     }
@@ -149,8 +151,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             top_button_start, each_button_width, top_button_height,
             "One of Each Ship",
             lambda player=player: create_one_of_each(player),
-            bg_color=ui.MENU_BUTTON_COLOR,
-            hover_color=ui.MENU_BUTTON_COLOR_HI,
+            bg_color=(*const.P1_COLOR, 75) if player == 1 else (*const.P2_COLOR, 75),
+            hover_color=(*const.P1_COLOR, 255) if player == 1 else (*const.P2_COLOR, 255),
         )
         for player in (1, 2)
     }
@@ -161,8 +163,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             top_button_start, each_button_width, top_button_height,
             f"Clear Fleet {player}",
             fleets[player].clear,
-            bg_color=ui.MENU_BUTTON_COLOR,
-            hover_color=ui.MENU_BUTTON_COLOR_HI,
+            bg_color=(*const.P1_COLOR, 75) if player == 1 else (*const.P2_COLOR, 75),
+            hover_color=(*const.P1_COLOR, 255) if player == 1 else (*const.P2_COLOR, 255),
         )
         for player in (1, 2)
     }

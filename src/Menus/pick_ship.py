@@ -219,14 +219,14 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
 
     random_buttons = {
         player: ui_button.Button(
-            selection_rects[player].left,
+            selection_rects[player].left - 1,
             RAND_TOP,
-            SELECTION_BOX_SIZE,
+            SELECTION_BOX_SIZE + 2,
             int(0.05 * Const.SCREEN_HEIGHT),
             "Pick Random",
             lambda player=player: pick_random(player),
-            bg_color=ui.MENU_BUTTON_COLOR,
-            hover_color=ui.MENU_BUTTON_COLOR_HI,
+            bg_color=(*Const.P1_COLOR, 75) if player == 1 else (*Const.P2_COLOR, 75),
+            hover_color=(*Const.P1_COLOR, 255) if player == 1 else (*Const.P2_COLOR, 255),
         )
         for player in (1, 2)
     }
@@ -411,7 +411,7 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                 sprite_rect = sprite.get_rect(center=selection_rect.center)
                 screen.blit(sprite, sprite_rect)
             border_color = Const.P1_COLOR if player == 1 else Const.P2_COLOR
-            pygame.draw.rect(screen, border_color, selection_rect, 2)
+            pygame.draw.rect(screen, border_color, selection_rect, 3)
 
         visually_locked_players = set(survivor_locked_players)
         if choose_second_player in (1, 2) and selection_state.first_locked:

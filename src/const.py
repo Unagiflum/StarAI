@@ -13,8 +13,14 @@ def source_path(path):
     return path if path.is_absolute() else SOURCE_ROOT / path
 
 # Player Colors
-P1_COLOR = (200, 50, 50)
-P2_COLOR = (50, 200, 50)
+P1_COLOR = (50, 200, 200)
+P2_COLOR = (200, 50, 200)
+
+# HUD Colors
+HUD_PANEL_BG = (15, 15, 25)
+HUD_BAR_BORDER = (100, 100, 100)
+HUD_HP_COLOR = (0, 255, 0)
+HUD_ENERGY_COLOR = (255, 0, 0)
 
 # Screen
 SCREEN_HEIGHT = 960

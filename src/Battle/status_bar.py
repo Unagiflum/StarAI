@@ -22,7 +22,7 @@ class StatusBar:
     def draw(self, screen, x, y, current_value, color, border_color):
         # Draw border
         border_rect = pygame.Rect(x, y, self.width, self.height)
-        pygame.draw.rect(screen, border_color, border_rect, 1)
+        pygame.draw.rect(screen, border_color, border_rect, 2)
 
         # Calculate dash positions
         dashes_to_draw = current_value
@@ -53,8 +53,6 @@ def _get_status_bar(width, max_value):
 
 def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing,
                        viewport_size=0):
-    HP_COLOR = (0, 255, 0)
-    ENERGY_COLOR = (255, 0, 0)
 
     hp_bar = _get_status_bar(bar_width, ship.max_hp)
     energy_bar = _get_status_bar(bar_width, ship.max_energy)
@@ -68,8 +66,8 @@ def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing,
 
     border_color = const.P1_COLOR if ship.player == 1 else const.P2_COLOR
 
-    hp_bar.draw(screen, hp_x, hp_y, ship.current_hp, HP_COLOR, border_color)
-    energy_bar.draw(screen, energy_x, energy_y, ship.current_energy, ENERGY_COLOR, border_color)
+    hp_bar.draw(screen, hp_x, hp_y, ship.current_hp, const.HUD_HP_COLOR, const.HUD_BAR_BORDER)
+    energy_bar.draw(screen, energy_x, energy_y, ship.current_energy, const.HUD_ENERGY_COLOR, const.HUD_BAR_BORDER)
     highest_point = hp_y if hp_y < energy_y else energy_y
     if viewport_size > 0:
         viewport_top = base_y - viewport_size

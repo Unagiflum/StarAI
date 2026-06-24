@@ -14,7 +14,6 @@ VIEWPORT_COLUMN_WIDTH = VIEWPORT_SIZE + 2 * VIEWPORT_MARGIN  # gap that holds th
 
 # Shared HUD colour (fill only; HUD_BORDER is imported from status_bar)
 HUD_FILL = (0, 0, 0)
-HUD_PANEL_BG = (15, 15, 20)  # Very dark blue-grey for the HUD panel background
 HUD_BOTTOM_PADDING = 20
 MARINE_REGION_HEIGHT = HUD_BOTTOM_PADDING
 
@@ -47,7 +46,7 @@ _viewport_surface = None
 def _draw_empty_rect(surface, rect, border_color):
     """Draw a black rect with a colored border — used for dead-ship HUD slots."""
     pygame.draw.rect(surface, HUD_FILL, rect)
-    pygame.draw.rect(surface, border_color, rect, 1)
+    pygame.draw.rect(surface, border_color, rect, 2)
 
 
 class StarFieldRenderer:
@@ -286,7 +285,7 @@ def draw_battle(
         # Create the panel surface
         panel_h = MARINE_REGION_HEIGHT + highest_bar + HUD_BOTTOM_PADDING
         panel_surface = pygame.Surface((panel_w, panel_h))
-        panel_surface.fill(HUD_PANEL_BG)
+        panel_surface.fill(const.HUD_PANEL_BG)
         
         local_base_y = panel_h - HUD_BOTTOM_PADDING
         draw_x_offset = (panel_w - _TOTAL_WIDTH) // 2
@@ -298,8 +297,8 @@ def draw_battle(
             draw_player_status(panel_surface, live_ship, draw_x_offset, local_base_y, BAR_WIDTH, VIEWPORT_COLUMN_WIDTH,
                                viewport_size=VIEWPORT_SIZE)
         else:
-            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset, local_base_y - hp_height, BAR_WIDTH, hp_height), border_color)
-            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset + BAR_WIDTH + VIEWPORT_COLUMN_WIDTH, local_base_y - energy_height, BAR_WIDTH, energy_height), border_color)
+            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset, local_base_y - hp_height, BAR_WIDTH, hp_height), const.HUD_BAR_BORDER)
+            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset + BAR_WIDTH + VIEWPORT_COLUMN_WIDTH, local_base_y - energy_height, BAR_WIDTH, energy_height), const.HUD_BAR_BORDER)
 
         # Draw viewport onto the panel
         if ship_to_track:
@@ -331,7 +330,7 @@ def draw_battle(
             dest_rect = pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE)
 
             panel_surface.blit(viewport_surface, dest_rect, area=VP_CLIP_RECT)
-            pygame.draw.rect(panel_surface, border_color, dest_rect, 1)
+            pygame.draw.rect(panel_surface, border_color, dest_rect, 2)
         else:
             dest_x = draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
             dest_y = local_base_y - VIEWPORT_SIZE

@@ -179,7 +179,7 @@ class ShipList(ShipContainer):
 
     def draw(self, screen, font, player_font):
         pygame.draw.rect(screen, ui.BLACK, self.rect)
-        pygame.draw.rect(screen, self.color, self.rect, 2)
+        pygame.draw.rect(screen, self.color, self.rect, 3)
 
         title_text = player_font.render(self.title, True, ui.WHITE)
         title_rect = title_text.get_rect(x=self.rect.x + 10, y=self.rect.y + 10)
@@ -298,7 +298,7 @@ class Fleet(ShipContainer):
 
     def draw(self, screen, font, player_font=None):
         pygame.draw.rect(screen, ui.BLACK, self.rect)
-        pygame.draw.rect(screen, self.color, self.rect, 2)
+        pygame.draw.rect(screen, self.color, self.rect, 3)
 
         title_text = font.render(f"{self.title} - cost: {self.get_total_cost()}", True, ui.WHITE)
         screen.blit(title_text, (self.rect.x + 10, self.rect.y + 10))
