@@ -15,7 +15,7 @@ class OrzA3(Ability):
     BOARDED = "boarded"
     RETURNING = "returning"
 
-    MAX_MARINES = 8
+    MAX_MARINES = ABILITY_DEFINITIONS["OrzA3"].max_marines if ABILITY_DEFINITIONS["OrzA3"].max_marines is not None else 8
     BOARDING_WAIT = int(12 * const.ACTION_WAIT_SCALE)
     DEATH_ROLL_LIMIT = 16
     KILL_ROLL_LIMIT = 144

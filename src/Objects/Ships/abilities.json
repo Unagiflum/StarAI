@@ -584,7 +584,8 @@
         "collide_enemy_ships": true,
         "collide_friendly_ships": false,
         "collide_fighters": false,
-        "look_ahead": 15
+        "look_ahead": 15,
+        "max_marines": 8
     },
     "PkunkA1": {
         "ship_name": "Pkunk",

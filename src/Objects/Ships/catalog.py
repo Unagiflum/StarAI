@@ -168,6 +168,7 @@ class AbilityDefinition(_DefinitionMapping):
     thrust_increment: float | None = None
     thrust_wait: float | None = None
     look_ahead: int | None = None
+    max_marines: int | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -228,6 +229,7 @@ class AbilityDefinition(_DefinitionMapping):
         "thrust_increment": "thrust_increment",
         "thrust_wait": "thrust_wait",
         "look_ahead": "look_ahead",
+        "max_marines": "max_marines",
     }
 
 
