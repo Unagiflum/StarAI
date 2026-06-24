@@ -282,15 +282,21 @@ def draw_battle(
                 
         highest_bar = max(hp_height, energy_height, VIEWPORT_SIZE)
         
+        border_color = const.P1_COLOR if player_id == 1 else const.P2_COLOR
+
         # Create the panel surface
         panel_h = MARINE_REGION_HEIGHT + highest_bar + HUD_BOTTOM_PADDING
         panel_surface = pygame.Surface((panel_w, panel_h))
-        panel_surface.fill(const.HUD_PANEL_BG)
+        panel_surface.fill((0, 0, 0))
+        
+        # Add translucent player color
+        color_surface = pygame.Surface((panel_w, panel_h))
+        color_surface.fill(border_color)
+        color_surface.set_alpha(const.HUD_PANEL_ALPHA)
+        panel_surface.blit(color_surface, (0, 0))
         
         local_base_y = panel_h - HUD_BOTTOM_PADDING
         draw_x_offset = (panel_w - _TOTAL_WIDTH) // 2
-
-        border_color = const.P1_COLOR if player_id == 1 else const.P2_COLOR
 
         # Draw status bars onto the panel
         if live_ship:
@@ -330,11 +336,11 @@ def draw_battle(
             dest_rect = pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE)
 
             panel_surface.blit(viewport_surface, dest_rect, area=VP_CLIP_RECT)
-            pygame.draw.rect(panel_surface, border_color, dest_rect, 2)
+            pygame.draw.rect(panel_surface, const.HUD_VIEWPORT_BORDER, dest_rect, 2)
         else:
             dest_x = draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
             dest_y = local_base_y - VIEWPORT_SIZE
-            _draw_empty_rect(panel_surface, pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE), border_color, HUD_FILL)
+            _draw_empty_rect(panel_surface, pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE), const.HUD_VIEWPORT_BORDER, HUD_FILL)
 
         # Blit the unified panel to the screen
         screen.blit(panel_surface, (status_x, const.SCREEN_HEIGHT - panel_h))
