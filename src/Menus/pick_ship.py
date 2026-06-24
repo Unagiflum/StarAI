@@ -181,11 +181,12 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
 
     def draw_selection_label(selection_rect, text, color, show_lock=False):
         label_surface = state_font.render(text, True, ui.WHITE)
+        label_height = label_surface.get_height() + 12
         label_rect = pygame.Rect(
-            selection_rect.left,
-            selection_rect.bottom - label_surface.get_height() - 12,
-            selection_rect.width,
-            label_surface.get_height() + 12,
+            selection_rect.left + 3,
+            selection_rect.bottom - label_height - 3,
+            selection_rect.width - 6,
+            label_height,
         )
         label_surface_bg = pygame.Surface(label_rect.size, pygame.SRCALPHA)
         label_surface_bg.fill((*color, BANNER_ALPHA))
