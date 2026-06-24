@@ -1,6 +1,6 @@
 import pygame
 from src.UI import ui
-from src.Battle.status_bar import draw_player_status, StatusBar, HUD_BORDER
+from src.Battle.status_bar import draw_player_status, StatusBar
 from src.Battle.battle_entry import draw_entry_silhouettes
 import src.const as const
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_midpoint
@@ -14,6 +14,9 @@ VIEWPORT_COLUMN_WIDTH = VIEWPORT_SIZE + 2 * VIEWPORT_MARGIN  # gap that holds th
 
 # Shared HUD colour (fill only; HUD_BORDER is imported from status_bar)
 HUD_FILL = (0, 0, 0)
+HUD_PANEL_BG = (15, 15, 20)  # Very dark blue-grey for the HUD panel background
+HUD_BOTTOM_PADDING = 20
+MARINE_REGION_HEIGHT = HUD_BOTTOM_PADDING
 
 # Derived layout — constant once the screen geometry is set.
 _TOTAL_WIDTH = (BAR_WIDTH * 2) + VIEWPORT_COLUMN_WIDTH
@@ -21,7 +24,6 @@ _LEFT_PANEL_W = const.SCREEN_LEFT
 _RIGHT_PANEL_W = const.SCREEN_WIDTH - (const.SCREEN_LEFT + const.SCREEN_HEIGHT)
 P1_X = const.SCREEN_LEFT - _TOTAL_WIDTH - ((_LEFT_PANEL_W - _TOTAL_WIDTH) // 2)
 P2_X = (const.SCREEN_LEFT + const.SCREEN_HEIGHT) + ((_RIGHT_PANEL_W - _TOTAL_WIDTH) // 2)
-BASE_Y = const.SCREEN_HEIGHT - 20
 
 # Viewport surface geometry.  Object draw methods cull against
 # SCREEN_HEIGHT and offset x by SCREEN_LEFT, so the viewport
@@ -42,10 +44,10 @@ VP_CLIP_RECT = pygame.Rect(
 _viewport_surface = None
 
 
-def _draw_empty_rect(surface, rect):
-    """Draw a black rect with a grey border — used for dead-ship HUD slots."""
+def _draw_empty_rect(surface, rect, border_color):
+    """Draw a black rect with a colored border — used for dead-ship HUD slots."""
     pygame.draw.rect(surface, HUD_FILL, rect)
-    pygame.draw.rect(surface, HUD_BORDER, rect, 1)
+    pygame.draw.rect(surface, border_color, rect, 1)
 
 
 class StarFieldRenderer:
@@ -251,31 +253,55 @@ def draw_battle(
     viewport_surface = _viewport_surface
 
     for player_id in (1, 2):
-        status_x = P1_X if player_id == 1 else P2_X
+        if player_id == 1:
+            status_x = 0
+            panel_w = _LEFT_PANEL_W
+        else:
+            status_x = const.SCREEN_LEFT + const.SCREEN_HEIGHT
+            panel_w = _RIGHT_PANEL_W
+            
         live_ship = next((s for s in players if s.player == player_id), None)
         ship_to_track = live_ship or next((s for s in world.ships if s.player == player_id), None)
         
-        # Draw status bars
+        # Calculate max height of elements to size the panel
         if live_ship:
-            draw_player_status(screen, live_ship, status_x, BASE_Y, BAR_WIDTH, VIEWPORT_COLUMN_WIDTH,
-                               viewport_size=VIEWPORT_SIZE)
+            hp_height = StatusBar.calculate_height(live_ship.max_hp)
+            energy_height = StatusBar.calculate_height(live_ship.max_energy)
         else:
+            dead_ship = None
             if original_ships:
                 dead_ship = next((s for s in original_ships if s.player == player_id), None)
-            else:
+            elif ship_to_track:
                 dead_ship = ship_to_track
-
-            hp_height = VIEWPORT_SIZE
-            energy_height = VIEWPORT_SIZE
-
+                
             if dead_ship:
                 hp_height = StatusBar.calculate_height(dead_ship.max_hp)
                 energy_height = StatusBar.calculate_height(dead_ship.max_energy)
+            else:
+                hp_height = VIEWPORT_SIZE
+                energy_height = VIEWPORT_SIZE
+                
+        highest_bar = max(hp_height, energy_height, VIEWPORT_SIZE)
+        
+        # Create the panel surface
+        panel_h = MARINE_REGION_HEIGHT + highest_bar + HUD_BOTTOM_PADDING
+        panel_surface = pygame.Surface((panel_w, panel_h))
+        panel_surface.fill(HUD_PANEL_BG)
+        
+        local_base_y = panel_h - HUD_BOTTOM_PADDING
+        draw_x_offset = (panel_w - _TOTAL_WIDTH) // 2
 
-            _draw_empty_rect(screen, pygame.Rect(status_x, BASE_Y - hp_height, BAR_WIDTH, hp_height))
-            _draw_empty_rect(screen, pygame.Rect(status_x + BAR_WIDTH + VIEWPORT_COLUMN_WIDTH, BASE_Y - energy_height, BAR_WIDTH, energy_height))
+        border_color = const.P1_COLOR if player_id == 1 else const.P2_COLOR
 
-        # Draw viewport
+        # Draw status bars onto the panel
+        if live_ship:
+            draw_player_status(panel_surface, live_ship, draw_x_offset, local_base_y, BAR_WIDTH, VIEWPORT_COLUMN_WIDTH,
+                               viewport_size=VIEWPORT_SIZE)
+        else:
+            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset, local_base_y - hp_height, BAR_WIDTH, hp_height), border_color)
+            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset + BAR_WIDTH + VIEWPORT_COLUMN_WIDTH, local_base_y - energy_height, BAR_WIDTH, energy_height), border_color)
+
+        # Draw viewport onto the panel
         if ship_to_track:
             viewport_surface.set_clip(VP_CLIP_RECT)
             viewport_surface.fill((0, 0, 0))
@@ -300,15 +326,18 @@ def draw_battle(
 
             viewport_surface.set_clip(None)
 
-            dest_x = status_x + BAR_WIDTH + VIEWPORT_MARGIN
-            dest_y = BASE_Y - VIEWPORT_SIZE
+            dest_x = draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
+            dest_y = local_base_y - VIEWPORT_SIZE
             dest_rect = pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE)
 
-            screen.blit(viewport_surface, dest_rect, area=VP_CLIP_RECT)
-            pygame.draw.rect(screen, HUD_BORDER, dest_rect, 1)
+            panel_surface.blit(viewport_surface, dest_rect, area=VP_CLIP_RECT)
+            pygame.draw.rect(panel_surface, border_color, dest_rect, 1)
         else:
-            dest_x = status_x + BAR_WIDTH + VIEWPORT_MARGIN
-            dest_y = BASE_Y - VIEWPORT_SIZE
-            _draw_empty_rect(screen, pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE))
+            dest_x = draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
+            dest_y = local_base_y - VIEWPORT_SIZE
+            _draw_empty_rect(panel_surface, pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE), border_color)
+
+        # Blit the unified panel to the screen
+        screen.blit(panel_surface, (status_x, const.SCREEN_HEIGHT - panel_h))
 
     pygame.display.flip()

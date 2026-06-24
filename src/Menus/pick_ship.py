@@ -410,7 +410,8 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                 sprite = selection_sprites[selection.name]
                 sprite_rect = sprite.get_rect(center=selection_rect.center)
                 screen.blit(sprite, sprite_rect)
-            pygame.draw.rect(screen, ui.WHITE, selection_rect, 2)
+            border_color = Const.P1_COLOR if player == 1 else Const.P2_COLOR
+            pygame.draw.rect(screen, border_color, selection_rect, 2)
 
         visually_locked_players = set(survivor_locked_players)
         if choose_second_player in (1, 2) and selection_state.first_locked:

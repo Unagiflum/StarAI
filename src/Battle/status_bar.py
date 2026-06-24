@@ -1,7 +1,6 @@
 import pygame
 
-HUD_BORDER = (100, 100, 100)
-
+import src.const as const
 
 class StatusBar:
     @staticmethod
@@ -20,10 +19,10 @@ class StatusBar:
         self.rows = max_value
         self.height = self.calculate_height(max_value, dash_height, dash_gap)
 
-    def draw(self, screen, x, y, current_value, color):
+    def draw(self, screen, x, y, current_value, color, border_color):
         # Draw border
         border_rect = pygame.Rect(x, y, self.width, self.height)
-        pygame.draw.rect(screen, HUD_BORDER, border_rect, 1)
+        pygame.draw.rect(screen, border_color, border_rect, 1)
 
         # Calculate dash positions
         dashes_to_draw = current_value
@@ -67,8 +66,10 @@ def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing,
     hp_y = base_y - hp_bar.height
     energy_y = base_y - energy_bar.height
 
-    hp_bar.draw(screen, hp_x, hp_y, ship.current_hp, HP_COLOR)
-    energy_bar.draw(screen, energy_x, energy_y, ship.current_energy, ENERGY_COLOR)
+    border_color = const.P1_COLOR if ship.player == 1 else const.P2_COLOR
+
+    hp_bar.draw(screen, hp_x, hp_y, ship.current_hp, HP_COLOR, border_color)
+    energy_bar.draw(screen, energy_x, energy_y, ship.current_energy, ENERGY_COLOR, border_color)
     highest_point = hp_y if hp_y < energy_y else energy_y
     if viewport_size > 0:
         viewport_top = base_y - viewport_size
@@ -113,9 +114,20 @@ def draw_boarded_marine_icons(screen, ship, base_x, highest_point, total_width):
     icons = [marine.hud_sprite for marine in marines]
 
     raw_width = sum(icon.get_width() for icon in icons) + gap * (len(icons) - 1)
-    scale = 1.0
+    
+    # Scale based on width constraints
+    width_scale = 1.0
     if raw_width > total_width and total_width > 0:
-        scale = total_width / raw_width
+        width_scale = total_width / raw_width
+        
+    # Scale based on height constraints (matching bottom padding of roughly 20)
+    MAX_ICON_HEIGHT = 18 # 20 - 2 for gap
+    height_scale = 1.0
+    raw_max_height = max(icon.get_height() for icon in icons)
+    if raw_max_height > MAX_ICON_HEIGHT:
+        height_scale = MAX_ICON_HEIGHT / raw_max_height
+        
+    scale = min(width_scale, height_scale)
 
     scaled_icons = []
     for icon in icons:

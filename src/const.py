@@ -12,6 +12,10 @@ def source_path(path):
     path = Path(path)
     return path if path.is_absolute() else SOURCE_ROOT / path
 
+# Player Colors
+P1_COLOR = (200, 50, 50)
+P2_COLOR = (50, 200, 50)
+
 # Screen
 SCREEN_HEIGHT = 960
 SCREEN_WIDTH = int(SCREEN_HEIGHT*1.6)

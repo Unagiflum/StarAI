@@ -16,15 +16,17 @@ def create_player_fleet_panels(column_lefts, top, width, height, icon_size):
         player: Fleet(
             column_lefts[player], top, width, height,
             f"Player {player} Fleet", icon_size,
+            color=Const.P1_COLOR if player == 1 else Const.P2_COLOR
         )
         for player in (1, 2)
     }
 
 class ShipContainer:
-    def __init__(self, x, y, width, height, title, icon_size):
+    def __init__(self, x, y, width, height, title, icon_size, color=ui.WHITE):
         self.rect = pygame.Rect(x, y, width, height)
         self.title = title
         self.icon_size = icon_size
+        self.color = color
         self.ships = []
         self.spacing = SPACING
         self.icons_per_row = 1
@@ -56,8 +58,8 @@ class ShipContainer:
         pass
 
 class ShipList(ShipContainer):
-    def __init__(self, x, y, width, height, title, icon_size):
-        super().__init__(x, y, width, height, title, icon_size)
+    def __init__(self, x, y, width, height, title, icon_size, color=ui.WHITE):
+        super().__init__(x, y, width, height, title, icon_size, color=color)
         self.scroll_y = 0
         self.dragging = False
         self.spacing = SPACING
@@ -177,7 +179,7 @@ class ShipList(ShipContainer):
 
     def draw(self, screen, font, player_font):
         pygame.draw.rect(screen, ui.BLACK, self.rect)
-        pygame.draw.rect(screen, ui.WHITE, self.rect, 2)
+        pygame.draw.rect(screen, self.color, self.rect, 2)
 
         title_text = player_font.render(self.title, True, ui.WHITE)
         title_rect = title_text.get_rect(x=self.rect.x + 10, y=self.rect.y + 10)
@@ -215,8 +217,8 @@ class ShipList(ShipContainer):
 class Fleet(ShipContainer):
     """Pygame presentation for an ordered :class:`FleetModel`."""
 
-    def __init__(self, x, y, width, height, title, icon_size, model=None):
-        super().__init__(x, y, width, height, title, icon_size)
+    def __init__(self, x, y, width, height, title, icon_size, model=None, color=ui.WHITE):
+        super().__init__(x, y, width, height, title, icon_size, color=color)
         self.calculate_tiling()
         self.model = model if model is not None else FleetModel(self.max_fleet_size)
         if self.model.capacity != self.max_fleet_size:
@@ -296,7 +298,7 @@ class Fleet(ShipContainer):
 
     def draw(self, screen, font, player_font=None):
         pygame.draw.rect(screen, ui.BLACK, self.rect)
-        pygame.draw.rect(screen, ui.WHITE, self.rect, 2)
+        pygame.draw.rect(screen, self.color, self.rect, 2)
 
         title_text = font.render(f"{self.title} - cost: {self.get_total_cost()}", True, ui.WHITE)
         screen.blit(title_text, (self.rect.x + 10, self.rect.y + 10))

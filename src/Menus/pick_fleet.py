@@ -125,6 +125,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             ui.SELECTION_HEIGHT,
             f"Player {player}: Pick your fleet",
             SELECTION_ICON_SIZE,
+            color=const.P1_COLOR if player == 1 else const.P2_COLOR
         )
         for player in (1, 2)
     }
