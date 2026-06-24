@@ -1,4 +1,5 @@
 import pygame
+import math
 from src.UI import ui
 from src.Battle.status_bar import draw_player_status, draw_boarded_marine_icons, StatusBar
 from src.Battle.battle_entry import draw_entry_silhouettes
@@ -47,6 +48,43 @@ def _draw_empty_rect(surface, rect, border_color, fill_color):
     """Draw a filled rect with a colored border — used for dead-ship HUD slots."""
     pygame.draw.rect(surface, fill_color, rect)
     pygame.draw.rect(surface, border_color, rect, 2)
+
+
+def _draw_dashed_circle(surface, ship, scale_factor, translation):
+    radius = int(100 * scale_factor)
+    if radius <= 0:
+        return
+        
+    color = const.P1_COLOR if ship.player == 1 else const.P2_COLOR
+    color_with_alpha = (*color, 255)
+    
+    surf_size = radius * 2 + 12
+    circle_surf = pygame.Surface((surf_size, surf_size), pygame.SRCALPHA)
+    rect = pygame.Rect(6, 6, radius * 2, radius * 2)
+    
+    angles_deg = [45, 135, 225, 315]
+    arc_length_rad = math.radians(4)
+    
+    for angle_deg in angles_deg:
+        center_rad = math.radians(angle_deg)
+        start_angle = center_rad - arc_length_rad / 2
+        end_angle = center_rad + arc_length_rad / 2
+        pygame.draw.arc(circle_surf, color_with_alpha, rect, start_angle, end_angle, 6)
+        
+    screen_x = int((ship.position[0] + translation[0]) * scale_factor)
+    screen_y = int((ship.position[1] + translation[1]) * scale_factor)
+    
+    for dx in [-1, 0, 1]:
+        for dy in [-1, 0, 1]:
+            pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
+            pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
+            
+            if (-surf_size <= pos_x <= const.SCREEN_HEIGHT + surf_size and
+                -surf_size <= pos_y <= const.SCREEN_HEIGHT + surf_size):
+                surface.blit(circle_surf, (
+                    const.SCREEN_LEFT + pos_x - surf_size // 2,
+                    pos_y - surf_size // 2
+                ))
 
 
 class StarFieldRenderer:
@@ -169,6 +207,7 @@ def _render_world_to_surface(
     frame_id,
     star_field_renderer,
     skip_stars=False,
+    is_mirror=False,
 ):
     if not skip_stars:
         star_field_renderer.draw(
@@ -201,6 +240,8 @@ def _render_world_to_surface(
 
     for ship in world.ships:
         if ship not in entering_ships:
+            if is_mirror:
+                _draw_dashed_circle(surface, ship, scale_factor, translation)
             ship.draw(surface, scale_factor, translation)
 
     for effect in world.effects:
@@ -222,6 +263,13 @@ def draw_battle(
     scale_factor, translation = calculate_view_parameters(world, camera_targets)
 
     players = world.live_ships
+    is_mirror = False
+    if original_ships and len(original_ships) == 2:
+        is_mirror = (original_ships[0].name == original_ships[1].name)
+    elif len(players) == 2:
+        is_mirror = (players[0].name == players[1].name)
+
+    players = world.live_ships
     if len(players) == 2:
         p1_pos, p2_pos = players[0].position, players[1].position
         midpoint = wrapped_midpoint(p1_pos, p2_pos)
@@ -240,6 +288,7 @@ def draw_battle(
         entry_state,
         frame_id,
         star_field_renderer,
+        is_mirror=is_mirror,
     )
 
     pygame.draw.rect(screen, border_color, border_rect, 2)
@@ -327,6 +376,7 @@ def draw_battle(
                 frame_id,
                 star_field_renderer,
                 skip_stars=True,
+                is_mirror=False,
             )
 
             viewport_surface.set_clip(None)
