@@ -43,9 +43,9 @@ VP_CLIP_RECT = pygame.Rect(
 _viewport_surface = None
 
 
-def _draw_empty_rect(surface, rect, border_color):
-    """Draw a black rect with a colored border — used for dead-ship HUD slots."""
-    pygame.draw.rect(surface, HUD_FILL, rect)
+def _draw_empty_rect(surface, rect, border_color, fill_color):
+    """Draw a filled rect with a colored border — used for dead-ship HUD slots."""
+    pygame.draw.rect(surface, fill_color, rect)
     pygame.draw.rect(surface, border_color, rect, 2)
 
 
@@ -297,8 +297,8 @@ def draw_battle(
             draw_player_status(panel_surface, live_ship, draw_x_offset, local_base_y, BAR_WIDTH, VIEWPORT_COLUMN_WIDTH,
                                viewport_size=VIEWPORT_SIZE)
         else:
-            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset, local_base_y - hp_height, BAR_WIDTH, hp_height), const.HUD_BAR_BORDER)
-            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset + BAR_WIDTH + VIEWPORT_COLUMN_WIDTH, local_base_y - energy_height, BAR_WIDTH, energy_height), const.HUD_BAR_BORDER)
+            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset, local_base_y - hp_height, BAR_WIDTH, hp_height), const.HUD_BAR_BORDER, const.HUD_BAR_BG)
+            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset + BAR_WIDTH + VIEWPORT_COLUMN_WIDTH, local_base_y - energy_height, BAR_WIDTH, energy_height), const.HUD_BAR_BORDER, const.HUD_BAR_BG)
 
         # Draw viewport onto the panel
         if ship_to_track:
@@ -334,7 +334,7 @@ def draw_battle(
         else:
             dest_x = draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
             dest_y = local_base_y - VIEWPORT_SIZE
-            _draw_empty_rect(panel_surface, pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE), border_color)
+            _draw_empty_rect(panel_surface, pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE), border_color, HUD_FILL)
 
         # Blit the unified panel to the screen
         screen.blit(panel_surface, (status_x, const.SCREEN_HEIGHT - panel_h))

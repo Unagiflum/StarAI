@@ -4,35 +4,42 @@ import src.const as const
 
 class StatusBar:
     @staticmethod
-    def calculate_height(max_value, dash_height=6, dash_gap=2):
-        row_count = (max_value + 1) // 2
-        return row_count * (dash_height + dash_gap) + dash_gap
+    def calculate_height(max_value, dash_height=6, dash_gap=2, columns=2, border_thickness=2):
+        row_count = (max_value + columns - 1) // columns
+        inset = border_thickness + dash_gap
+        if row_count == 0:
+            return inset * 2
+        return inset * 2 + row_count * dash_height + (row_count - 1) * dash_gap
 
-    def __init__(self, width, max_value, dash_height=6, dash_gap=2):
+    def __init__(self, width, max_value, dash_height=6, dash_gap=2, columns=2, border_thickness=2):
         self.width = width
         self.max_value = max_value
         self.dash_height = dash_height
         self.dash_gap = dash_gap
+        self.columns = columns
+        self.border_thickness = border_thickness
 
-        self.columns = 2
-        self.dash_width = (width - (self.columns + 1) * dash_gap) // self.columns
-        self.rows = max_value
-        self.height = self.calculate_height(max_value, dash_height, dash_gap)
+        self.inset = self.border_thickness + self.dash_gap
 
-    def draw(self, screen, x, y, current_value, color, border_color):
-        # Draw border
+        self.dash_width = (width - 2 * self.inset - (self.columns - 1) * self.dash_gap) // self.columns
+        self.height = self.calculate_height(max_value, dash_height, dash_gap, columns, border_thickness)
+
+    def draw(self, screen, x, y, current_value, color, border_color, bg_color):
         border_rect = pygame.Rect(x, y, self.width, self.height)
-        pygame.draw.rect(screen, border_color, border_rect, 2)
+        # Draw background
+        pygame.draw.rect(screen, bg_color, border_rect)
+        # Draw border
+        pygame.draw.rect(screen, border_color, border_rect, self.border_thickness)
 
         # Calculate dash positions
         dashes_to_draw = current_value
-        for i in range(min(self.rows, dashes_to_draw)):
-            column = i % 2  # Alternates between 0 and 1
-            row = i // 2
+        for i in range(min(self.max_value, dashes_to_draw)):
+            column = i % self.columns
+            row = i // self.columns
 
             # Calculate position for each dash
-            dash_x = x + self.dash_gap + column * (self.dash_width + self.dash_gap)
-            dash_y = y + self.height - (row + 1) * (self.dash_height + self.dash_gap) + (self.dash_gap // 2)
+            dash_x = x + self.inset + column * (self.dash_width + self.dash_gap)
+            dash_y = (y + self.height) - self.inset - (row + 1) * self.dash_height - row * self.dash_gap
 
             dash_rect = pygame.Rect(dash_x, dash_y, self.dash_width, self.dash_height)
             pygame.draw.rect(screen, color, dash_rect)
@@ -66,8 +73,8 @@ def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing,
 
     border_color = const.P1_COLOR if ship.player == 1 else const.P2_COLOR
 
-    hp_bar.draw(screen, hp_x, hp_y, ship.current_hp, const.HUD_HP_COLOR, const.HUD_BAR_BORDER)
-    energy_bar.draw(screen, energy_x, energy_y, ship.current_energy, const.HUD_ENERGY_COLOR, const.HUD_BAR_BORDER)
+    hp_bar.draw(screen, hp_x, hp_y, ship.current_hp, const.HUD_HP_COLOR, const.HUD_BAR_BORDER, const.HUD_BAR_BG)
+    energy_bar.draw(screen, energy_x, energy_y, ship.current_energy, const.HUD_ENERGY_COLOR, const.HUD_BAR_BORDER, const.HUD_BAR_BG)
     highest_point = hp_y if hp_y < energy_y else energy_y
     if viewport_size > 0:
         viewport_top = base_y - viewport_size
