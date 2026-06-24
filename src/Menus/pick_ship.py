@@ -425,7 +425,8 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                     selection_rect, label, LOCKED_COLOR, show_lock=True
                 )
             else:
-                draw_selection_label(selection_rect, "SELECTED", SELECTED_COLOR)
+                player_color = Const.P1_COLOR if player == 1 else Const.P2_COLOR
+                draw_selection_label(selection_rect, "SELECTED", player_color)
 
         for button in random_buttons.values():
             button.draw(screen, font)
