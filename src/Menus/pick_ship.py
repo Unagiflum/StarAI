@@ -389,19 +389,23 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
         if choose_second_player in (1, 2):
             if selection_state.first_locked:
                 draw_locked_panel(panels[selection_state.first_player])
+            else:
+                draw_locked_panel(panels[choose_second_player])
             active_panel = panels[active_player]
-            pygame.draw.rect(screen, ACTIVE_SELECTION_COLOR, active_panel.rect, 4)
+            active_color = Const.P1_COLOR if active_player == 1 else Const.P2_COLOR
+            pygame.draw.rect(screen, active_color, active_panel.rect, 4)
             active_badge = (
                 "SELECT FIRST" if not selection_state.first_locked
                 else "SELECT SECOND"
             )
-            draw_panel_badge(active_panel, active_badge, ACTIVE_SELECTION_COLOR)
+            draw_panel_badge(active_panel, active_badge, active_color)
         elif survivor_locked_players:
             for player in (1, 2):
                 if player in survivor_locked_players:
                     continue
-                pygame.draw.rect(screen, ACTIVE_SELECTION_COLOR, panels[player].rect, 4)
-                draw_panel_badge(panels[player], "SELECT SHIP", ACTIVE_SELECTION_COLOR)
+                player_color = Const.P1_COLOR if player == 1 else Const.P2_COLOR
+                pygame.draw.rect(screen, player_color, panels[player].rect, 4)
+                draw_panel_badge(panels[player], "SELECT SHIP", player_color)
 
         # Draw selection boxes
         for player, selection_rect in selection_rects.items():
