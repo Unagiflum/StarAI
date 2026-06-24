@@ -102,6 +102,9 @@ class SpaceShip(PlayerObject):
         self.reset_controls()
         self.camera_freeze_timer = 0
         self.frozen_camera_position = [0.0, 0.0]
+        self.battles_fought = 0
+        self.limpets_attached = 0
+        self.base_sprites = self.sprites
 
     def initialize_in_battle(self, position, heading):
         self.position = list(position)
@@ -120,6 +123,89 @@ class SpaceShip(PlayerObject):
         self.boarded_marines.clear()
         self.reset_controls()
         self.in_battle = True
+        self.battles_fought += 1
+
+    def attach_limpet(self):
+        ship_definition = SHIP_DEFINITIONS[self.name]
+        start_thrust_inc = ship_definition.thrust_increment
+        start_max_thrust = ship_definition.max_thrust
+        start_turn_wait = ship_definition.turn_wait
+        start_thrust_wait = ship_definition.thrust_wait
+
+        self.limpets_attached += 1
+        
+        # Calculate new stats based on number of limpets
+        self.turn_wait = min(255, start_turn_wait + self.limpets_attached)
+        self.thrust_wait = min(255, start_thrust_wait + self.limpets_attached)
+        
+        new_thrust_inc = max(4, start_thrust_inc - self.limpets_attached)
+        self.thrust_increment = new_thrust_inc
+        
+        if self.thrust_increment <= 4:
+            self.max_thrust = 8
+        else:
+            self.max_thrust = int(start_max_thrust * self.thrust_increment / start_thrust_inc)
+
+        # Draw limpet onto the ship's sprites
+        limpet_assets = self.resources.ability("VuxA2")
+        if not limpet_assets.sprites:
+            return
+            
+        limpet_sprite = limpet_assets.sprites[0]
+        
+        # Find a random valid point on the first base sprite with alpha > 200
+        base_sprite = self.base_sprites[0]
+        width, height = base_sprite.get_size()
+        center_x, center_y = width / 2, height / 2
+        
+        spot_offset_x = 0
+        spot_offset_y = 0
+        found = False
+        
+        for _ in range(50):
+            rx = self.rng.randint(0, width - 1)
+            ry = self.rng.randint(0, height - 1)
+            color = base_sprite.get_at((rx, ry))
+            if color.a > 200:
+                spot_offset_x = rx - center_x
+                spot_offset_y = ry - center_y
+                found = True
+                break
+                
+        if not found:
+            return
+            
+        # Draw the limpet at the rotated offset for all 64 directions
+        new_sprites = []
+        for heading in range(const.SHIP_DIRECTIONS):
+            angle = math.radians(heading * const.TURN_ANGLE)
+            # Rotate offset clockwise (since heading goes clockwise 0=up, 16=right)
+            rx = spot_offset_x * math.cos(angle) - spot_offset_y * math.sin(angle)
+            ry = spot_offset_x * math.sin(angle) + spot_offset_y * math.cos(angle)
+            
+            # Blit onto current sprite so multiple limpets stack
+            current_sprite = self.sprites[heading].copy()
+            dest_x = current_sprite.get_width() / 2 + rx - limpet_sprite.get_width() / 2
+            dest_y = current_sprite.get_height() / 2 + ry - limpet_sprite.get_height() / 2
+            
+            current_sprite.blit(limpet_sprite, (int(dest_x), int(dest_y)))
+            new_sprites.append(current_sprite)
+            
+        self.sprites = tuple(new_sprites)
+
+    def reset_limpets(self):
+        if self.limpets_attached == 0:
+            return
+            
+        self.limpets_attached = 0
+        self.sprites = self.base_sprites
+        
+        # Reset stats
+        ship_definition = SHIP_DEFINITIONS[self.name]
+        self.max_thrust = ship_definition.max_thrust
+        self.thrust_increment = ship_definition.thrust_increment
+        self.thrust_wait = ship_definition.thrust_wait
+        self.turn_wait = ship_definition.turn_wait
 
     def reset_controls(self):
         for attribute in CONTROL_STATE_ATTRIBUTES.values():

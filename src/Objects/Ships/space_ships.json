@@ -364,5 +364,29 @@
         "inertia": true,
         "sprite_path": "Objects/Ships/ZoqFot/",
         "sprite_scale": 1.0
+    },
+    "Vux": {
+        "ship_type": "Intruder",
+        "cost": 12,
+        "max_hp": 20,
+        "start_hp": 20,
+        "max_energy": 40,
+        "start_energy": 40,
+        "energy_regen": 1,
+        "energy_wait": 8,
+        "max_thrust": 21,
+        "thrust_increment": 7,
+        "thrust_wait": 4,
+        "turn_wait": 6,
+        "a1_cost": 1,
+        "a2_cost": 2,
+        "a3_cost": 0,
+        "a1_wait": 0,
+        "a2_wait": 7,
+        "a3_wait": 0,
+        "mass": 6,
+        "inertia": true,
+        "sprite_path": "Objects/Ships/Vux/",
+        "sprite_scale": 1.0
     }
 }

@@ -35,6 +35,7 @@ class Pkunk(SpaceShip):
         self.can_move = True
         self.can_collide = True
         self.reset_controls()
+        self.reset_limpets()
         if self.audio_service is not None:
             self.audio_service.play_effect(
                 const.source_path("Objects/Ships/Pkunk/Pkunk-rebirth.wav")
