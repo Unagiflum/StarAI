@@ -172,7 +172,19 @@ class OrzA3(Ability):
         if self.mode == self.OUTBOUND:
             target = self._live_trackable_opponent()
             if target is not None:
-                return target.position
+                intercept_frame = self.predict_target_interception(target, frames=15)
+                t_traj = target.predict_unhindered_trajectory(frames=15)
+                
+                if intercept_frame is None or intercept_frame >= 15:
+                    if len(t_traj) > 0:
+                        return t_traj[-1]
+                    return target.position
+                else:
+                    if intercept_frame < len(t_traj):
+                        return t_traj[intercept_frame]
+                    elif len(t_traj) > 0:
+                        return t_traj[-1]
+                    return target.position
             self._begin_return()
         return self.parent.position if self._parent_alive() else None
 
@@ -182,10 +194,29 @@ class OrzA3(Ability):
         if distance <= 0:
             return
 
+        desired_angle = math.degrees(math.atan2(dx / distance, -dy / distance)) % 360
+        angle_step = 360 / const.SHIP_DIRECTIONS
+        self.rotation = round(desired_angle / angle_step) * angle_step % 360
+
+        speed = math.hypot(self.velocity[0], self.velocity[1])
+        if speed > 0:
+            current_heading = math.degrees(math.atan2(self.velocity[0], -self.velocity[1])) % 360
+        else:
+            current_heading = self.rotation
+
+        in_gravity = False
+        if self.planet:
+            p_dx, p_dy = wrapped_delta(self.position, self.planet.position)
+            in_gravity = math.hypot(p_dx, p_dy) < const.GRAVITY_RANGE
+
+        top_speed = const.SPEED_LIMIT if in_gravity else self.max_thrust
+        angle_diff = abs((current_heading - desired_angle + 180) % 360 - 180)
+        threshold = 180 / const.SHIP_DIRECTIONS
+
+        if angle_diff <= threshold and speed >= top_speed - 0.001:
+            return
+
         if self.thrust_timer <= 0:
-            thrust_dir_x = dx / distance
-            thrust_dir_y = dy / distance
-            self.rotation = math.degrees(math.atan2(thrust_dir_x, -thrust_dir_y)) % 360
             marker = self.apply_thrust(self.max_thrust, self.thrust_increment, 0, True)
             if marker:
                 self.spawned_objects.append(marker)
@@ -245,9 +276,23 @@ class OrzA3(Ability):
         dx, dy = wrapped_delta(self.position, self.planet.position)
         dist = math.hypot(dx, dy)
         if dist > 0:
-            thrust_dir_x = -dx / dist
-            thrust_dir_y = -dy / dist
-            self.rotation = math.degrees(math.atan2(thrust_dir_x, -thrust_dir_y)) % 360
+            speed = math.hypot(self.velocity[0], self.velocity[1])
+            if speed < self.thrust_increment / 2:
+                thrust_dir_x = -dx / dist
+                thrust_dir_y = -dy / dist
+            else:
+                vx, vy = self.velocity
+                dot_product = -vy * dx + vx * dy
+                if dot_product < 0:
+                    thrust_dir_x = -vy / speed
+                    thrust_dir_y = vx / speed
+                else:
+                    thrust_dir_x = vy / speed
+                    thrust_dir_y = -vx / speed
+
+            desired_angle = math.degrees(math.atan2(thrust_dir_x, -thrust_dir_y)) % 360
+            angle_step = 360 / const.SHIP_DIRECTIONS
+            self.rotation = round(desired_angle / angle_step) * angle_step % 360
             if self.thrust_timer <= 0:
                 marker = self.apply_thrust(self.max_thrust, self.thrust_increment, 0, True)
                 if marker:
@@ -354,7 +399,6 @@ class OrzA3(Ability):
             return
         self.parent.current_hp = min(self.parent.max_hp, self.parent.current_hp + 1)
         self._detach_from_ship()
-        self._detach_from_parent_status()
         self.current_hp = 0
         self.currently_alive = False
 
@@ -372,7 +416,6 @@ class OrzA3(Ability):
 
     def on_destroyed(self):
         self._detach_from_ship()
-        self._detach_from_parent_status()
         self._play_death_sound()
 
     def _leave_ship(self):
@@ -386,8 +429,6 @@ class OrzA3(Ability):
 
     def _begin_return(self):
         self.mode = self.RETURNING
-        if self not in self.parent.returning_marines:
-            self.parent.returning_marines.append(self)
 
     def _detach_from_ship(self):
         if self.boarded_ship is not None:
@@ -398,17 +439,10 @@ class OrzA3(Ability):
         self.boarded_ship = None
         self.target = None
 
-    def _detach_from_parent_status(self):
-        try:
-            self.parent.returning_marines.remove(self)
-        except ValueError:
-            pass
-
     def _die(self):
         if not self.currently_alive:
             return
         self._detach_from_ship()
-        self._detach_from_parent_status()
         self.current_hp = 0
         self.currently_alive = False
         self._play_death_sound()

@@ -62,18 +62,12 @@ def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing):
 
 
 def draw_boarded_marine_icons(screen, ship, base_x, bars_top, total_width):
-    status_marines = (
-        tuple(getattr(ship, "boarded_marines", ()))
-        + tuple(getattr(ship, "returning_marines", ()))
-    )
+    status_marines = tuple(getattr(ship, "boarded_marines", ()))
     marines = [
         marine for marine in status_marines
         if (
             marine.currently_alive
-            and (
-                getattr(marine, "is_boarded", False)
-                or getattr(marine, "is_returning", False)
-            )
+            and getattr(marine, "is_boarded", False)
         )
     ]
     if not marines:
