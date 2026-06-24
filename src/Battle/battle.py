@@ -502,6 +502,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
             ),
             entry_state=simulation.entry,
             frame_id=simulation.frame_id,
+            original_ships=(simulation.player1, simulation.player2),
         )
 
 
