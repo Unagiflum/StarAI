@@ -30,6 +30,7 @@ class OrzA3(Ability):
         self.shield_bounce_timer = 0
         
         ability_def = ABILITY_DEFINITIONS["OrzA3"]
+        self.spiral_distance = ability_def.spiral_distance if ability_def.spiral_distance is not None else 500
         self.max_thrust = ability_def.max_thrust * const.PROJ_SPEED_SCALE if ability_def.max_thrust else self.speed
         self.thrust_increment = ability_def.thrust_increment * const.PROJ_SPEED_SCALE if ability_def.thrust_increment else 8 * const.PROJ_SPEED_SCALE
         self.thrust_wait = ability_def.thrust_wait if ability_def.thrust_wait else 1
@@ -204,6 +205,26 @@ class OrzA3(Ability):
             current_heading = math.degrees(math.atan2(self.velocity[0], -self.velocity[1])) % 360
         else:
             current_heading = self.rotation
+
+        if speed > 0 and distance <= self.spiral_distance:
+            min_diff_to_90 = min(
+                abs(abs((k * angle_step - current_heading + 180) % 360 - 180) - 90)
+                for k in range(const.SHIP_DIRECTIONS)
+            )
+            current_diff_to_90 = abs(abs((self.rotation - current_heading + 180) % 360 - 180) - 90)
+            
+            if math.isclose(current_diff_to_90, min_diff_to_90, abs_tol=1e-5):
+                anti_heading = (current_heading + 180) % 360
+                adj1 = (self.rotation + angle_step) % 360
+                adj2 = (self.rotation - angle_step) % 360
+                
+                diff1 = abs((adj1 - anti_heading + 180) % 360 - 180)
+                diff2 = abs((adj2 - anti_heading + 180) % 360 - 180)
+                
+                if diff1 < diff2:
+                    self.rotation = adj1
+                else:
+                    self.rotation = adj2
 
         in_gravity = False
         if self.planet:

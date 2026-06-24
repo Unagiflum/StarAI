@@ -169,6 +169,7 @@ class AbilityDefinition(_DefinitionMapping):
     thrust_wait: float | None = None
     look_ahead: int | None = None
     max_marines: int | None = None
+    spiral_distance: float | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -230,6 +231,7 @@ class AbilityDefinition(_DefinitionMapping):
         "thrust_wait": "thrust_wait",
         "look_ahead": "look_ahead",
         "max_marines": "max_marines",
+        "spiral_distance": "spiral_distance",
     }
 
 
@@ -380,7 +382,7 @@ def parse_ability_definition(name, data):
         "RECOIL_INCREMENT", "ENERGY_GAIN", "HP_GAIN", "TRACK_SPEED",
         "TRACK_RANGE", "DMG_TO_PROJ", "REUNK_THRUST", "REUNK_INCREMENT",
         "SPREAD_ANGLE", "max_thrust", "thrust_increment", "thrust_wait",
-        "look_ahead", "max_marines",
+        "look_ahead", "max_marines", "spiral_distance",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -430,6 +432,7 @@ def parse_ability_definition(name, data):
         "thrust_wait": ("thrust_wait", float),
         "look_ahead": ("look_ahead", int),
         "max_marines": ("max_marines", int),
+        "spiral_distance": ("spiral_distance", float),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(
