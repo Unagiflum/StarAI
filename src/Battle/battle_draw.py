@@ -93,16 +93,19 @@ def calculate_view_parameters(game_objects, camera_targets=None):
     if len(targets) == 1:
         view_size = (const.SCREEN_HEIGHT / const.MAX_ZOOM) * 1.5
         scale_factor = min(const.MAX_ZOOM, const.SCREEN_HEIGHT / view_size)
+        pos0 = getattr(targets[0], "camera_position", targets[0].position)
         translation = [
-            const.SCREEN_HEIGHT / (2 * scale_factor) - targets[0].position[0],
-            const.SCREEN_HEIGHT / (2 * scale_factor) - targets[0].position[1],
+            const.SCREEN_HEIGHT / (2 * scale_factor) - pos0[0],
+            const.SCREEN_HEIGHT / (2 * scale_factor) - pos0[1],
         ]
         return scale_factor, translation
     if len(targets) < 2:
         return 1.0, [0, 0]
 
+    pos0 = getattr(targets[0], "camera_position", targets[0].position)
+    pos1 = getattr(targets[1], "camera_position", targets[1].position)
     center, view_size = view_center_and_size(
-        [targets[0].position, targets[1].position]
+        [pos0, pos1]
     )
 
     scale_factor = min(const.MAX_ZOOM, const.SCREEN_HEIGHT / view_size)

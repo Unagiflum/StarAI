@@ -14,6 +14,8 @@ class Arilou(SpaceShip):
         ability_obj = ArilouA2(self)
 
         def teleport():
+            self.frozen_camera_position = self.position.copy()
+            self.camera_freeze_timer = 5
             for _ in range(100):
                 self.position[0] = self.rng.randint(0, const.ARENA_SIZE)
                 self.position[1] = self.rng.randint(0, const.ARENA_SIZE)

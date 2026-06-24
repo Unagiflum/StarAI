@@ -100,6 +100,8 @@ class SpaceShip(PlayerObject):
         self.newly_pressed_controls = set()
         self.released_controls = set()
         self.reset_controls()
+        self.camera_freeze_timer = 0
+        self.frozen_camera_position = [0.0, 0.0]
 
     def initialize_in_battle(self, position, heading):
         self.position = list(position)
@@ -316,7 +318,15 @@ class SpaceShip(PlayerObject):
     def can_action3(self):
         return self.action3_timer == 0 and self.current_energy >= self.a3_cost
 
+    @property
+    def camera_position(self):
+        if self.camera_freeze_timer > 0:
+            return self.frozen_camera_position
+        return self.position
+
     def update_timers(self):
+        if self.camera_freeze_timer > 0:
+            self.camera_freeze_timer -= 1
         if self.thrust_timer > 0:
             self.thrust_timer -= 1
         if self.turn_timer > 0:
