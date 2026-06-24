@@ -207,7 +207,7 @@ def _render_world_to_surface(
     frame_id,
     star_field_renderer,
     skip_stars=False,
-    is_mirror=False,
+    show_crosshairs=False,
 ):
     if not skip_stars:
         star_field_renderer.draw(
@@ -240,7 +240,7 @@ def _render_world_to_surface(
 
     for ship in world.ships:
         if ship not in entering_ships:
-            if is_mirror or getattr(const, "ALWAYS_SHOW_CROSSHAIRS", False):
+            if show_crosshairs and not getattr(ship, "cloaked", False):
                 _draw_dashed_circle(surface, ship, scale_factor, translation)
             ship.draw(surface, scale_factor, translation)
 
@@ -268,6 +268,8 @@ def draw_battle(
         is_mirror = (original_ships[0].name == original_ships[1].name)
     elif len(players) == 2:
         is_mirror = (players[0].name == players[1].name)
+        
+    show_crosshairs = is_mirror or getattr(const, "ALWAYS_SHOW_CROSSHAIRS", False)
 
     players = world.live_ships
     if len(players) == 2:
@@ -288,7 +290,7 @@ def draw_battle(
         entry_state,
         frame_id,
         star_field_renderer,
-        is_mirror=is_mirror,
+        show_crosshairs=show_crosshairs,
     )
 
     pygame.draw.rect(screen, border_color, border_rect, 2)
@@ -376,7 +378,7 @@ def draw_battle(
                 frame_id,
                 star_field_renderer,
                 skip_stars=True,
-                is_mirror=False,
+                show_crosshairs=False,
             )
 
             viewport_surface.set_clip(None)
