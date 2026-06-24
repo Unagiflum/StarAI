@@ -197,15 +197,15 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             pygame.draw.arc(
                 screen,
                 ui.WHITE,
-                pygame.Rect(lock_center_x - 4, label_rect.centery - 8, 8, 10),
+                pygame.Rect(lock_center_x - 5, label_rect.centery - 7, 10, 12),
+                0,
                 math.pi,
-                2 * math.pi,
                 2,
             )
             pygame.draw.rect(
                 screen,
                 ui.WHITE,
-                pygame.Rect(lock_center_x - 5, label_rect.centery - 1, 10, 8),
+                pygame.Rect(lock_center_x - 7, label_rect.centery - 1, 14, 12),
                 border_radius=2,
             )
         screen.blit(label_surface, text_rect)
