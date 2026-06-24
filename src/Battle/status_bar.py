@@ -9,9 +9,7 @@ class StatusBar:
         row_count = (max_value + 1) // 2
         return row_count * (dash_height + dash_gap) + dash_gap
 
-    def __init__(self, x, y, width, max_value, dash_height=6, dash_gap=2):
-        self.x = x
-        self.y = y
+    def __init__(self, width, max_value, dash_height=6, dash_gap=2):
         self.width = width
         self.max_value = max_value
         self.dash_height = dash_height
@@ -22,9 +20,9 @@ class StatusBar:
         self.rows = max_value
         self.height = self.calculate_height(max_value, dash_height, dash_gap)
 
-    def draw(self, screen, current_value, color):
+    def draw(self, screen, x, y, current_value, color):
         # Draw border
-        border_rect = pygame.Rect(self.x, self.y, self.width, self.height)
+        border_rect = pygame.Rect(x, y, self.width, self.height)
         pygame.draw.rect(screen, HUD_BORDER, border_rect, 1)
 
         # Calculate dash positions
@@ -34,8 +32,8 @@ class StatusBar:
             row = i // 2
 
             # Calculate position for each dash
-            dash_x = self.x + self.dash_gap + column * (self.dash_width + self.dash_gap)
-            dash_y = self.y + self.height - (row + 1) * (self.dash_height + self.dash_gap) + (self.dash_gap // 2)
+            dash_x = x + self.dash_gap + column * (self.dash_width + self.dash_gap)
+            dash_y = y + self.height - (row + 1) * (self.dash_height + self.dash_gap) + (self.dash_gap // 2)
 
             dash_rect = pygame.Rect(dash_x, dash_y, self.dash_width, self.dash_height)
             pygame.draw.rect(screen, color, dash_rect)
@@ -49,7 +47,7 @@ def _get_status_bar(width, max_value):
     key = (width, max_value)
     bar = _status_bar_cache.get(key)
     if bar is None:
-        bar = StatusBar(0, 0, width, max_value)
+        bar = StatusBar(width, max_value)
         _status_bar_cache[key] = bar
     return bar
 
@@ -63,16 +61,14 @@ def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing,
     energy_bar = _get_status_bar(bar_width, ship.max_energy)
 
     # Set positions and align bottoms at base_y
-    hp_bar.x = base_x
-    energy_bar.x = base_x + bar_width + bar_spacing
+    hp_x = base_x
+    energy_x = base_x + bar_width + bar_spacing
 
     hp_y = base_y - hp_bar.height
     energy_y = base_y - energy_bar.height
 
-    hp_bar.y = hp_y
-    energy_bar.y = energy_y
-    hp_bar.draw(screen, ship.current_hp, HP_COLOR)
-    energy_bar.draw(screen, ship.current_energy, ENERGY_COLOR)
+    hp_bar.draw(screen, hp_x, hp_y, ship.current_hp, HP_COLOR)
+    energy_bar.draw(screen, energy_x, energy_y, ship.current_energy, ENERGY_COLOR)
     highest_point = hp_y if hp_y < energy_y else energy_y
     if viewport_size > 0:
         viewport_top = base_y - viewport_size
