@@ -1,6 +1,6 @@
 import pygame
 from src.UI import ui
-from src.Battle.status_bar import draw_player_status, StatusBar
+from src.Battle.status_bar import draw_player_status, draw_boarded_marine_icons, StatusBar
 from src.Battle.battle_entry import draw_entry_silhouettes
 import src.const as const
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_midpoint
@@ -341,6 +341,15 @@ def draw_battle(
             dest_x = draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
             dest_y = local_base_y - VIEWPORT_SIZE
             _draw_empty_rect(panel_surface, pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE), const.HUD_VIEWPORT_BORDER, HUD_FILL)
+            
+        if live_ship:
+            draw_boarded_marine_icons(
+                panel_surface,
+                live_ship,
+                draw_x_offset,
+                local_base_y - VIEWPORT_SIZE + 2,
+                _TOTAL_WIDTH
+            )
 
         # Blit the unified panel to the screen
         screen.blit(panel_surface, (status_x, const.SCREEN_HEIGHT - panel_h))

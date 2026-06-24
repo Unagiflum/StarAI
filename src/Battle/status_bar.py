@@ -81,13 +81,6 @@ def draw_player_status(screen, ship, base_x, base_y, bar_width, bar_spacing,
         if viewport_top < highest_point:
             highest_point = viewport_top
 
-    draw_boarded_marine_icons(
-        screen,
-        ship,
-        base_x,
-        highest_point,
-        bar_width * 2 + bar_spacing,
-    )
 
 
 _scaled_icon_cache = {}
@@ -103,7 +96,7 @@ def _get_scaled_icon(icon, new_width, new_height):
     return result
 
 
-def draw_boarded_marine_icons(screen, ship, base_x, highest_point, total_width):
+def draw_boarded_marine_icons(screen, ship, base_x, top_y, total_width):
     status_marines = tuple(getattr(ship, "boarded_marines", ()))
     marines = [
         marine for marine in status_marines
@@ -146,9 +139,9 @@ def draw_boarded_marine_icons(screen, ship, base_x, highest_point, total_width):
     icon_height = max(icon.get_height() for icon in scaled_icons)
     total_icons_width = sum(icon.get_width() for icon in scaled_icons) + gap * (len(scaled_icons) - 1)
 
-    top = highest_point - icon_height - gap
+
 
     current_x = base_x + (total_width - total_icons_width) // 2
     for icon in scaled_icons:
-        screen.blit(icon, (current_x, top))
+        screen.blit(icon, (current_x, top_y))
         current_x += icon.get_width() + gap
