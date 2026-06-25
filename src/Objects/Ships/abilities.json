@@ -915,7 +915,7 @@
         "tracking": false,
         "parent_vel": 1.0,
         "speed": 0,
-        "life_time": 12,
+        "life_time": 14,
         "turn_wait": 0,
         "inertia": true,
         "hit_parent": false,
