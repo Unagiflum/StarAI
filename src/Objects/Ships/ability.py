@@ -98,7 +98,7 @@ class Ability(PlayerObject):
         self.current_damage = self.damages[0]
         self.tracking = ability_definition.tracking
         self.parent_vel = ability_definition.parent_vel
-        self.speed = ability_definition.speed * const.PROJ_SPEED_SCALE
+        self.speed = ability_definition.speed
         self.life_time = ability_definition.life_time
         self.turn_wait = ability_definition.turn_wait
         self.inertia = ability_definition.inertia
@@ -108,18 +108,16 @@ class Ability(PlayerObject):
         self.omnidirectional = ability_definition.omnidirectional
         self.end_anim_count = ability_definition.end_anim
 
-        duration_scale = const.ABILITY_DURATION_SCALE if self.type == "shield" else 1
-
         # Animation properties
         self.frames = ability_definition.frames
-        self.frame_delay = round(ability_definition.frame_delay * duration_scale)
+        self.frame_delay = round(ability_definition.frame_delay)
         self.current_frame = 0
         self.frame_timer = self.frame_delay
 
         # Store HP array for evolution
         self.hp_array = ability_definition.start_hp
         # State flags
-        self.turn_timer = const.cooldown_frames(self.turn_wait, const.TURN_WAIT_SCALE)
+        self.turn_timer = const.cooldown_frames(self.turn_wait)
         self.can_move = True
         self.can_die = True
         self.can_expire = True
@@ -129,7 +127,7 @@ class Ability(PlayerObject):
         else:
             self.can_collide = False
 
-        self._duration = round(self.life_time * const.PROJ_LIFE_SCALE * duration_scale)
+        self._duration = round(self.life_time)
         self.expiration_timer = self._duration
 
     @classmethod
@@ -186,7 +184,7 @@ class Ability(PlayerObject):
                 if self.opponent.trackable:
                     if abs(angle_diff) >= direction_step:
                         self.rotation = (current_angle + (direction_step if angle_diff > 0 else -direction_step)) % 360
-                        self.turn_timer = const.cooldown_frames(self.turn_wait, const.TURN_WAIT_SCALE)
+                        self.turn_timer = const.cooldown_frames(self.turn_wait)
                     else:
                         self.rotation = target_angle
             else:

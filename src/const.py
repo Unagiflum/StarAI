@@ -12,9 +12,9 @@ def source_path(path):
     path = Path(path)
     return path if path.is_absolute() else SOURCE_ROOT / path
 
-def cooldown_frames(wait_value, scale):
+def cooldown_frames(wait_value):
     """Convert UQM gap frames to engine cooldown frames."""
-    return round(wait_value * scale) + 1
+    return round(wait_value) + 1
 
 # Player Colors
 P1_COLOR = (50, 200, 200)
@@ -60,11 +60,6 @@ MAX_ZOOM = 1.0
 SPEED_SCALE = 1.0
 GRAVITY_MULTIPLIER = 1.0
 GRAVITY_RANGE = CENTER_BUFFER // 2
-TURN_WAIT_SCALE = 1.0
-THRUST_WAIT_SCALE = 1.0
-ACTION_WAIT_SCALE = 1.0
-ABILITY_DURATION_SCALE = 1.0
-RECHARGE_DELAY_SCALE = 1.0
 SPEED_LIMIT = 150
 MAX_GRAV_WHIP = 100
 
@@ -99,8 +94,6 @@ ENTRY_TRAIL_FADE_FRAMES = 12
 PKUNK_REBIRTH_PAUSE_FRAMES = POST_DEATH_EFFECT_FRAMES
 
 #Projectiles
-PROJ_LIFE_SCALE = 1.0
-PROJ_SPEED_SCALE = 1.0
 PROJ_GAP = 0
 
 #File Paths

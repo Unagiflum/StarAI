@@ -42,7 +42,7 @@ class ZoqFotA2Tests(CollisionTestCase):
         )
         self.assertEqual(
             self.parent.action2_timer,
-            int(self.parent.a2_wait * const.ACTION_WAIT_SCALE),
+            const.cooldown_frames(self.parent.a2_wait),
         )
         self.assertTrue(area.area_damage_pending)
         self.assertFalse(area.can_collide)

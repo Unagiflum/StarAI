@@ -16,7 +16,7 @@ class OrzA3(Ability):
     RETURNING = "returning"
 
     MAX_MARINES = ABILITY_DEFINITIONS["OrzA3"].max_marines if ABILITY_DEFINITIONS["OrzA3"].max_marines is not None else 8
-    BOARDING_WAIT = const.cooldown_frames(12, const.ACTION_WAIT_SCALE)
+    BOARDING_WAIT = const.cooldown_frames(12)
     DEATH_ROLL_LIMIT = 16
     KILL_ROLL_LIMIT = 144
     SHIELD_BOUNCE_FRAMES = 5
@@ -31,8 +31,8 @@ class OrzA3(Ability):
         
         ability_def = ABILITY_DEFINITIONS["OrzA3"]
         self.spiral_distance = ability_def.spiral_distance if ability_def.spiral_distance is not None else 500
-        self.max_thrust = ability_def.max_thrust * const.PROJ_SPEED_SCALE if ability_def.max_thrust else self.speed
-        self.thrust_increment = ability_def.thrust_increment * const.PROJ_SPEED_SCALE if ability_def.thrust_increment else 8 * const.PROJ_SPEED_SCALE
+        self.max_thrust = ability_def.max_thrust if ability_def.max_thrust else self.speed
+        self.thrust_increment = ability_def.thrust_increment if ability_def.thrust_increment else 8
         self.thrust_wait = ability_def.thrust_wait if ability_def.thrust_wait else 1
         self.look_ahead = ability_def.look_ahead if ability_def.look_ahead is not None else 15
         self.thrust_timer = 0

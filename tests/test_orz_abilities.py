@@ -40,10 +40,10 @@ class OrzAbilityTests(unittest.TestCase):
 
         self.assertEqual(projectile.current_hp, 2)
         self.assertEqual(projectile.current_damage, 3)
-        self.assertEqual(projectile.speed, 120 * const.PROJ_SPEED_SCALE)
+        self.assertEqual(projectile.speed, 120)
         self.assertEqual(
             projectile.expiration_timer,
-            12 * const.PROJ_LIFE_SCALE,
+            12,
         )
         self.assertEqual(len(projectile.death_animation), 6)
         self.assertTrue(ABILITY_DEFINITIONS["OrzA1"].has_sound)

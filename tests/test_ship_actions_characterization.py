@@ -47,7 +47,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
     def action_values(ship, action_number):
         return (
             getattr(ship, f"a{action_number}_cost"),
-            int(getattr(ship, f"a{action_number}_wait") * const.ACTION_WAIT_SCALE),
+            const.cooldown_frames(getattr(ship, f"a{action_number}_wait")),
         )
 
     def test_action_plan_validation_does_not_commit_until_requested(self):
@@ -212,10 +212,10 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(
             observed,
             [
-                (9, 20, [ability]),
-                (9, 19, []),
-                (9, 18, []),
-                (9, 17, []),
+                (9, 11, [ability]),
+                (9, 10, []),
+                (9, 9, []),
+                (9, 8, []),
             ],
         )
 
@@ -237,7 +237,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
 
         self.assertEqual(result, shots)
         self.assertEqual(ship.current_energy, 1)
-        self.assertEqual(ship.action2_timer, int(ship.a2_wait * const.ACTION_WAIT_SCALE))
+        self.assertEqual(ship.action2_timer, const.cooldown_frames(ship.a2_wait))
         point_defense.get_shots.assert_called_once_with(3)
         launch_sound.play.assert_called_once_with()
 
@@ -276,7 +276,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertIs(result, effect)
         self.assertEqual(ship.position, [123, 456])
         self.assertEqual(ship.current_energy, initial_energy - ship.a2_cost)
-        self.assertEqual(ship.action2_timer, int(ship.a2_wait * const.ACTION_WAIT_SCALE))
+        self.assertEqual(ship.action2_timer, const.cooldown_frames(ship.a2_wait))
         effect.launch_sound.play.assert_called_once_with()
 
     def test_arilou_laser_fires_forward_without_a_target(self):
@@ -354,7 +354,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
             result = ship.perform_action2()
         self.assertIsNone(result)
         self.assertEqual(ship.current_energy, 7)
-        self.assertEqual(ship.action2_timer, int(ship.a2_wait * const.ACTION_WAIT_SCALE))
+        self.assertEqual(ship.action2_timer, const.cooldown_frames(ship.a2_wait))
         insult.play_insult.assert_called_once_with()
 
     def test_ilwrath_cloak_costs_energy_while_uncloak_is_free(self):
@@ -529,7 +529,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(ship.current_energy, initial_energy - ship.a3_cost)
         self.assertEqual(
             ship.action3_timer,
-            int(ship.a3_wait * const.ACTION_WAIT_SCALE),
+            const.cooldown_frames(ship.a3_wait),
         )
         self.assertEqual(ship.action1_timer, 0)
         self.assertEqual(ship.action2_timer, 0)
