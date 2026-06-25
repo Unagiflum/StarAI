@@ -184,6 +184,7 @@ class OrzAbilityTests(unittest.TestCase):
         enemy.initialize_in_battle([700, 500], 0)
         self.ship.opponent = enemy
         marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
         marine.position = enemy.position.copy()
         marine.previous_position = marine.position.copy()
 
@@ -203,6 +204,7 @@ class OrzAbilityTests(unittest.TestCase):
         enemy.initialize_in_battle([700, 500], 0)
         self.ship.opponent = enemy
         marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
         marine.handle_ship_contact(enemy)
 
         marine.rng = mock.Mock()
@@ -226,6 +228,7 @@ class OrzAbilityTests(unittest.TestCase):
         enemy.initialize_in_battle([700, 500], 0)
         self.ship.opponent = enemy
         marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
         marine.handle_ship_contact(enemy)
         enemy.current_hp = 0
 
@@ -246,6 +249,7 @@ class OrzAbilityTests(unittest.TestCase):
         ship.opponent = enemy
 
         marine, _ = ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
         marine.handle_ship_contact(enemy)
         marine.rng = mock.Mock()
         marine.rng.randrange.return_value = 0
@@ -291,6 +295,7 @@ class OrzAbilityTests(unittest.TestCase):
         enemy.initialize_in_battle([700, 500], 0)
         self.ship.opponent = enemy
         marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
 
         marine.handle_ship_contact(enemy)
         self.assertIs(marine.get_sprite(), marine.red_flight_sprite)
@@ -309,6 +314,7 @@ class OrzAbilityTests(unittest.TestCase):
         enemy.initialize_in_battle([700, 500], 0)
         self.ship.opponent = enemy
         marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
 
         marine.update()
         markers = marine.drain_spawned_objects()
@@ -322,6 +328,7 @@ class OrzAbilityTests(unittest.TestCase):
         enemy.perform_action2()
         self.ship.opponent = enemy
         marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
         marine.previous_position = [680, 500]
         marine.position = enemy.position.copy()
         marine.velocity = [10, 0]
@@ -347,6 +354,7 @@ class OrzAbilityTests(unittest.TestCase):
         enemy.initialize_in_battle([700, 500], 0)
         ship.opponent = enemy
         marine, _ = ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
         marine.handle_ship_contact(enemy)
         marine.rng = mock.Mock()
         marine.rng.randrange.return_value = 16
@@ -365,6 +373,7 @@ class OrzAbilityTests(unittest.TestCase):
         enemy.initialize_in_battle([700, 500], 0)
         self.ship.opponent = enemy
         marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
         marine.handle_ship_contact(enemy)
 
         enemy.perform_action2()

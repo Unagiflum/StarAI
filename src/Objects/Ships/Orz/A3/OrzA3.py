@@ -11,6 +11,7 @@ from src.toroidal import wrapped_delta
 class OrzA3(Ability):
     """Orz Marine that boards an enemy, fights, and returns as crew."""
 
+    LAUNCHING = "launching"
     OUTBOUND = "outbound"
     BOARDED = "boarded"
     RETURNING = "returning"
@@ -24,7 +25,12 @@ class OrzA3(Ability):
     def __init__(self, parent):
         super().__init__("OrzA3", parent)
         self.expiration_timer = float("inf")
-        self.mode = self.OUTBOUND
+        
+        ability_def = ABILITY_DEFINITIONS["OrzA3"]
+        self.launch_time = ability_def.launch_time if ability_def.launch_time is not None else 0
+        self.mode = self.LAUNCHING if self.launch_time > 0 else self.OUTBOUND
+        self.launch_timer = self.launch_time
+
         self.boarded_ship = None
         self.boarding_timer = self.BOARDING_WAIT
         self.shield_bounce_timer = 0
@@ -97,7 +103,11 @@ class OrzA3(Ability):
             ) % const.ARENA_SIZE,
         ]
         self.previous_position = self.position.copy()
-        self.velocity = [0.0, 0.0]
+        speed = self.max_thrust
+        self.velocity = [
+            math.sin(angle) * speed + self.parent.velocity[0] * self.parent_vel,
+            -math.cos(angle) * speed + self.parent.velocity[1] * self.parent_vel,
+        ]
 
     def update(self):
         if not self.currently_alive:
@@ -112,6 +122,13 @@ class OrzA3(Ability):
         self.previous_position = self.position.copy()
         if self.mode == self.BOARDED:
             return self._update_boarded()
+
+        if self.mode == self.LAUNCHING:
+            self.update_physics()
+            self.launch_timer -= 1
+            if self.launch_timer <= 0:
+                self.mode = self.OUTBOUND
+            return self.currently_alive
 
         if self.shield_bounce_timer > 0:
             self.shield_bounce_timer -= 1
@@ -169,6 +186,7 @@ class OrzA3(Ability):
             if ship.current_hp <= 0:
                 self._leave_ship()
         return self.currently_alive
+
 
     def _flight_destination(self):
         if self.mode == self.OUTBOUND:
@@ -352,7 +370,7 @@ class OrzA3(Ability):
 
     def handle_ship_contact(self, ship, normal=None):
         if (
-            self.mode != self.OUTBOUND
+            self.mode not in (self.OUTBOUND, self.LAUNCHING)
             or ship.player == self.player
             or ship.current_hp <= 0
         ):

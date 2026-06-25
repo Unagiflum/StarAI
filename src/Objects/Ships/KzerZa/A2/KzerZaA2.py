@@ -21,7 +21,7 @@ class KzerZaA2(Ability):
         self.return_sound = fighter_sounds["return"]
 
         self.one_way_flight = data["one_way_flight"]
-        self.launch_distance = data["launch_distance"]
+        self.launch_time = data.get("launch_time", 0)
         self.mass = data.get("mass", 0)
         self.weapon_wait = data["weapon_wait"]
         self.laser_offset = data["offset"]
@@ -33,7 +33,7 @@ class KzerZaA2(Ability):
         self.rotation = (parent.rotation + launch_angle) % 360
         self._set_velocity_for_angle(self.rotation, self.speed)
         self.mode = self.LAUNCHING
-        self.launch_travelled = 0.0
+        self.launch_timer = self.launch_time
         self.attack_elapsed = 0
         self.weapon_timer = 0
         self.formation_index = formation_index
@@ -51,7 +51,20 @@ class KzerZaA2(Ability):
             return False
 
         if self.mode == self.LAUNCHING:
-            self._update_launch()
+            if self.planet_avoidance is not None:
+                angle = math.radians(self.rotation)
+                dest = [
+                    self.position[0] + math.sin(angle) * 1000,
+                    self.position[1] - math.cos(angle) * 1000
+                ]
+                self._move_around_planet(dest)
+            else:
+                self.update_physics()
+
+            self.launch_timer -= 1
+            if self.launch_timer <= 0:
+                target = self._live_trackable_opponent()
+                self.mode = self.ATTACKING if target else self.RETURNING
             return self.currently_alive
 
         self.attack_elapsed += 1
@@ -85,17 +98,6 @@ class KzerZaA2(Ability):
             self._update_weapon(target)
         return True
 
-    def _update_launch(self):
-        max_step = self.speed * const.SPEED_SCALE
-        step = min(max_step, self.launch_distance - self.launch_travelled)
-        angle = math.radians(self.rotation)
-        self.position[0] = (self.position[0] + math.sin(angle) * step) % const.ARENA_SIZE
-        self.position[1] = (self.position[1] - math.cos(angle) * step) % const.ARENA_SIZE
-        self.launch_travelled += step
-
-        if self.launch_travelled >= self.launch_distance:
-            target = self._live_trackable_opponent()
-            self.mode = self.ATTACKING if target else self.RETURNING
 
     def _destination(self, target):
         if self.mode == self.RETURNING:
@@ -220,7 +222,10 @@ class KzerZaA2(Ability):
 
     def _set_velocity_for_angle(self, angle_degrees, speed):
         angle = math.radians(angle_degrees)
-        self.velocity = [math.sin(angle) * speed, -math.cos(angle) * speed]
+        self.velocity = [
+            math.sin(angle) * speed + self.parent.velocity[0] * self.parent_vel,
+            -math.cos(angle) * speed + self.parent.velocity[1] * self.parent_vel
+        ]
         self._update_rotation_from_vector(*self.velocity)
 
     def _update_rotation_from_vector(self, dx, dy):

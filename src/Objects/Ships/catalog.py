@@ -146,7 +146,7 @@ class AbilityDefinition(_DefinitionMapping):
     effect_range: float | None = None
     one_way_flight: float | None = None
     life_margin: float | None = None
-    launch_distance: float | None = None
+    launch_time: float | None = None
     mass: float | None = None
     offset: float | None = None
     track_directions: int | None = None
@@ -210,7 +210,7 @@ class AbilityDefinition(_DefinitionMapping):
         "range": "effect_range",
         "one_way_flight": "one_way_flight",
         "life_margin": "life_margin",
-        "launch_distance": "launch_distance",
+        "launch_time": "launch_time",
         "mass": "mass",
         "offset": "offset",
         "track_directions": "track_directions",
@@ -400,7 +400,7 @@ def parse_ability_definition(name, data):
         "collide_asteroids", "damage_asteroids", "collide_projectiles",
         "damage_projectiles", "collide_enemy_ships", "collide_friendly_ships",
         "collide_fighters", "range", "one_way_flight", "life_margin",
-        "launch_distance", "mass", "offset", "track_directions", "weapon_wait",
+        "launch_time", "mass", "offset", "track_directions", "weapon_wait",
         "LASER_RANGE", "LASER_COLOR", "LASER_WIDTH", "MAX_RECOIL",
         "RECOIL_INCREMENT", "ENERGY_GAIN", "HP_GAIN", "TRACK_SPEED",
         "TRACK_RANGE", "DMG_TO_PROJ", "REUNK_THRUST", "REUNK_INCREMENT",
@@ -440,7 +440,7 @@ def parse_ability_definition(name, data):
     optional_fields = {
         "range": ("effect_range", float), "one_way_flight": ("one_way_flight", float),
         "life_margin": ("life_margin", float),
-        "launch_distance": ("launch_distance", float), "mass": ("mass", float),
+        "launch_time": ("launch_time", float), "mass": ("mass", float),
         "offset": ("offset", float), "track_directions": ("track_directions", int),
         "weapon_wait": ("weapon_wait", float), "LASER_RANGE": ("laser_range", float),
         "LASER_WIDTH": ("laser_width", int), "MAX_RECOIL": ("max_recoil", float),
