@@ -1,4 +1,5 @@
 import math
+import pygame
 
 import src.const as const
 from src.Battle.collision_geometry import collision_info, objects_overlap
@@ -15,12 +16,13 @@ class ZoqFotA2(Ability):
         definition = ABILITY_DEFINITIONS["ZoqFotA2"]
         self.sprite_scale_x = definition.sprite_scale_x
         self.sprite_scale_y = definition.sprite_scale_y
+        self.advancing_frames = definition.advancing_frames or 5
+        self.retracting_frames = definition.retracting_frames or 5
+        self.area_width = definition.area_width or 12
+        self.area_length = definition.area_length or 100
         self._damaged_targets = set()
         self._age = 0
-        self._duration = max(1, round(self.life_time))
-        self._retraction_assets = self.resources.ability_retraction(
-            "ZoqFotA2", self._duration
-        )
+        self._duration = self.advancing_frames + self.retracting_frames
         self.base_offset = definition.offset
         self.velocity = [0.0, 0.0]
         self.can_move = False
@@ -36,6 +38,18 @@ class ZoqFotA2(Ability):
         )
         self._current_sprite = None
         self._current_mask = None
+
+        self._base_shape_surface = pygame.Surface((self.area_width, self.area_length), pygame.SRCALPHA)
+        dark_red = (139, 0, 0)
+        pygame.draw.ellipse(self._base_shape_surface, dark_red, (0, 0, self.area_width, self.area_length))
+        pygame.draw.rect(self._base_shape_surface, dark_red, (0, self.area_length // 2, self.area_width, self.area_length // 2))
+        
+        red = (255, 0, 0)
+        inner_width = max(2, self.area_width - 2)
+        inner_length = max(4, self.area_length - 2)
+        pygame.draw.ellipse(self._base_shape_surface, red, (1, 1, inner_width, inner_length))
+        pygame.draw.rect(self._base_shape_surface, red, (1, self.area_length // 2, inner_width, (self.area_length // 2) - 1))
+
         self._sync_to_parent(0)
 
     @staticmethod
@@ -55,32 +69,33 @@ class ZoqFotA2(Ability):
         projections = tuple(projections)
         return (min(projections), max(projections)) if projections else (0.0, 0.0)
 
-    def _sync_to_parent(self, retraction_frame):
+    def _sync_to_parent(self, age_frame):
         self.heading = self.parent.heading % const.SHIP_DIRECTIONS
         self.rotation = self.parent.rotation
-        self._current_sprite = self._retraction_assets.sprites[
-            self.heading
-        ][retraction_frame]
-        self._current_mask = self._retraction_assets.masks[
-            self.heading
-        ][retraction_frame]
+
+        if age_frame < self.advancing_frames:
+            scale_factor = (age_frame + 1) / max(1, self.advancing_frames)
+        else:
+            scale_factor = 1.0 - (age_frame - self.advancing_frames) / max(1, self.retracting_frames)
+        scale_factor = max(0.01, min(1.0, scale_factor))
+        
+        current_length = max(1, int(self.area_length * scale_factor))
+        scaled_shape = pygame.transform.scale(self._base_shape_surface, (self.area_width, current_length))
+
+        self._current_sprite = pygame.transform.rotate(scaled_shape, -self.heading * const.TURN_ANGLE)
+        self._current_mask = pygame.mask.from_surface(self._current_sprite)
         self.size = list(self._current_sprite.get_size())
 
         parent_mask = self.parent.get_collision_mask()
         parent_forward = self._projection_bounds(parent_mask, self.heading)[1]
-        effect_rear = self._retraction_assets.projection_bounds[
-            self.heading
-        ][0]
-        base_distance = (
-            parent_forward + const.PROJ_GAP
-        ) * self.base_offset
-        distance = base_distance - effect_rear
+        
+        base_distance = (parent_forward + const.PROJ_GAP) * self.base_offset
+        distance = base_distance + current_length / 2.0
+        
         angle = math.radians(self.rotation)
         self.position = [
-            (self.parent.position[0] + math.sin(angle) * distance)
-            % const.ARENA_SIZE,
-            (self.parent.position[1] - math.cos(angle) * distance)
-            % const.ARENA_SIZE,
+            (self.parent.position[0] + math.sin(angle) * distance) % const.ARENA_SIZE,
+            (self.parent.position[1] - math.cos(angle) * distance) % const.ARENA_SIZE,
         ]
 
     def update(self):
