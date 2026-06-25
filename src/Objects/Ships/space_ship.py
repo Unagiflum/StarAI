@@ -247,7 +247,7 @@ class SpaceShip(PlayerObject):
             self.turn_right()
         thrust_angles = self.get_active_thrust_angles(thrust_ready, turn_left_ready, turn_right_ready)
         if thrust_angles and self.can_thrust():
-            self.thrust_timer = round(self.thrust_wait * const.THRUST_WAIT_SCALE)
+            self.thrust_timer = const.cooldown_frames(self.thrust_wait, const.THRUST_WAIT_SCALE)
             for thrust_angle in thrust_angles:
                 marker = self.apply_thrust(
                     self.max_thrust,
@@ -429,7 +429,7 @@ class SpaceShip(PlayerObject):
             self.velocity = [0.0, 0.0]
 
         self.energy_timer += 1
-        if self.energy_timer >= self.energy_wait*const.RECHARGE_DELAY_SCALE:
+        if self.energy_timer > self.energy_wait*const.RECHARGE_DELAY_SCALE:
 
 
             self.energy_timer = 0
@@ -447,7 +447,7 @@ class SpaceShip(PlayerObject):
                 self.heading = old_heading
                 self.rotation = old_rotation
                 return
-            self.turn_timer = round(self.turn_wait * const.TURN_WAIT_SCALE)
+            self.turn_timer = const.cooldown_frames(self.turn_wait, const.TURN_WAIT_SCALE)
 
     def turn_right(self):
         if self.can_turn():
@@ -459,7 +459,7 @@ class SpaceShip(PlayerObject):
                 self.heading = old_heading
                 self.rotation = old_rotation
                 return
-            self.turn_timer = round(self.turn_wait * const.TURN_WAIT_SCALE)
+            self.turn_timer = const.cooldown_frames(self.turn_wait, const.TURN_WAIT_SCALE)
 
     def rotation_would_overlap(self):
         return ship_rotation_blocked(self)
@@ -507,7 +507,7 @@ class SpaceShip(PlayerObject):
             spawned_objects=objects,
             energy_change=-cost if energy_change is None else energy_change,
             crew_change=crew_change,
-            cooldown_frames=round(wait * const.ACTION_WAIT_SCALE),
+            cooldown_frames=const.cooldown_frames(wait, const.ACTION_WAIT_SCALE),
             cooldown_committed=True,
             side_effects=tuple(side_effects),
             launch_sound=launch_sound,

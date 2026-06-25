@@ -119,7 +119,7 @@ class Ability(PlayerObject):
         # Store HP array for evolution
         self.hp_array = ability_definition.start_hp
         # State flags
-        self.turn_timer = round(self.turn_wait * const.TURN_WAIT_SCALE)
+        self.turn_timer = const.cooldown_frames(self.turn_wait, const.TURN_WAIT_SCALE)
         self.can_move = True
         self.can_die = True
         self.can_expire = True
@@ -186,7 +186,7 @@ class Ability(PlayerObject):
                 if self.opponent.trackable:
                     if abs(angle_diff) >= direction_step:
                         self.rotation = (current_angle + (direction_step if angle_diff > 0 else -direction_step)) % 360
-                        self.turn_timer = round(self.turn_wait * const.TURN_WAIT_SCALE)
+                        self.turn_timer = const.cooldown_frames(self.turn_wait, const.TURN_WAIT_SCALE)
                     else:
                         self.rotation = target_angle
             else:
@@ -225,9 +225,7 @@ class Ability(PlayerObject):
         if self.current_hp <= 0:
             self.currently_alive = False
             return False
-        if self.type == 'laser':
-            return self.expiration_timer >= 0 and self.current_hp > 0
-        return self.expiration_timer > 0 and self.current_hp > 0
+        return self.expiration_timer >= 0 and self.current_hp > 0
 
     def on_collide(self, target):
         if not self.hit_parent and target == self.parent:

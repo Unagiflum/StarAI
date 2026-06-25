@@ -16,7 +16,7 @@ class OrzA3(Ability):
     RETURNING = "returning"
 
     MAX_MARINES = ABILITY_DEFINITIONS["OrzA3"].max_marines if ABILITY_DEFINITIONS["OrzA3"].max_marines is not None else 8
-    BOARDING_WAIT = round(12 * const.ACTION_WAIT_SCALE)
+    BOARDING_WAIT = const.cooldown_frames(12, const.ACTION_WAIT_SCALE)
     DEATH_ROLL_LIMIT = 16
     KILL_ROLL_LIMIT = 144
     SHIELD_BOUNCE_FRAMES = 5

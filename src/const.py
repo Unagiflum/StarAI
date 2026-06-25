@@ -12,6 +12,10 @@ def source_path(path):
     path = Path(path)
     return path if path.is_absolute() else SOURCE_ROOT / path
 
+def cooldown_frames(wait_value, scale):
+    """Convert UQM gap frames to engine cooldown frames."""
+    return round(wait_value * scale) + 1
+
 # Player Colors
 P1_COLOR = (50, 200, 200)
 P2_COLOR = (200, 50, 200)
@@ -54,7 +58,7 @@ MAX_ZOOM = 1.0
 
 #Game Physics
 SPEED_SCALE = 1.0
-GRAVITY_MULTIPLIER = 0.5
+GRAVITY_MULTIPLIER = 1.0
 GRAVITY_RANGE = CENTER_BUFFER // 2
 TURN_WAIT_SCALE = 1.0
 THRUST_WAIT_SCALE = 1.0
