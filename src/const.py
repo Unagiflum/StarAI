@@ -94,7 +94,7 @@ ENTRY_TRAIL_FADE_FRAMES = 12
 PKUNK_REBIRTH_PAUSE_FRAMES = POST_DEATH_EFFECT_FRAMES
 
 #Projectiles
-PROJ_GAP = 0
+PROJ_GAP = 5
 
 #File Paths
 GAME_JSON_PATH = source_path("Config/game_settings.json")
