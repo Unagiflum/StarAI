@@ -175,7 +175,7 @@ class KzerZaA2(Ability):
             self.spawned_objects.append(KzerZaA2Laser(self, target))
             if self.laser_sound:
                 self.laser_sound.play()
-            self.weapon_timer = int(self.weapon_wait * const.ACTION_WAIT_SCALE)
+            self.weapon_timer = round(self.weapon_wait * const.ACTION_WAIT_SCALE)
         else:
             self.weapon_timer -= 1
 

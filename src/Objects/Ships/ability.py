@@ -112,14 +112,14 @@ class Ability(PlayerObject):
 
         # Animation properties
         self.frames = ability_definition.frames
-        self.frame_delay = int(ability_definition.frame_delay * duration_scale)
+        self.frame_delay = round(ability_definition.frame_delay * duration_scale)
         self.current_frame = 0
         self.frame_timer = self.frame_delay
 
         # Store HP array for evolution
         self.hp_array = ability_definition.start_hp
         # State flags
-        self.turn_timer = int(self.turn_wait * const.TURN_WAIT_SCALE)
+        self.turn_timer = round(self.turn_wait * const.TURN_WAIT_SCALE)
         self.can_move = True
         self.can_die = True
         self.can_expire = True
@@ -129,7 +129,7 @@ class Ability(PlayerObject):
         else:
             self.can_collide = False
 
-        self._duration = int(self.life_time * const.PROJ_LIFE_SCALE * duration_scale)
+        self._duration = round(self.life_time * const.PROJ_LIFE_SCALE * duration_scale)
         self.expiration_timer = self._duration
 
     @classmethod
@@ -186,7 +186,7 @@ class Ability(PlayerObject):
                 if self.opponent.trackable:
                     if abs(angle_diff) >= direction_step:
                         self.rotation = (current_angle + (direction_step if angle_diff > 0 else -direction_step)) % 360
-                        self.turn_timer = int(self.turn_wait * const.TURN_WAIT_SCALE)
+                        self.turn_timer = round(self.turn_wait * const.TURN_WAIT_SCALE)
                     else:
                         self.rotation = target_angle
             else:
