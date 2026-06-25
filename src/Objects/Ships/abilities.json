@@ -1094,6 +1094,7 @@
         "sprite_scale_y": 2.5,
         "offset": 0.5,
         "has_sprites": true,
-        "has_sound": true
+        "has_sound": true,
+        "retraction_frames": 10
     }
 }

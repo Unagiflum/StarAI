@@ -170,6 +170,7 @@ class AbilityDefinition(_DefinitionMapping):
     look_ahead: int | None = None
     max_marines: int | None = None
     spiral_distance: float | None = None
+    retraction_frames: int | None = None
     gun_locations: tuple[tuple[int, int], ...] | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
@@ -233,6 +234,7 @@ class AbilityDefinition(_DefinitionMapping):
         "look_ahead": "look_ahead",
         "max_marines": "max_marines",
         "spiral_distance": "spiral_distance",
+        "retraction_frames": "retraction_frames",
         "gun_locations": "gun_locations",
     }
 
@@ -403,7 +405,8 @@ def parse_ability_definition(name, data):
         "RECOIL_INCREMENT", "ENERGY_GAIN", "HP_GAIN", "TRACK_SPEED",
         "TRACK_RANGE", "DMG_TO_PROJ", "REUNK_THRUST", "REUNK_INCREMENT",
         "SPREAD_ANGLE", "max_thrust", "thrust_increment", "thrust_wait",
-        "look_ahead", "max_marines", "spiral_distance", "gun_locations",
+        "look_ahead", "max_marines", "spiral_distance", "retraction_frames",
+        "gun_locations",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -454,6 +457,7 @@ def parse_ability_definition(name, data):
         "look_ahead": ("look_ahead", int),
         "max_marines": ("max_marines", int),
         "spiral_distance": ("spiral_distance", float),
+        "retraction_frames": ("retraction_frames", int),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(
