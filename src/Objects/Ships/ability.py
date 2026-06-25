@@ -225,7 +225,9 @@ class Ability(PlayerObject):
         if self.current_hp <= 0:
             self.currently_alive = False
             return False
-        return self.expiration_timer >= 0 and self.current_hp > 0
+        if self.type == 'laser':
+            return self.expiration_timer >= 0 and self.current_hp > 0
+        return self.expiration_timer > 0 and self.current_hp > 0
 
     def on_collide(self, target):
         if not self.hit_parent and target == self.parent:
