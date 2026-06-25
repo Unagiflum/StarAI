@@ -110,13 +110,12 @@ class Ability(PlayerObject):
 
         # Animation properties
         self.frames = ability_definition.frames
-        self.frame_delay = ability_definition.frame_delay
+        self.frame_delay = int(ability_definition.frame_delay * const.ABILITY_DURATION_SCALE)
         self.current_frame = 0
         self.frame_timer = self.frame_delay
 
         # Store HP array for evolution
         self.hp_array = ability_definition.start_hp
-
         # State flags
         self.turn_timer = int(self.turn_wait * const.TURN_WAIT_SCALE)
         self.can_move = True
@@ -128,7 +127,8 @@ class Ability(PlayerObject):
         else:
             self.can_collide = False
 
-        self.expiration_timer = int(self.life_time * const.PROJ_LIFE_SCALE)
+        self._duration = int(self.life_time * const.PROJ_LIFE_SCALE * const.ABILITY_DURATION_SCALE)
+        self.expiration_timer = self._duration
 
     @classmethod
     def preload_resources(cls, ability_name, resources=None):

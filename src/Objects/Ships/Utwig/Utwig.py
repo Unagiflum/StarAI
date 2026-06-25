@@ -47,7 +47,7 @@ class Utwig(SpaceShip):
         sprite = super().set_sprite()
         if self.damage_shield_is_active():
             shield = self._active_damage_shield
-            progress = shield.expiration_timer / shield.life_time
+            progress = shield.expiration_timer / shield._duration
             # Yellow (255, 255, 0) to Red (255, 0, 0)
             green_val = int(255 * progress)
             color = (255, green_val, 0, 255)
