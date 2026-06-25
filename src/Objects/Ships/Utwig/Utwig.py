@@ -5,6 +5,15 @@ import pygame
 
 
 class Utwig(SpaceShip):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._shield_silhouettes = []
+        for s in self.sprites:
+            m = pygame.mask.from_surface(s, threshold=80)
+            self._shield_silhouettes.append(
+                m.to_surface(setcolor=(255, 255, 255, 255), unsetcolor=(0, 0, 0, 0))
+            )
+
     def plan_action1(self):
         return self.validate_action(
             1,
@@ -43,8 +52,8 @@ class Utwig(SpaceShip):
             green_val = int(255 * progress)
             color = (255, green_val, 0, 255)
             
-            mask = pygame.mask.from_surface(sprite, threshold=80)
-            tinted = mask.to_surface(setcolor=color, unsetcolor=(0, 0, 0, 0))
+            tinted = self._shield_silhouettes[self.heading].copy()
+            tinted.fill(color, special_flags=pygame.BLEND_RGBA_MULT)
             return tinted
             
         return sprite

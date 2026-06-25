@@ -1,0 +1,364 @@
+﻿commit 4c6a04a27a521ac0d7f6128b6dc05f7f895a88dd
+Author: Murtaza Amin <murtazaamin1@gmail.com>
+Date:   Wed Jun 24 18:43:20 2026 -0600
+
+    feat: Added Utwig ship
+
+diff --git a/src/Objects/Ships/Utwig/A1/UtwigA1.py b/src/Objects/Ships/Utwig/A1/UtwigA1.py
+new file mode 100644
+index 0000000..d9d3a7e
+--- /dev/null
++++ b/src/Objects/Ships/Utwig/A1/UtwigA1.py
+@@ -0,0 +1,47 @@
++from src.Objects.Ships.ability import Ability, ABILITIES_DATA
++import src.const as const
++import math
++
++class UtwigA1(Ability):
++    def __init__(self, parent, x_offset=0, y_offset=0):
++        super().__init__("UtwigA1", parent)
++        self.place_self(x_offset, y_offset)
++
++    def place_self(self, x_offset, y_offset):
++        angle_rad = math.radians(self.parent.rotation)
++        spawn_distance = const.PROJ_GAP + self.size[1] / 2 + y_offset
++        
++        rotated_x_offset = math.cos(angle_rad) * x_offset
++        rotated_y_offset = math.sin(angle_rad) * x_offset
++
++        self.position = [
++            self.parent.position[0] + math.sin(angle_rad) * spawn_distance + rotated_x_offset,
++            self.parent.position[1] - math.cos(angle_rad) * spawn_distance + rotated_y_offset
++        ]
++        self.heading = self.parent.heading
++        self.rotation = self.parent.rotation
++        angle_rad = math.radians(self.rotation)
++        self.velocity = [
++            math.sin(angle_rad) * self.speed + self.parent.velocity[0] * self.parent_vel,
++            -math.cos(angle_rad) * self.speed + self.parent.velocity[1] * self.parent_vel
++        ]
++
++    @classmethod
++    def create_parallel_projectiles(cls, ship):
++        data = ABILITIES_DATA["UtwigA1"]
++        gun_locations = data.gun_locations
++
++        projectiles = []
++        if not gun_locations:
++            return projectiles
++            
++        ship_width, ship_height = ship.size
++        center_x, center_y = ship_width / 2, ship_height / 2
++        
++        for loc in gun_locations:
++            x, y = loc
++            x_offset = x - center_x
++            y_offset = center_y - y
++            projectiles.append(cls(ship, x_offset=x_offset, y_offset=y_offset))
++            
++        return projectiles
+diff --git a/src/Objects/Ships/Utwig/A2/UtwigA2.py b/src/Objects/Ships/Utwig/A2/UtwigA2.py
+new file mode 100644
+index 0000000..853e4ac
+--- /dev/null
++++ b/src/Objects/Ships/Utwig/A2/UtwigA2.py
+@@ -0,0 +1,67 @@
++from src.Objects.Ships.ability import Ability
++import src.const as const
++
++class UtwigA2(Ability):
++    """Timed Utwig damage shield. Absorbs damage to grant energy."""
++
++    blocks_damage = True
++
++    def __init__(self, parent):
++        super().__init__("UtwigA2", parent)
++        self.can_move = False
++        self.can_die = False
++        self.can_expire = True
++        self.can_collide = False
++        self._active = False
++        
++        self.gain_sound = None
++        if self.audio_service:
++            self.gain_sound = self.audio_service.load_effect(
++                const.source_path("Objects/Ships/Utwig/A2/") / "UtwigA2Gain.wav",
++                const.SOUND_EFFECT_VOLUME,
++            )
++
++    def activate(self):
++        previous = self.parent._active_damage_shield
++        if previous is not None and previous is not self:
++            previous.currently_alive = False
++            previous._active = False
++        self.parent._active_damage_shield = self
++        self._active = True
++
++    def deactivate(self):
++        self.currently_alive = False
++        self._active = False
++        if self.parent._active_damage_shield is self:
++            self.parent._active_damage_shield = None
++
++    def update(self):
++        if not self.currently_alive:
++            return False
++        self.previous_position = self.position.copy()
++        self.position = self.parent.position.copy()
++        self.heading = self.parent.heading
++        self.rotation = self.parent.rotation
++        self.expiration_timer -= 1
++        if self.expiration_timer <= 0:
++            self.deactivate()
++            return False
++        return True
++
++    def is_alive(self):
++        return self.currently_alive
++
++    def draw(self, screen, scale_factor, translation):
++        return None
++
++    def absorb_damage(self, damage):
++        if damage <= 0:
++            return
++            
++        self.parent.current_energy = min(
++            self.parent.max_energy,
++            self.parent.current_energy + damage
++        )
++        
++        if self.gain_sound:
++            self.gain_sound.play()
+diff --git a/src/Objects/Ships/Utwig/Utwig.py b/src/Objects/Ships/Utwig/Utwig.py
+new file mode 100644
+index 0000000..a023db3
+--- /dev/null
++++ b/src/Objects/Ships/Utwig/Utwig.py
+@@ -0,0 +1,50 @@
++from src.Objects.Ships.space_ship import SpaceShip
++from src.Objects.Ships.Utwig.A1.UtwigA1 import UtwigA1
++from src.Objects.Ships.Utwig.A2.UtwigA2 import UtwigA2
++import pygame
++
++
++class Utwig(SpaceShip):
++    def plan_action1(self):
++        return self.validate_action(
++            1,
++            lambda ship: UtwigA1.create_parallel_projectiles(ship),
++        )
++
++    def plan_action2(self):
++        if not self.can_action2():
++            return self.validate_action(2)
++
++        shield = UtwigA2(self)
++        return self.prepare_action_plan(
++            2,
++            shield,
++            side_effects=(shield.activate,),
++        )
++
++    def take_damage(self, damage, *, shieldable=True):
++        damage = max(0, damage)
++        if damage <= 0 or self.current_hp <= 0:
++            return 0
++        if shieldable and self.damage_shield_is_active():
++            shield = getattr(self, "_active_damage_shield", None)
++            if shield and hasattr(shield, "absorb_damage"):
++                shield.absorb_damage(damage)
++            return 0
++        
++        return super().take_damage(damage, shieldable=shieldable)
++
++    def set_sprite(self):
++        sprite = super().set_sprite()
++        if self.damage_shield_is_active():
++            shield = self._active_damage_shield
++            progress = shield.expiration_timer / shield.life_time
++            # Yellow (255, 255, 0) to Red (255, 0, 0)
++            green_val = int(255 * progress)
++            color = (255, green_val, 0, 255)
++            
++            mask = pygame.mask.from_surface(sprite, threshold=80)
++            tinted = mask.to_surface(setcolor=color, unsetcolor=(0, 0, 0, 0))
++            return tinted
++            
++        return sprite
+diff --git a/src/Objects/Ships/abilities.json b/src/Objects/Ships/abilities.json
+index ad7167e..6b0f6d3 100644
+--- a/src/Objects/Ships/abilities.json
++++ b/src/Objects/Ships/abilities.json
+@@ -1015,5 +1015,67 @@
+         "sprite_scale": 1.0,
+         "has_sprites": true,
+         "has_sound": true
++    },
++    "UtwigA1": {
++        "ship_name": "Utwig",
++        "type": "projectile",
++        "action": "A1",
++        "start_hp": [
++            1
++        ],
++        "damage": [
++            1
++        ],
++        "tracking": false,
++        "parent_vel": 0.0,
++        "speed": 120,
++        "life_time": 10,
++        "turn_wait": 0,
++        "inertia": false,
++        "hit_parent": false,
++        "hit_self": false,
++        "omnidirectional": false,
++        "frames": 1,
++        "frame_delay": 0,
++        "file_path": "Objects/Ships/Utwig/A1/",
++        "end_anim": 0,
++        "sprite_scale": 1.0,
++        "has_sprites": true,
++        "has_sound": true,
++        "gun_locations": [
++            [49, 0],
++            [84, 0],
++            [20, 37],
++            [113, 37],
++            [3, 50],
++            [130, 50]
++        ]
++    },
++    "UtwigA2": {
++        "ship_name": "Utwig",
++        "type": "shield",
++        "action": "A2",
++        "start_hp": [
++            1
++        ],
++        "damage": [
++            0
++        ],
++        "tracking": false,
++        "parent_vel": 1.0,
++        "speed": 0,
++        "life_time": 12,
++        "turn_wait": 0,
++        "inertia": true,
++        "hit_parent": false,
++        "hit_self": false,
++        "omnidirectional": false,
++        "frames": 1,
++        "frame_delay": 0,
++        "file_path": "Objects/Ships/Utwig/A2/",
++        "end_anim": 0,
++        "sprite_scale": 1.0,
++        "has_sprites": false,
++        "has_sound": true
+     }
+ }
+\ No newline at end of file
+diff --git a/src/Objects/Ships/catalog.py b/src/Objects/Ships/catalog.py
+index 61163c2..02abf5b 100644
+--- a/src/Objects/Ships/catalog.py
++++ b/src/Objects/Ships/catalog.py
+@@ -170,6 +170,7 @@ class AbilityDefinition(_DefinitionMapping):
+     look_ahead: int | None = None
+     max_marines: int | None = None
+     spiral_distance: float | None = None
++    gun_locations: tuple[tuple[int, int], ...] | None = None
+     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
+ 
+     _json_key_to_attribute = {
+@@ -232,6 +233,7 @@ class AbilityDefinition(_DefinitionMapping):
+         "look_ahead": "look_ahead",
+         "max_marines": "max_marines",
+         "spiral_distance": "spiral_distance",
++        "gun_locations": "gun_locations",
+     }
+ 
+ 
+@@ -292,6 +294,25 @@ def _int_tuple(kind, name, data, field_name, length=None):
+     return result
+ 
+ 
++def _int_pair_tuple(kind, name, data, field_name):
++    value = data[field_name]
++    if not isinstance(value, list) or not value:
++        raise CatalogValidationError(
++            f"{kind} '{name}' field '{field_name}' must be a non-empty array"
++        )
++    result = []
++    for index, item in enumerate(value):
++        if not isinstance(item, list) or len(item) != 2:
++            raise CatalogValidationError(
++                f"{kind} '{name}' field '{field_name}[{index}]' must be a 2-element array"
++            )
++        result.append(
++            (
++                _typed(kind, name, f"{field_name}[{index}][0]", item[0], int),
++                _typed(kind, name, f"{field_name}[{index}][1]", item[1], int),
++            )
++        )
++    return tuple(result)
+ def parse_ship_definition(name, data):
+     """Validate one JSON ship object and return its immutable definition."""
+     kind = "Ship"
+@@ -382,7 +403,7 @@ def parse_ability_definition(name, data):
+         "RECOIL_INCREMENT", "ENERGY_GAIN", "HP_GAIN", "TRACK_SPEED",
+         "TRACK_RANGE", "DMG_TO_PROJ", "REUNK_THRUST", "REUNK_INCREMENT",
+         "SPREAD_ANGLE", "max_thrust", "thrust_increment", "thrust_wait",
+-        "look_ahead", "max_marines", "spiral_distance",
++        "look_ahead", "max_marines", "spiral_distance", "gun_locations",
+     }
+     _check_keys(kind, name, data, allowed, allowed - optional)
+ 
+@@ -448,6 +469,12 @@ def parse_ability_definition(name, data):
+             )
+     else:
+         values["laser_color"] = None
++    if "gun_locations" in data:
++        values["gun_locations"] = _int_pair_tuple(
++            kind, name, data, "gun_locations"
++        )
++    else:
++        values["gun_locations"] = None
+     values["_source_keys"] = tuple(data)
+ 
+     if values["ability_type"] not in {
+diff --git a/src/Objects/Ships/space_ships.json b/src/Objects/Ships/space_ships.json
+index 6ad0383..39dfbb5 100644
+--- a/src/Objects/Ships/space_ships.json
++++ b/src/Objects/Ships/space_ships.json
+@@ -388,5 +388,29 @@
+         "inertia": true,
+         "sprite_path": "Objects/Ships/Vux/",
+         "sprite_scale": 1.0
++    },
++    "Utwig": {
++        "ship_type": "Jugger",
++        "cost": 22,
++        "max_hp": 20,
++        "start_hp": 20,
++        "max_energy": 20,
++        "start_energy": 10,
++        "energy_regen": 0,
++        "energy_wait": 255,
++        "max_thrust": 36,
++        "thrust_increment": 6,
++        "thrust_wait": 4,
++        "turn_wait": 1,
++        "a1_cost": 0,
++        "a2_cost": 1,
++        "a3_cost": 0,
++        "a1_wait": 7,
++        "a2_wait": 12,
++        "a3_wait": 0,
++        "mass": 8,
++        "inertia": true,
++        "sprite_path": "Objects/Ships/Utwig/",
++        "sprite_scale": 1.0
+     }
+ }
+\ No newline at end of file
