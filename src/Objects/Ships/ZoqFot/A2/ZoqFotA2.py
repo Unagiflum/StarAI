@@ -17,7 +17,7 @@ class ZoqFotA2(Ability):
         self.sprite_scale_y = definition.sprite_scale_y
         self._damaged_targets = set()
         self._age = 0
-        self._duration = max(1, int(self.life_time * const.PROJ_LIFE_SCALE * const.ABILITY_DURATION_SCALE))
+        self._duration = max(1, int(self.life_time * const.PROJ_LIFE_SCALE))
         self._retraction_assets = self.resources.ability_retraction(
             "ZoqFotA2", self._duration
         )

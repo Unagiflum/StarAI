@@ -108,9 +108,11 @@ class Ability(PlayerObject):
         self.omnidirectional = ability_definition.omnidirectional
         self.end_anim_count = ability_definition.end_anim
 
+        duration_scale = const.ABILITY_DURATION_SCALE if self.type == "shield" else 1
+
         # Animation properties
         self.frames = ability_definition.frames
-        self.frame_delay = int(ability_definition.frame_delay * const.ABILITY_DURATION_SCALE)
+        self.frame_delay = int(ability_definition.frame_delay * duration_scale)
         self.current_frame = 0
         self.frame_timer = self.frame_delay
 
@@ -127,7 +129,7 @@ class Ability(PlayerObject):
         else:
             self.can_collide = False
 
-        self._duration = int(self.life_time * const.PROJ_LIFE_SCALE * const.ABILITY_DURATION_SCALE)
+        self._duration = int(self.life_time * const.PROJ_LIFE_SCALE * duration_scale)
         self.expiration_timer = self._duration
 
     @classmethod
