@@ -437,6 +437,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
     star_field_renderer = StarFieldRenderer()
 
     running = True
+    is_paused = False
     pygame.event.clear(pygame.KEYDOWN)
     pygame.event.clear(pygame.KEYUP)
 
@@ -449,7 +450,13 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
                 pygame.quit()
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+                if event.key == pygame.K_F1:
+                    is_paused = not is_paused
+                    if is_paused:
+                        simulation.audio.pause()
+                    else:
+                        simulation.audio.unpause()
+                elif event.key == pygame.K_ESCAPE:
                     simulation.audio.stop_music()
                     running = False
                 elif event.key in simulation.key_states:
@@ -458,7 +465,12 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
                 if event.key in simulation.key_states:
                     key_changes.append((event.key, False))
 
-        state = simulation.step(key_changes=key_changes)
+        if is_paused:
+            for key, pressed in key_changes:
+                simulation.handle_key_change(key, pressed)
+            state = simulation.state()
+        else:
+            state = simulation.step(key_changes=key_changes)
 
         if state["needs_selection"]:
             from src.Menus import pick_ship
@@ -503,6 +515,7 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
             entry_state=simulation.entry,
             frame_id=simulation.frame_id,
             original_ships=(simulation.player1, simulation.player2),
+            is_paused=is_paused,
         )
 
 

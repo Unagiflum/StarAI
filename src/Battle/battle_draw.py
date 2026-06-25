@@ -258,6 +258,7 @@ def draw_battle(
     entry_state=None,
     frame_id=0,
     original_ships=None,
+    is_paused=False,
 ):
     world = World.coerce(game_objects)
     scale_factor, translation = calculate_view_parameters(world, camera_targets)
@@ -405,5 +406,12 @@ def draw_battle(
 
         # Blit the unified panel to the screen
         screen.blit(panel_surface, (status_x, const.SCREEN_HEIGHT - panel_h))
+
+    if is_paused:
+        from src.UI.ui import WHITE
+        font = pygame.font.SysFont(None, 72)
+        text = font.render("PAUSED", True, WHITE)
+        text_rect = text.get_rect(center=(const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT // 2))
+        screen.blit(text, text_rect)
 
     pygame.display.flip()

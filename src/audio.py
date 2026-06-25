@@ -18,6 +18,8 @@ class AudioService(Protocol):
     def play_victory_ditty(self, ship) -> None: ...
     def play_effect(self, path: Path, volume: float = const.SOUND_EFFECT_VOLUME) -> float: ...
     def load_effect(self, path: Path, volume: float = const.SOUND_EFFECT_VOLUME): ...
+    def pause(self) -> None: ...
+    def unpause(self) -> None: ...
 
 
 class PygameAudioService:
@@ -66,6 +68,24 @@ class PygameAudioService:
         sound.play()
         return sound.get_length()
 
+    def pause(self):
+        if self.enabled:
+            import pygame
+            pygame.mixer.pause()
+            try:
+                pygame.mixer.music.pause()
+            except pygame.error:
+                pass
+
+    def unpause(self):
+        if self.enabled:
+            import pygame
+            pygame.mixer.unpause()
+            try:
+                pygame.mixer.music.unpause()
+            except pygame.error:
+                pass
+
 
 class NullAudioService:
     """No-op adapter for disabled and headless execution."""
@@ -86,6 +106,12 @@ class NullAudioService:
 
     def play_effect(self, path, volume=const.SOUND_EFFECT_VOLUME):
         return 0.0
+
+    def pause(self):
+        pass
+
+    def unpause(self):
+        pass
 
 
 class RecordingAudioService(NullAudioService):
@@ -116,6 +142,12 @@ class RecordingAudioService(NullAudioService):
         if not self.enabled:
             return None
         return _RecordingEffect(self, Path(path), volume)
+
+    def pause(self):
+        self._record("pause")
+
+    def unpause(self):
+        self._record("unpause")
 
 
 class _RecordingEffect:
