@@ -170,6 +170,7 @@ class AbilityDefinition(_DefinitionMapping):
     look_ahead: int | None = None
     max_marines: int | None = None
     spiral_distance: float | None = None
+    gun_locations: tuple[tuple[int, int], ...] | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -232,6 +233,7 @@ class AbilityDefinition(_DefinitionMapping):
         "look_ahead": "look_ahead",
         "max_marines": "max_marines",
         "spiral_distance": "spiral_distance",
+        "gun_locations": "gun_locations",
     }
 
 
@@ -292,6 +294,25 @@ def _int_tuple(kind, name, data, field_name, length=None):
     return result
 
 
+def _int_pair_tuple(kind, name, data, field_name):
+    value = data[field_name]
+    if not isinstance(value, list) or not value:
+        raise CatalogValidationError(
+            f"{kind} '{name}' field '{field_name}' must be a non-empty array"
+        )
+    result = []
+    for index, item in enumerate(value):
+        if not isinstance(item, list) or len(item) != 2:
+            raise CatalogValidationError(
+                f"{kind} '{name}' field '{field_name}[{index}]' must be a 2-element array"
+            )
+        result.append(
+            (
+                _typed(kind, name, f"{field_name}[{index}][0]", item[0], int),
+                _typed(kind, name, f"{field_name}[{index}][1]", item[1], int),
+            )
+        )
+    return tuple(result)
 def parse_ship_definition(name, data):
     """Validate one JSON ship object and return its immutable definition."""
     kind = "Ship"
@@ -382,7 +403,7 @@ def parse_ability_definition(name, data):
         "RECOIL_INCREMENT", "ENERGY_GAIN", "HP_GAIN", "TRACK_SPEED",
         "TRACK_RANGE", "DMG_TO_PROJ", "REUNK_THRUST", "REUNK_INCREMENT",
         "SPREAD_ANGLE", "max_thrust", "thrust_increment", "thrust_wait",
-        "look_ahead", "max_marines", "spiral_distance",
+        "look_ahead", "max_marines", "spiral_distance", "gun_locations",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -448,6 +469,12 @@ def parse_ability_definition(name, data):
             )
     else:
         values["laser_color"] = None
+    if "gun_locations" in data:
+        values["gun_locations"] = _int_pair_tuple(
+            kind, name, data, "gun_locations"
+        )
+    else:
+        values["gun_locations"] = None
     values["_source_keys"] = tuple(data)
 
     if values["ability_type"] not in {
