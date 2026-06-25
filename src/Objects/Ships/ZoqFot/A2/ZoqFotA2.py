@@ -38,17 +38,8 @@ class ZoqFotA2(Ability):
         )
         self._current_sprite = None
         self._current_mask = None
-
-        self._base_shape_surface = pygame.Surface((self.area_width, self.area_length), pygame.SRCALPHA)
-        dark_red = (139, 0, 0)
-        pygame.draw.ellipse(self._base_shape_surface, dark_red, (0, 0, self.area_width, self.area_length))
-        pygame.draw.rect(self._base_shape_surface, dark_red, (0, self.area_length // 2, self.area_width, self.area_length // 2))
         
-        red = (255, 0, 0)
-        inner_width = max(2, self.area_width - 2)
-        inner_length = max(4, self.area_length - 2)
-        pygame.draw.ellipse(self._base_shape_surface, red, (1, 1, inner_width, inner_length))
-        pygame.draw.rect(self._base_shape_surface, red, (1, self.area_length // 2, inner_width, (self.area_length // 2) - 1))
+        self._shape_cache = {}
 
         self._sync_to_parent(0)
 
@@ -76,14 +67,29 @@ class ZoqFotA2(Ability):
         if age_frame < self.advancing_frames:
             scale_factor = (age_frame + 1) / max(1, self.advancing_frames)
         else:
-            scale_factor = 1.0 - (age_frame - self.advancing_frames) / max(1, self.retracting_frames)
+            scale_factor = 1.0 - (age_frame - self.advancing_frames + 1) / max(1, self.retracting_frames)
         scale_factor = max(0.01, min(1.0, scale_factor))
         
         current_length = max(1, int(self.area_length * scale_factor))
-        scaled_shape = pygame.transform.scale(self._base_shape_surface, (self.area_width, current_length))
+        cache_key = (current_length, self.heading)
 
-        self._current_sprite = pygame.transform.rotate(scaled_shape, -self.heading * const.TURN_ANGLE)
-        self._current_mask = pygame.mask.from_surface(self._current_sprite)
+        if cache_key not in self._shape_cache:
+            base_surf = pygame.Surface((self.area_width, current_length), pygame.SRCALPHA)
+            dark_red = (139, 0, 0)
+            pygame.draw.ellipse(base_surf, dark_red, (0, 0, self.area_width, current_length))
+            pygame.draw.rect(base_surf, dark_red, (0, current_length // 2, self.area_width, current_length // 2))
+            
+            red = (255, 0, 0)
+            inner_width = max(2, self.area_width - 2)
+            inner_length = max(4, current_length - 2)
+            pygame.draw.ellipse(base_surf, red, (1, 1, inner_width, inner_length))
+            pygame.draw.rect(base_surf, red, (1, current_length // 2, inner_width, (current_length // 2) - 1))
+            
+            sprite = pygame.transform.rotate(base_surf, -self.heading * const.TURN_ANGLE)
+            mask = pygame.mask.from_surface(sprite)
+            self._shape_cache[cache_key] = (sprite, mask)
+
+        self._current_sprite, self._current_mask = self._shape_cache[cache_key]
         self.size = list(self._current_sprite.get_size())
 
         parent_mask = self.parent.get_collision_mask()
