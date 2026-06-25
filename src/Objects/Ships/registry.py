@@ -11,8 +11,13 @@ from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 def get_ship_class(ship_name):
     if ship_name not in SHIP_DEFINITIONS:
         raise KeyError(f"Unknown ship: {ship_name}")
-    module = import_module(f"src.Objects.Ships.{ship_name}.{ship_name}")
-    return getattr(module, ship_name)
+    try:
+        module = import_module(f"src.Objects.Ships.{ship_name}.{ship_name}")
+        return getattr(module, ship_name)
+    except (ImportError, ModuleNotFoundError) as e:
+        print(f"Warning: Could not import ship module for {ship_name}, falling back to base SpaceShip. ({e})")
+        from src.Objects.Ships.space_ship import SpaceShip
+        return SpaceShip
 
 
 @lru_cache(maxsize=None)
@@ -20,11 +25,16 @@ def get_ability_class(ability_name):
     if ability_name not in ABILITY_DEFINITIONS:
         raise KeyError(f"Unknown ability: {ability_name}")
     ability_definition = ABILITY_DEFINITIONS[ability_name]
-    module = import_module(
-        f"src.Objects.Ships.{ability_definition.ship_name}."
-        f"{ability_definition.action}.{ability_name}"
-    )
-    return getattr(module, ability_name)
+    try:
+        module = import_module(
+            f"src.Objects.Ships.{ability_definition.ship_name}."
+            f"{ability_definition.action}.{ability_name}"
+        )
+        return getattr(module, ability_name)
+    except (ImportError, ModuleNotFoundError) as e:
+        print(f"Warning: Could not import ability module for {ability_name}, falling back to base Ability. ({e})")
+        from src.Objects.Ships.ability import Ability
+        return Ability
 
 
 def create_ship(ship_name, player_num, resources=None, audio_service=None):
