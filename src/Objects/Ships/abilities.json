@@ -849,6 +849,141 @@
         "REUNK_THRUST": 72,
         "REUNK_INCREMENT": 12
     },
+    "UtwigA1": {
+        "ship_name": "Utwig",
+        "type": "projectile",
+        "action": "A1",
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
+        "tracking": false,
+        "parent_vel": 0.0,
+        "speed": 120,
+        "life_time": 10,
+        "turn_wait": 0,
+        "inertia": false,
+        "hit_parent": false,
+        "hit_self": false,
+        "omnidirectional": false,
+        "frames": 1,
+        "frame_delay": 0,
+        "file_path": "Objects/Ships/Utwig/A1/",
+        "end_anim": 0,
+        "sprite_scale": 1.0,
+        "has_sprites": true,
+        "has_sound": true,
+        "gun_locations": [
+            [
+                49,
+                0
+            ],
+            [
+                84,
+                0
+            ],
+            [
+                20,
+                37
+            ],
+            [
+                113,
+                37
+            ],
+            [
+                3,
+                50
+            ],
+            [
+                130,
+                50
+            ]
+        ]
+    },
+    "UtwigA2": {
+        "ship_name": "Utwig",
+        "type": "shield",
+        "action": "A2",
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            0
+        ],
+        "tracking": false,
+        "parent_vel": 1.0,
+        "speed": 0,
+        "life_time": 12,
+        "turn_wait": 0,
+        "inertia": true,
+        "hit_parent": false,
+        "hit_self": false,
+        "omnidirectional": false,
+        "frames": 1,
+        "frame_delay": 0,
+        "file_path": "Objects/Ships/Utwig/A2/",
+        "end_anim": 0,
+        "sprite_scale": 1.0,
+        "has_sprites": false,
+        "has_sound": true
+    },
+    "VuxA1": {
+        "ship_name": "Vux",
+        "type": "laser",
+        "action": "A1",
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
+        "tracking": false,
+        "parent_vel": 1.0,
+        "speed": 120,
+        "life_time": 1,
+        "turn_wait": 0,
+        "inertia": true,
+        "hit_parent": false,
+        "hit_self": false,
+        "omnidirectional": true,
+        "frames": 1,
+        "frame_delay": 0,
+        "file_path": "Objects/Ships/Vux/A1/",
+        "end_anim": 0,
+        "sprite_scale": 1.0,
+        "has_sprites": false,
+        "has_sound": true,
+        "LASER_RANGE": 644
+    },
+    "VuxA2": {
+        "ship_name": "Vux",
+        "type": "fighter",
+        "action": "A2",
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            0
+        ],
+        "tracking": true,
+        "parent_vel": 0.0,
+        "speed": 25,
+        "life_time": 80,
+        "turn_wait": 0,
+        "inertia": false,
+        "hit_parent": false,
+        "hit_self": false,
+        "omnidirectional": true,
+        "frames": 1,
+        "frame_delay": 0,
+        "file_path": "Objects/Ships/Vux/A2/",
+        "end_anim": 0,
+        "sprite_scale": 1.0,
+        "has_sprites": true,
+        "has_sound": true
+    },
     "YehatA1": {
         "ship_name": "Yehat",
         "type": "projectile",
@@ -959,123 +1094,6 @@
         "sprite_scale_y": 2.5,
         "offset": 0.5,
         "has_sprites": true,
-        "has_sound": true
-    },
-    "VuxA1": {
-        "ship_name": "Vux",
-        "type": "laser",
-        "action": "A1",
-        "start_hp": [
-            1
-        ],
-        "damage": [
-            1
-        ],
-        "tracking": false,
-        "parent_vel": 1.0,
-        "speed": 120,
-        "life_time": 1,
-        "turn_wait": 0,
-        "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Vux/A1/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": false,
-        "has_sound": true,
-        "LASER_RANGE": 644
-    },
-    "VuxA2": {
-        "ship_name": "Vux",
-        "type": "fighter",
-        "action": "A2",
-        "start_hp": [
-            1
-        ],
-        "damage": [
-            0
-        ],
-        "tracking": true,
-        "parent_vel": 0.0,
-        "speed": 25,
-        "life_time": 80,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Vux/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
-    },
-    "UtwigA1": {
-        "ship_name": "Utwig",
-        "type": "projectile",
-        "action": "A1",
-        "start_hp": [
-            1
-        ],
-        "damage": [
-            1
-        ],
-        "tracking": false,
-        "parent_vel": 0.0,
-        "speed": 120,
-        "life_time": 10,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Utwig/A1/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true,
-        "gun_locations": [
-            [49, 0],
-            [84, 0],
-            [20, 37],
-            [113, 37],
-            [3, 50],
-            [130, 50]
-        ]
-    },
-    "UtwigA2": {
-        "ship_name": "Utwig",
-        "type": "shield",
-        "action": "A2",
-        "start_hp": [
-            1
-        ],
-        "damage": [
-            0
-        ],
-        "tracking": false,
-        "parent_vel": 1.0,
-        "speed": 0,
-        "life_time": 12,
-        "turn_wait": 0,
-        "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Utwig/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": false,
         "has_sound": true
     }
 }
