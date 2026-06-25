@@ -33,7 +33,9 @@ HUD_VIEWPORT_BORDER = HUD_BAR_BORDER
 SCREEN_HEIGHT = 960
 SCREEN_WIDTH = int(SCREEN_HEIGHT*1.6)
 SCREEN_LEFT = int((SCREEN_WIDTH - SCREEN_HEIGHT)/2)
-FPS = 24
+PHYSICS_FPS = 24
+VIDEO_FPS_MULTIPLIER = 1
+FPS = PHYSICS_FPS * VIDEO_FPS_MULTIPLIER
 INPUT_REPEAT_DELAY_FRAMES = 3
 # Aftermath timing is simulation-owned rather than derived from audio playback.
 # shipdies.wav is about 50 frames and the eight-frame explosion animation lasts
