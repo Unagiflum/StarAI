@@ -101,7 +101,7 @@ PKUNK_REBIRTH_PAUSE_FRAMES = POST_DEATH_EFFECT_FRAMES
 #Projectiles
 PROJ_LIFE_SCALE = 1.0
 PROJ_SPEED_SCALE = 1.0
-PROJ_GAP = 5
+PROJ_GAP = 0
 
 #File Paths
 GAME_JSON_PATH = source_path("Config/game_settings.json")

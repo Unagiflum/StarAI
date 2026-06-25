@@ -329,14 +329,8 @@ class Ability(PlayerObject):
         scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
         scaled_rect = scaled_sprite.get_rect()
 
-        # Projectiles are advanced during the same simulation frame in which
-        # they spawn. Render them at the preceding simulation position so the
-        # first visible frame is at the muzzle while physics and collision
-        # timing continue to use the current position.
-        draw_position = (
-            self.previous_position if self.type == 'projectile'
-            else self.position
-        )
+        draw_position = self.position
+        
         screen_x = int((draw_position[0] + translation[0]) * scale_factor)
         screen_y = int((draw_position[1] + translation[1]) * scale_factor)
 
