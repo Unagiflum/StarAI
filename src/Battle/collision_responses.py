@@ -295,7 +295,8 @@ def projectile_impacts_ship(projectile, ship, effects, environment):
     damage_ship(ship, damage)
     projectile.on_ship_impact(ship)
     BattleEffect.play_boom(damage)
-    destroy_projectile(projectile, effects, impact_normal, damage, contact)
+    attached = ship if ship.current_hp > 0 else None
+    destroy_projectile(projectile, effects, impact_normal, damage, contact, attached)
     return True
 
 
@@ -326,7 +327,7 @@ def projectile_impacts_planet(projectile, planet, effects, environment):
 
     damage = projectile.current_damage
     BattleEffect.play_boom(damage)
-    destroy_projectile(projectile, effects, impact_normal, damage, contact)
+    destroy_projectile(projectile, effects, impact_normal, damage, contact, planet)
     return True
 
 
@@ -375,21 +376,28 @@ def fighter_impacts_projectile(fighter, projectile, effects, environment):
     if contact is None:
         return False
 
+    initial_proj_hp = projectile.current_hp
+
     if fighter.fighter_collision_capabilities.damages_projectiles:
         projectile_hp = projectile.current_hp - fighter.current_damage
-        if projectile_hp <= 0:
-            destroy_projectile(
-                projectile,
-                effects,
-                [-normal[0], -normal[1]],
-                fighter.current_damage,
-                contact,
-            )
-        else:
-            set_projectile_hp(projectile, projectile_hp)
+        set_projectile_hp(projectile, projectile_hp)
+
     BattleEffect.play_boom(fighter.current_damage)
     contact_handler = getattr(fighter, "handle_projectile_contact", None)
     contact_handled = bool(contact_handler is not None and contact_handler(projectile))
+
+    if initial_proj_hp > 0 and projectile.current_hp <= 0:
+        projectile.currently_alive = True  # Resurrect so destroy_projectile plays animation
+        attached = fighter if fighter.current_hp > 0 else None
+        destroy_projectile(
+            projectile,
+            effects,
+            [-normal[0], -normal[1]],
+            projectile.current_damage,
+            contact,
+            attached_target=attached,
+        )
+
     if not contact_handled or fighter.current_hp <= 0:
         destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
     return True
@@ -422,7 +430,8 @@ def fighter_impacts_ship(fighter, ship, effects, environment):
         damage = fighter.current_damage
         damage_ship(ship, damage)
         BattleEffect.play_boom(damage)
-        destroy_projectile(fighter, effects, normal, damage, contact)
+        attached = ship if ship.current_hp > 0 else None
+        destroy_projectile(fighter, effects, normal, damage, contact, attached)
     return True
 
 
@@ -443,7 +452,10 @@ def fighter_impacts_asteroid(fighter, asteroid, effects, environment):
         return True
 
     BattleEffect.play_boom(fighter.current_damage)
-    destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
+    attached = None
+    if not fighter.fighter_collision_capabilities.damages_asteroids:
+        attached = asteroid
+    destroy_projectile(fighter, effects, normal, fighter.current_damage, contact, attached)
     if fighter.fighter_collision_capabilities.damages_asteroids:
         destroy_asteroid(asteroid, effects)
     return True
@@ -503,12 +515,18 @@ def resolve_laser_hit(laser, target, effects, normal, contact, apply_impact):
         contact[1] % const.ARENA_SIZE,
     ]
     laser.intercepted = True
-    laser.attached_target = target
-    laser.target_contact_offset = wrapped_delta(target.position, contact)
-
-    effects.append(BattleEffect.from_blast(contact, normal, damage, attached_target=target))
-    BattleEffect.play_boom(damage)
+    
     apply_impact(target, effects, normal, damage, contact)
+
+    attached = target if (getattr(target, 'current_hp', 1) > 0 and getattr(target, 'currently_alive', True) and not is_live_projectile(target)) else None
+    
+    laser.attached_target = attached
+    if attached:
+        laser.target_contact_offset = wrapped_delta(attached.position, contact)
+        laser.initial_target_heading = getattr(attached, "heading", 0)
+
+    effects.append(BattleEffect.from_blast(contact, normal, damage, attached_target=attached))
+    BattleEffect.play_boom(damage)
 
 
 def laser_impacts_ship(target, effects, normal, damage, contact):
@@ -565,7 +583,7 @@ def generic_is_laser_target(laser, target, explicit):
     return explicit and target.currently_alive
 
 
-def destroy_projectile(projectile, effects, direction, damage, contact_position=None):
+def destroy_projectile(projectile, effects, direction, damage, contact_position=None, attached_target=None):
     if not projectile.currently_alive:
         return
 
@@ -580,6 +598,7 @@ def destroy_projectile(projectile, effects, direction, damage, contact_position=
                 animation,
                 direction_vector=direction,
                 align_edge=contact_position is not None,
+                attached_target=attached_target,
             )
         )
     else:
@@ -588,6 +607,7 @@ def destroy_projectile(projectile, effects, direction, damage, contact_position=
                 effect_position,
                 direction,
                 damage,
+                attached_target=attached_target,
             )
         )
 

@@ -47,6 +47,9 @@ class BattleEffect(Object):
             self.target_offset = wrapped_delta(attached_target.position, self.position)
         else:
             self.target_offset = target_offset
+            
+        if attached_target:
+            self.initial_target_heading = getattr(attached_target, "heading", 0)
 
     @classmethod
     def from_animation(
@@ -198,13 +201,27 @@ class BattleEffect(Object):
         )
         scaled_rect = scaled_sprite.get_rect()
 
-        from src.Battle.interpolation import interpolated_position
+        from src.Battle.interpolation import interpolated_position, interpolated_sprite_index
 
         if getattr(self, "attached_target", None):
             interp_target = interpolated_position(self.attached_target, interp_t)
+            
+            if hasattr(self, "initial_target_heading") and hasattr(self.attached_target, "heading"):
+                current_sprite_idx = interpolated_sprite_index(self.attached_target, interp_t)
+                initial_sprite_idx = const.heading_to_sprite_index(self.initial_target_heading)
+                delta_idx = current_sprite_idx - initial_sprite_idx
+                angle = math.radians(delta_idx * const.TOTAL_SPRITE_STEP)
+                
+                cos_a = math.cos(angle)
+                sin_a = math.sin(angle)
+                dx = self.target_offset[0] * cos_a - self.target_offset[1] * sin_a
+                dy = self.target_offset[0] * sin_a + self.target_offset[1] * cos_a
+            else:
+                dx, dy = self.target_offset if self.target_offset else (0, 0)
+                
             pos = [
-                (interp_target[0] + self.target_offset[0]) % const.ARENA_SIZE,
-                (interp_target[1] + self.target_offset[1]) % const.ARENA_SIZE,
+                (interp_target[0] + dx) % const.ARENA_SIZE,
+                (interp_target[1] + dy) % const.ARENA_SIZE,
             ]
         else:
             pos = interpolated_position(self, interp_t)

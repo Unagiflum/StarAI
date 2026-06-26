@@ -438,9 +438,9 @@ class OrzA3(Ability):
     def handle_projectile_contact(self, projectile):
         self.current_hp = max(0, self.current_hp - projectile.current_damage)
         if hasattr(projectile, "set_hp"):
-            projectile.set_hp(projectile.current_hp - 1)
+            projectile.set_hp(0)
         else:
-            projectile.current_hp = max(0, projectile.current_hp - 1)
+            projectile.current_hp = 0
         return True
 
     def begin_planet_avoidance(self, planet, outward_normal):
