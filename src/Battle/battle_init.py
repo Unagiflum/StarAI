@@ -39,6 +39,44 @@ def get_valid_ship_positions(rng=None):
             return pos1, pos2
 
 
+def apply_vux_starting_conditions(player1, player2, preserved_ships=None, rng=None):
+    import math
+    from src.Objects.Ships.catalog import ABILITIES_DATA
+    from src.toroidal import wrapped_delta
+    rng = rng or random
+    preserved_ships = preserved_ships or set()
+    
+    for p, opponent in [(player1, player2), (player2, player1)]:
+        if p.name == "Vux" and p.battles_fought == 1 and p not in preserved_ships:
+            if opponent in preserved_ships:
+                anchor = opponent
+                mover = p
+            else:
+                anchor = p
+                mover = opponent
+
+            laser_range = ABILITIES_DATA.get("VuxA1", {}).get("LASER_RANGE", 644)
+            min_dist = min(300, laser_range - 50) if laser_range > 300 else 0
+            dist = rng.randint(min_dist, laser_range)
+            angle = rng.uniform(0, 2 * math.pi)
+            
+            new_pos = [
+                (anchor.position[0] + math.sin(angle) * dist) % const.ARENA_SIZE,
+                (anchor.position[1] - math.cos(angle) * dist) % const.ARENA_SIZE
+            ]
+            mover.position = new_pos
+            if hasattr(mover, 'previous_position'):
+                mover.previous_position = new_pos.copy()
+            
+            dx, dy = wrapped_delta(p.position, opponent.position)
+            target_angle = math.degrees(math.atan2(dx, -dy))
+            if target_angle < 0:
+                target_angle += 360
+            direction_step = 360 / const.SHIP_DIRECTIONS
+            p.heading = round(target_angle / direction_step) % const.SHIP_DIRECTIONS
+            p.rotation = p.heading * const.TURN_ANGLE
+
+
 def initialize_battle(
     screen,
     ship1: SpaceShip,
@@ -77,30 +115,7 @@ def initialize_battle(
     player1.opponent = player2
     player2.opponent = player1
 
-    # Apply Vux specific starting conditions
-    import math
-    from src.Objects.Ships.catalog import ABILITIES_DATA
-    from src.toroidal import wrapped_delta
-    for p, opponent in [(player1, player2), (player2, player1)]:
-        if p.name == "Vux" and p.battles_fought == 1:
-            laser_range = ABILITIES_DATA.get("VuxA1", {}).get("LASER_RANGE", 644)
-            min_dist = min(300, laser_range - 50) if laser_range > 300 else 0
-            dist = rng.randint(min_dist, laser_range)
-            angle = rng.uniform(0, 2 * math.pi)
-            new_pos = [
-                (p.position[0] + math.sin(angle) * dist) % const.ARENA_SIZE,
-                (p.position[1] - math.cos(angle) * dist) % const.ARENA_SIZE
-            ]
-            opponent.position = new_pos
-            opponent.previous_position = new_pos.copy()
-            
-            dx, dy = wrapped_delta(p.position, opponent.position)
-            target_angle = math.degrees(math.atan2(dx, -dy))
-            if target_angle < 0:
-                target_angle += 360
-            direction_step = 360 / const.SHIP_DIRECTIONS
-            p.heading = round(target_angle / direction_step) % const.SHIP_DIRECTIONS
-            p.rotation = p.heading * const.TURN_ANGLE
+    apply_vux_starting_conditions(player1, player2, rng=rng)
 
     world.add(player1)
     world.add(player2)

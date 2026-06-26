@@ -581,6 +581,9 @@ def reset_round_objects(
     player2.opponent = player1
     update_preserved_abilities(preserved_abilities, player1, player2, planet)
 
+    from src.Battle.battle_init import apply_vux_starting_conditions
+    apply_vux_starting_conditions(player1, player2, preserved_ships, rng=rng)
+
     world.add_all(selected_ships)
     return entering_ships
 
