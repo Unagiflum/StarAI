@@ -160,22 +160,17 @@ class StarFieldRenderer:
             scaled_image = scaled_star_cache[img_id]
             star_size = scaled_image.get_width()
 
-            for dx in [-1, 0, 1]:
-                for dy in [-1, 0, 1]:
-                    pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
-                    pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
-
-                    if (
-                        -star_size <= pos_x <= const.SCREEN_HEIGHT + star_size
-                        and -star_size <= pos_y <= const.SCREEN_HEIGHT + star_size
-                    ):
-                        surface.blit(
-                            scaled_image,
-                            (
-                                const.SCREEN_LEFT + pos_x - star_size // 2,
-                                pos_y - star_size // 2,
-                            ),
-                        )
+            if (
+                -star_size <= screen_x <= const.SCREEN_HEIGHT + star_size
+                and -star_size <= screen_y <= const.SCREEN_HEIGHT + star_size
+            ):
+                surface.blit(
+                    scaled_image,
+                    (
+                        const.SCREEN_LEFT + screen_x - star_size // 2,
+                        screen_y - star_size // 2,
+                    ),
+                )
 
 
 def calculate_view_parameters(game_objects, camera_targets=None, interp_t=0.0):

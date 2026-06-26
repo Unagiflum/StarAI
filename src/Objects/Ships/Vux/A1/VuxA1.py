@@ -66,7 +66,15 @@ class VuxA1(Ability):
         ]
 
         if getattr(self, "intercepted", False):
-            end_offset = wrapped_delta(self.start_position, self.end_position)
+            if getattr(self, "attached_target", None) and getattr(self, "target_contact_offset", None):
+                interp_target_pos = interpolated_position(self.attached_target, interp_t)
+                raw_end = [
+                    interp_target_pos[0] + self.target_contact_offset[0],
+                    interp_target_pos[1] + self.target_contact_offset[1],
+                ]
+                end_offset = wrapped_delta(visual_pos, raw_end)
+            else:
+                end_offset = wrapped_delta(self.start_position, self.end_position)
             draw_end_position = [
                 visual_pos[0] + end_offset[0],
                 visual_pos[1] + end_offset[1],

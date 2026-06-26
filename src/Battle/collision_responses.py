@@ -503,8 +503,10 @@ def resolve_laser_hit(laser, target, effects, normal, contact, apply_impact):
         contact[1] % const.ARENA_SIZE,
     ]
     laser.intercepted = True
+    laser.attached_target = target
+    laser.target_contact_offset = wrapped_delta(target.position, contact)
 
-    effects.append(BattleEffect.from_blast(contact, normal, damage))
+    effects.append(BattleEffect.from_blast(contact, normal, damage, attached_target=target))
     BattleEffect.play_boom(damage)
     apply_impact(target, effects, normal, damage, contact)
 

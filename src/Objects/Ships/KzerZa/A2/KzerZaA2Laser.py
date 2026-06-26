@@ -61,7 +61,16 @@ class KzerZaA2Laser(Ability):
         start_offset = wrapped_delta(self.parent.position, self.start_position)
         draw_start_position = [pos[0] + start_offset[0], pos[1] + start_offset[1]]
 
-        end_offset = wrapped_delta(self.position, self.end_position)
+        if getattr(self, "attached_target", None) and getattr(self, "target_contact_offset", None):
+            interp_target_pos = interpolated_position(self.attached_target, interp_t)
+            raw_end = [
+                interp_target_pos[0] + self.target_contact_offset[0],
+                interp_target_pos[1] + self.target_contact_offset[1],
+            ]
+            end_offset = wrapped_delta(draw_start_position, raw_end)
+        else:
+            end_offset = wrapped_delta(self.position, self.end_position)
+
         draw_end_position = [
             draw_start_position[0] + end_offset[0],
             draw_start_position[1] + end_offset[1],

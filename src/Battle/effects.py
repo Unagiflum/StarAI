@@ -6,6 +6,7 @@ import src.const as const
 from src.Objects.object import Object
 from src.resources import active_asset_manager, default_assets
 from src.audio import active_audio_service, compatibility_audio_service
+from src.toroidal import wrapped_delta
 
 BATTLE_ASSET_PATH = const.source_path("Objects/Battle")
 
@@ -18,7 +19,7 @@ class BattleEffect(Object):
     def _resources(cls):
         return active_asset_manager() or cls.resources
 
-    def __init__(self, position, frames, frame_delay=2, scale=1.0):
+    def __init__(self, position, frames, frame_delay=2, scale=1.0, attached_target=None, target_offset=None):
         first_frame = frames[0] if frames else None
         size = [0, 0]
         if first_frame:
@@ -41,6 +42,11 @@ class BattleEffect(Object):
         self.frame_timer = self.frame_delay
         self.can_collide = False
         self.can_expire = True
+        self.attached_target = attached_target
+        if attached_target and target_offset is None:
+            self.target_offset = wrapped_delta(attached_target.position, self.position)
+        else:
+            self.target_offset = target_offset
 
     @classmethod
     def from_animation(
@@ -51,15 +57,16 @@ class BattleEffect(Object):
         scale=1.0,
         direction_vector=None,
         align_edge=False,
+        attached_target=None,
     ):
         if align_edge and frames:
             position = cls._edge_aligned_position(
                 position, frames[0], scale, direction_vector
             )
-        return cls(position, frames, frame_delay, scale)
+        return cls(position, frames, frame_delay, scale, attached_target)
 
     @classmethod
-    def from_blast(cls, position, direction_vector, damage):
+    def from_blast(cls, position, direction_vector, damage, attached_target=None):
         blast_sprites = cls._resources().animation(
             "battle-blasts",
             tuple(BATTLE_ASSET_PATH / f"blast-{i:03d}.png" for i in range(8)),
@@ -67,7 +74,7 @@ class BattleEffect(Object):
 
         index = cls._blast_index(direction_vector)
         scale = cls._blast_scale(damage)
-        return cls(position, [blast_sprites[index]], frame_delay=4, scale=scale)
+        return cls(position, [blast_sprites[index]], frame_delay=4, scale=scale, attached_target=attached_target)
 
     @classmethod
     def ship_explosion(cls, position, frame_delay=2, scale=1.0):
@@ -193,7 +200,15 @@ class BattleEffect(Object):
 
         from src.Battle.interpolation import interpolated_position
 
-        pos = interpolated_position(self, interp_t)
+        if getattr(self, "attached_target", None):
+            interp_target = interpolated_position(self.attached_target, interp_t)
+            pos = [
+                (interp_target[0] + self.target_offset[0]) % const.ARENA_SIZE,
+                (interp_target[1] + self.target_offset[1]) % const.ARENA_SIZE,
+            ]
+        else:
+            pos = interpolated_position(self, interp_t)
+
         screen_x = int((pos[0] + translation[0]) * scale_factor)
         screen_y = int((pos[1] + translation[1]) * scale_factor)
 
