@@ -116,40 +116,6 @@ class ThrustMarker(Object):
             size=[6, 6]
         )
         self.position = [x, y]
-        self.life = Const.FPS/2
-        self.can_collide = False
-        self.can_expire = True
-        self.expiration_timer = self.life
-
-    def update(self):
-        self.expiration_timer -= 1
-        return self.expiration_timer > 0
-
-    def get_color(self):
-        fade_ratio = self.expiration_timer / 30
-        start_color = (255, 255, 0)
-        end_color = (100, 0, 0)
-        r = int(start_color[0] * fade_ratio + end_color[0] * (1 - fade_ratio))
-        g = int(start_color[1] * fade_ratio + end_color[1] * (1 - fade_ratio))
-        b = int(start_color[2] * fade_ratio + end_color[2] * (1 - fade_ratio))
-        return (r, g, b)
-
-    def draw(self, screen, scale_factor, translation):
-        screen_x = int((self.position[0] + translation[0]) * scale_factor)
-        screen_y = int((self.position[1] + translation[1]) * scale_factor)
-
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
-
-class ThrustMarker(Object):
-    def __init__(self, x, y):
-        super().__init__(
-            name="ThrustMarker",
-            sprite_location=None,
-            size=[6, 6]
-        )
-        self.position = [x, y]
         self.previous_position = self.position.copy()
         self.life = Const.FPS/2
         self.can_collide = False
