@@ -33,9 +33,7 @@ class DruugeA1(Ability):
         if speed <= 0:
             return
 
-        momentum = max(0.1, self.parent.mass) * self.RECOIL_INCREMENT
-        ship_mass = max(0.1, ship.mass)
-        ship.add_impulse(
-            self.velocity[0] / speed * momentum / ship_mass,
-            self.velocity[1] / speed * momentum / ship_mass,
-        )
+        abs_angle_rad = math.atan2(self.velocity[0], -self.velocity[1])
+        abs_angle_deg = math.degrees(abs_angle_rad)
+        relative_angle = abs_angle_deg - ship.rotation
+        ship.apply_thrust(self.MAX_RECOIL, self.RECOIL_INCREMENT, relative_angle, False)
