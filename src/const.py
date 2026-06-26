@@ -65,8 +65,8 @@ SPEED_LIMIT = 150
 MAX_GRAV_WHIP = 100
 
 # Stars
-STAR_COUNT = int(ARENA_SIZE * ARENA_SIZE / 64000)
-STAR_WEIGHTS = [45, 45, 10, 0, 0]  # Smallest to largest
+STAR_COUNT = int(ARENA_SIZE * ARENA_SIZE / 5000000)
+STAR_WEIGHTS = [0, 0, 45, 45, 10]  # Smallest to largest
 STAR_DEPTHS = 3
 PLANET_WEIGHTS = [25, 25, 25, 25]  # Gas, Ice, Life, Rocky
 STAR_ALPHA = 200
