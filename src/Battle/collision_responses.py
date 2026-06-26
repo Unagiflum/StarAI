@@ -73,262 +73,230 @@ def area_damage_impacts_asteroid(target, effects, delta, distance, damage):
     destroy_asteroid(target, effects)
 
 
-def ship_impacts_ship(ship, other, effects, environment):
-    normal, distance, overlap = collision_info(ship, other)
-    if not objects_overlap(ship, other, overlap):
-        return False
-
-    closing_speed = max(
-        0.0,
-        -dot(
-            [
-                ship.velocity[0] - other.velocity[0],
-                ship.velocity[1] - other.velocity[1],
-            ],
-            normal,
-        ),
-    )
-    impact = ShipImpactContext(
-        normal=(normal[0], normal[1]),
-        distance=distance,
-        overlap=overlap,
-        closing_speed=closing_speed,
-    )
-    other_impact = ShipImpactContext(
-        normal=(-normal[0], -normal[1]),
-        distance=distance,
-        overlap=overlap,
-        closing_speed=closing_speed,
-    )
-
-    elastic_bounce(ship, other, normal, distance, overlap)
-
-    ship_result = ship.on_ship_impact(other, impact)
-    other_result = other.on_ship_impact(ship, other_impact)
-    apply_ship_impact_damage(other, ship_result.damage_to_other)
-    apply_ship_impact_damage(ship, other_result.damage_to_other)
-    return True
 
 
-def apply_ship_impact_damage(ship, damage):
-    damage = max(0.0, damage)
-    if damage <= 0 or ship.current_hp <= 0:
-        return
-    damage_ship(ship, damage)
-    BattleEffect.play_boom(damage)
 
-
-def ship_impacts_asteroid(ship, asteroid, effects, environment):
-    if not asteroid.currently_alive:
-        return False
-
-    normal, distance, overlap = collision_info(ship, asteroid)
-    if not objects_overlap(ship, asteroid, overlap):
-        return False
-
-    elastic_bounce(ship, asteroid, normal, distance, overlap)
-    return True
-
-
-def ship_impacts_planet(ship, planet, effects, environment):
-    normal, distance, overlap = collision_info(ship, planet)
-    contact_id = id(planet)
-    overlaps = objects_overlap(ship, planet, overlap)
-    if (
-        contact_id in ship.planet_contacts
-        and not overlaps
-        and planet_contact_has_ended(ship, planet, distance)
-    ):
-        ship.planet_contacts.remove(contact_id)
-
-    if not overlaps:
-        return False
-
-    new_contact = contact_id not in ship.planet_contacts
-    ship.planet_contacts.add(contact_id)
-    if new_contact:
-        collided_while_approaching = bounce_off_static_body(
-            ship, planet, normal, overlap
-        )
-        if collided_while_approaching and not ship.inertia:
-            ship.collision_velocity = ship.velocity.copy()
-    else:
-        collided_while_approaching = False
-        stop_at_static_body(ship, planet, normal, overlap)
-    if new_contact and collided_while_approaching and ship.current_hp > 0:
-        damage = max(1, math.ceil(ship.current_hp * 0.15))
-        damage_ship(ship, damage)
-        BattleEffect.play_boom(damage)
-    return True
-
-
-def planet_contact_has_ended(
-    ship, planet, distance, exit_margin=PLANET_CONTACT_EXIT_MARGIN
-):
-    contact_distance = radius(ship) + radius(planet)
-    return distance > contact_distance + exit_margin
-
-
-def asteroid_impacts_planet(
-    asteroid,
-    planet,
+def resolve_generic_collision(
+    first,
+    second,
     effects,
     environment,
     *,
     object_on_screen_policy=None,
 ):
-    if not asteroid.currently_alive:
+    phys_first = getattr(first, "physical_collision_capabilities", None)
+    phys_second = getattr(second, "physical_collision_capabilities", None)
+
+    if not phys_first or not phys_second:
         return False
 
-    _, _, overlap = collision_info(asteroid, planet)
-    if not objects_overlap(asteroid, planet, overlap):
-        return False
+    is_first_fragile = phys_first.fragile_to_immovable and phys_second.is_immovable
+    is_second_fragile = phys_second.fragile_to_immovable and phys_first.is_immovable
 
-    on_screen = object_on_screen_policy or object_on_screen
-    if on_screen(asteroid, environment.ships):
-        BattleEffect.play_boom(1)
-    destroy_asteroid(asteroid, effects)
-    return True
+    if is_first_fragile or is_second_fragile:
+        fragile_obj = first if is_first_fragile else second
+        immovable_obj = second if is_first_fragile else first
 
+        if not getattr(fragile_obj, "currently_alive", True):
+            return False
 
-def projectile_impacts_projectile(projectile, other, effects, environment):
-    if not is_live_projectile(other):
-        return False
+        _, _, overlap = collision_info(fragile_obj, immovable_obj)
+        if not objects_overlap(fragile_obj, immovable_obj, overlap):
+            return False
 
-    _, _, overlap = collision_info(projectile, other)
-    if not projectiles_can_hit_each_other(projectile, other):
-        return False
-
-    contact, impact_normal = projectile_impact(projectile, other, overlap)
-    if contact is None:
-        return False
-
-    if projectile.projectile_name == other.projectile_name:
-        BattleEffect.play_boom(max(projectile.current_damage, other.current_damage))
-        destroy_projectile(
-            projectile,
-            effects,
-            impact_normal,
-            projectile.current_damage,
-            contact,
-        )
-        destroy_projectile(
-            other,
-            effects,
-            [-impact_normal[0], -impact_normal[1]],
-            other.current_damage,
-            contact,
-        )
+        on_screen = object_on_screen_policy or object_on_screen
+        if on_screen(fragile_obj, environment.ships):
+            BattleEffect.play_boom(1)
+        
+        # Currently, asteroids use destroy_asteroid.
+        destroy_asteroid(fragile_obj, effects)
         return True
 
-    projectile_damage = projectile.current_damage
-    other_damage = other.current_damage
-    projectile_hp = projectile.current_hp - other_damage
-    other_hp = other.current_hp - projectile_damage
+    is_first_bouncing = phys_first.bounces_on_immovable and phys_second.is_immovable
+    is_second_bouncing = phys_second.bounces_on_immovable and phys_first.is_immovable
 
-    BattleEffect.play_boom(max(projectile_damage, other_damage))
+    if is_first_bouncing or is_second_bouncing:
+        bouncing_obj = first if is_first_bouncing else second
+        immovable_obj = second if is_first_bouncing else first
 
-    if projectile_hp <= 0 and other_hp <= 0:
-        destroy_projectile(
-            projectile, effects, impact_normal, projectile_damage, contact
-        )
-        destroy_projectile(
-            other,
-            effects,
-            [-impact_normal[0], -impact_normal[1]],
-            other_damage,
-            contact,
-        )
-    elif projectile_hp > 0 and projectile_hp > other_hp:
-        set_projectile_hp(projectile, projectile_hp)
-        destroy_projectile(
-            other,
-            effects,
-            [-impact_normal[0], -impact_normal[1]],
-            other_damage,
-            contact,
-        )
-    elif other_hp > 0 and other_hp > projectile_hp:
-        destroy_projectile(
-            projectile, effects, impact_normal, projectile_damage, contact
-        )
-        set_projectile_hp(other, other_hp)
-    else:
-        destroy_projectile(
-            projectile, effects, impact_normal, projectile_damage, contact
-        )
-        destroy_projectile(
-            other,
-            effects,
-            [-impact_normal[0], -impact_normal[1]],
-            other_damage,
-            contact,
-        )
-    return True
+        normal, distance, overlap = collision_info(bouncing_obj, immovable_obj)
+        contact_id = id(immovable_obj)
+        overlaps = objects_overlap(bouncing_obj, immovable_obj, overlap)
+
+        # Anti-stutter logic
+        contacts_set = getattr(bouncing_obj, "planet_contacts", None)
+        if contacts_set is None:
+            contacts_set = set()
+            setattr(bouncing_obj, "planet_contacts", contacts_set)
+
+        if contact_id in contacts_set and not overlaps:
+            contact_distance = radius(bouncing_obj) + radius(immovable_obj)
+            if distance > contact_distance + PLANET_CONTACT_EXIT_MARGIN:
+                contacts_set.remove(contact_id)
+
+        if not overlaps:
+            return False
+
+        new_contact = contact_id not in contacts_set
+        contacts_set.add(contact_id)
+        
+        if new_contact:
+            collided_while_approaching = bounce_off_static_body(
+                bouncing_obj, immovable_obj, normal, overlap
+            )
+            if collided_while_approaching and not getattr(bouncing_obj, "inertia", True):
+                bouncing_obj.collision_velocity = bouncing_obj.velocity.copy()
+        else:
+            collided_while_approaching = False
+            stop_at_static_body(bouncing_obj, immovable_obj, normal, overlap)
+
+        # Payload Exchange
+        if new_contact and collided_while_approaching:
+            durability = getattr(immovable_obj, "durability_capabilities", None)
+            is_invulnerable = durability and durability.is_invulnerable
+            
+            # Immovable Payload -> Bouncing Obj
+            imm_impact = getattr(immovable_obj, "impact_capabilities", None)
+            if imm_impact and imm_impact.impact_damage_percent > 0:
+                if getattr(bouncing_obj, "current_hp", 0) > 0:
+                    damage = max(1, math.ceil(bouncing_obj.current_hp * imm_impact.impact_damage_percent))
+                    damage_ship(bouncing_obj, damage)
+                    BattleEffect.play_boom(damage)
+            
+            # Bouncing Payload -> Immovable Obj
+            bounce_impact = getattr(bouncing_obj, "impact_capabilities", None)
+            if bounce_impact and bounce_impact.ramming_damage > 0:
+                BattleEffect.play_boom(bounce_impact.ramming_damage)
+                # Invulnerable skips HP reduction, but we played the boom.
+
+        return True
+
+    is_first_proj = phys_first.is_projectile
+    is_second_proj = phys_second.is_projectile
+
+    if is_first_proj and is_second_proj:
+        if not is_live_projectile(first) or not is_live_projectile(second):
+            return False
+        if not projectiles_can_hit_each_other(first, second):
+            return False
+            
+        _, _, overlap = collision_info(first, second)
+        contact, impact_normal = projectile_impact(first, second, overlap)
+        if contact is None:
+            return False
+
+        if first.projectile_name == second.projectile_name:
+            BattleEffect.play_boom(max(first.current_damage, second.current_damage))
+            destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
+            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
+            return True
+
+        proj_dmg = first.current_damage
+        other_dmg = second.current_damage
+        proj_hp = first.current_hp - other_dmg
+        other_hp = second.current_hp - proj_dmg
+
+        BattleEffect.play_boom(max(proj_dmg, other_dmg))
+
+        if proj_hp <= 0 and other_hp <= 0:
+            destroy_projectile(first, effects, impact_normal, proj_dmg, contact)
+            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], other_dmg, contact)
+        elif proj_hp > 0 and proj_hp > other_hp:
+            set_projectile_hp(first, proj_hp)
+            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], other_dmg, contact)
+        elif other_hp > 0 and other_hp > proj_hp:
+            destroy_projectile(first, effects, impact_normal, proj_dmg, contact)
+            set_projectile_hp(second, other_hp)
+        else:
+            destroy_projectile(first, effects, impact_normal, proj_dmg, contact)
+            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], other_dmg, contact)
+        return True
+
+    elif is_first_proj or is_second_proj:
+        projectile = first if is_first_proj else second
+        other = second if is_first_proj else first
+        phys_other = phys_second if is_first_proj else phys_first
+
+        if phys_other.is_immovable:
+            if not is_live_projectile(projectile):
+                return False
+            _, _, overlap = collision_info(projectile, other)
+            contact, impact_normal = projectile_impact(projectile, other, overlap)
+            if contact is None:
+                return False
+
+            damage = projectile.current_damage
+            BattleEffect.play_boom(damage)
+            destroy_projectile(projectile, effects, impact_normal, damage, contact, other)
+            return True
+
+        elif phys_other.is_solid:
+            if not is_live_projectile(projectile) or not getattr(other, "currently_alive", True) or getattr(other, "current_hp", 1) <= 0:
+                return False
+                
+            if hasattr(other, "player") and not projectile_can_hit_ship(projectile, other):
+                return False
+
+            _, _, overlap = collision_info(projectile, other)
+            contact, impact_normal = projectile_impact(projectile, other, overlap)
+            if contact is None:
+                return False
+
+            damage = projectile.current_damage
+            
+            if hasattr(other, "player"):
+                damage_ship(other, damage)
+                projectile.on_ship_impact(other)
+            else:
+                destroy_asteroid(other, effects)
+                
+            BattleEffect.play_boom(damage)
+            attached = other if (hasattr(other, "player") and other.current_hp > 0) else None
+            destroy_projectile(projectile, effects, impact_normal, damage, contact, attached)
+            return True
+            
+        return False
+
+    is_first_solid = phys_first.is_solid and not phys_first.is_immovable
+    is_second_solid = phys_second.is_solid and not phys_second.is_immovable
+
+    if is_first_solid and is_second_solid:
+        if not getattr(first, "currently_alive", True) or not getattr(second, "currently_alive", True):
+            return False
+
+        normal, distance, overlap = collision_info(first, second)
+        if not objects_overlap(first, second, overlap):
+            return False
+
+        elastic_bounce(first, second, normal, distance, overlap)
+
+        first_impact = getattr(first, "impact_capabilities", None)
+        second_impact = getattr(second, "impact_capabilities", None)
+
+        if first_impact and first_impact.ramming_damage > 0:
+            damage_ship(second, first_impact.ramming_damage)
+            BattleEffect.play_boom(first_impact.ramming_damage)
+
+        if second_impact and second_impact.ramming_damage > 0:
+            damage_ship(first, second_impact.ramming_damage)
+            BattleEffect.play_boom(second_impact.ramming_damage)
+
+        return True
+
+    return False
+
 
 
 def projectiles_can_hit_each_other(projectile, other):
     if projectile.player != other.player:
         return True
 
-    return (
-        projectile.projectile_name == other.projectile_name
-        and projectile.hit_self
-        and other.hit_self
-    )
+    if projectile.projectile_name == other.projectile_name:
+        return getattr(projectile, "hit_self", False) and getattr(other, "hit_self", False)
+
+    return getattr(projectile, "hit_team", False) and getattr(other, "hit_team", False)
 
 
-def projectile_impacts_ship(projectile, ship, effects, environment):
-    if (
-        not is_live_projectile(projectile)
-        or ship.current_hp <= 0
-        or not projectile_can_hit_ship(projectile, ship)
-    ):
-        return False
-
-    _, _, overlap = collision_info(projectile, ship)
-    contact, impact_normal = projectile_impact(projectile, ship, overlap)
-    if contact is None:
-        return False
-
-    damage = projectile.current_damage
-    damage_ship(ship, damage)
-    projectile.on_ship_impact(ship)
-    BattleEffect.play_boom(damage)
-    attached = ship if ship.current_hp > 0 else None
-    destroy_projectile(projectile, effects, impact_normal, damage, contact, attached)
-    return True
-
-
-def projectile_impacts_asteroid(projectile, asteroid, effects, environment):
-    if not is_live_projectile(projectile) or not asteroid.currently_alive:
-        return False
-
-    _, _, overlap = collision_info(projectile, asteroid)
-    contact, impact_normal = projectile_impact(projectile, asteroid, overlap)
-    if contact is None:
-        return False
-
-    damage = projectile.current_damage
-    BattleEffect.play_boom(damage)
-    destroy_projectile(projectile, effects, impact_normal, damage, contact)
-    destroy_asteroid(asteroid, effects)
-    return True
-
-
-def projectile_impacts_planet(projectile, planet, effects, environment):
-    if not is_live_projectile(projectile):
-        return False
-
-    _, _, overlap = collision_info(projectile, planet)
-    contact, impact_normal = projectile_impact(projectile, planet, overlap)
-    if contact is None:
-        return False
-
-    damage = projectile.current_damage
-    BattleEffect.play_boom(damage)
-    destroy_projectile(projectile, effects, impact_normal, damage, contact, planet)
-    return True
 
 
 def fighter_impacts_fighter(fighter, other, effects, environment):

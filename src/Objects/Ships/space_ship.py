@@ -9,6 +9,8 @@ from src.collision_capabilities import (
     CollisionCapabilities,
     CollisionRole,
     ShipImpactResult,
+    PhysicalCollisionCapabilities,
+    ImpactCapabilities,
 )
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS, SHIPS_DATA
 from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, ActionResult
@@ -47,6 +49,8 @@ class SpaceShip(PlayerObject):
         self.audio_service = audio_service
         self.collision_capabilities = CollisionCapabilities(CollisionRole.SHIP)
         self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
+        self.physical_collision_capabilities = PhysicalCollisionCapabilities(bounces_on_immovable=True)
+        self.impact_capabilities = ImpactCapabilities()
 
         assets = self.resources.ship(ship_name)
         self.size = list(assets.size)

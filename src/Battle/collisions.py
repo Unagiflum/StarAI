@@ -28,35 +28,9 @@ def _object_on_screen(obj, ships):
     return responses.object_on_screen(obj, ships)
 
 
-def _asteroid_impacts_planet(asteroid, planet, effects, environment):
-    """Supply the collision pipeline's visibility policy to the response."""
-    return responses.asteroid_impacts_planet(
-        asteroid,
-        planet,
-        effects,
-        environment,
-        object_on_screen_policy=_object_on_screen,
-    )
 
 
 _PAIR_COLLISION_HANDLERS = {
-    (CollisionRole.SHIP, CollisionRole.SHIP): responses.ship_impacts_ship,
-    (CollisionRole.SHIP, CollisionRole.ASTEROID): responses.ship_impacts_asteroid,
-    (CollisionRole.SHIP, CollisionRole.PLANET): responses.ship_impacts_planet,
-    (CollisionRole.ASTEROID, CollisionRole.PLANET): _asteroid_impacts_planet,
-    (
-        CollisionRole.PROJECTILE,
-        CollisionRole.PROJECTILE,
-    ): responses.projectile_impacts_projectile,
-    (CollisionRole.PROJECTILE, CollisionRole.SHIP): responses.projectile_impacts_ship,
-    (
-        CollisionRole.PROJECTILE,
-        CollisionRole.ASTEROID,
-    ): responses.projectile_impacts_asteroid,
-    (
-        CollisionRole.PROJECTILE,
-        CollisionRole.PLANET,
-    ): responses.projectile_impacts_planet,
     (CollisionRole.FIGHTER, CollisionRole.FIGHTER): responses.fighter_impacts_fighter,
     (
         CollisionRole.FIGHTER,
@@ -130,14 +104,32 @@ def _dispatch_unique_collision_pairs(
 def _dispatch_collision_pair(first, second, effects, environment=None):
     if environment is None:
         environment = CollisionEnvironment()
+
+    phys_first = getattr(first, "physical_collision_capabilities", None)
+    phys_second = getattr(second, "physical_collision_capabilities", None)
+
+    if (phys_first and phys_first.is_intangible) or (phys_second and phys_second.is_intangible):
+        return True
+
     pair = (
         first.collision_capabilities.role,
         second.collision_capabilities.role,
     )
     handler = _PAIR_COLLISION_HANDLERS.get(pair)
-    if handler is None:
-        return False
-    return handler(first, second, effects, environment)
+    if handler is not None:
+        return handler(first, second, effects, environment)
+
+    return _resolve_generic_collision(first, second, effects, environment)
+
+
+def _resolve_generic_collision(first, second, effects, environment):
+    return responses.resolve_generic_collision(
+        first,
+        second,
+        effects,
+        environment,
+        object_on_screen_policy=_object_on_screen,
+    )
 
 
 def handle_collisions(

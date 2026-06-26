@@ -9,6 +9,7 @@ from src.collision_capabilities import (
     CollisionRole,
     FighterCollisionCapabilities,
     LaserTargetCapabilities,
+    PhysicalCollisionCapabilities,
 )
 from src.Objects.Ships.catalog import ABILITIES_DATA, ABILITY_DEFINITIONS
 from src.resources import default_assets
@@ -72,6 +73,11 @@ class Ability(PlayerObject):
                 "laser": CollisionRole.LASER,
             }.get(self.type, CollisionRole.NONE)
         )
+        
+        self.physical_collision_capabilities = PhysicalCollisionCapabilities(
+            is_solid=False, is_projectile=True
+        )
+        
         self.laser_target_capabilities = LaserTargetCapabilities(
             targetable=self.type in ("projectile", "fighter"),
             vulnerable=ability_definition.laser_vulnerable,
@@ -107,6 +113,7 @@ class Ability(PlayerObject):
         self.inertia = ability_definition.inertia
         self.hit_parent = ability_definition.hit_parent
         self.hit_self = ability_definition.hit_self
+        self.hit_team = getattr(ability_definition, 'hit_team', False)
         self.has_left_parent = False
         self.omnidirectional = ability_definition.omnidirectional
         self.end_anim_count = ability_definition.end_anim

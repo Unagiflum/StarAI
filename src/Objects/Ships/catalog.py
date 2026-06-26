@@ -123,6 +123,7 @@ class AbilityDefinition(_DefinitionMapping):
     inertia: bool
     hit_parent: bool
     hit_self: bool
+    hit_team: bool
     omnidirectional: bool
     file_path: str
     turn_wait: float = 0
@@ -192,6 +193,7 @@ class AbilityDefinition(_DefinitionMapping):
         "inertia": "inertia",
         "hit_parent": "hit_parent",
         "hit_self": "hit_self",
+        "hit_team": "hit_team",
         "omnidirectional": "omnidirectional",
         "frames": "frames",
         "frame_delay": "frame_delay",
@@ -427,6 +429,7 @@ def parse_ability_definition(name, data):
         "frame_delay",
         "has_sprites",
         "has_sound",
+        "hit_team",
         "laser_vulnerable",
         "collide_planets",
         "collide_asteroids",
@@ -495,6 +498,7 @@ def parse_ability_definition(name, data):
         "frame_delay": (int, 0),
         "has_sprites": (bool, True),
         "has_sound": (bool, True),
+        "hit_team": (bool, False),
         "laser_vulnerable": (bool, True),
         "collide_planets": (bool, True),
         "collide_asteroids": (bool, True),

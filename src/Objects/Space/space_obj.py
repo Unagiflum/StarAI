@@ -8,6 +8,9 @@ from src.collision_capabilities import (
     AreaDamageCapabilities,
     CollisionCapabilities,
     CollisionRole,
+    PhysicalCollisionCapabilities,
+    DurabilityCapabilities,
+    ImpactCapabilities,
 )
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_distance
 from src.resources import default_assets
@@ -55,6 +58,9 @@ class Planet(Object):
         self.image = assets.image
         self.mask = assets.mask
         self.collision_capabilities = CollisionCapabilities(CollisionRole.PLANET)
+        self.physical_collision_capabilities = PhysicalCollisionCapabilities(is_immovable=True)
+        self.durability_capabilities = DurabilityCapabilities(is_invulnerable=True)
+        self.impact_capabilities = ImpactCapabilities(impact_damage_percent=0.15)
         self.can_move = False
         self.can_die = False
 
@@ -175,6 +181,8 @@ class Star(Object):
         )
 
         self.image = self.resources.image(star_data["Image"]).image
+        self.physical_collision_capabilities = PhysicalCollisionCapabilities(is_intangible=True)
+        self.durability_capabilities = DurabilityCapabilities(is_invulnerable=True)
         self.can_move = False
         self.can_die = False
         self.can_collide = False
@@ -218,6 +226,7 @@ class Asteroid(Object):
         self.death_animation = assets.death_animation
         self.collision_capabilities = CollisionCapabilities(CollisionRole.ASTEROID)
         self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
+        self.physical_collision_capabilities = PhysicalCollisionCapabilities(fragile_to_immovable=True)
 
         self.current_sprite = self.rng.randint(0, 29)
         self.size = [

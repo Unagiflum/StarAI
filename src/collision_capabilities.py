@@ -57,3 +57,25 @@ class ShipImpactContext:
 @dataclass(frozen=True)
 class ShipImpactResult:
     damage_to_other: float = 0.0
+
+
+@dataclass(frozen=True)
+class PhysicalCollisionCapabilities:
+    is_solid: bool = True
+    is_intangible: bool = False
+    is_immovable: bool = False
+    is_fragile: bool = False
+    fragile_to_immovable: bool = False
+    bounces_on_immovable: bool = False
+    is_projectile: bool = False
+
+
+@dataclass(frozen=True)
+class DurabilityCapabilities:
+    is_invulnerable: bool = False
+
+
+@dataclass(frozen=True)
+class ImpactCapabilities:
+    impact_damage_percent: float = 0.0
+    ramming_damage: float = 0.0
