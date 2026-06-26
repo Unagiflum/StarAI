@@ -114,6 +114,8 @@ class StarFieldRenderer:
         for star in stars:
             stars_by_depth[star.depth].append(star)
 
+        scaled_star_cache = {}
+
         for depth, depth_stars in enumerate(stars_by_depth):
             parallax_factor = 0.5 + 0.5 * (depth / (const.STAR_DEPTHS - 1))
             self.update_depth_surface(
@@ -123,6 +125,7 @@ class StarFieldRenderer:
                 translation,
                 midpoint,
                 parallax_factor,
+                scaled_star_cache,
             )
             screen.blit(self.depth_surfaces[depth], (0, 0))
 
@@ -134,6 +137,7 @@ class StarFieldRenderer:
         translation,
         midpoint,
         parallax_factor,
+        scaled_star_cache,
     ):
         surface = self.depth_surfaces[depth]
         surface.fill((0, 0, 0, 0))
@@ -147,8 +151,13 @@ class StarFieldRenderer:
             screen_x = int((relative_x + translation[0]) * scale_factor)
             screen_y = int((relative_y + translation[1]) * scale_factor)
 
-            scaled_image = pygame.transform.smoothscale_by(star.image, scale_factor)
-            scaled_image.set_alpha(const.STAR_ALPHA)
+            img_id = id(star.image)
+            if img_id not in scaled_star_cache:
+                scaled_image = pygame.transform.smoothscale_by(star.image, scale_factor)
+                scaled_image.set_alpha(const.STAR_ALPHA)
+                scaled_star_cache[img_id] = scaled_image
+            
+            scaled_image = scaled_star_cache[img_id]
             star_size = scaled_image.get_width()
 
             for dx in [-1, 0, 1]:
