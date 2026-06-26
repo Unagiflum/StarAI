@@ -99,6 +99,8 @@ def start_or_update_aftermath(
         ship.current_hp = 0
         ship.currently_alive = False
         ship.reset_controls()
+        if hasattr(ship, "position") and hasattr(ship, "previous_position"):
+            ship.previous_position = ship.position.copy()
         state.dead_players.add(ship.player)
         with use_audio_service(audio):
             BattleEffect.play_ship_death()

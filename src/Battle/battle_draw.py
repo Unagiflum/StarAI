@@ -289,12 +289,10 @@ def draw_battle(
         
     show_crosshairs = is_mirror or getattr(const, "ALWAYS_SHOW_CROSSHAIRS", False)
 
-    players = world.live_ships
-    if len(players) == 2:
-        p1_pos, p2_pos = players[0].position, players[1].position
-        midpoint = wrapped_midpoint(p1_pos, p2_pos)
-    else:
-        midpoint = [const.ARENA_SIZE / 2, const.ARENA_SIZE / 2]
+    midpoint = [
+        const.SCREEN_HEIGHT / (2 * scale_factor) - translation[0],
+        const.SCREEN_HEIGHT / (2 * scale_factor) - translation[1],
+    ]
 
     screen.fill(ui.BLACK)
     screen.set_clip(border_rect)

@@ -417,5 +417,6 @@ def _spawn_replacement_asteroids(
             asteroid = Asteroid(resources=resources, rng=rng)
         asteroid.set_planet(planet)
         asteroid.position = asteroid.get_respawn_position(planet, ships, avoid_bodies)
+        asteroid.previous_position = asteroid.position.copy()
         avoid_bodies.append(asteroid)
         world.add(asteroid)

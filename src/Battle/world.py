@@ -51,10 +51,16 @@ class World:
         return self._objects[:]
 
     def add(self, obj: Any) -> None:
+        if hasattr(obj, 'position') and hasattr(obj, 'previous_position'):
+            obj.previous_position = obj.position.copy()
         self._objects.append(obj)
 
     def add_all(self, objects: Iterable[Any]) -> None:
-        self._objects.extend(objects)
+        objects_list = list(objects)
+        for obj in objects_list:
+            if hasattr(obj, 'position') and hasattr(obj, 'previous_position'):
+                obj.previous_position = obj.position.copy()
+        self._objects.extend(objects_list)
 
     def remove(self, obj: Any) -> None:
         self._objects.remove(obj)

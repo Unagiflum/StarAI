@@ -46,6 +46,7 @@ class Ilwrath(SpaceShip):
             def uncloak_for_attack():
                 if facing is not None:
                     self.heading, self.rotation = facing
+                    self.previous_heading = self.heading
                 self.uncloak()
             side_effects = (uncloak_for_attack,)
 
@@ -85,6 +86,7 @@ class Ilwrath(SpaceShip):
         facing = self._opponent_facing()
         if facing is not None:
             self.heading, self.rotation = facing
+            self.previous_heading = self.heading
 
     def _opponent_facing(self):
         if not self.opponent or not self.opponent.trackable:
