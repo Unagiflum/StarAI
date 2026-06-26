@@ -110,6 +110,7 @@ class SpaceShip(PlayerObject):
         self.position = list(position)
         self.previous_position = self.position.copy()
         self.heading = heading % const.SHIP_DIRECTIONS
+        self.previous_heading = self.heading
         self.rotation = self.heading * const.TURN_ANGLE
         self.velocity = [0.0, 0.0]
         self.collision_velocity = [0.0, 0.0]
@@ -176,8 +177,8 @@ class SpaceShip(PlayerObject):
             
         # Draw the limpet at the rotated offset for all 64 directions
         new_sprites = []
-        for heading in range(const.SHIP_DIRECTIONS):
-            angle = math.radians(heading * const.TURN_ANGLE)
+        for heading in range(const.TOTAL_SPRITE_DIRECTIONS):
+            angle = math.radians(heading * const.TOTAL_SPRITE_STEP)
             # Rotate offset clockwise (since heading goes clockwise 0=up, 16=right)
             rx = spot_offset_x * math.cos(angle) - spot_offset_y * math.sin(angle)
             ry = spot_offset_x * math.sin(angle) + spot_offset_y * math.cos(angle)
@@ -233,6 +234,7 @@ class SpaceShip(PlayerObject):
     def process_controls(self, frame_id=None):
         new_objects = []
         self.update_timers()
+        self.previous_heading = getattr(self, "heading", 0)
 
         # Handle movement based on active states
         turn_left_ready = self.control_ready("turn_left", frame_id)
@@ -468,7 +470,7 @@ class SpaceShip(PlayerObject):
         masks = getattr(self, "masks", None)
         if not masks:
             return None
-        return masks[self.heading]
+        return masks[const.heading_to_sprite_index(self.heading)]
 
     def validate_action(self, action_number, factory=None) -> ActionPlan:
         """Prepare a common action without changing ship state."""
@@ -584,18 +586,22 @@ class SpaceShip(PlayerObject):
         result = self.commit_action(self.plan_action3())
         return result.compatibility_value(), self.handles_combined_action()
 
-    def set_sprite(self):
-        return self.sprites[self.heading]
+    def set_sprite(self, interp_t=0.0):
+        from src.Battle.interpolation import interpolated_sprite_index
+        return self.sprites[interpolated_sprite_index(self, interp_t)]
 
-    def draw(self, screen, scale_factor, translation):
-        sprite = self.set_sprite()
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
+        sprite = self.set_sprite(interp_t)
+        
+        from src.Battle.interpolation import interpolated_position
+        pos = interpolated_position(self, interp_t)
 
         scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
         scaled_rect = scaled_sprite.get_rect()
 
         # Calculate screen position with translation
-        screen_x = int((self.position[0] + translation[0]) * scale_factor)
-        screen_y = int((self.position[1] + translation[1]) * scale_factor)
+        screen_x = int((pos[0] + translation[0]) * scale_factor)
+        screen_y = int((pos[1] + translation[1]) * scale_factor)
 
         # Draw the ship at all potential wrap-around positions
         for dx in [-1, 0, 1]:

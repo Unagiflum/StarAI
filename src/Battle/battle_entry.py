@@ -178,7 +178,7 @@ def draw_entry_silhouettes(
     translation,
 ):
     for ship in entry.entering_ships:
-        mask = ship.masks[ship.heading]
+        mask = ship.masks[const.heading_to_sprite_index(ship.heading)]
         for position, color in visible_silhouettes(
             entry, ship, frame_id
         ):

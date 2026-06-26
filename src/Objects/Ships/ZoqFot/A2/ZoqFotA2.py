@@ -95,8 +95,9 @@ class ZoqFotA2(Ability):
         parent_mask = self.parent.get_collision_mask()
         parent_forward = self._projection_bounds(parent_mask, self.heading)[1]
         
-        base_distance = (parent_forward + const.PROJ_GAP) * self.base_offset
-        distance = base_distance + current_length / 2.0
+        self.base_distance = (parent_forward + const.PROJ_GAP) * self.base_offset
+        self.current_length = current_length
+        distance = self.base_distance + self.current_length / 2.0
         
         angle = math.radians(self.rotation)
         self.position = [
@@ -142,5 +143,39 @@ class ZoqFotA2(Ability):
     def get_collision_mask(self):
         return self._current_mask
 
-    def get_sprite(self):
+    def get_sprite(self, interp_t=0.0):
         return self._current_sprite
+
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
+        from src.Battle.interpolation import interpolated_position, interpolated_sprite_index
+        
+        parent_pos = interpolated_position(self.parent, interp_t)
+        visual_idx = interpolated_sprite_index(self.parent, interp_t)
+        visual_heading = visual_idx / const.VIDEO_FPS_MULTIPLIER
+        angle_rad = math.radians(visual_heading * const.TURN_ANGLE)
+        
+        distance = getattr(self, "base_distance", 0) + getattr(self, "current_length", 0) / 2.0
+        
+        visual_pos = [
+            (parent_pos[0] + math.sin(angle_rad) * distance) % const.ARENA_SIZE,
+            (parent_pos[1] - math.cos(angle_rad) * distance) % const.ARENA_SIZE,
+        ]
+        
+        sprite = self.get_sprite(interp_t)
+        scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
+        scaled_rect = scaled_sprite.get_rect()
+        
+        screen_x = int((visual_pos[0] + translation[0]) * scale_factor)
+        screen_y = int((visual_pos[1] + translation[1]) * scale_factor)
+        
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
+                pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
+
+                if (-scaled_rect.width <= pos_x <= const.SCREEN_HEIGHT + scaled_rect.width and
+                        -scaled_rect.height <= pos_y <= const.SCREEN_HEIGHT + scaled_rect.height):
+                    screen.blit(scaled_sprite, (
+                        const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
+                        pos_y - scaled_rect.height // 2
+                    ))

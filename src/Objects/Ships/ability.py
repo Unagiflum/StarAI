@@ -203,6 +203,7 @@ class Ability(PlayerObject):
             return False
 
         self.previous_position = self.position.copy()
+        self.previous_heading = getattr(self, "heading", 0)
         self.update_physics()
         self.expiration_timer -= 1
 
@@ -317,20 +318,26 @@ class Ability(PlayerObject):
 
         self.current_hp = new_hp
 
-    def get_sprite(self):
+    def get_sprite(self, interp_t=0.0):
+        if self.omnidirectional:
+            if self.frames > 1:
+                return self.sprites[0][self.current_frame]
+            return self.sprites[0]
+            
         if self.frames > 1:
             return self.sprites[0][self.current_frame]
-        return self.sprites[self.heading]
+        from src.Battle.interpolation import interpolated_sprite_index
+        return self.sprites[interpolated_sprite_index(self, interp_t)]
 
-    def draw(self, screen, scale_factor, translation):
-        sprite = self.get_sprite()
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
+        sprite = self.get_sprite(interp_t)
+        from src.Battle.interpolation import interpolated_position
+        pos = interpolated_position(self, interp_t)
         scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
         scaled_rect = scaled_sprite.get_rect()
 
-        draw_position = self.position
-        
-        screen_x = int((draw_position[0] + translation[0]) * scale_factor)
-        screen_y = int((draw_position[1] + translation[1]) * scale_factor)
+        screen_x = int((pos[0] + translation[0]) * scale_factor)
+        screen_y = int((pos[1] + translation[1]) * scale_factor)
 
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:
@@ -349,4 +356,4 @@ class Ability(PlayerObject):
             return None
         if self.frames > 1:
             return self.masks[self.current_frame]
-        return self.masks[self.heading]
+        return self.masks[const.heading_to_sprite_index(self.heading)]

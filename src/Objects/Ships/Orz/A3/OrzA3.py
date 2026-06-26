@@ -61,7 +61,7 @@ class OrzA3(Ability):
     def hud_sprite(self):
         return self.red_flight_sprite
 
-    def get_sprite(self):
+    def get_sprite(self, interp_t=0.0):
         if self.is_returning:
             return self.green_flight_sprite
         return self.red_flight_sprite
@@ -442,9 +442,11 @@ class OrzA3(Ability):
         self.current_hp = 0
         self.currently_alive = False
 
-    def draw(self, screen, scale_factor, translation):
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
+        from src.Battle.interpolation import interpolated_position
+        pos = interpolated_position(self, interp_t)
         if not self.is_boarded:
-            super().draw(screen, scale_factor, translation)
+            super().draw(screen, scale_factor, translation, interp_t=interp_t)
 
     def on_opponent_lost(self, opponent):
         super().on_opponent_lost(opponent)

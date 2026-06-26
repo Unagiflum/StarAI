@@ -39,14 +39,32 @@ class VuxA1(Ability):
         self.expiration_timer -= 1
         return self.expiration_timer >= 0
 
-    def draw(self, screen, scale_factor, translation):
-        self.place_self()
-        if not getattr(self, "intercepted", False):
-            self.calculate_end_position()
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
+        from src.Battle.interpolation import interpolated_position, interpolated_sprite_index
+        from src.toroidal import wrapped_delta
+        
+        parent_pos = interpolated_position(self.parent, interp_t)
+        visual_idx = interpolated_sprite_index(self.parent, interp_t)
+        visual_heading = visual_idx / const.VIDEO_FPS_MULTIPLIER
+        angle_rad = math.radians(visual_heading * const.TURN_ANGLE)
+        
+        spawn_distance = (self.parent.size[1]) / 2
+        visual_pos = [
+            parent_pos[0] + math.sin(angle_rad) * spawn_distance,
+            parent_pos[1] - math.cos(angle_rad) * spawn_distance
+        ]
+        
+        if getattr(self, "intercepted", False):
+            end_offset = wrapped_delta(self.position, self.end_position)
+            draw_end_position = [visual_pos[0] + end_offset[0], visual_pos[1] + end_offset[1]]
+        else:
+            draw_end_position = [
+                visual_pos[0] + math.sin(angle_rad) * self.LASER_RANGE,
+                visual_pos[1] - math.cos(angle_rad) * self.LASER_RANGE
+            ]
 
-        draw_end_position = wrapped_endpoint(self.position, self.end_position)
-        screen_start_x = int((self.position[0] + translation[0]) * scale_factor)
-        screen_start_y = int((self.position[1] + translation[1]) * scale_factor)
+        screen_start_x = int((visual_pos[0] + translation[0]) * scale_factor)
+        screen_start_y = int((visual_pos[1] + translation[1]) * scale_factor)
         screen_end_x = int((draw_end_position[0] + translation[0]) * scale_factor)
         screen_end_y = int((draw_end_position[1] + translation[1]) * scale_factor)
         view_rect = pygame.Rect(0, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT)

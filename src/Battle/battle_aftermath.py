@@ -160,9 +160,10 @@ def create_ship_explosion_schedule(ship, start_frame, rng=None):
     for index in range(count):
         local_x = rng.uniform(-ship.size[0] * 0.45, ship.size[0] * 0.45)
         local_y = rng.uniform(-ship.size[1] * 0.45, ship.size[1] * 0.45)
+        base_pos = getattr(ship, "previous_position", ship.position)
         position = [
-            (ship.position[0] + local_x * cos_a - local_y * sin_a) % const.ARENA_SIZE,
-            (ship.position[1] + local_x * sin_a + local_y * cos_a) % const.ARENA_SIZE,
+            (base_pos[0] + local_x * cos_a - local_y * sin_a) % const.ARENA_SIZE,
+            (base_pos[1] + local_x * sin_a + local_y * cos_a) % const.ARENA_SIZE,
         ]
         schedule.append(ScheduledExplosion(
             frame=start_frame + index * EXPLOSION_PLACEMENT_INTERVAL_FRAMES,
@@ -240,6 +241,8 @@ def update_aftermath(
 
 def hide_dead_ship(ship, game_objects):
     World.coerce(game_objects).remove_where(lambda obj: obj is ship)
+    if hasattr(ship, "position") and hasattr(ship, "previous_position"):
+        ship.previous_position = ship.position.copy()
 
 
 def aftermath_camera_targets(

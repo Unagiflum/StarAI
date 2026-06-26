@@ -17,6 +17,7 @@ class Ilwrath(SpaceShip):
         ship_data = SHIPS_DATA[ship_name]
         self.FADE_DURATION = ship_data.get("FADE_DURATION", 8)
         self.fade_timer = self.FADE_DURATION
+        self.previous_fade_timer = self.FADE_DURATION
         self.ship_name = ship_name
 
         audio = self.audio_service or compatibility_audio_service(
@@ -103,6 +104,7 @@ class Ilwrath(SpaceShip):
         heading = int(target_angle / direction_step) % const.SHIP_DIRECTIONS
         return heading, heading * const.TURN_ANGLE
 
+
     def can_action2(self):
         if self.cloaked:
             return self.action2_timer == 0
@@ -118,13 +120,22 @@ class Ilwrath(SpaceShip):
         self.cloaked = False
         self.trackable = True
 
-    def set_sprite(self):
-        black_sprite = self.black_sprites[self.heading]
-        normal_sprite = self.sprites[self.heading]
+    def update(self):
+        self.previous_fade_timer = getattr(self, "fade_timer", self.FADE_DURATION)
+        if self.fade_timer < self.FADE_DURATION:
+            self.fade_timer += 1
+        return super().update()
+
+    def set_sprite(self, interp_t=0.0):
+        from src.Battle.interpolation import interpolated_sprite_index
+        sprite_idx = interpolated_sprite_index(self, interp_t)
+        black_sprite = self.black_sprites[sprite_idx]
+        normal_sprite = self.sprites[sprite_idx]
 
         # If we're still within the fade timer, do a fade transition; otherwise pick final
-        if self.fade_timer < self.FADE_DURATION:
-            progress = self.fade_timer / self.FADE_DURATION
+        fade_timer = self.previous_fade_timer + (self.fade_timer - self.previous_fade_timer) * interp_t
+        if fade_timer < self.FADE_DURATION:
+            progress = fade_timer / self.FADE_DURATION
             final_sprite = pygame.Surface(normal_sprite.get_size(), pygame.SRCALPHA)
 
             if self.cloaked:
@@ -139,8 +150,6 @@ class Ilwrath(SpaceShip):
                 final_sprite.blit(black_copy, (0, 0))
             else:
                 final_sprite = normal_sprite
-
-            self.fade_timer += 1
         else:
             final_sprite = black_sprite if self.cloaked else normal_sprite
         return final_sprite

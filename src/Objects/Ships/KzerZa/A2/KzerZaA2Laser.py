@@ -39,19 +39,32 @@ class KzerZaA2Laser(Ability):
             (self.parent.position[1] + direction[1] * self.LASER_RANGE) % const.ARENA_SIZE,
         ]
 
+    def update_physics(self):
+        self.position = self.parent.position.copy()
+
     def update(self):
         if not self.currently_alive:
             return False
+            
+        self.previous_position = self.position.copy()
+        self.update_physics()
         self.expiration_timer -= 1
         return self.expiration_timer >= 0
 
-    def draw(self, screen, scale_factor, translation):
-        start = self.start_position
-        end = wrapped_endpoint(start, self.end_position)
-        start_x = int((start[0] + translation[0]) * scale_factor)
-        start_y = int((start[1] + translation[1]) * scale_factor)
-        end_x = int((end[0] + translation[0]) * scale_factor)
-        end_y = int((end[1] + translation[1]) * scale_factor)
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
+        from src.Battle.interpolation import interpolated_position
+        pos = interpolated_position(self.parent, interp_t)
+
+        start_offset = wrapped_delta(self.parent.position, self.start_position)
+        draw_start_position = [pos[0] + start_offset[0], pos[1] + start_offset[1]]
+        
+        end_offset = wrapped_delta(self.position, self.end_position)
+        draw_end_position = [draw_start_position[0] + end_offset[0], draw_start_position[1] + end_offset[1]]
+        
+        start_x = int((draw_start_position[0] + translation[0]) * scale_factor)
+        start_y = int((draw_start_position[1] + translation[1]) * scale_factor)
+        end_x = int((draw_end_position[0] + translation[0]) * scale_factor)
+        end_y = int((draw_end_position[1] + translation[1]) * scale_factor)
         view_rect = pygame.Rect(0, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT)
 
         for wrap_x in [-1, 0, 1]:

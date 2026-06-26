@@ -6,6 +6,7 @@ from src.Battle.battle_entry import draw_entry_silhouettes
 import src.const as const
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_midpoint
 from src.Battle.world import World
+from src.Battle.interpolation import interpolated_position
 
 # HUD layout constants
 VIEWPORT_SIZE = 200
@@ -50,7 +51,7 @@ def _draw_empty_rect(surface, rect, border_color, fill_color):
     pygame.draw.rect(surface, border_color, rect, 2)
 
 
-def _draw_dashed_circle(surface, ship, scale_factor, translation):
+def _draw_dashed_circle(surface, ship, scale_factor, translation, interp_t=0.0):
     radius = int(100 * scale_factor)
     if radius <= 0:
         return
@@ -71,8 +72,9 @@ def _draw_dashed_circle(surface, ship, scale_factor, translation):
         end_angle = center_rad + arc_length_rad / 2
         pygame.draw.arc(circle_surf, color_with_alpha, rect, start_angle, end_angle, 6)
         
-    screen_x = int((ship.position[0] + translation[0]) * scale_factor)
-    screen_y = int((ship.position[1] + translation[1]) * scale_factor)
+    pos = interpolated_position(ship, interp_t)
+    screen_x = int((pos[0] + translation[0]) * scale_factor)
+    screen_y = int((pos[1] + translation[1]) * scale_factor)
     
     for dx in [-1, 0, 1]:
         for dy in [-1, 0, 1]:
@@ -164,7 +166,7 @@ class StarFieldRenderer:
                         )
 
 
-def calculate_view_parameters(game_objects, camera_targets=None):
+def calculate_view_parameters(game_objects, camera_targets=None, interp_t=0.0):
     world = World.coerce(game_objects)
     targets = camera_targets
     if targets is None:
@@ -173,7 +175,11 @@ def calculate_view_parameters(game_objects, camera_targets=None):
     if len(targets) == 1:
         view_size = (const.SCREEN_HEIGHT / const.MAX_ZOOM) * 1.5
         scale_factor = min(const.MAX_ZOOM, const.SCREEN_HEIGHT / view_size)
-        pos0 = getattr(targets[0], "camera_position", targets[0].position)
+        base_pos0 = getattr(targets[0], "camera_position", targets[0].position)
+        if base_pos0 == targets[0].position:
+            pos0 = interpolated_position(targets[0], interp_t)
+        else:
+            pos0 = base_pos0
         translation = [
             const.SCREEN_HEIGHT / (2 * scale_factor) - pos0[0],
             const.SCREEN_HEIGHT / (2 * scale_factor) - pos0[1],
@@ -182,8 +188,17 @@ def calculate_view_parameters(game_objects, camera_targets=None):
     if len(targets) < 2:
         return 1.0, [0, 0]
 
-    pos0 = getattr(targets[0], "camera_position", targets[0].position)
-    pos1 = getattr(targets[1], "camera_position", targets[1].position)
+    base_pos0 = getattr(targets[0], "camera_position", targets[0].position)
+    if base_pos0 == targets[0].position:
+        pos0 = interpolated_position(targets[0], interp_t)
+    else:
+        pos0 = base_pos0
+        
+    base_pos1 = getattr(targets[1], "camera_position", targets[1].position)
+    if base_pos1 == targets[1].position:
+        pos1 = interpolated_position(targets[1], interp_t)
+    else:
+        pos1 = base_pos1
     center, view_size = view_center_and_size(
         [pos0, pos1]
     )
@@ -208,6 +223,7 @@ def _render_world_to_surface(
     star_field_renderer,
     skip_stars=False,
     show_crosshairs=False,
+    interp_t=0.0,
 ):
     if not skip_stars:
         star_field_renderer.draw(
@@ -215,16 +231,16 @@ def _render_world_to_surface(
         )
 
     for planet in world.planets:
-        planet.draw(surface, scale_factor, translation)
+        planet.draw(surface, scale_factor, translation, interp_t=interp_t)
 
     for marker in world.thrust_markers:
-        marker.draw(surface, scale_factor, translation)
+        marker.draw(surface, scale_factor, translation, interp_t=interp_t)
 
     for asteroid in world.asteroids:
-        asteroid.draw(surface, scale_factor, translation)
+        asteroid.draw(surface, scale_factor, translation, interp_t=interp_t)
 
     for ability in world.abilities:
-        ability.draw(surface, scale_factor, translation)
+        ability.draw(surface, scale_factor, translation, interp_t=interp_t)
 
     entering_ships = set(
         entry_state.entering_ships if entry_state else ()
@@ -241,11 +257,11 @@ def _render_world_to_surface(
     for ship in world.ships:
         if ship not in entering_ships:
             if show_crosshairs and not getattr(ship, "cloaked", False):
-                _draw_dashed_circle(surface, ship, scale_factor, translation)
-            ship.draw(surface, scale_factor, translation)
+                _draw_dashed_circle(surface, ship, scale_factor, translation, interp_t)
+            ship.draw(surface, scale_factor, translation, interp_t=interp_t)
 
     for effect in world.effects:
-        effect.draw(surface, scale_factor, translation)
+        effect.draw(surface, scale_factor, translation, interp_t=interp_t)
 
 
 def draw_battle(
@@ -259,9 +275,10 @@ def draw_battle(
     frame_id=0,
     original_ships=None,
     is_paused=False,
+    interp_t=0.0,
 ):
     world = World.coerce(game_objects)
-    scale_factor, translation = calculate_view_parameters(world, camera_targets)
+    scale_factor, translation = calculate_view_parameters(world, camera_targets, interp_t)
 
     players = world.live_ships
     is_mirror = False
@@ -292,6 +309,7 @@ def draw_battle(
         frame_id,
         star_field_renderer,
         show_crosshairs=show_crosshairs,
+        interp_t=interp_t,
     )
 
     pygame.draw.rect(screen, border_color, border_rect, 2)
@@ -363,7 +381,13 @@ def draw_battle(
             viewport_surface.set_clip(VP_CLIP_RECT)
             viewport_surface.fill((0, 0, 0))
 
-            ship_pos = getattr(ship_to_track, "camera_position", ship_to_track.position)
+            from src.Battle.interpolation import interpolated_position
+            base_pos = getattr(ship_to_track, "camera_position", ship_to_track.position)
+            if base_pos == ship_to_track.position:
+                ship_pos = interpolated_position(ship_to_track, interp_t)
+            else:
+                ship_pos = base_pos
+                
             ship_translation = [
                 const.SCREEN_HEIGHT / 2 - ship_pos[0],
                 const.SCREEN_HEIGHT / 2 - ship_pos[1]
@@ -380,6 +404,7 @@ def draw_battle(
                 star_field_renderer,
                 skip_stars=True,
                 show_crosshairs=False,
+                interp_t=interp_t,
             )
 
             viewport_surface.set_clip(None)

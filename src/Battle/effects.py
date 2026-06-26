@@ -34,6 +34,7 @@ class BattleEffect(Object):
             size=size,
         )
         self.position = list(position)
+        self.previous_position = self.position.copy()
         self.frames = frames
         self.frame_delay = max(1, frame_delay)
         self.scale = scale
@@ -172,7 +173,7 @@ class BattleEffect(Object):
         self.current_frame += 1
         return self.current_frame < len(self.frames)
 
-    def draw(self, screen, scale_factor, translation):
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
         if not self.frames or self.current_frame >= len(self.frames):
             return
 
@@ -182,8 +183,10 @@ class BattleEffect(Object):
         scaled_sprite = pygame.transform.smoothscale(sprite, (scaled_width, scaled_height))
         scaled_rect = scaled_sprite.get_rect()
 
-        screen_x = int((self.position[0] + translation[0]) * scale_factor)
-        screen_y = int((self.position[1] + translation[1]) * scale_factor)
+        from src.Battle.interpolation import interpolated_position
+        pos = interpolated_position(self, interp_t)
+        screen_x = int((pos[0] + translation[0]) * scale_factor)
+        screen_y = int((pos[1] + translation[1]) * scale_factor)
 
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:

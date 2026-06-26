@@ -24,7 +24,8 @@ class Yehat(SpaceShip):
             side_effects=(shield.activate,),
         )
 
-    def set_sprite(self):
+    def set_sprite(self, interp_t=0.0):
         if self.damage_shield_is_active():
-            return self._active_damage_shield.sprites[self.heading]
-        return super().set_sprite()
+            from src.Battle.interpolation import interpolated_sprite_index
+            return self._active_damage_shield.sprites[interpolated_sprite_index(self, interp_t)]
+        return super().set_sprite(interp_t)

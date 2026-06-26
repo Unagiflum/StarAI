@@ -63,14 +63,16 @@ class Planet(Object):
         planet.previous_position = planet.position.copy()
         return planet
 
-    def draw(self, screen, scale_factor, translation):
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
         # Draw gravity range circle
         range_color = (255, 255, 255, 8)  # Light blue, semi-transparent
         border_color = (255, 0, 0, 150)  # Red, semi-transparent
         gravity_range_surface = pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA)
 
-        screen_x = int((self.position[0] + translation[0]) * scale_factor)
-        screen_y = int((self.position[1] + translation[1]) * scale_factor)
+        from src.Battle.interpolation import interpolated_position
+        pos = interpolated_position(self, interp_t)
+        screen_x = int((pos[0] + translation[0]) * scale_factor)
+        screen_y = int((pos[1] + translation[1]) * scale_factor)
         range_radius = int(Const.GRAVITY_RANGE * scale_factor)
 
         for dx in [-1, 0, 1]:
@@ -363,14 +365,16 @@ class Asteroid(Object):
 
         return self.currently_alive
 
-    def draw(self, screen, scale_factor, translation):
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
         if not self.image:
             self.image = self.sprites[self.current_sprite]
 
         scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)
         size = [scaled_image.get_width(),scaled_image.get_height()]
-        screen_x = int((self.position[0] + translation[0]) * scale_factor)
-        screen_y = int((self.position[1] + translation[1]) * scale_factor)
+        from src.Battle.interpolation import interpolated_position
+        pos = interpolated_position(self, interp_t)
+        screen_x = int((pos[0] + translation[0]) * scale_factor)
+        screen_y = int((pos[1] + translation[1]) * scale_factor)
 
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:

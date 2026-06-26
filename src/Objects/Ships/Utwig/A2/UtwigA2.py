@@ -51,7 +51,9 @@ class UtwigA2(Ability):
     def is_alive(self):
         return self.currently_alive
 
-    def draw(self, screen, scale_factor, translation):
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
+        from src.Battle.interpolation import interpolated_position
+        pos = interpolated_position(self, interp_t)
         return None
 
     def absorb_damage(self, damage):

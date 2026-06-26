@@ -94,13 +94,14 @@ def _make_circle_surface(diameter, color=_PLACEHOLDER_COLOR):
 
 
 def _placeholder_ship_sprites(scale=1.0):
-    """Return 16 rotated rectangle sprites as a ship placeholder."""
+    """Return rotated rectangle sprites as a ship placeholder."""
     base_w = max(4, int(30 * scale))
     base_h = max(4, int(50 * scale))
     base = _make_rectangle_surface(base_w, base_h)
     sprites = []
-    for heading in range(const.SHIP_DIRECTIONS):
-        angle = -(heading * const.TURN_ANGLE)
+    asset_turn = 360 / const.ASSET_SPRITE_DIRECTIONS
+    for heading in range(const.ASSET_SPRITE_DIRECTIONS):
+        angle = -(heading * asset_turn)
         rotated = pygame.transform.rotate(base, angle)
         sprites.append(rotated)
     return tuple(sprites)
@@ -117,7 +118,7 @@ def _placeholder_ability_sprites(definition):
         return ([sprite], None)
     else:
         sprites = []
-        for heading in range(const.SHIP_DIRECTIONS):
+        for heading in range(const.ASSET_SPRITE_DIRECTIONS):
             sprite = _make_circle_surface(diameter)
             sprites.append(sprite)
         return (sprites, None)
@@ -165,23 +166,22 @@ class AssetManager:
             resource_dir = const.source_path(definition.sprite_path)
             scale = definition.sprite_scale
             try:
-                sprites = tuple(
+                base_sprites = tuple(
                     pygame.transform.smoothscale_by(
                         self._image(
                             resource_dir / f"{ship_name}{index:02d}.png"
                         ),
                         scale,
                     )
-                    for index in range(const.SHIP_DIRECTIONS)
+                    for index in range(const.ASSET_SPRITE_DIRECTIONS)
                 )
             except (pygame.error, FileNotFoundError, OSError) as error:
                 self._asset_errors.append(AssetError(
                     "ship", ship_name, str(resource_dir), str(error),
                 ))
-                sprites = _placeholder_ship_sprites(scale)
-            masks = tuple(
-                pygame.mask.from_surface(sprite) for sprite in sprites
-            )
+                base_sprites = _placeholder_ship_sprites(scale)
+                
+            sprites, masks = _expand_directional_sprites(base_sprites)
             self._ships[ship_name] = ShipAssets(
                 sprites=sprites,
                 masks=masks,
@@ -226,7 +226,7 @@ class AssetManager:
                     directions = (
                         1
                         if definition.omnidirectional
-                        else const.SHIP_DIRECTIONS
+                        else const.ASSET_SPRITE_DIRECTIONS
                     )
                     for index in range(directions):
                         path = (
@@ -268,9 +268,8 @@ class AssetManager:
                 sizes = [(diameter, diameter)]
                 used_placeholder = True
 
-            if not used_placeholder:
-                sprite_assets = tuple(sprites)
-                mask_assets = tuple(masks)
+            if not definition.omnidirectional:
+                sprite_assets, mask_assets = _expand_directional_sprites(sprites)
             else:
                 sprite_assets = tuple(sprites)
                 mask_assets = tuple(masks)
@@ -317,7 +316,7 @@ class AssetManager:
         source = self.ability(ability_name)
         if source.sprites is None or source.masks is None:
             raise ValueError(f"Ability '{ability_name}' has no directional sprites")
-        if len(source.sprites) != const.SHIP_DIRECTIONS:
+        if len(source.sprites) != const.TOTAL_SPRITE_DIRECTIONS:
             raise ValueError(f"Ability '{ability_name}' is not directional")
 
         sprites = []
@@ -625,13 +624,50 @@ class AssetManager:
         return list(self._asset_errors)
 
 
+def _expand_directional_sprites(base_sprites, base_masks=None):
+    """Expand A base directional sprites to TOTAL_SPRITE_DIRECTIONS sprites.
+
+    Uses pygame.transform.rotozoom to create intermediate rotation sprites
+    from the nearest base asset. Returns (sprites_tuple, masks_tuple).
+    """
+    total = const.TOTAL_SPRITE_DIRECTIONS
+    base_count = const.ASSET_SPRITE_DIRECTIONS
+    if total == base_count:
+        if base_masks is None:
+            base_masks = tuple(pygame.mask.from_surface(s) for s in base_sprites)
+        return tuple(base_sprites), tuple(base_masks)
+
+    asset_step = 360.0 / base_count
+    total_step = const.TOTAL_SPRITE_STEP
+    sprites = []
+    masks = []
+
+    for i in range(total):
+        target_angle = i * total_step
+        nearest_idx = round(target_angle / asset_step) % base_count
+        nearest_angle = nearest_idx * asset_step
+
+        delta = nearest_angle - target_angle
+        delta = (delta + 180) % 360 - 180
+
+        if abs(delta) < 0.001:
+            sprite = base_sprites[nearest_idx]
+        else:
+            sprite = pygame.transform.rotozoom(base_sprites[nearest_idx], delta, 1.0)
+
+        sprites.append(sprite)
+        masks.append(pygame.mask.from_surface(sprite))
+
+    return tuple(sprites), tuple(masks)
+
+
 def _scale_directional_sprite(sprite, heading, scale_x, scale_y):
     if scale_x == scale_y == 1.0:
         return sprite
     if scale_x == scale_y:
         return pygame.transform.smoothscale_by(sprite, scale_x)
 
-    angle = heading * const.TURN_ANGLE
+    angle = heading * (360 / const.ASSET_SPRITE_DIRECTIONS)
     local_sprite = pygame.transform.rotate(sprite, angle)
     local_bounds = local_sprite.get_bounding_rect(min_alpha=1)
     if local_bounds.width and local_bounds.height:
@@ -652,7 +688,7 @@ def _projection_bounds(mask, heading):
     width, height = mask.get_size()
     center_x = (width - 1) / 2
     center_y = (height - 1) / 2
-    angle = math.radians(heading * const.TURN_ANGLE)
+    angle = math.radians(heading * const.TOTAL_SPRITE_STEP)
     forward_x = math.sin(angle)
     forward_y = -math.cos(angle)
     projections = (
@@ -681,7 +717,7 @@ def _retracted_visual(
     width, height = source_mask.get_size()
     center_x = (width - 1) / 2
     center_y = (height - 1) / 2
-    angle = math.radians(heading * const.TURN_ANGLE)
+    angle = math.radians(heading * const.TOTAL_SPRITE_STEP)
     forward_x = math.sin(angle)
     forward_y = -math.cos(angle)
     for y in range(height):

@@ -441,9 +441,12 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
     pygame.event.clear(pygame.KEYDOWN)
     pygame.event.clear(pygame.KEYUP)
 
+    state = simulation.state()
+    video_frame = 0
+    accumulated_key_changes = []
+
     while running:
-        clock.tick(const.FPS)
-        key_changes = []
+        clock.tick(const.VIDEO_FPS)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -460,40 +463,47 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
                     simulation.audio.stop_music()
                     running = False
                 elif event.key in simulation.key_states:
-                    key_changes.append((event.key, True))
+                    accumulated_key_changes.append((event.key, True))
             elif event.type == pygame.KEYUP:
                 if event.key in simulation.key_states:
-                    key_changes.append((event.key, False))
+                    accumulated_key_changes.append((event.key, False))
 
-        if is_paused:
-            for key, pressed in key_changes:
-                simulation.handle_key_change(key, pressed)
-            state = simulation.state()
-        else:
-            state = simulation.step(key_changes=key_changes)
+        interp_t = (video_frame % const.VIDEO_FPS_MULTIPLIER) / const.VIDEO_FPS_MULTIPLIER
+        is_physics_frame = (video_frame % const.VIDEO_FPS_MULTIPLIER == 0)
 
-        if state["needs_selection"]:
-            from src.Menus import pick_ship
+        if is_physics_frame or is_paused:
+            if is_paused:
+                for key, pressed in accumulated_key_changes:
+                    simulation.handle_key_change(key, pressed)
+                accumulated_key_changes.clear()
+                state = simulation.state()
+            else:
+                state = simulation.step(key_changes=accumulated_key_changes)
+                accumulated_key_changes.clear()
 
-            stop_tracking_projectiles(simulation.world)
-            simulation.audio.stop_music()
-            selected = pick_ship.run(
-                screen,
-                player1_ships,
-                player2_ships,
-                start_battle=False,
-                preselect_player1=simulation.player1 if simulation.player1.currently_alive else None,
-                preselect_player2=simulation.player2 if simulation.player2.currently_alive else None,
-                choose_second_player=simulation.aftermath.choose_second_player,
-                audio_service=simulation.audio,
-                menu_sound_manager=menu_sound_manager,
-            )
-            simulation.select_next_round(selected)
-            pygame.event.clear(pygame.KEYDOWN)
-            pygame.event.clear(pygame.KEYUP)
-            if not simulation.running:
-                running = False
-                continue
+            if state["needs_selection"]:
+                from src.Menus import pick_ship
+
+                stop_tracking_projectiles(simulation.world)
+                simulation.audio.stop_music()
+                selected = pick_ship.run(
+                    screen,
+                    player1_ships,
+                    player2_ships,
+                    start_battle=False,
+                    preselect_player1=simulation.player1 if simulation.player1.currently_alive else None,
+                    preselect_player2=simulation.player2 if simulation.player2.currently_alive else None,
+                    choose_second_player=simulation.aftermath.choose_second_player,
+                    audio_service=simulation.audio,
+                    menu_sound_manager=menu_sound_manager,
+                )
+                simulation.select_next_round(selected)
+                pygame.event.clear(pygame.KEYDOWN)
+                pygame.event.clear(pygame.KEYUP)
+                if not simulation.running:
+                    running = False
+                    continue
+                state = simulation.state()
 
         # Drawing
         draw_battle(
@@ -516,7 +526,10 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
             frame_id=simulation.frame_id,
             original_ships=(simulation.player1, simulation.player2),
             is_paused=is_paused,
+            interp_t=0.0 if is_paused else interp_t,
         )
+
+        video_frame += 1
 
 
 def play_battle_music():

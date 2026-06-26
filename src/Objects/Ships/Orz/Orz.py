@@ -75,11 +75,14 @@ class Orz(SpaceShip):
     def handles_combined_action(self):
         return True
 
-    def set_sprite(self):
-        key = (self.heading, self.turret_heading)
+    def set_sprite(self, interp_t=0.0):
+        from src.Battle.interpolation import interpolated_sprite_index
+        sprite_idx = interpolated_sprite_index(self, interp_t)
+        turret_sprite = self.turret.get_sprite(interp_t)
+        key = (sprite_idx, id(turret_sprite))
         if key not in self._turret_composites:
             self._turret_composites[key] = centered_overlay(
-                self.sprites[self.heading],
-                self.turret.get_sprite(),
+                self.sprites[sprite_idx],
+                turret_sprite,
             )
         return self._turret_composites[key]

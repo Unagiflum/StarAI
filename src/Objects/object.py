@@ -141,11 +141,48 @@ class ThrustMarker(Object):
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
+
+class ThrustMarker(Object):
+    def __init__(self, x, y):
+        super().__init__(
+            name="ThrustMarker",
+            sprite_location=None,
+            size=[6, 6]
+        )
+        self.position = [x, y]
+        self.previous_position = self.position.copy()
+        self.life = Const.FPS/2
+        self.can_collide = False
+        self.can_expire = True
+        self.expiration_timer = self.life
+
+    def update(self):
+        self.expiration_timer -= 1
+        return self.expiration_timer > 0
+
+    def get_color(self):
+        fade_ratio = self.expiration_timer / 30
+        start_color = (255, 255, 0)
+        end_color = (100, 0, 0)
+        r = int(start_color[0] * fade_ratio + end_color[0] * (1 - fade_ratio))
+        g = int(start_color[1] * fade_ratio + end_color[1] * (1 - fade_ratio))
+        b = int(start_color[2] * fade_ratio + end_color[2] * (1 - fade_ratio))
+        return (r, g, b)
+
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
+        from src.Battle.interpolation import interpolated_position
+        pos = interpolated_position(self, interp_t)
+        screen_x = int((pos[0] + translation[0]) * scale_factor)
+        screen_y = int((pos[1] + translation[1]) * scale_factor)
+
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
                 if (0 <= pos_x <= Const.SCREEN_HEIGHT and
                         0 <= pos_y <= Const.SCREEN_HEIGHT):
-                    pygame.draw.circle(screen, self.get_color(), (Const.SCREEN_LEFT + pos_x, pos_y), 1.0 + 3.0*scale_factor)
+                    pygame.draw.circle(screen, self.get_color(), (int(Const.SCREEN_LEFT + pos_x), int(pos_y)), max(1.0, 1.0 + 3.0*scale_factor))
 
 class PlayerObject(Object):
     def __init__(self, name, sprite_location, size, player, sprite_scale):
@@ -158,6 +195,7 @@ class PlayerObject(Object):
         self.velocity = [0.0, 0.0]
         self.accumulated_impulses = [0.0, 0.0]
         self.heading = 0
+        self.previous_heading = 0
         self.rotation = 0.0
         self.can_move = True
 
@@ -255,11 +293,14 @@ class PlayerObject(Object):
             self.accumulated_impulses[0] += dx
             self.accumulated_impulses[1] += dy
 
-    def get_thrust_marker_position(self, thrust_angle=0):
-        angle_rad = math.radians(self.rotation + thrust_angle)
+    def get_thrust_marker_position(self, angle):
+        prev_heading = getattr(self, "previous_heading", getattr(self, "heading", 0))
+        import src.const as const
+        prev_rotation = prev_heading * const.TURN_ANGLE
+        angle_rad = math.radians(prev_rotation + angle)
         offset = (self.size[1] / 2) + 6
-        marker_x = self.position[0] - math.sin(angle_rad) * offset
-        marker_y = self.position[1] + math.cos(angle_rad) * offset
+        marker_x = (self.position[0] - math.sin(angle_rad) * offset) % const.ARENA_SIZE
+        marker_y = (self.position[1] + math.cos(angle_rad) * offset) % const.ARENA_SIZE
         return marker_x, marker_y
 
     def apply_thrust(self, max_thrust, thrust_increment, angle, make_marker):

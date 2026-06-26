@@ -1,46 +1,41 @@
 import pygame
-import math
 import os
+import sys
 
+# Setup for headless
+os.environ["SDL_VIDEODRIVER"] = "dummy"
 pygame.init()
-screen = pygame.display.set_mode((400, 400))
-screen.fill((0, 0, 0))
+pygame.display.set_mode((1, 1))
 
-radius = 100
-surf_size = radius * 2 + 12
-circle_surf = pygame.Surface((surf_size, surf_size), pygame.SRCALPHA)
-rect = pygame.Rect(6, 6, radius * 2, radius * 2)
-color = (255, 0, 0, 128)
+from src.Battle.battle import BattleSimulation
+from src.Objects.Ships.Earthling.Earthling import Earthling
+from src.Objects.Ships.Yehat.Yehat import Yehat
+from src.Battle.battle_draw import draw_battle
+from src.Battle.battle import StarFieldRenderer
 
-# Center of the surface
-cx, cy = surf_size // 2, surf_size // 2
+def test_run():
+    screen = pygame.display.set_mode((800, 600))
+    ship1 = Earthling("Earthling", 1)
+    ship2 = Yehat("Yehat", 2)
+    
+    sim = BattleSimulation(screen, ship1, ship2)
+    renderer = StarFieldRenderer()
+    
+    print("Starting simulation...")
+    for video_frame in range(30):
+        if video_frame % 2 == 0:
+            sim.step()
+        draw_battle(
+            screen,
+            sim.world,
+            sim.border_rect,
+            sim.border_color,
+            renderer,
+            is_paused=False,
+            interp_t=0.5
+        )
+        
+    print("Simulation completed successfully.")
 
-angles = [45, 135, 225, 315]
-dot_radius = 3 # 6px thickness
-
-for angle_deg in angles:
-    angle_rad = math.radians(angle_deg)
-    # Pygame arc goes counter-clockwise, 0 is right.
-    # We want top-left, top-right, bottom-left, bottom-right. 
-    # x = cx + radius * math.cos(angle)
-    # y = cy - radius * math.sin(angle)  # minus because y is down
-    x = cx + radius * math.cos(angle_rad)
-    y = cy - radius * math.sin(angle_rad)
-    pygame.draw.circle(circle_surf, color, (int(x), int(y)), dot_radius)
-
-screen.blit(circle_surf, (100, 100))
-
-# Also draw using arc for comparison
-circle_surf2 = pygame.Surface((surf_size, surf_size), pygame.SRCALPHA)
-arc_width_rad = math.radians(5) # 5 degrees wide
-for angle_deg in angles:
-    center_rad = math.radians(angle_deg)
-    start_angle = center_rad - arc_width_rad / 2
-    end_angle = center_rad + arc_width_rad / 2
-    pygame.draw.arc(circle_surf2, (0, 255, 0, 128), rect, start_angle, end_angle, 6)
-
-screen.blit(circle_surf2, (100, 100))
-
-pygame.display.flip()
-pygame.image.save(screen, "test_arc.png")
-pygame.quit()
+if __name__ == "__main__":
+    test_run()
