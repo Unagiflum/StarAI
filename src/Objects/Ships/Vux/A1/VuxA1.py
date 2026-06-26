@@ -22,17 +22,24 @@ class VuxA1(Ability):
         # A1 is fired from the front, directly forward
         angle_rad = math.radians(self.parent.rotation)
         spawn_distance = (self.parent.size[1]) / 2
-        self.position = [
+        self.start_position = [
             self.parent.position[0] + math.sin(angle_rad) * spawn_distance,
             self.parent.position[1] - math.cos(angle_rad) * spawn_distance,
         ]
+        self.position = self.start_position.copy()
         self.heading = self.parent.heading
         self.rotation = self.parent.rotation
 
     def calculate_end_position(self):
         angle_rad = math.radians(self.rotation)
-        self.end_position[0] = self.position[0] + math.sin(angle_rad) * self.LASER_RANGE
-        self.end_position[1] = self.position[1] - math.cos(angle_rad) * self.LASER_RANGE
+        spawn_distance = (self.parent.size[1]) / 2
+        self.start_position = [
+            self.parent.position[0] + math.sin(angle_rad) * spawn_distance,
+            self.parent.position[1] - math.cos(angle_rad) * spawn_distance,
+        ]
+        self.position = self.start_position.copy()
+        self.end_position[0] = self.start_position[0] + math.sin(angle_rad) * self.LASER_RANGE
+        self.end_position[1] = self.start_position[1] - math.cos(angle_rad) * self.LASER_RANGE
 
     def update(self):
         if not self.currently_alive:
@@ -59,7 +66,7 @@ class VuxA1(Ability):
         ]
 
         if getattr(self, "intercepted", False):
-            end_offset = wrapped_delta(self.position, self.end_position)
+            end_offset = wrapped_delta(self.start_position, self.end_position)
             draw_end_position = [
                 visual_pos[0] + end_offset[0],
                 visual_pos[1] + end_offset[1],
