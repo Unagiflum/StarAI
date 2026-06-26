@@ -497,58 +497,62 @@ def resolve_laser_hit(laser, target, effects, normal, contact, apply_impact):
     BattleEffect.play_boom(damage)
 
 
-def laser_impacts_ship(target, effects, normal, damage, contact):
-    damage_ship(target, damage)
-
-
-def laser_impacts_ability(target, effects, normal, damage, contact):
-    target.current_hp = max(0, target.current_hp - damage)
-    if target.current_hp <= 0:
-        destroy_projectile(target, effects, normal, damage, contact)
-
-
-def laser_impacts_asteroid(target, effects, normal, damage, contact):
-    destroy_asteroid(target, effects)
-
-
-def laser_impacts_planet(target, effects, normal, damage, contact):
-    pass
-
-
-def ship_is_laser_target(laser, target, explicit):
-    if target.current_hp <= 0:
-        return False
-    if explicit:
-        return True
-    return target.player != laser.player or (
-        target is laser.parent and laser.hit_parent
-    )
-
-
-def projectile_is_laser_target(laser, target, explicit):
-    if not (target.can_collide and target.currently_alive and target.current_hp > 0):
-        return False
-    return explicit or target.player != laser.player or laser.hit_self
-
-
-def fighter_is_laser_target(laser, target, explicit):
-    if not (target.can_collide and target.currently_alive and target.current_hp > 0):
-        return False
-    if explicit:
-        return True
-    return target is not laser.parent and target.laser_target_capabilities.vulnerable
-
-
-def asteroid_is_laser_target(laser, target, explicit):
-    return target.currently_alive
-
-
-def planet_is_laser_target(laser, target, explicit):
-    return True
+def apply_generic_laser_impact(target, effects, normal, damage, contact):
+    phys = getattr(target, "physical_collision_capabilities", None)
+    if not phys:
+        target.current_hp = max(0, target.current_hp - damage)
+        if target.current_hp <= 0:
+            destroy_projectile(target, effects, normal, damage, contact)
+        return
+        
+    if phys.is_projectile:
+        target.current_hp = max(0, target.current_hp - damage)
+        if target.current_hp <= 0:
+            destroy_projectile(target, effects, normal, damage, contact)
+    elif phys.is_immovable:
+        pass
+    elif phys.is_solid:
+        if hasattr(target, "player"):
+            damage_ship(target, damage)
+        else:
+            destroy_asteroid(target, effects)
 
 
 def generic_is_laser_target(laser, target, explicit):
-    return explicit and target.currently_alive
+    if not getattr(target, "currently_alive", True):
+        return False
+        
+    phys = getattr(target, "physical_collision_capabilities", None)
+    if not phys:
+        if not getattr(target, "can_collide", True) or getattr(target, "current_hp", 1) <= 0:
+            return False
+        if explicit:
+            return True
+        laser_target = getattr(target, "laser_target_capabilities", None)
+        if laser_target and laser_target.vulnerable:
+            return target is not laser.parent
+        return explicit
+
+    if phys.is_intangible:
+        return False
+        
+    if phys.is_projectile:
+        return getattr(target, "can_collide", True) and getattr(target, "current_hp", 1) > 0
+        
+    if phys.is_immovable:
+        return True
+        
+    if phys.is_solid:
+        if not hasattr(target, "player"):
+            return True
+        else:
+            if getattr(target, "current_hp", 1) <= 0:
+                return False
+            if explicit:
+                return True
+            return target.player != laser.player
+        
+    return explicit
 
 
 def destroy_projectile(projectile, effects, direction, damage, contact_position=None, attached_target=None):

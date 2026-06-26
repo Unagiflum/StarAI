@@ -41,22 +41,6 @@ _PAIR_COLLISION_HANDLERS = {
     (CollisionRole.FIGHTER, CollisionRole.PLANET): responses.fighter_impacts_planet,
 }
 
-_LASER_TARGET_POLICIES = {
-    CollisionRole.SHIP: responses.ship_is_laser_target,
-    CollisionRole.PROJECTILE: responses.projectile_is_laser_target,
-    CollisionRole.FIGHTER: responses.fighter_is_laser_target,
-    CollisionRole.ASTEROID: responses.asteroid_is_laser_target,
-    CollisionRole.PLANET: responses.planet_is_laser_target,
-    CollisionRole.NONE: responses.generic_is_laser_target,
-}
-
-_LASER_IMPACT_POLICIES = {
-    CollisionRole.SHIP: responses.laser_impacts_ship,
-    CollisionRole.PROJECTILE: responses.laser_impacts_ability,
-    CollisionRole.FIGHTER: responses.laser_impacts_ability,
-    CollisionRole.ASTEROID: responses.laser_impacts_asteroid,
-    CollisionRole.PLANET: responses.laser_impacts_planet,
-}
 
 _AREA_DAMAGE_IMPACT_POLICIES = {
     CollisionRole.SHIP: responses.area_damage_impacts_ship,
@@ -337,9 +321,7 @@ def _handle_laser_collisions(
 
 
 def _apply_laser_impact(target, effects, normal, damage, contact):
-    policy = _LASER_IMPACT_POLICIES.get(target.collision_capabilities.role)
-    if policy is not None:
-        policy(target, effects, normal, damage, contact)
+    responses.apply_generic_laser_impact(target, effects, normal, damage, contact)
 
 
 def _laser_targets(
@@ -380,12 +362,10 @@ def _laser_targets(
 
 
 def _laser_target_is_eligible(laser, target, explicit=False):
-    if not target.laser_target_capabilities.targetable:
-        return False
-    policy = _LASER_TARGET_POLICIES.get(target.collision_capabilities.role)
-    if policy is None:
-        return False
-    return policy(laser, target, explicit)
+    if not getattr(target.collision_capabilities, "role", None) == CollisionRole.FIGHTER:
+        if not target.laser_target_capabilities.targetable:
+            return False
+    return responses.generic_is_laser_target(laser, target, explicit)
 
 
 def _spawn_replacement_asteroids(
