@@ -16,7 +16,9 @@ class AudioService(Protocol):
     def start_battle_music(self) -> None: ...
     def stop_music(self) -> None: ...
     def play_victory_ditty(self, ship) -> None: ...
-    def play_effect(self, path: Path, volume: float = const.SOUND_EFFECT_VOLUME) -> float: ...
+    def play_effect(
+        self, path: Path, volume: float = const.SOUND_EFFECT_VOLUME
+    ) -> float: ...
     def load_effect(self, path: Path, volume: float = const.SOUND_EFFECT_VOLUME): ...
     def pause(self) -> None: ...
     def unpause(self) -> None: ...
@@ -29,6 +31,7 @@ class PygameAudioService:
         self.enabled = bool(enabled)
         if resources is None:
             from src.resources import default_assets
+
             resources = default_assets()
         self.resources = resources
 
@@ -41,12 +44,14 @@ class PygameAudioService:
     def stop_music(self):
         if self.enabled:
             import pygame
+
             pygame.mixer.music.stop()
 
     def play_victory_ditty(self, ship):
         if not self.enabled:
             return
         import pygame
+
         try:
             resources = getattr(ship, "resources", self.resources)
             resources.play_music(
@@ -71,6 +76,7 @@ class PygameAudioService:
     def pause(self):
         if self.enabled:
             import pygame
+
             pygame.mixer.pause()
             try:
                 pygame.mixer.music.pause()
@@ -80,6 +86,7 @@ class PygameAudioService:
     def unpause(self):
         if self.enabled:
             import pygame
+
             pygame.mixer.unpause()
             try:
                 pygame.mixer.music.unpause()

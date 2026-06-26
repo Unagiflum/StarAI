@@ -3,6 +3,7 @@ import src.const as const
 import math
 from src.toroidal import wrapped_delta
 
+
 class KohrAhA1(Ability):
     def __init__(self, parent):
         super().__init__("KohrAhA1", parent)
@@ -11,7 +12,7 @@ class KohrAhA1(Ability):
         self.TRACK_RANGE = ability_data.get("TRACK_RANGE", 900)
         self.is_moving = True
         self.original_speed = self.speed
-        self.expiration_timer = float('inf')  # Never expires unless removed manually
+        self.expiration_timer = float("inf")  # Never expires unless removed manually
         self.place_self()
 
     def stop_and_track(self):
@@ -23,14 +24,16 @@ class KohrAhA1(Ability):
         spawn_distance = const.PROJ_GAP + (self.size[1] + self.parent.size[1]) / 2
         self.position = [
             self.parent.position[0] + math.sin(angle_rad) * spawn_distance,
-            self.parent.position[1] - math.cos(angle_rad) * spawn_distance
+            self.parent.position[1] - math.cos(angle_rad) * spawn_distance,
         ]
         self.heading = 0
         self.rotation = self.parent.rotation
         angle_rad = math.radians(self.rotation)
         self.velocity = [
-            math.sin(angle_rad) * self.speed + self.parent.velocity[0] * self.parent_vel,
-            -math.cos(angle_rad) * self.speed + self.parent.velocity[1] * self.parent_vel
+            math.sin(angle_rad) * self.speed
+            + self.parent.velocity[0] * self.parent_vel,
+            -math.cos(angle_rad) * self.speed
+            + self.parent.velocity[1] * self.parent_vel,
         ]
 
     def update(self):
@@ -67,7 +70,7 @@ class KohrAhA1(Ability):
                 angle_rad = math.radians(target_angle)
                 self.velocity = [
                     math.sin(angle_rad) * self.TRACK_SPEED,
-                    -math.cos(angle_rad) * self.TRACK_SPEED
+                    -math.cos(angle_rad) * self.TRACK_SPEED,
                 ]
             else:
                 self.velocity = [0, 0]

@@ -2,20 +2,38 @@ import pygame
 from . import ui
 import src.const as Const
 
+
 class Slider:
-    def __init__(self, x, y, width, min_val, max_val, start_val, label, is_int=False, step=1,
-                 bg_color=ui.SLIDER_BG, hover_color=ui.SLIDER_BG_HI):
+    def __init__(
+        self,
+        x,
+        y,
+        width,
+        min_val,
+        max_val,
+        start_val,
+        label,
+        is_int=False,
+        step=1,
+        bg_color=ui.SLIDER_BG,
+        hover_color=ui.SLIDER_BG_HI,
+    ):
         self.bg_rect_height = int(0.08 * Const.SCREEN_HEIGHT)
         self.rect = pygame.Rect(x, y, width, self.bg_rect_height)
-        self.line_width = int(self.bg_rect_height/15)
-        self.padding_x = int(self.bg_rect_height/5)
-        self.padding_y = int(self.bg_rect_height/5)
-        self.handle_radius = int(self.bg_rect_height/8)
-        self.handle_offset = int(self.bg_rect_height*0.75)
-        self.bg_rect = pygame.Rect(self.rect.x, self.rect.y,
-                                   self.rect.width, self.bg_rect_height)
-        self.line_rect = pygame.Rect(self.rect.x + self.padding_x, self.rect.y + self.handle_offset - self.line_width,
-            self.rect.width - 2*self.padding_x, 2 * self.line_width)
+        self.line_width = int(self.bg_rect_height / 15)
+        self.padding_x = int(self.bg_rect_height / 5)
+        self.padding_y = int(self.bg_rect_height / 5)
+        self.handle_radius = int(self.bg_rect_height / 8)
+        self.handle_offset = int(self.bg_rect_height * 0.75)
+        self.bg_rect = pygame.Rect(
+            self.rect.x, self.rect.y, self.rect.width, self.bg_rect_height
+        )
+        self.line_rect = pygame.Rect(
+            self.rect.x + self.padding_x,
+            self.rect.y + self.handle_offset - self.line_width,
+            self.rect.width - 2 * self.padding_x,
+            2 * self.line_width,
+        )
 
         self.min_val = min_val
         self.max_val = max_val
@@ -28,7 +46,9 @@ class Slider:
         self.bg_color = (*bg_color, 255) if len(bg_color) == 3 else bg_color
         self.hover_color = (*hover_color, 255) if len(hover_color) == 3 else hover_color
         self.is_hovered = False
-        self.decimal_places = abs(len(str(self.step).split('.')[-1])) if '.' in str(self.step) else 0
+        self.decimal_places = (
+            abs(len(str(self.step).split(".")[-1])) if "." in str(self.step) else 0
+        )
         self.handle_x = self.value_to_position(self.value)
 
     def value_to_position(self, value):
@@ -52,21 +72,21 @@ class Slider:
                 handle_rect = self.get_handle_rect()
                 if handle_rect.collidepoint(event.pos):
                     if sound_manager:
-                        sound_manager.play_sound('menu')
+                        sound_manager.play_sound("menu")
                     self.dragging = True
                 elif self.line_rect.collidepoint(event.pos):
                     if sound_manager:
-                        sound_manager.play_sound('menu')
+                        sound_manager.play_sound("menu")
                     self.value = self.position_to_value(event.pos[0])
                     self.handle_x = self.value_to_position(self.value)
             elif self.is_hovered:  # Mouse wheel
                 if event.button == 4:  # Scroll up
                     if sound_manager:
-                        sound_manager.play_sound('menu')
+                        sound_manager.play_sound("menu")
                     self.adjust_value(True)
                 elif event.button == 5:  # Scroll down
                     if sound_manager:
-                        sound_manager.play_sound('menu')
+                        sound_manager.play_sound("menu")
                     self.adjust_value(False)
 
         elif event.type == pygame.MOUSEBUTTONUP:
@@ -76,7 +96,9 @@ class Slider:
             self.is_hovered = self.bg_rect.collidepoint(mouse_pos)
 
             if self.dragging:
-                mouse_x = max(self.rect.x, min(self.rect.x + self.rect.width, event.pos[0]))
+                mouse_x = max(
+                    self.rect.x, min(self.rect.x + self.rect.width, event.pos[0])
+                )
                 self.value = self.position_to_value(mouse_x)
                 self.handle_x = self.value_to_position(self.value)
 
@@ -85,7 +107,7 @@ class Slider:
             self.handle_x - self.handle_radius,
             self.rect.y - self.handle_radius + self.handle_offset,
             self.handle_radius * 2,
-            self.handle_radius * 2
+            self.handle_radius * 2,
         )
 
     def draw(self, surface, font):
@@ -97,13 +119,19 @@ class Slider:
 
         # Draw slider line and handle
         pygame.draw.rect(surface, ui.SLIDER_LINE, self.line_rect)
-        pygame.draw.circle(surface, ui.HANDLE_COLOR, (self.handle_x, self.rect.y + self.handle_offset),
-                           self.handle_radius)
+        pygame.draw.circle(
+            surface,
+            ui.HANDLE_COLOR,
+            (self.handle_x, self.rect.y + self.handle_offset),
+            self.handle_radius,
+        )
 
         # Draw label
         label_text = f"{self.label}: {self.format_value()}"
         label_surf = font.render(label_text, True, ui.WHITE)
-        label_rect = label_surf.get_rect(topleft=(self.line_rect.x, self.rect.y + self.padding_y))
+        label_rect = label_surf.get_rect(
+            topleft=(self.line_rect.x, self.rect.y + self.padding_y)
+        )
         surface.blit(label_surf, label_rect)
 
     def format_value(self):

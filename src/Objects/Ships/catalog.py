@@ -323,30 +323,48 @@ def _int_pair_tuple(kind, name, data, field_name):
             )
         )
     return tuple(result)
+
+
 def parse_ship_definition(name, data):
     """Validate one JSON ship object and return its immutable definition."""
     kind = "Ship"
     data = _entry_mapping(kind, name, data)
     allowed = set(ShipDefinition._json_key_to_attribute)
     required = allowed - {
-        "sprite_scale", "menu_overlay_path", "FADE_DURATION", "SAW_COUNT",
+        "sprite_scale",
+        "menu_overlay_path",
+        "FADE_DURATION",
+        "SAW_COUNT",
         "GAS_COUNT",
-        "initial_rebirth_chance", "rebirth_chance_decay",
+        "initial_rebirth_chance",
+        "rebirth_chance_decay",
     }
     _check_keys(kind, name, data, allowed, required)
 
     string_fields = ("ship_type", "sprite_path")
     integer_fields = (
-        "cost", "max_hp", "start_hp", "max_energy", "start_energy",
-        "energy_regen", "energy_wait", "a1_cost", "a2_cost", "a3_cost",
+        "cost",
+        "max_hp",
+        "start_hp",
+        "max_energy",
+        "start_energy",
+        "energy_regen",
+        "energy_wait",
+        "a1_cost",
+        "a2_cost",
+        "a3_cost",
     )
     number_fields = (
-        "max_thrust", "thrust_increment", "thrust_wait", "turn_wait",
-        "a1_wait", "a2_wait", "a3_wait", "mass",
+        "max_thrust",
+        "thrust_increment",
+        "thrust_wait",
+        "turn_wait",
+        "a1_wait",
+        "a2_wait",
+        "a3_wait",
+        "mass",
     )
-    values = {
-        key: _typed(kind, name, key, data[key], str) for key in string_fields
-    }
+    values = {key: _typed(kind, name, key, data[key], str) for key in string_fields}
     values.update(
         {key: _typed(kind, name, key, data[key], int) for key in integer_fields}
     )
@@ -360,9 +378,7 @@ def parse_ship_definition(name, data):
     values["menu_overlay_path"] = _optional_typed(
         kind, name, data, "menu_overlay_path", str, None
     )
-    values["fade_duration"] = _optional_typed(
-        kind, name, data, "FADE_DURATION", int, 8
-    )
+    values["fade_duration"] = _optional_typed(kind, name, data, "FADE_DURATION", int, 8)
     values["saw_count"] = _optional_typed(kind, name, data, "SAW_COUNT", int, 8)
     values["gas_count"] = _optional_typed(kind, name, data, "GAS_COUNT", int, 16)
     values["initial_rebirth_chance"] = _optional_typed(
@@ -402,19 +418,56 @@ def parse_ability_definition(name, data):
     data = _entry_mapping(kind, name, data)
     allowed = set(AbilityDefinition._json_key_to_attribute)
     optional = {
-        "turn_wait", "end_anim", "sprite_scale", "sprite_scale_x",
-        "sprite_scale_y", "frames", "frame_delay",
-        "has_sprites", "has_sound", "laser_vulnerable", "collide_planets",
-        "collide_asteroids", "damage_asteroids", "collide_projectiles",
-        "damage_projectiles", "collide_enemy_ships", "collide_friendly_ships",
-        "collide_fighters", "range", "one_way_flight", "life_margin",
-        "launch_time", "mass", "offset", "track_directions", "weapon_wait",
-        "LASER_RANGE", "LASER_COLOR", "LASER_WIDTH", "MAX_RECOIL",
-        "RECOIL_INCREMENT", "ENERGY_GAIN", "HP_GAIN", "TRACK_SPEED",
-        "TRACK_RANGE", "DMG_TO_PROJ", "REUNK_THRUST", "REUNK_INCREMENT",
-        "SPREAD_ANGLE", "max_thrust", "thrust_increment", "thrust_wait",
-        "look_ahead", "max_marines", "spiral_distance", "retraction_frames",
-        "advancing_frames", "retracting_frames", "area_width", "area_length",
+        "turn_wait",
+        "end_anim",
+        "sprite_scale",
+        "sprite_scale_x",
+        "sprite_scale_y",
+        "frames",
+        "frame_delay",
+        "has_sprites",
+        "has_sound",
+        "laser_vulnerable",
+        "collide_planets",
+        "collide_asteroids",
+        "damage_asteroids",
+        "collide_projectiles",
+        "damage_projectiles",
+        "collide_enemy_ships",
+        "collide_friendly_ships",
+        "collide_fighters",
+        "range",
+        "one_way_flight",
+        "life_margin",
+        "launch_time",
+        "mass",
+        "offset",
+        "track_directions",
+        "weapon_wait",
+        "LASER_RANGE",
+        "LASER_COLOR",
+        "LASER_WIDTH",
+        "MAX_RECOIL",
+        "RECOIL_INCREMENT",
+        "ENERGY_GAIN",
+        "HP_GAIN",
+        "TRACK_SPEED",
+        "TRACK_RANGE",
+        "DMG_TO_PROJ",
+        "REUNK_THRUST",
+        "REUNK_INCREMENT",
+        "SPREAD_ANGLE",
+        "max_thrust",
+        "thrust_increment",
+        "thrust_wait",
+        "look_ahead",
+        "max_marines",
+        "spiral_distance",
+        "retraction_frames",
+        "advancing_frames",
+        "retracting_frames",
+        "area_width",
+        "area_length",
         "gun_locations",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
@@ -433,29 +486,45 @@ def parse_ability_definition(name, data):
         values[key] = _typed(kind, name, key, data[key], float)
 
     defaults = {
-        "turn_wait": (float, 0), "end_anim": (int, 0),
-        "sprite_scale": (float, 1.0), "frames": (int, 1),
-        "sprite_scale_x": (float, 1.0), "sprite_scale_y": (float, 1.0),
-        "frame_delay": (int, 0), "has_sprites": (bool, True),
-        "has_sound": (bool, True), "laser_vulnerable": (bool, True),
-        "collide_planets": (bool, True), "collide_asteroids": (bool, True),
-        "damage_asteroids": (bool, True), "collide_projectiles": (bool, True),
-        "damage_projectiles": (bool, True), "collide_enemy_ships": (bool, True),
-        "collide_friendly_ships": (bool, False), "collide_fighters": (bool, True),
+        "turn_wait": (float, 0),
+        "end_anim": (int, 0),
+        "sprite_scale": (float, 1.0),
+        "frames": (int, 1),
+        "sprite_scale_x": (float, 1.0),
+        "sprite_scale_y": (float, 1.0),
+        "frame_delay": (int, 0),
+        "has_sprites": (bool, True),
+        "has_sound": (bool, True),
+        "laser_vulnerable": (bool, True),
+        "collide_planets": (bool, True),
+        "collide_asteroids": (bool, True),
+        "damage_asteroids": (bool, True),
+        "collide_projectiles": (bool, True),
+        "damage_projectiles": (bool, True),
+        "collide_enemy_ships": (bool, True),
+        "collide_friendly_ships": (bool, False),
+        "collide_fighters": (bool, True),
     }
     for key, (expected_type, default) in defaults.items():
         values[key] = _optional_typed(kind, name, data, key, expected_type, default)
 
     optional_fields = {
-        "range": ("effect_range", float), "one_way_flight": ("one_way_flight", float),
+        "range": ("effect_range", float),
+        "one_way_flight": ("one_way_flight", float),
         "life_margin": ("life_margin", float),
-        "launch_time": ("launch_time", float), "mass": ("mass", float),
-        "offset": ("offset", float), "track_directions": ("track_directions", int),
-        "weapon_wait": ("weapon_wait", float), "LASER_RANGE": ("laser_range", float),
-        "LASER_WIDTH": ("laser_width", int), "MAX_RECOIL": ("max_recoil", float),
+        "launch_time": ("launch_time", float),
+        "mass": ("mass", float),
+        "offset": ("offset", float),
+        "track_directions": ("track_directions", int),
+        "weapon_wait": ("weapon_wait", float),
+        "LASER_RANGE": ("laser_range", float),
+        "LASER_WIDTH": ("laser_width", int),
+        "MAX_RECOIL": ("max_recoil", float),
         "RECOIL_INCREMENT": ("recoil_increment", float),
-        "ENERGY_GAIN": ("energy_gain", int), "HP_GAIN": ("hp_gain", int),
-        "TRACK_SPEED": ("track_speed", float), "TRACK_RANGE": ("track_range", float),
+        "ENERGY_GAIN": ("energy_gain", int),
+        "HP_GAIN": ("hp_gain", int),
+        "TRACK_SPEED": ("track_speed", float),
+        "TRACK_RANGE": ("track_range", float),
         "DMG_TO_PROJ": ("damage_to_projectiles", int),
         "REUNK_THRUST": ("reunk_thrust", float),
         "REUNK_INCREMENT": ("reunk_increment", float),
@@ -477,9 +546,7 @@ def parse_ability_definition(name, data):
             kind, name, data, json_key, expected_type, None
         )
     if "LASER_COLOR" in data:
-        values["laser_color"] = _int_tuple(
-            kind, name, data, "LASER_COLOR", length=3
-        )
+        values["laser_color"] = _int_tuple(kind, name, data, "LASER_COLOR", length=3)
         if any(channel < 0 or channel > 255 for channel in values["laser_color"]):
             raise CatalogValidationError(
                 f"Ability '{name}' LASER_COLOR channels must be between 0 and 255"
@@ -487,15 +554,18 @@ def parse_ability_definition(name, data):
     else:
         values["laser_color"] = None
     if "gun_locations" in data:
-        values["gun_locations"] = _int_pair_tuple(
-            kind, name, data, "gun_locations"
-        )
+        values["gun_locations"] = _int_pair_tuple(kind, name, data, "gun_locations")
     else:
         values["gun_locations"] = None
     values["_source_keys"] = tuple(data)
 
     if values["ability_type"] not in {
-        "area", "fighter", "laser", "other", "projectile", "shield"
+        "area",
+        "fighter",
+        "laser",
+        "other",
+        "projectile",
+        "shield",
     }:
         raise CatalogValidationError(f"Ability '{name}' has unsupported type")
     if values["action"] not in {"A1", "A2", "A3"}:
@@ -517,7 +587,9 @@ def build_catalogs(ship_entries, ability_entries):
         raise CatalogValidationError("Ship catalog must be a JSON object")
     if not isinstance(ability_entries, Mapping):
         raise CatalogValidationError("Ability catalog must be a JSON object")
-    ships = {name: parse_ship_definition(name, data) for name, data in ship_entries.items()}
+    ships = {
+        name: parse_ship_definition(name, data) for name, data in ship_entries.items()
+    }
     abilities = {
         name: parse_ability_definition(name, data)
         for name, data in ability_entries.items()

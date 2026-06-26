@@ -12,6 +12,7 @@ class KzerZaA2(Ability):
     LAUNCHING = "launching"
     ATTACKING = "attacking"
     RETURNING = "returning"
+
     def __init__(self, parent, launch_angle=0, formation_index=0):
         super().__init__("KzerZaA2", parent)
         data = ABILITIES_DATA["KzerZaA2"]
@@ -55,7 +56,7 @@ class KzerZaA2(Ability):
                 angle = math.radians(self.rotation)
                 dest = [
                     self.position[0] + math.sin(angle) * 1000,
-                    self.position[1] - math.cos(angle) * 1000
+                    self.position[1] - math.cos(angle) * 1000,
                 ]
                 self._move_around_planet(dest)
             else:
@@ -98,17 +99,13 @@ class KzerZaA2(Ability):
             self._update_weapon(target)
         return True
 
-
     def _destination(self, target):
         if self.mode == self.RETURNING:
             return self.parent.position.copy() if self._parent_alive() else None
         if target is None:
             return None
 
-        flank_destinations = [
-            self._attack_position(target, side)
-            for side in (90, 270)
-        ]
+        flank_destinations = [self._attack_position(target, side) for side in (90, 270)]
         destination = min(
             flank_destinations,
             key=lambda position: sum(
@@ -131,8 +128,10 @@ class KzerZaA2(Ability):
     def _attack_position(self, target, angle_offset):
         angle = math.radians((target.rotation + angle_offset) % 360)
         return [
-            (target.position[0] + math.sin(angle) * self.laser_range) % const.ARENA_SIZE,
-            (target.position[1] - math.cos(angle) * self.laser_range) % const.ARENA_SIZE,
+            (target.position[0] + math.sin(angle) * self.laser_range)
+            % const.ARENA_SIZE,
+            (target.position[1] - math.cos(angle) * self.laser_range)
+            % const.ARENA_SIZE,
         ]
 
     def _move_toward(self, destination):
@@ -145,8 +144,12 @@ class KzerZaA2(Ability):
         velocity_speed = min(self.speed, distance / const.SPEED_SCALE)
         self.velocity = [dx / distance * velocity_speed, dy / distance * velocity_speed]
         self._update_rotation_from_vector(dx, dy)
-        self.position[0] = (self.position[0] + self.velocity[0] * const.SPEED_SCALE) % const.ARENA_SIZE
-        self.position[1] = (self.position[1] + self.velocity[1] * const.SPEED_SCALE) % const.ARENA_SIZE
+        self.position[0] = (
+            self.position[0] + self.velocity[0] * const.SPEED_SCALE
+        ) % const.ARENA_SIZE
+        self.position[1] = (
+            self.position[1] + self.velocity[1] * const.SPEED_SCALE
+        ) % const.ARENA_SIZE
 
     def _is_at_position(self, destination):
         dx, dy = wrapped_delta(self.position, destination)
@@ -165,8 +168,12 @@ class KzerZaA2(Ability):
             self.planet_avoidance = (planet, tangent)
         self.velocity = [tangent[0] * self.speed, tangent[1] * self.speed]
         self._update_rotation_from_vector(*self.velocity)
-        self.position[0] = (self.position[0] + self.velocity[0] * const.SPEED_SCALE) % const.ARENA_SIZE
-        self.position[1] = (self.position[1] + self.velocity[1] * const.SPEED_SCALE) % const.ARENA_SIZE
+        self.position[0] = (
+            self.position[0] + self.velocity[0] * const.SPEED_SCALE
+        ) % const.ARENA_SIZE
+        self.position[1] = (
+            self.position[1] + self.velocity[1] * const.SPEED_SCALE
+        ) % const.ARENA_SIZE
 
     def begin_planet_avoidance(self, planet, outward_normal):
         tangent = [-outward_normal[1], outward_normal[0]]
@@ -224,7 +231,7 @@ class KzerZaA2(Ability):
         angle = math.radians(angle_degrees)
         self.velocity = [
             math.sin(angle) * speed + self.parent.velocity[0] * self.parent_vel,
-            -math.cos(angle) * speed + self.parent.velocity[1] * self.parent_vel
+            -math.cos(angle) * speed + self.parent.velocity[1] * self.parent_vel,
         ]
         self._update_rotation_from_vector(*self.velocity)
 

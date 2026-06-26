@@ -8,6 +8,7 @@ from src.Battle.collision_geometry import (
     distance_between,
     laser_hit_info,
 )
+
 # BattleEffect remains exposed here for existing callers and test patches.
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
@@ -43,12 +44,24 @@ _PAIR_COLLISION_HANDLERS = {
     (CollisionRole.SHIP, CollisionRole.ASTEROID): responses.ship_impacts_asteroid,
     (CollisionRole.SHIP, CollisionRole.PLANET): responses.ship_impacts_planet,
     (CollisionRole.ASTEROID, CollisionRole.PLANET): _asteroid_impacts_planet,
-    (CollisionRole.PROJECTILE, CollisionRole.PROJECTILE): responses.projectile_impacts_projectile,
+    (
+        CollisionRole.PROJECTILE,
+        CollisionRole.PROJECTILE,
+    ): responses.projectile_impacts_projectile,
     (CollisionRole.PROJECTILE, CollisionRole.SHIP): responses.projectile_impacts_ship,
-    (CollisionRole.PROJECTILE, CollisionRole.ASTEROID): responses.projectile_impacts_asteroid,
-    (CollisionRole.PROJECTILE, CollisionRole.PLANET): responses.projectile_impacts_planet,
+    (
+        CollisionRole.PROJECTILE,
+        CollisionRole.ASTEROID,
+    ): responses.projectile_impacts_asteroid,
+    (
+        CollisionRole.PROJECTILE,
+        CollisionRole.PLANET,
+    ): responses.projectile_impacts_planet,
     (CollisionRole.FIGHTER, CollisionRole.FIGHTER): responses.fighter_impacts_fighter,
-    (CollisionRole.FIGHTER, CollisionRole.PROJECTILE): responses.fighter_impacts_projectile,
+    (
+        CollisionRole.FIGHTER,
+        CollisionRole.PROJECTILE,
+    ): responses.fighter_impacts_projectile,
     (CollisionRole.FIGHTER, CollisionRole.SHIP): responses.fighter_impacts_ship,
     (CollisionRole.FIGHTER, CollisionRole.ASTEROID): responses.fighter_impacts_asteroid,
     (CollisionRole.FIGHTER, CollisionRole.PLANET): responses.fighter_impacts_planet,
@@ -110,7 +123,7 @@ def _dispatch_unique_collision_pairs(
     for index, first in enumerate(objects):
         if not first_is_active(first):
             continue
-        for second in objects[index + 1:]:
+        for second in objects[index + 1 :]:
             _dispatch_collision_pair(first, second, effects, environment)
 
 
@@ -203,18 +216,16 @@ def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):
             if damage <= 0:
                 continue
 
-            policy = _AREA_DAMAGE_IMPACT_POLICIES[
-                target.collision_capabilities.role
-            ]
+            policy = _AREA_DAMAGE_IMPACT_POLICIES[target.collision_capabilities.role]
             policy(target, effects, delta, distance, damage)
             if ability.area_damage_capabilities.plays_impact_sound:
                 BattleEffect.play_boom(damage)
             ability.on_area_damage_hit(target, damage)
 
         ability.area_damage_pending = bool(
-            ability.area_damage_capabilities.persistent
-            and ability.currently_alive
+            ability.area_damage_capabilities.persistent and ability.currently_alive
         )
+
 
 def _handle_ship_ship_collisions(ships, effects=None):
     if effects is None:
@@ -250,9 +261,7 @@ def _handle_asteroid_planet_collisions(asteroids, planets, ships, effects):
 
 
 def _handle_projectile_projectile_collisions(projectiles, effects):
-    _dispatch_unique_collision_pairs(
-        projectiles, effects, responses.is_live_projectile
-    )
+    _dispatch_unique_collision_pairs(projectiles, effects, responses.is_live_projectile)
 
 
 def _handle_projectile_ship_collisions(projectiles, ships, effects):
@@ -314,7 +323,8 @@ def _handle_laser_collisions(
             excluded_ids,
         )
         hit_infos = [
-            hit_info for hit_info in (laser_hit_info(laser, target) for target in targets)
+            hit_info
+            for hit_info in (laser_hit_info(laser, target) for target in targets)
             if hit_info is not None
         ]
         if not hit_infos:
@@ -355,17 +365,16 @@ def _laser_targets(
             [explicit_target]
             if (
                 id(explicit_target) not in excluded_ids
-                and _laser_target_is_eligible(
-                    laser, explicit_target, explicit=True
-                )
+                and _laser_target_is_eligible(laser, explicit_target, explicit=True)
             )
             else []
         )
         targets.extend(
-            fighter for fighter in fighters
+            fighter
+            for fighter in fighters
             if (
-                fighter is not explicit_target and
-                _laser_target_is_eligible(laser, fighter)
+                fighter is not explicit_target
+                and _laser_target_is_eligible(laser, fighter)
             )
         )
         return targets
@@ -373,10 +382,7 @@ def _laser_targets(
     targets = [
         target
         for target in (*ships, *projectiles, *fighters, *asteroids, *planets)
-        if (
-            id(target) not in excluded_ids
-            and _laser_target_is_eligible(laser, target)
-        )
+        if (id(target) not in excluded_ids and _laser_target_is_eligible(laser, target))
     ]
     return sorted(targets, key=lambda target: distance_between(laser.parent, target))
 

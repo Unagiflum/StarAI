@@ -149,8 +149,7 @@ class TrainingSettingsCodec:
 
     def encode(self, settings: TrainingSettings) -> dict[str, int | float]:
         return {
-            name: self._value(name, value)
-            for name, value in settings.to_dict().items()
+            name: self._value(name, value) for name, value in settings.to_dict().items()
         }
 
 
@@ -201,7 +200,8 @@ class FleetsCodec:
         if not isinstance(raw_ships, list):
             raw_ships = []
         ships = tuple(
-            name for name in raw_ships
+            name
+            for name in raw_ships
             if isinstance(name, str) and name in self.ship_names
         )
         ai = value.get("ai", False)

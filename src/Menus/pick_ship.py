@@ -17,7 +17,6 @@ from src.Battle import battle
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS
 from src.Objects.Ships.registry import create_ship, preload_ship_ability_resources
 
-
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT * 0.08)
 HIGHLIGHT_COLOR = (50, 50, 75)
 ACTIVE_SELECTION_COLOR = (255, 196, 64)
@@ -26,17 +25,13 @@ LOCKED_COLOR = (120, 120, 120)
 BANNER_ALPHA = 175
 FLEET_ICON_SIZE = Const.FLEET_ICON_SIZE
 X_COLOR = (255, 100, 100, 100)
-X_THICKNESS = int(0.2*FLEET_ICON_SIZE[0])
+X_THICKNESS = int(0.2 * FLEET_ICON_SIZE[0])
+
 
 def draw_x(surface, rect):
     """Draw a red X in a square box sized to the largest ship dimension."""
     size = FLEET_ICON_SIZE[0]
-    x_rect = pygame.Rect(
-        rect.centerx - size // 2,
-        rect.centery - size // 2,
-        size,
-        size
-    )
+    x_rect = pygame.Rect(rect.centerx - size // 2, rect.centery - size // 2, size, size)
 
     x_surface = pygame.Surface((size, size), pygame.SRCALPHA)
     pygame.draw.line(x_surface, X_COLOR, (0, 0), (size, size), X_THICKNESS)
@@ -74,13 +69,23 @@ def load_ships_data(ships_data):
     return ships_data, load_menu_ship_sprites(ships_data)
 
 
-def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
-        preselect_player1=None, preselect_player2=None, choose_second_player=None,
-        audio_service=None, menu_sound_manager=None):
+def run(
+    screen,
+    player1_ships=None,
+    player2_ships=None,
+    start_battle=True,
+    preselect_player1=None,
+    preselect_player2=None,
+    choose_second_player=None,
+    audio_service=None,
+    menu_sound_manager=None,
+):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.03))
     state_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.025))
-    background = ui.load_background(Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT)
+    background = ui.load_background(
+        Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT
+    )
 
     if player1_ships is None or player2_ships is None:
         fleet_data, player1_ships, player2_ships = load_fleet_data(audio_service)
@@ -101,7 +106,6 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
     global X_THICKNESS
     X_THICKNESS = int(0.2 * fleet_size)
 
-
     LEFT_COLUMN_START = int(0.033 * Const.SCREEN_WIDTH)
     RIGHT_COLUMN_START = int(Const.SCREEN_WIDTH // 2 + (0.016 * Const.SCREEN_WIDTH))
 
@@ -115,12 +119,13 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
 
     columns = {1: LEFT_COLUMN_START, 2: RIGHT_COLUMN_START}
     panels = ui_box.create_player_fleet_panels(
-        columns, FLEET_TOP, ui.SELECTION_WIDTH, ui.FLEET_HEIGHT,
+        columns,
+        FLEET_TOP,
+        ui.SELECTION_WIDTH,
+        ui.FLEET_HEIGHT,
         FLEET_ICON_SIZE,
     )
-    fleet_sprites = scale_ship_sprites(
-        original_sprites, fleet_size, SHIP_DEFINITIONS
-    )
+    fleet_sprites = scale_ship_sprites(original_sprites, fleet_size, SHIP_DEFINITIONS)
     selection_sprites = scale_ship_sprites(
         original_sprites, SELECTION_BOX_SIZE, SHIP_DEFINITIONS
     )
@@ -141,12 +146,16 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
 
     selection_rects = {
         1: pygame.Rect(
-            SELECTION_L_LEFT, SELECTION_TOP,
-            SELECTION_BOX_SIZE, SELECTION_BOX_SIZE,
+            SELECTION_L_LEFT,
+            SELECTION_TOP,
+            SELECTION_BOX_SIZE,
+            SELECTION_BOX_SIZE,
         ),
         2: pygame.Rect(
-            SELECTION_R_LEFT, SELECTION_TOP,
-            SELECTION_BOX_SIZE, SELECTION_BOX_SIZE,
+            SELECTION_R_LEFT,
+            SELECTION_TOP,
+            SELECTION_BOX_SIZE,
+            SELECTION_BOX_SIZE,
         ),
     }
     selection_state = ShipSelectionState(
@@ -227,7 +236,9 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             "Pick Random",
             lambda player=player: pick_random(player),
             bg_color=(*Const.P1_COLOR, 75) if player == 1 else (*Const.P2_COLOR, 75),
-            hover_color=(*Const.P1_COLOR, 255) if player == 1 else (*Const.P2_COLOR, 255),
+            hover_color=(
+                (*Const.P1_COLOR, 255) if player == 1 else (*Const.P2_COLOR, 255)
+            ),
         )
         for player in (1, 2)
     }
@@ -260,7 +271,7 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
         "Confirm",
         confirm_callback,
         bg_color=ui.DISABLED_BUTTON,
-        hover_color=ui.DISABLED_BUTTON
+        hover_color=ui.DISABLED_BUTTON,
     )
 
     cancel_button = ui_button.Button(
@@ -271,7 +282,7 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
         "Cancel",
         lambda: None,
         bg_color=ui.CAN_RED,
-        hover_color=ui.CAN_RED_HI
+        hover_color=ui.CAN_RED_HI,
     )
 
     running = True
@@ -291,13 +302,14 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
 
                 for player in (1, 2):
                     panel = panels[player]
-                    if (panel.rect.collidepoint(mouse_pos)
-                            and selection_state.selection_allowed(player)):
+                    if panel.rect.collidepoint(
+                        mouse_pos
+                    ) and selection_state.selection_allowed(player):
                         for index, (_, _, _, rect) in enumerate(panel.ships):
                             if rect and rect.collidepoint(mouse_pos):
                                 if selection_state.select_index(player, index):
                                     if menu_sound_manager:
-                                        menu_sound_manager.play_sound('menu')
+                                        menu_sound_manager.play_sound("menu")
                                 break
                         break
 
@@ -307,12 +319,14 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if cancel_button.rect.collidepoint(event.pos):
                     if menu_sound_manager:
-                        menu_sound_manager.play_sound('menu')
+                        menu_sound_manager.play_sound("menu")
                     running = False
-                elif (confirm_button.rect.collidepoint(event.pos)
-                      and selection_state.confirmation_ready):
+                elif (
+                    confirm_button.rect.collidepoint(event.pos)
+                    and selection_state.confirmation_ready
+                ):
                     if menu_sound_manager:
-                        menu_sound_manager.play_sound('menu')
+                        menu_sound_manager.play_sound("menu")
                     return confirm_callback()
 
         if selection_state.confirmation_ready:
@@ -348,7 +362,9 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                 )
                 title_size = int(Const.SCREEN_HEIGHT * 0.055)
         elif survivor_locked_players:
-            selecting_players = [player for player in (1, 2) if player not in survivor_locked_players]
+            selecting_players = [
+                player for player in (1, 2) if player not in survivor_locked_players
+            ]
             if both_selected:
                 title = "Both Players Ready"
             elif selecting_players:
@@ -373,7 +389,8 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
                 highlight_rect = pygame.Rect(
                     rect.centerx - FLEET_ICON_SIZE[0] // 2,
                     rect.centery - FLEET_ICON_SIZE[1] // 2,
-                    FLEET_ICON_SIZE[0], FLEET_ICON_SIZE[1],
+                    FLEET_ICON_SIZE[0],
+                    FLEET_ICON_SIZE[1],
                 )
                 pygame.draw.rect(screen, HIGHLIGHT_COLOR, highlight_rect)
 
@@ -395,8 +412,7 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             active_color = Const.P1_COLOR if active_player == 1 else Const.P2_COLOR
             pygame.draw.rect(screen, active_color, active_panel.rect, 4)
             active_badge = (
-                "SELECT FIRST" if not selection_state.first_locked
-                else "SELECT SECOND"
+                "SELECT FIRST" if not selection_state.first_locked else "SELECT SECOND"
             )
             draw_panel_badge(active_panel, active_badge, active_color)
         elif survivor_locked_players:
@@ -425,7 +441,11 @@ def run(screen, player1_ships=None, player2_ships=None, start_battle=True,
             if selection_state.selection(player) is None:
                 continue
             if player in visually_locked_players:
-                label = "SURVIVOR LOCKED" if player in survivor_locked_players else "SELECTION LOCKED"
+                label = (
+                    "SURVIVOR LOCKED"
+                    if player in survivor_locked_players
+                    else "SELECTION LOCKED"
+                )
                 draw_selection_label(
                     selection_rect, label, LOCKED_COLOR, show_lock=True
                 )

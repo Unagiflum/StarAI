@@ -8,7 +8,6 @@ import pygame
 import src.const as const
 from src.entry_styles import EntryTrailStyle, STANDARD_ENTRY_TRAIL
 
-
 YELLOW = (255, 255, 0)
 RED = (255, 0, 0)
 BLACK = (0, 0, 0)
@@ -45,23 +44,18 @@ def silhouette_lines(ship, style=STANDARD_ENTRY_TRAIL, arrival_position=None):
     """Return styled trail lines ordered from farthest to nearest."""
     arrival_position = arrival_position or ship.position
     count = const.ENTRY_TRAIL_SILHOUETTES
-    distances = tuple(
-        style.spacing * index for index in range(count - 1, -1, -1)
-    )
+    distances = tuple(style.spacing * index for index in range(count - 1, -1, -1))
 
     return tuple(
         tuple(
             (
-                (arrival_position[0] - direction_x * distance)
-                % const.ARENA_SIZE,
-                (arrival_position[1] - direction_y * distance)
-                % const.ARENA_SIZE,
+                (arrival_position[0] - direction_x * distance) % const.ARENA_SIZE,
+                (arrival_position[1] - direction_y * distance) % const.ARENA_SIZE,
             )
             for distance in distances
         )
         for direction_x, direction_y in (
-            _direction(ship.rotation + angle)
-            for angle in style.angles
+            _direction(ship.rotation + angle) for angle in style.angles
         )
     )
 
@@ -110,19 +104,14 @@ def start_entry(
         for ship, style in (trail_styles or {}).items()
         if ship in entering_set
     }
-    arrival_targets = {
-        ship: tuple(ship.position)
-        for ship in entering_ships
-    }
+    arrival_targets = {ship: tuple(ship.position) for ship in entering_ships}
     trackable_states = {
-        ship: getattr(ship, "trackable", True)
-        for ship in entering_ships
+        ship: getattr(ship, "trackable", True) for ship in entering_ships
     }
     for ship in entering_ships:
         ship.trackable = False
     camera_targets = tuple(
-        FixedCameraTarget(arrival_targets[ship])
-        if ship in entering_set else ship
+        FixedCameraTarget(arrival_targets[ship]) if ship in entering_set else ship
         for ship in (player1, player2)
     )
     return EntryState(
@@ -142,8 +131,7 @@ def finish_entry(entry):
 
 def entry_duration_frames():
     return (
-        (const.ENTRY_TRAIL_SILHOUETTES - 1)
-        * const.ENTRY_TRAIL_STAGGER_FRAMES
+        (const.ENTRY_TRAIL_SILHOUETTES - 1) * const.ENTRY_TRAIL_STAGGER_FRAMES
         + const.ENTRY_TRAIL_FADE_FRAMES
         + 1
     )
@@ -179,16 +167,12 @@ def draw_entry_silhouettes(
 ):
     for ship in entry.entering_ships:
         mask = ship.masks[const.heading_to_sprite_index(ship.heading)]
-        for position, color in visible_silhouettes(
-            entry, ship, frame_id
-        ):
+        for position, color in visible_silhouettes(entry, ship, frame_id):
             silhouette = mask.to_surface(
                 setcolor=(*color, 255),
                 unsetcolor=(0, 0, 0, 0),
             )
-            scaled = pygame.transform.smoothscale_by(
-                silhouette, scale_factor
-            )
+            scaled = pygame.transform.smoothscale_by(silhouette, scale_factor)
             _draw_wrapped(
                 screen,
                 scaled,

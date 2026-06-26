@@ -17,7 +17,7 @@ class Pkunk(SpaceShip):
     @property
     def current_rebirth_chance(self):
         return self.initial_rebirth_chance * (
-            self.rebirth_chance_decay ** self.rebirth_count
+            self.rebirth_chance_decay**self.rebirth_count
         )
 
     def attempt_rebirth(self):

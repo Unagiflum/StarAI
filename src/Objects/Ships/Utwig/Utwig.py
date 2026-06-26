@@ -40,7 +40,7 @@ class Utwig(SpaceShip):
             if shield and hasattr(shield, "absorb_damage"):
                 shield.absorb_damage(damage)
             return 0
-        
+
         return super().take_damage(damage, shieldable=shieldable)
 
     def set_sprite(self, interp_t=0.0):
@@ -52,11 +52,12 @@ class Utwig(SpaceShip):
             # Yellow (255, 255, 0) to Red (255, 0, 0)
             green_val = int(255 * progress)
             color = (255, green_val, 0, 255)
-            
+
             from src.Battle.interpolation import interpolated_sprite_index
+
             sprite_idx = interpolated_sprite_index(self, interp_t)
             tinted = self._shield_silhouettes[sprite_idx].copy()
             tinted.fill(color, special_flags=pygame.BLEND_RGBA_MULT)
             return tinted
-            
+
         return sprite

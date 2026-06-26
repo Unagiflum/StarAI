@@ -8,6 +8,7 @@ from src.collision_capabilities import (
 )
 from src.toroidal import wrapped_delta
 
+
 class Object:
     def __init__(self, name, sprite_location, size, sprite_scale=1.0):
         self.name = name
@@ -51,31 +52,35 @@ class Object:
 
     def predict_unhindered_trajectory(self, frames=60):
         pos = list(self.position)
-        if not hasattr(self, 'velocity'):
+        if not hasattr(self, "velocity"):
             return [pos] * frames
 
         vel = list(self.velocity)
-        
+
         # Asteroids don't have inertia attribute explicitly, but are inertial
-        inertia = getattr(self, 'inertia', True)
-        
+        inertia = getattr(self, "inertia", True)
+
         # SpaceShips have collision_velocity that overrides normal velocity if set
-        has_col_vel = hasattr(self, 'collision_velocity')
-        acc_imp = getattr(self, 'accumulated_impulses', [0.0, 0.0])
-        col_vel = getattr(self, 'collision_velocity', [0.0, 0.0])
+        has_col_vel = hasattr(self, "collision_velocity")
+        acc_imp = getattr(self, "accumulated_impulses", [0.0, 0.0])
+        col_vel = getattr(self, "collision_velocity", [0.0, 0.0])
 
         if not inertia and has_col_vel:
             if col_vel != [0.0, 0.0]:
                 vel = list(col_vel)
             else:
                 vel = list(acc_imp)
-        elif hasattr(self, 'accumulated_impulses'):
+        elif hasattr(self, "accumulated_impulses"):
             vel[0] += acc_imp[0]
             vel[1] += acc_imp[1]
 
-        planet = getattr(self, 'planet', None)
-        expiration = getattr(self, 'expiration_timer', float('inf')) if getattr(self, 'can_expire', False) else float('inf')
-        
+        planet = getattr(self, "planet", None)
+        expiration = (
+            getattr(self, "expiration_timer", float("inf"))
+            if getattr(self, "can_expire", False)
+            else float("inf")
+        )
+
         trajectory = []
         for f in range(frames):
             if f >= expiration:
@@ -108,16 +113,13 @@ class Object:
 
         return trajectory
 
+
 class ThrustMarker(Object):
     def __init__(self, x, y):
-        super().__init__(
-            name="ThrustMarker",
-            sprite_location=None,
-            size=[6, 6]
-        )
+        super().__init__(name="ThrustMarker", sprite_location=None, size=[6, 6])
         self.position = [x, y]
         self.previous_position = self.position.copy()
-        self.life = Const.FPS/2
+        self.life = Const.FPS / 2
         self.can_collide = False
         self.can_expire = True
         self.expiration_timer = self.life
@@ -137,6 +139,7 @@ class ThrustMarker(Object):
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         from src.Battle.interpolation import interpolated_position
+
         pos = interpolated_position(self, interp_t)
         screen_x = int((pos[0] + translation[0]) * scale_factor)
         screen_y = int((pos[1] + translation[1]) * scale_factor)
@@ -146,9 +149,17 @@ class ThrustMarker(Object):
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-                if (0 <= pos_x <= Const.SCREEN_HEIGHT and
-                        0 <= pos_y <= Const.SCREEN_HEIGHT):
-                    pygame.draw.circle(screen, self.get_color(), (int(Const.SCREEN_LEFT + pos_x), int(pos_y)), max(1.0, 1.0 + 3.0*scale_factor))
+                if (
+                    0 <= pos_x <= Const.SCREEN_HEIGHT
+                    and 0 <= pos_y <= Const.SCREEN_HEIGHT
+                ):
+                    pygame.draw.circle(
+                        screen,
+                        self.get_color(),
+                        (int(Const.SCREEN_LEFT + pos_x), int(pos_y)),
+                        max(1.0, 1.0 + 3.0 * scale_factor),
+                    )
+
 
 class PlayerObject(Object):
     def __init__(self, name, sprite_location, size, player, sprite_scale):
@@ -165,7 +176,6 @@ class PlayerObject(Object):
         self.rotation = 0.0
         self.can_move = True
 
-
         # Battle state
         self.in_battle = False
         self.planet = None
@@ -177,8 +187,6 @@ class PlayerObject(Object):
     def set_planet(self, planet):
         self.planet = planet
 
-
-
     def distance_to(self, obj):
         dx, dy = wrapped_delta(self.position, obj.position)
         distance = math.sqrt(dx * dx + dy * dy)
@@ -187,10 +195,12 @@ class PlayerObject(Object):
     def apply_verlet(self):
         gravity_impulse = self.get_gravity()
         acc0 = [gravity_impulse[0], gravity_impulse[1]]
-        self.position[0] = (self.position[0] + (self.velocity[0]
-                                                + 0.5 * acc0[0]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
-        self.position[1] = (self.position[1] + (self.velocity[1]
-                                                + 0.5 * acc0[1]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
+        self.position[0] = (
+            self.position[0] + (self.velocity[0] + 0.5 * acc0[0]) * Const.SPEED_SCALE
+        ) % Const.ARENA_SIZE
+        self.position[1] = (
+            self.position[1] + (self.velocity[1] + 0.5 * acc0[1]) * Const.SPEED_SCALE
+        ) % Const.ARENA_SIZE
         gravity_impulse = self.get_gravity()
         acc1 = [gravity_impulse[0], gravity_impulse[1]]
         self.velocity[0] += (acc0[0] + acc1[0]) * 0.5
@@ -205,10 +215,7 @@ class PlayerObject(Object):
             return [0.0, 0.0]
 
         gravity_force = Const.GRAVITY_MULTIPLIER * self.planet.gravity
-        return [
-            gravity_force * dx / distance,
-            gravity_force * dy / distance
-        ]
+        return [gravity_force * dx / distance, gravity_force * dy / distance]
 
     def apply_speed_limit(self):
         speed = math.sqrt(self.velocity[0] ** 2 + self.velocity[1] ** 2)
@@ -225,12 +232,17 @@ class PlayerObject(Object):
         if self.inertia:
             self.apply_verlet()
         else:
-            self.position[0] = (self.position[0] + self.velocity[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
-            self.position[1] = (self.position[1] + self.velocity[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+            self.position[0] = (
+                self.position[0] + self.velocity[0] * Const.SPEED_SCALE
+            ) % Const.ARENA_SIZE
+            self.position[1] = (
+                self.position[1] + self.velocity[1] * Const.SPEED_SCALE
+            ) % Const.ARENA_SIZE
 
     def predict_planet_collision(self, frames=60, margin=0):
-        if not self.planet: return None
-        
+        if not self.planet:
+            return None
+
         pos = list(self.position)
         vel = list(self.velocity)
         for f in range(frames):
@@ -243,13 +255,13 @@ class PlayerObject(Object):
                 if dist > 0:
                     vel[0] += gf * dx / dist
                     vel[1] += gf * dy / dist
-                    
+
             speed = math.hypot(vel[0], vel[1])
             if speed > Const.SPEED_LIMIT:
                 scale = Const.SPEED_LIMIT / speed
                 vel[0] *= scale
                 vel[1] *= scale
-                
+
             pos[0] = (pos[0] + vel[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
             pos[1] = (pos[1] + vel[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
         return None
@@ -262,6 +274,7 @@ class PlayerObject(Object):
     def get_thrust_marker_position(self, angle):
         prev_heading = getattr(self, "previous_heading", getattr(self, "heading", 0))
         import src.const as const
+
         prev_rotation = prev_heading * const.TURN_ANGLE
         angle_rad = math.radians(prev_rotation + angle)
         offset = (self.size[1] / 2) + 6
@@ -276,7 +289,7 @@ class PlayerObject(Object):
         if self.inertia:
             new_velocity = [
                 self.velocity[0] + thrust_direction[0] * thrust_increment,
-                self.velocity[1] + thrust_direction[1] * thrust_increment
+                self.velocity[1] + thrust_direction[1] * thrust_increment,
             ]
 
             speed = math.sqrt(new_velocity[0] ** 2 + new_velocity[1] ** 2)
@@ -285,7 +298,7 @@ class PlayerObject(Object):
             if self.planet:
                 _, planet_distance = self.distance_to(self.planet)
             else:
-                planet_distance = float('inf')
+                planet_distance = float("inf")
 
             if speed > max_thrust and planet_distance > Const.GRAVITY_RANGE:
                 scale = max_thrust / speed
@@ -294,18 +307,22 @@ class PlayerObject(Object):
 
             target_velocity = [new_velocity[0] * scale, new_velocity[1] * scale]
 
-            diff_vector = [target_velocity[0] - self.velocity[0], target_velocity[1] - self.velocity[1]]
+            diff_vector = [
+                target_velocity[0] - self.velocity[0],
+                target_velocity[1] - self.velocity[1],
+            ]
 
             diff_magnitude = math.sqrt(diff_vector[0] ** 2 + diff_vector[1] ** 2)
             if diff_magnitude > thrust_increment:
                 scale_diff = thrust_increment / diff_magnitude
-                self.add_impulse(diff_vector[0] * scale_diff, diff_vector[1] * scale_diff)
+                self.add_impulse(
+                    diff_vector[0] * scale_diff, diff_vector[1] * scale_diff
+                )
             else:
                 self.add_impulse(diff_vector[0], diff_vector[1])
         else:
             self.add_impulse(
-                thrust_direction[0] * max_thrust,
-                thrust_direction[1] * max_thrust
+                thrust_direction[0] * max_thrust, thrust_direction[1] * max_thrust
             )
 
         if make_marker:

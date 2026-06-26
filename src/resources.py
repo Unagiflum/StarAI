@@ -12,13 +12,13 @@ import pygame
 import src.const as const
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 
-
 _PLACEHOLDER_COLOR = (255, 0, 255, 200)
 
 
 @dataclass(frozen=True)
 class AssetError:
     """Record of a single asset that failed to load."""
+
     category: str
     name: str
     path: str
@@ -87,9 +87,7 @@ def _make_circle_surface(diameter, color=_PLACEHOLDER_COLOR):
     """Create a transparent-background surface with a centered colored circle."""
     diameter = max(4, diameter)
     surface = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
-    pygame.draw.circle(
-        surface, color, (diameter // 2, diameter // 2), diameter // 2
-    )
+    pygame.draw.circle(surface, color, (diameter // 2, diameter // 2), diameter // 2)
     return surface
 
 
@@ -168,19 +166,22 @@ class AssetManager:
             try:
                 base_sprites = tuple(
                     pygame.transform.smoothscale_by(
-                        self._image(
-                            resource_dir / f"{ship_name}{index:02d}.png"
-                        ),
+                        self._image(resource_dir / f"{ship_name}{index:02d}.png"),
                         scale,
                     )
                     for index in range(const.ASSET_SPRITE_DIRECTIONS)
                 )
             except (pygame.error, FileNotFoundError, OSError) as error:
-                self._asset_errors.append(AssetError(
-                    "ship", ship_name, str(resource_dir), str(error),
-                ))
+                self._asset_errors.append(
+                    AssetError(
+                        "ship",
+                        ship_name,
+                        str(resource_dir),
+                        str(error),
+                    )
+                )
                 base_sprites = _placeholder_ship_sprites(scale)
-                
+
             sprites, masks = _expand_directional_sprites(base_sprites)
             self._ships[ship_name] = ShipAssets(
                 sprites=sprites,
@@ -207,14 +208,9 @@ class AssetManager:
                 if definition.omnidirectional and definition.frames > 1:
                     frames = []
                     for frame in range(definition.frames):
-                        path = (
-                            resource_dir / f"{ability_name}00_{frame:02d}.png"
-                        )
+                        path = resource_dir / f"{ability_name}00_{frame:02d}.png"
                         if not path.exists():
-                            path = (
-                                resource_dir
-                                / f"{ability_name}{frame:02d}.png"
-                            )
+                            path = resource_dir / f"{ability_name}{frame:02d}.png"
                         sprite = pygame.transform.smoothscale_by(
                             self._image(path), scale
                         )
@@ -229,13 +225,8 @@ class AssetManager:
                         else const.ASSET_SPRITE_DIRECTIONS
                     )
                     for index in range(directions):
-                        path = (
-                            resource_dir / f"{ability_name}{index:02d}.png"
-                        )
-                        if (
-                            definition.omnidirectional
-                            and not path.exists()
-                        ):
+                        path = resource_dir / f"{ability_name}{index:02d}.png"
+                        if definition.omnidirectional and not path.exists():
                             path = resource_dir / f"{ability_name}.png"
                         sprite = pygame.transform.smoothscale_by(
                             self._image(path), scale
@@ -252,12 +243,15 @@ class AssetManager:
                         if index == 0:
                             sizes.append(sprite.get_size())
             except (pygame.error, FileNotFoundError, OSError) as error:
-                self._asset_errors.append(AssetError(
-                    "ability", ability_name, str(resource_dir), str(error),
-                ))
-                placeholder_sprites, _ = _placeholder_ability_sprites(
-                    definition
+                self._asset_errors.append(
+                    AssetError(
+                        "ability",
+                        ability_name,
+                        str(resource_dir),
+                        str(error),
+                    )
                 )
+                placeholder_sprites, _ = _placeholder_ability_sprites(definition)
                 sprites = placeholder_sprites
                 masks = [
                     pygame.mask.from_surface(s)
@@ -280,20 +274,21 @@ class AssetManager:
         try:
             end_animation = tuple(
                 pygame.transform.smoothscale_by(
-                    self._image(
-                        resource_dir
-                        / f"{ability_name}end{index:02d}.png"
-                    ),
+                    self._image(resource_dir / f"{ability_name}end{index:02d}.png"),
                     scale,
                 )
                 for index in range(definition.end_anim)
             )
         except (pygame.error, FileNotFoundError, OSError) as error:
             if not used_placeholder:
-                self._asset_errors.append(AssetError(
-                    "ability_end_anim", ability_name,
-                    str(resource_dir), str(error),
-                ))
+                self._asset_errors.append(
+                    AssetError(
+                        "ability_end_anim",
+                        ability_name,
+                        str(resource_dir),
+                        str(error),
+                    )
+                )
             end_animation = ()
 
         assets = AbilityAssets(
@@ -374,37 +369,38 @@ class AssetManager:
         if self._asteroids is None:
             try:
                 sprites = tuple(
-                    self._image(
-                        const.ASTEROID_PATH / f"asteroid{index:02d}.png"
-                    )
+                    self._image(const.ASTEROID_PATH / f"asteroid{index:02d}.png")
                     for index in range(30)
                 )
             except (pygame.error, FileNotFoundError, OSError) as error:
-                self._asset_errors.append(AssetError(
-                    "asteroid", "asteroid",
-                    str(const.ASTEROID_PATH), str(error),
-                ))
+                self._asset_errors.append(
+                    AssetError(
+                        "asteroid",
+                        "asteroid",
+                        str(const.ASTEROID_PATH),
+                        str(error),
+                    )
+                )
                 placeholder = _make_circle_surface(40)
                 sprites = tuple(placeholder.copy() for _ in range(30))
             try:
                 death_animation = tuple(
-                    self._image(
-                        const.ASTEROID_PATH
-                        / f"asteroidend{index:02d}.png"
-                    )
+                    self._image(const.ASTEROID_PATH / f"asteroidend{index:02d}.png")
                     for index in range(4)
                 )
             except (pygame.error, FileNotFoundError, OSError) as error:
-                self._asset_errors.append(AssetError(
-                    "asteroid_death", "asteroid",
-                    str(const.ASTEROID_PATH), str(error),
-                ))
+                self._asset_errors.append(
+                    AssetError(
+                        "asteroid_death",
+                        "asteroid",
+                        str(const.ASTEROID_PATH),
+                        str(error),
+                    )
+                )
                 death_animation = ()
             self._asteroids = AsteroidAssets(
                 sprites=sprites,
-                masks=tuple(
-                    pygame.mask.from_surface(sprite) for sprite in sprites
-                ),
+                masks=tuple(pygame.mask.from_surface(sprite) for sprite in sprites),
                 death_animation=death_animation,
             )
         return self._asteroids
@@ -416,9 +412,14 @@ class AssetManager:
             try:
                 image = self._image(path)
             except (pygame.error, FileNotFoundError, OSError) as error:
-                self._asset_errors.append(AssetError(
-                    "image", str(path), str(path), str(error),
-                ))
+                self._asset_errors.append(
+                    AssetError(
+                        "image",
+                        str(path),
+                        str(path),
+                        str(error),
+                    )
+                )
                 diameter = max(size) if size else 32
                 image = _make_circle_surface(diameter)
             if size and image.get_size() != tuple(size):
@@ -434,9 +435,14 @@ class AssetManager:
                 try:
                     frames.append(self._image(path))
                 except (pygame.error, FileNotFoundError, OSError) as error:
-                    self._asset_errors.append(AssetError(
-                        "animation", key, str(path), str(error),
-                    ))
+                    self._asset_errors.append(
+                        AssetError(
+                            "animation",
+                            key,
+                            str(path),
+                            str(error),
+                        )
+                    )
                     frames.append(_make_circle_surface(32))
             self._animations[key] = tuple(frames)
         return self._animations[key]
@@ -475,9 +481,14 @@ class AssetManager:
                     self._image(path, convert_alpha=False), size
                 )
             except (pygame.error, FileNotFoundError, OSError) as error:
-                self._asset_errors.append(AssetError(
-                    "background", str(path), str(path), str(error),
-                ))
+                self._asset_errors.append(
+                    AssetError(
+                        "background",
+                        str(path),
+                        str(path),
+                        str(error),
+                    )
+                )
                 fallback = pygame.Surface(size)
                 fallback.fill((0, 0, 20))
                 self._backgrounds[key] = fallback
@@ -488,17 +499,19 @@ class AssetManager:
             definition = SHIP_DEFINITIONS[ship_name]
             resource_dir = const.source_path(definition.sprite_path)
             try:
-                sprite = self._image(
-                    resource_dir / f"{ship_name}00.png"
-                )
+                sprite = self._image(resource_dir / f"{ship_name}00.png")
                 if definition.menu_overlay_path is not None:
                     overlay = self._image(definition.menu_overlay_path)
                     sprite = centered_overlay(sprite, overlay)
             except (pygame.error, FileNotFoundError, OSError) as error:
-                self._asset_errors.append(AssetError(
-                    "menu_sprite", ship_name,
-                    str(resource_dir), str(error),
-                ))
+                self._asset_errors.append(
+                    AssetError(
+                        "menu_sprite",
+                        ship_name,
+                        str(resource_dir),
+                        str(error),
+                    )
+                )
                 scale = definition.sprite_scale
                 sprite = _make_rectangle_surface(
                     max(4, int(30 * scale)),
@@ -530,15 +543,16 @@ class AssetManager:
                 and definition.retraction_frames > 0
             ):
                 try:
-                    self.ability_retraction(
-                        ability_name, definition.retraction_frames
-                    )
+                    self.ability_retraction(ability_name, definition.retraction_frames)
                 except Exception as error:
-                    self._asset_errors.append(AssetError(
-                        "ability_retraction", ability_name,
-                        str(const.source_path(definition.file_path)),
-                        str(error),
-                    ))
+                    self._asset_errors.append(
+                        AssetError(
+                            "ability_retraction",
+                            ability_name,
+                            str(const.source_path(definition.file_path)),
+                            str(error),
+                        )
+                    )
 
         # Asteroids.
         self.asteroid()
@@ -555,10 +569,14 @@ class AssetManager:
                     with_mask=True,
                 )
         except (OSError, json.JSONDecodeError, KeyError) as error:
-            self._asset_errors.append(AssetError(
-                "planet_catalog", "planets.json",
-                str(const.PLANETS_JSON_PATH), str(error),
-            ))
+            self._asset_errors.append(
+                AssetError(
+                    "planet_catalog",
+                    "planets.json",
+                    str(const.PLANETS_JSON_PATH),
+                    str(error),
+                )
+            )
 
         # Stars — iterate the JSON to preload every image.
         try:
@@ -567,34 +585,35 @@ class AssetManager:
             for star_name, star_info in star_data.items():
                 self.image(star_info["Image"])
         except (OSError, json.JSONDecodeError, KeyError) as error:
-            self._asset_errors.append(AssetError(
-                "star_catalog", "stars.json",
-                str(const.STARS_JSON_PATH), str(error),
-            ))
+            self._asset_errors.append(
+                AssetError(
+                    "star_catalog",
+                    "stars.json",
+                    str(const.STARS_JSON_PATH),
+                    str(error),
+                )
+            )
 
         # Battle effect sprites (explosions, blasts).
         battle_path = const.source_path("Objects/Battle")
         self.animation(
             "ship-explosions",
-            tuple(
-                battle_path / f"explosion-{i:03d}.png" for i in range(8)
-            ),
+            tuple(battle_path / f"explosion-{i:03d}.png" for i in range(8)),
         )
         self.animation(
             "battle-blasts",
-            tuple(
-                battle_path / f"blast-{i:03d}.png" for i in range(8)
-            ),
+            tuple(battle_path / f"blast-{i:03d}.png" for i in range(8)),
         )
 
         # Battle sounds.
         for sound_name in (
-            "boom1.wav", "boom2.wav", "boom4.wav",
-            "boom6.wav", "shipdies.wav",
+            "boom1.wav",
+            "boom2.wav",
+            "boom4.wav",
+            "boom6.wav",
+            "shipdies.wav",
         ):
-            self.sound(
-                battle_path / sound_name, const.SOUND_EFFECT_VOLUME
-            )
+            self.sound(battle_path / sound_name, const.SOUND_EFFECT_VOLUME)
 
         # Backgrounds.
         screen_size = (const.SCREEN_WIDTH, const.SCREEN_HEIGHT)
@@ -604,19 +623,27 @@ class AssetManager:
         # Battle music — verify file exists (streamed, not decoded).
         battle_music = const.source_path(const.BATTLE_MUSIC_PATH)
         if not Path(battle_music).exists():
-            self._asset_errors.append(AssetError(
-                "music", "battle.ogg",
-                str(battle_music), "file not found",
-            ))
+            self._asset_errors.append(
+                AssetError(
+                    "music",
+                    "battle.ogg",
+                    str(battle_music),
+                    "file not found",
+                )
+            )
 
         # Victory ditties — verify each file exists.
         for ship_name in SHIP_DEFINITIONS:
             ditty_path = self.ship(ship_name).ditty_path
             if not Path(ditty_path).exists():
-                self._asset_errors.append(AssetError(
-                    "ditty", ship_name,
-                    str(ditty_path), "file not found",
-                ))
+                self._asset_errors.append(
+                    AssetError(
+                        "ditty",
+                        ship_name,
+                        str(ditty_path),
+                        "file not found",
+                    )
+                )
 
         # Menu sound.
         self.sound(const.MENU_WAV_PATH, 1.0)
@@ -722,10 +749,7 @@ def _retracted_visual(
     forward_y = -math.cos(angle)
     for y in range(height):
         for x in range(width):
-            projection = (
-                (x - center_x) * forward_x
-                + (y - center_y) * forward_y
-            )
+            projection = (x - center_x) * forward_x + (y - center_y) * forward_y
             if projection > cutoff:
                 visible_mask.set_at((x, y), 0)
 

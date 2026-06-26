@@ -12,17 +12,13 @@ def laser_hit_info(laser, target):
     start = getattr(laser, "start_position", laser.parent.position)
     end = getattr(laser, "end_position", laser.position)
     segment = wrapped_segment(start, end)
-    distance = distance_from_segment_to_point(
-        segment[0], segment[1], target.position
-    )
+    distance = distance_from_segment_to_point(segment[0], segment[1], target.position)
     if distance > radius(target):
         return None
 
     target_mask = get_collision_mask(target)
     if target_mask is not None:
-        contact = sample_laser_mask_hit(
-            segment[0], segment[1], target, target_mask
-        )
+        contact = sample_laser_mask_hit(segment[0], segment[1], target, target_mask)
     else:
         contact = segment_circle_intercept(
             segment[0], segment[1], target.position, radius(target)
@@ -38,9 +34,7 @@ def laser_hit_info(laser, target):
         "target": target,
         "contact": contact,
         "normal": normal,
-        "distance": math.hypot(
-            contact[0] - segment[0][0], contact[1] - segment[0][1]
-        ),
+        "distance": math.hypot(contact[0] - segment[0][0], contact[1] - segment[0][1]),
     }
 
 
@@ -149,9 +143,7 @@ def swept_impact(obj, other):
         normal, _, _ = collision_info(obj, other)
         return None, normal
 
-    steps = max(
-        1, int(math.ceil(relative_distance / sweep_step_size(obj, other)))
-    )
+    steps = max(1, int(math.ceil(relative_distance / sweep_step_size(obj, other))))
     for step in range(1, steps + 1):
         ratio = step / steps
         obj_position = [
@@ -162,9 +154,7 @@ def swept_impact(obj, other):
             (other_previous[0] + other_delta[0] * ratio) % const.ARENA_SIZE,
             (other_previous[1] + other_delta[1] * ratio) % const.ARENA_SIZE,
         ]
-        if objects_overlap_at_positions(
-            obj, other, obj_position, other_position
-        ):
+        if objects_overlap_at_positions(obj, other, obj_position, other_position):
             return estimated_impact_at_positions(
                 obj, other, obj_position, other_position
             )
@@ -183,35 +173,25 @@ def sweep_previous_position(obj):
 def sweep_step_size(obj, other):
     obj_size = collision_size(obj)
     other_size = collision_size(other)
-    min_dimension = min(
-        obj_size[0], obj_size[1], other_size[0], other_size[1]
-    )
+    min_dimension = min(obj_size[0], obj_size[1], other_size[0], other_size[1])
     return max(2, min(12, min_dimension / 3))
 
 
 def estimated_impact(obj, other):
     normal, _, _ = collision_info(obj, other)
-    contact = mask_overlap_contact(
-        obj, other, obj.position, other.position
-    )
+    contact = mask_overlap_contact(obj, other, obj.position, other.position)
     return contact or contact_point(other, normal), normal
 
 
-def estimated_impact_at_positions(
-    obj, other, obj_position, other_position
-):
+def estimated_impact_at_positions(obj, other, obj_position, other_position):
     delta = wrapped_delta(other_position, obj_position)
     distance = math.hypot(delta[0], delta[1])
     if distance == 0:
         normal = [1.0, 0.0]
     else:
         normal = [delta[0] / distance, delta[1] / distance]
-    contact = mask_overlap_contact(
-        obj, other, obj_position, other_position
-    )
-    return contact or contact_point_at_position(
-        other, normal, other_position
-    ), normal
+    contact = mask_overlap_contact(obj, other, obj_position, other_position)
+    return contact or contact_point_at_position(other, normal, other_position), normal
 
 
 def mask_overlap_contact(obj, other, obj_position, other_position):
@@ -234,10 +214,8 @@ def mask_overlap_contact(obj, other, obj_position, other_position):
 
     centroid_x, centroid_y = overlap.centroid()
     return [
-        (obj_position[0] + centroid_x - obj_size[0] / 2)
-        % const.ARENA_SIZE,
-        (obj_position[1] + centroid_y - obj_size[1] / 2)
-        % const.ARENA_SIZE,
+        (obj_position[0] + centroid_x - obj_size[0] / 2) % const.ARENA_SIZE,
+        (obj_position[1] + centroid_y - obj_size[1] / 2) % const.ARENA_SIZE,
     ]
 
 
@@ -256,10 +234,8 @@ def contact_point_at_position(target, normal, target_position):
             ]
 
     return [
-        (target_position[0] + normal[0] * radius(target))
-        % const.ARENA_SIZE,
-        (target_position[1] + normal[1] * radius(target))
-        % const.ARENA_SIZE,
+        (target_position[0] + normal[0] * radius(target)) % const.ARENA_SIZE,
+        (target_position[1] + normal[1] * radius(target)) % const.ARENA_SIZE,
     ]
 
 
@@ -294,9 +270,7 @@ def opaque_mask_contact_offset(mask, normal):
     return best[1] if best is not None else None
 
 
-def objects_overlap_at_positions(
-    obj, other, obj_position, other_position
-):
+def objects_overlap_at_positions(obj, other, obj_position, other_position):
     delta = wrapped_delta(other_position, obj_position)
     distance = math.hypot(delta[0], delta[1])
     overlap = radius(obj) + radius(other) - distance
@@ -344,9 +318,7 @@ def mask_broadphase_overlap(obj, other):
     )
 
 
-def mask_broadphase_overlap_at_positions(
-    obj, other, obj_position, other_position
-):
+def mask_broadphase_overlap_at_positions(obj, other, obj_position, other_position):
     obj_mask = get_collision_mask(obj)
     other_mask = get_collision_mask(other)
     if obj_mask is None or other_mask is None:

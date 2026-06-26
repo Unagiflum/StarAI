@@ -5,6 +5,7 @@ from src.Objects.Ships.Arilou.A2.ArilouA2 import ArilouA2
 import src.const as const
 import random
 
+
 class Arilou(SpaceShip):
     action_factories = {1: ArilouA1}
 

@@ -1,7 +1,11 @@
 import pygame
 import math
 from src.UI import ui
-from src.Battle.status_bar import draw_player_status, draw_boarded_marine_icons, StatusBar
+from src.Battle.status_bar import (
+    draw_player_status,
+    draw_boarded_marine_icons,
+    StatusBar,
+)
 from src.Battle.battle_entry import draw_entry_silhouettes
 import src.const as const
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_midpoint
@@ -12,7 +16,9 @@ from src.Battle.interpolation import interpolated_position
 VIEWPORT_SIZE = 200
 VIEWPORT_MARGIN = 7
 BAR_WIDTH = 30
-VIEWPORT_COLUMN_WIDTH = VIEWPORT_SIZE + 2 * VIEWPORT_MARGIN  # gap that holds the viewport
+VIEWPORT_COLUMN_WIDTH = (
+    VIEWPORT_SIZE + 2 * VIEWPORT_MARGIN
+)  # gap that holds the viewport
 
 # Shared HUD colour (fill only; HUD_BORDER is imported from status_bar)
 HUD_FILL = (0, 0, 0)
@@ -24,7 +30,9 @@ _TOTAL_WIDTH = (BAR_WIDTH * 2) + VIEWPORT_COLUMN_WIDTH
 _LEFT_PANEL_W = const.SCREEN_LEFT
 _RIGHT_PANEL_W = const.SCREEN_WIDTH - (const.SCREEN_LEFT + const.SCREEN_HEIGHT)
 P1_X = const.SCREEN_LEFT - _TOTAL_WIDTH - ((_LEFT_PANEL_W - _TOTAL_WIDTH) // 2)
-P2_X = (const.SCREEN_LEFT + const.SCREEN_HEIGHT) + ((_RIGHT_PANEL_W - _TOTAL_WIDTH) // 2)
+P2_X = (const.SCREEN_LEFT + const.SCREEN_HEIGHT) + (
+    (_RIGHT_PANEL_W - _TOTAL_WIDTH) // 2
+)
 
 # Viewport surface geometry.  Object draw methods cull against
 # SCREEN_HEIGHT and offset x by SCREEN_LEFT, so the viewport
@@ -55,46 +63,49 @@ def _draw_dashed_circle(surface, ship, scale_factor, translation, interp_t=0.0):
     radius = int(100 * scale_factor)
     if radius <= 0:
         return
-        
+
     color = const.P1_COLOR if ship.player == 1 else const.P2_COLOR
     color_with_alpha = (*color, 255)
-    
+
     surf_size = radius * 2 + 12
     circle_surf = pygame.Surface((surf_size, surf_size), pygame.SRCALPHA)
     rect = pygame.Rect(6, 6, radius * 2, radius * 2)
-    
+
     angles_deg = [45, 135, 225, 315]
     arc_length_rad = math.radians(4)
-    
+
     for angle_deg in angles_deg:
         center_rad = math.radians(angle_deg)
         start_angle = center_rad - arc_length_rad / 2
         end_angle = center_rad + arc_length_rad / 2
         pygame.draw.arc(circle_surf, color_with_alpha, rect, start_angle, end_angle, 6)
-        
+
     pos = interpolated_position(ship, interp_t)
     screen_x = int((pos[0] + translation[0]) * scale_factor)
     screen_y = int((pos[1] + translation[1]) * scale_factor)
-    
+
     for dx in [-1, 0, 1]:
         for dy in [-1, 0, 1]:
             pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
             pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
-            
-            if (-surf_size <= pos_x <= const.SCREEN_HEIGHT + surf_size and
-                -surf_size <= pos_y <= const.SCREEN_HEIGHT + surf_size):
-                surface.blit(circle_surf, (
-                    const.SCREEN_LEFT + pos_x - surf_size // 2,
-                    pos_y - surf_size // 2
-                ))
+
+            if (
+                -surf_size <= pos_x <= const.SCREEN_HEIGHT + surf_size
+                and -surf_size <= pos_y <= const.SCREEN_HEIGHT + surf_size
+            ):
+                surface.blit(
+                    circle_surf,
+                    (
+                        const.SCREEN_LEFT + pos_x - surf_size // 2,
+                        pos_y - surf_size // 2,
+                    ),
+                )
 
 
 class StarFieldRenderer:
     def __init__(self):
         self.depth_surfaces = [
-            pygame.Surface(
-                (const.SCREEN_WIDTH, const.SCREEN_HEIGHT), pygame.SRCALPHA
-            )
+            pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT), pygame.SRCALPHA)
             for _ in range(const.STAR_DEPTHS)
         ]
 
@@ -104,9 +115,7 @@ class StarFieldRenderer:
             stars_by_depth[star.depth].append(star)
 
         for depth, depth_stars in enumerate(stars_by_depth):
-            parallax_factor = 0.5 + 0.5 * (
-                depth / (const.STAR_DEPTHS - 1)
-            )
+            parallax_factor = 0.5 + 0.5 * (depth / (const.STAR_DEPTHS - 1))
             self.update_depth_surface(
                 depth,
                 depth_stars,
@@ -138,9 +147,7 @@ class StarFieldRenderer:
             screen_x = int((relative_x + translation[0]) * scale_factor)
             screen_y = int((relative_y + translation[1]) * scale_factor)
 
-            scaled_image = pygame.transform.smoothscale_by(
-                star.image, scale_factor
-            )
+            scaled_image = pygame.transform.smoothscale_by(star.image, scale_factor)
             scaled_image.set_alpha(const.STAR_ALPHA)
             star_size = scaled_image.get_width()
 
@@ -150,12 +157,8 @@ class StarFieldRenderer:
                     pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
 
                     if (
-                        -star_size
-                        <= pos_x
-                        <= const.SCREEN_HEIGHT + star_size
-                        and -star_size
-                        <= pos_y
-                        <= const.SCREEN_HEIGHT + star_size
+                        -star_size <= pos_x <= const.SCREEN_HEIGHT + star_size
+                        and -star_size <= pos_y <= const.SCREEN_HEIGHT + star_size
                     ):
                         surface.blit(
                             scaled_image,
@@ -193,20 +196,18 @@ def calculate_view_parameters(game_objects, camera_targets=None, interp_t=0.0):
         pos0 = interpolated_position(targets[0], interp_t)
     else:
         pos0 = base_pos0
-        
+
     base_pos1 = getattr(targets[1], "camera_position", targets[1].position)
     if base_pos1 == targets[1].position:
         pos1 = interpolated_position(targets[1], interp_t)
     else:
         pos1 = base_pos1
-    center, view_size = view_center_and_size(
-        [pos0, pos1]
-    )
+    center, view_size = view_center_and_size([pos0, pos1])
 
     scale_factor = min(const.MAX_ZOOM, const.SCREEN_HEIGHT / view_size)
     translation = [
         const.SCREEN_HEIGHT / (2 * scale_factor) - center[0],
-        const.SCREEN_HEIGHT / (2 * scale_factor) - center[1]
+        const.SCREEN_HEIGHT / (2 * scale_factor) - center[1],
     ]
 
     return scale_factor, translation
@@ -242,9 +243,7 @@ def _render_world_to_surface(
     for ability in world.abilities:
         ability.draw(surface, scale_factor, translation, interp_t=interp_t)
 
-    entering_ships = set(
-        entry_state.entering_ships if entry_state else ()
-    )
+    entering_ships = set(entry_state.entering_ships if entry_state else ())
     if entry_state:
         draw_entry_silhouettes(
             surface,
@@ -278,15 +277,17 @@ def draw_battle(
     interp_t=0.0,
 ):
     world = World.coerce(game_objects)
-    scale_factor, translation = calculate_view_parameters(world, camera_targets, interp_t)
+    scale_factor, translation = calculate_view_parameters(
+        world, camera_targets, interp_t
+    )
 
     players = world.live_ships
     is_mirror = False
     if original_ships and len(original_ships) == 2:
-        is_mirror = (original_ships[0].name == original_ships[1].name)
+        is_mirror = original_ships[0].name == original_ships[1].name
     elif len(players) == 2:
-        is_mirror = (players[0].name == players[1].name)
-        
+        is_mirror = players[0].name == players[1].name
+
     show_crosshairs = is_mirror or getattr(const, "ALWAYS_SHOW_CROSSHAIRS", False)
 
     midpoint = [
@@ -315,7 +316,10 @@ def draw_battle(
 
     # Draw status bars and viewports for both players.
     global _viewport_surface
-    if _viewport_surface is None or _viewport_surface.get_size() != (VP_SURF_W, VP_SURF_H):
+    if _viewport_surface is None or _viewport_surface.get_size() != (
+        VP_SURF_W,
+        VP_SURF_H,
+    ):
         _viewport_surface = pygame.Surface((VP_SURF_W, VP_SURF_H))
     viewport_surface = _viewport_surface
 
@@ -326,10 +330,12 @@ def draw_battle(
         else:
             status_x = const.SCREEN_LEFT + const.SCREEN_HEIGHT
             panel_w = _RIGHT_PANEL_W
-            
+
         live_ship = next((s for s in players if s.player == player_id), None)
-        ship_to_track = live_ship or next((s for s in world.ships if s.player == player_id), None)
-        
+        ship_to_track = live_ship or next(
+            (s for s in world.ships if s.player == player_id), None
+        )
+
         # Calculate max height of elements to size the panel
         if live_ship:
             hp_height = StatusBar.calculate_height(live_ship.max_hp)
@@ -337,42 +343,68 @@ def draw_battle(
         else:
             dead_ship = None
             if original_ships:
-                dead_ship = next((s for s in original_ships if s.player == player_id), None)
+                dead_ship = next(
+                    (s for s in original_ships if s.player == player_id), None
+                )
             elif ship_to_track:
                 dead_ship = ship_to_track
-                
+
             if dead_ship:
                 hp_height = StatusBar.calculate_height(dead_ship.max_hp)
                 energy_height = StatusBar.calculate_height(dead_ship.max_energy)
             else:
                 hp_height = VIEWPORT_SIZE
                 energy_height = VIEWPORT_SIZE
-                
+
         highest_bar = max(hp_height, energy_height, VIEWPORT_SIZE)
-        
+
         border_color = const.P1_COLOR if player_id == 1 else const.P2_COLOR
 
         # Create the panel surface
         panel_h = MARINE_REGION_HEIGHT + highest_bar + HUD_BOTTOM_PADDING
         panel_surface = pygame.Surface((panel_w, panel_h))
         panel_surface.fill((0, 0, 0))
-        
+
         # Add translucent player color
         color_surface = pygame.Surface((panel_w, panel_h))
         color_surface.fill(border_color)
         color_surface.set_alpha(const.HUD_PANEL_ALPHA)
         panel_surface.blit(color_surface, (0, 0))
-        
+
         local_base_y = panel_h - HUD_BOTTOM_PADDING
         draw_x_offset = (panel_w - _TOTAL_WIDTH) // 2
 
         # Draw status bars onto the panel
         if live_ship:
-            draw_player_status(panel_surface, live_ship, draw_x_offset, local_base_y, BAR_WIDTH, VIEWPORT_COLUMN_WIDTH,
-                               viewport_size=VIEWPORT_SIZE)
+            draw_player_status(
+                panel_surface,
+                live_ship,
+                draw_x_offset,
+                local_base_y,
+                BAR_WIDTH,
+                VIEWPORT_COLUMN_WIDTH,
+                viewport_size=VIEWPORT_SIZE,
+            )
         else:
-            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset, local_base_y - hp_height, BAR_WIDTH, hp_height), const.HUD_BAR_BORDER, const.HUD_BAR_BG)
-            _draw_empty_rect(panel_surface, pygame.Rect(draw_x_offset + BAR_WIDTH + VIEWPORT_COLUMN_WIDTH, local_base_y - energy_height, BAR_WIDTH, energy_height), const.HUD_BAR_BORDER, const.HUD_BAR_BG)
+            _draw_empty_rect(
+                panel_surface,
+                pygame.Rect(
+                    draw_x_offset, local_base_y - hp_height, BAR_WIDTH, hp_height
+                ),
+                const.HUD_BAR_BORDER,
+                const.HUD_BAR_BG,
+            )
+            _draw_empty_rect(
+                panel_surface,
+                pygame.Rect(
+                    draw_x_offset + BAR_WIDTH + VIEWPORT_COLUMN_WIDTH,
+                    local_base_y - energy_height,
+                    BAR_WIDTH,
+                    energy_height,
+                ),
+                const.HUD_BAR_BORDER,
+                const.HUD_BAR_BG,
+            )
 
         # Draw viewport onto the panel
         if ship_to_track:
@@ -380,15 +412,16 @@ def draw_battle(
             viewport_surface.fill((0, 0, 0))
 
             from src.Battle.interpolation import interpolated_position
+
             base_pos = getattr(ship_to_track, "camera_position", ship_to_track.position)
             if base_pos == ship_to_track.position:
                 ship_pos = interpolated_position(ship_to_track, interp_t)
             else:
                 ship_pos = base_pos
-                
+
             ship_translation = [
                 const.SCREEN_HEIGHT / 2 - ship_pos[0],
-                const.SCREEN_HEIGHT / 2 - ship_pos[1]
+                const.SCREEN_HEIGHT / 2 - ship_pos[1],
             ]
 
             _render_world_to_surface(
@@ -416,15 +449,20 @@ def draw_battle(
         else:
             dest_x = draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
             dest_y = local_base_y - VIEWPORT_SIZE
-            _draw_empty_rect(panel_surface, pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE), const.HUD_VIEWPORT_BORDER, HUD_FILL)
-            
+            _draw_empty_rect(
+                panel_surface,
+                pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE),
+                const.HUD_VIEWPORT_BORDER,
+                HUD_FILL,
+            )
+
         if live_ship:
             draw_boarded_marine_icons(
                 panel_surface,
                 live_ship,
                 draw_x_offset,
                 local_base_y - VIEWPORT_SIZE + 2,
-                _TOTAL_WIDTH
+                _TOTAL_WIDTH,
             )
 
         # Blit the unified panel to the screen
@@ -432,9 +470,12 @@ def draw_battle(
 
     if is_paused:
         from src.UI.ui import WHITE
+
         font = pygame.font.SysFont(None, 72)
         text = font.render("PAUSED", True, WHITE)
-        text_rect = text.get_rect(center=(const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT // 2))
+        text_rect = text.get_rect(
+            center=(const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT // 2)
+        )
         screen.blit(text, text_rect)
 
     pygame.display.flip()

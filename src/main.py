@@ -12,10 +12,9 @@ from src.audio import PygameAudioService
 from src.resources import default_assets
 import src.const as const
 
-
 # Warning overlay timing (in frames at FPS).
-_WARNING_VISIBLE_FRAMES = const.FPS * 5       # fully visible
-_WARNING_FADE_FRAMES = const.FPS * 2          # fade-out
+_WARNING_VISIBLE_FRAMES = const.FPS * 5  # fully visible
+_WARNING_FADE_FRAMES = const.FPS * 2  # fade-out
 _WARNING_TOTAL_FRAMES = _WARNING_VISIBLE_FRAMES + _WARNING_FADE_FRAMES
 
 
@@ -40,10 +39,17 @@ def _build_warning_surface(asset_errors):
     height = sum(r.get_height() + 4 for r in rendered) + padding * 2
     surface = pygame.Surface((width, height), pygame.SRCALPHA)
     pygame.draw.rect(
-        surface, (20, 0, 0, 200), surface.get_rect(), border_radius=8,
+        surface,
+        (20, 0, 0, 200),
+        surface.get_rect(),
+        border_radius=8,
     )
     pygame.draw.rect(
-        surface, (255, 80, 80, 180), surface.get_rect(), 2, border_radius=8,
+        surface,
+        (255, 80, 80, 180),
+        surface.get_rect(),
+        2,
+        border_radius=8,
     )
     y = padding
     for r in rendered:
@@ -53,7 +59,8 @@ def _build_warning_surface(asset_errors):
 
 
 def handle_menu_selection(
-        menu_callable, screen, menu_sound_manager=None, audio_service=None):
+    menu_callable, screen, menu_sound_manager=None, audio_service=None
+):
     """Handle the selected menu item."""
     if menu_callable is None:
         pygame.quit()
@@ -92,7 +99,9 @@ def main():
     menu_sound_manager.set_volume(0.30)
 
     background = ui.load_background(
-        const.MAIN_BG_PATH, const.SCREEN_WIDTH, const.SCREEN_HEIGHT,
+        const.MAIN_BG_PATH,
+        const.SCREEN_WIDTH,
+        const.SCREEN_HEIGHT,
     )
 
     # Create menu buttons
@@ -105,7 +114,7 @@ def main():
         ("Play Game", pick_fleet.run),
         ("Game Settings", game_settings.run),
         ("Training Settings", train_settings.run),
-        ("Quit", None)
+        ("Quit", None),
     ]
 
     buttons = []
@@ -123,7 +132,7 @@ def main():
                 audio_service=audio_service,
             ),
             bg_color=ui.MAIN_BUTTON_COLOR,
-            hover_color=ui.MAIN_BUTTON_COLOR_HI
+            hover_color=ui.MAIN_BUTTON_COLOR_HI,
         )
         buttons.append(button)
 
@@ -145,7 +154,9 @@ def main():
             screen.fill(ui.BG_COLOR)
 
         # Draw title
-        ui.draw_title(screen, "StarAI", int(const.SCREEN_HEIGHT * 0.15), const.SCREEN_HEIGHT // 6)
+        ui.draw_title(
+            screen, "StarAI", int(const.SCREEN_HEIGHT * 0.15), const.SCREEN_HEIGHT // 6
+        )
 
         # Draw buttons
         button_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.05))
@@ -158,9 +169,8 @@ def main():
                 alpha = 255
             else:
                 fade_progress = (
-                    (warning_frame - _WARNING_VISIBLE_FRAMES)
-                    / _WARNING_FADE_FRAMES
-                )
+                    warning_frame - _WARNING_VISIBLE_FRAMES
+                ) / _WARNING_FADE_FRAMES
                 alpha = max(0, int(255 * (1.0 - fade_progress)))
             overlay = warning_surface.copy()
             overlay.set_alpha(alpha)

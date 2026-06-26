@@ -13,9 +13,7 @@ class OrzA2:
 
     @property
     def absolute_heading(self):
-        return (
-            self.parent.heading + self.relative_heading
-        ) % const.SHIP_DIRECTIONS
+        return (self.parent.heading + self.relative_heading) % const.SHIP_DIRECTIONS
 
     def reset(self):
         self.relative_heading = 0

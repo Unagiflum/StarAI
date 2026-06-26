@@ -26,7 +26,11 @@ class EarthlingA2(Ability):
     def get_shots(self, max_shots):
         valid_targets = []
 
-        if self.parent.opponent and self._is_in_range(self.parent.opponent) and self.parent.opponent.trackable:
+        if (
+            self.parent.opponent
+            and self._is_in_range(self.parent.opponent)
+            and self.parent.opponent.trackable
+        ):
             valid_targets.append(self.parent.opponent)
 
         for obj in sorted(self.parent.enemy_objects, key=self._distance_to):
@@ -51,8 +55,8 @@ class EarthlingA2(Ability):
         dx, dy = wrapped_delta(self.position, self.target.position)
 
         angle = math.atan2(dy, dx)
-        self.end_position[0] = (self.position[0] + math.cos(angle) * self.LASER_RANGE)
-        self.end_position[1] = (self.position[1] + math.sin(angle) * self.LASER_RANGE)
+        self.end_position[0] = self.position[0] + math.cos(angle) * self.LASER_RANGE
+        self.end_position[1] = self.position[1] + math.sin(angle) * self.LASER_RANGE
 
     def update_physics(self):
         self.position = self.parent.position.copy()
@@ -60,7 +64,7 @@ class EarthlingA2(Ability):
     def update(self):
         if not self.currently_alive:
             return False
-            
+
         self.previous_position = self.position.copy()
         self.update_physics()
         self.expiration_timer -= 1
@@ -68,15 +72,20 @@ class EarthlingA2(Ability):
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         from src.Battle.interpolation import interpolated_position
+
         pos = interpolated_position(self.parent, interp_t)
-        
+
         if not getattr(self, "intercepted", False):
-            target_pos = interpolated_position(self.target, interp_t) if self.target else self.target.position
+            target_pos = (
+                interpolated_position(self.target, interp_t)
+                if self.target
+                else self.target.position
+            )
             dx, dy = wrapped_delta(pos, target_pos)
             angle = math.atan2(dy, dx)
             draw_end_position = [
                 pos[0] + math.cos(angle) * self.LASER_RANGE,
-                pos[1] + math.sin(angle) * self.LASER_RANGE
+                pos[1] + math.sin(angle) * self.LASER_RANGE,
             ]
         else:
             end_offset = wrapped_delta(self.position, self.end_position)
@@ -101,5 +110,5 @@ class EarthlingA2(Ability):
                         self.LASER_COLOR,
                         (const.SCREEN_LEFT + start_x, start_y),
                         (const.SCREEN_LEFT + end_x, end_y),
-                        max(1, int(self.LASER_WIDTH * scale_factor))
+                        max(1, int(self.LASER_WIDTH * scale_factor)),
                     )

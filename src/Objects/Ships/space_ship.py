@@ -15,7 +15,6 @@ from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, Actio
 from src.resources import default_assets
 from src.entry_styles import STANDARD_ENTRY_TRAIL
 
-
 CONTROL_STATE_ATTRIBUTES = {
     "thrust": "thrust_active",
     "turn_left": "turn_left_active",
@@ -23,6 +22,7 @@ CONTROL_STATE_ATTRIBUTES = {
     "action1": "action1_active",
     "action2": "action2_active",
 }
+
 
 class SpaceShip(PlayerObject):
     action_factories = {}
@@ -36,9 +36,9 @@ class SpaceShip(PlayerObject):
         super().__init__(
             name=ship_name,
             sprite_location=sprite_location,
-            size=[0,0],
+            size=[0, 0],
             player=player_num,
-            sprite_scale=ship_definition.sprite_scale
+            sprite_scale=ship_definition.sprite_scale,
         )
         self.resources = resources or default_assets()
         self.rng = random
@@ -134,14 +134,16 @@ class SpaceShip(PlayerObject):
         start_thrust_wait = ship_definition.thrust_wait
 
         self.limpets_attached += 1
-        
+
         # Calculate new stats based on number of limpets
         self.turn_wait = min(255, start_turn_wait + self.limpets_attached)
         self.thrust_wait = min(255, start_thrust_wait + self.limpets_attached)
-        
+
         if start_thrust_inc > 4:
             self.thrust_increment = max(4, start_thrust_inc - self.limpets_attached)
-            self.max_thrust = int(start_max_thrust * self.thrust_increment / start_thrust_inc)
+            self.max_thrust = int(
+                start_max_thrust * self.thrust_increment / start_thrust_inc
+            )
         else:
             self.thrust_increment = start_thrust_inc
             self.max_thrust = 8
@@ -150,18 +152,18 @@ class SpaceShip(PlayerObject):
         limpet_assets = self.resources.ability("VuxA2")
         if not limpet_assets.sprites:
             return
-            
+
         limpet_sprite = limpet_assets.sprites[0]
-        
+
         # Find a random valid point on the first base sprite with alpha > 200
         base_sprite = self.base_sprites[0]
         width, height = base_sprite.get_size()
         center_x, center_y = width / 2, height / 2
-        
+
         spot_offset_x = 0
         spot_offset_y = 0
         found = False
-        
+
         for _ in range(50):
             rx = self.rng.randint(0, width - 1)
             ry = self.rng.randint(0, height - 1)
@@ -171,10 +173,10 @@ class SpaceShip(PlayerObject):
                 spot_offset_y = ry - center_y
                 found = True
                 break
-                
+
         if not found:
             return
-            
+
         # Draw the limpet at the rotated offset for all 64 directions
         new_sprites = []
         for heading in range(const.TOTAL_SPRITE_DIRECTIONS):
@@ -182,24 +184,26 @@ class SpaceShip(PlayerObject):
             # Rotate offset clockwise (since heading goes clockwise 0=up, 16=right)
             rx = spot_offset_x * math.cos(angle) - spot_offset_y * math.sin(angle)
             ry = spot_offset_x * math.sin(angle) + spot_offset_y * math.cos(angle)
-            
+
             # Blit onto current sprite so multiple limpets stack
             current_sprite = self.sprites[heading].copy()
             dest_x = current_sprite.get_width() / 2 + rx - limpet_sprite.get_width() / 2
-            dest_y = current_sprite.get_height() / 2 + ry - limpet_sprite.get_height() / 2
-            
+            dest_y = (
+                current_sprite.get_height() / 2 + ry - limpet_sprite.get_height() / 2
+            )
+
             current_sprite.blit(limpet_sprite, (int(dest_x), int(dest_y)))
             new_sprites.append(current_sprite)
-            
+
         self.sprites = tuple(new_sprites)
 
     def reset_limpets(self):
         if self.limpets_attached == 0:
             return
-            
+
         self.limpets_attached = 0
         self.sprites = self.base_sprites
-        
+
         # Reset stats
         ship_definition = SHIP_DEFINITIONS[self.name]
         self.max_thrust = ship_definition.max_thrust
@@ -247,7 +251,9 @@ class SpaceShip(PlayerObject):
             self.turn_left()
         if self.turn_right_active and turn_right_ready and self.turn_input_enabled():
             self.turn_right()
-        thrust_angles = self.get_active_thrust_angles(thrust_ready, turn_left_ready, turn_right_ready)
+        thrust_angles = self.get_active_thrust_angles(
+            thrust_ready, turn_left_ready, turn_right_ready
+        )
         if thrust_angles and self.can_thrust():
             self.thrust_timer = const.cooldown_frames(self.thrust_wait)
             for thrust_angle in thrust_angles:
@@ -255,7 +261,7 @@ class SpaceShip(PlayerObject):
                     self.max_thrust,
                     self.thrust_increment,
                     thrust_angle,
-                    not self.cloaked
+                    not self.cloaked,
                 )
                 if marker:
                     new_objects.append(marker)
@@ -329,8 +335,6 @@ class SpaceShip(PlayerObject):
 
         return frame_id - pressed_frame >= const.INPUT_REPEAT_DELAY_FRAMES
 
-
-
     def on_ship_impact(self, other, impact):
         """Return optional behavior for a physical collision with another ship."""
         return ShipImpactResult()
@@ -341,17 +345,13 @@ class SpaceShip(PlayerObject):
     def damage_shield_is_active(self):
         shield = getattr(self, "_active_damage_shield", None)
         return bool(
-            shield is not None
-            and shield.currently_alive
-            and shield.blocks_damage
+            shield is not None and shield.currently_alive and shield.blocks_damage
         )
 
     def destroy_boarded_marines(self):
         """Destroy every hostile unit currently carried by this ship."""
         for marine in tuple(self.boarded_marines):
-            on_host_self_destruct = getattr(
-                marine, "on_host_self_destruct", None
-            )
+            on_host_self_destruct = getattr(marine, "on_host_self_destruct", None)
             if on_host_self_destruct is not None:
                 on_host_self_destruct()
         self.boarded_marines.clear()
@@ -371,7 +371,6 @@ class SpaceShip(PlayerObject):
         previous_hp = self.current_hp
         self.current_hp = max(0, self.current_hp - damage)
         return previous_hp - self.current_hp
-
 
     def update(self):
         self.previous_position = self.position.copy()
@@ -433,11 +432,11 @@ class SpaceShip(PlayerObject):
         self.energy_timer += 1
         if self.energy_timer > self.energy_wait:
 
-
             self.energy_timer = 0
             if self.current_energy < self.max_energy:
-                self.current_energy = min(self.max_energy,
-                                          self.current_energy + self.energy_regen)
+                self.current_energy = min(
+                    self.max_energy, self.current_energy + self.energy_regen
+                )
 
     def turn_left(self):
         if self.can_turn():
@@ -481,16 +480,16 @@ class SpaceShip(PlayerObject):
         return self.prepare_action_plan(action_number, raw_result)
 
     def prepare_action_plan(
-            self,
-            action_number,
-            raw_result=None,
-            *,
-            energy_change=None,
-            crew_change=0,
-            side_effects=(),
-            launch_sound=None,
-            use_first_object_sound=True,
-            output=None,
+        self,
+        action_number,
+        raw_result=None,
+        *,
+        energy_change=None,
+        crew_change=0,
+        side_effects=(),
+        launch_sound=None,
+        use_first_object_sound=True,
+        output=None,
     ) -> ActionPlan:
         """Build a plan after ship-specific validation has succeeded."""
         cost = getattr(self, f"a{action_number}_cost")
@@ -588,12 +587,14 @@ class SpaceShip(PlayerObject):
 
     def set_sprite(self, interp_t=0.0):
         from src.Battle.interpolation import interpolated_sprite_index
+
         return self.sprites[interpolated_sprite_index(self, interp_t)]
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         sprite = self.set_sprite(interp_t)
-        
+
         from src.Battle.interpolation import interpolated_position
+
         pos = interpolated_position(self, interp_t)
 
         scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
@@ -610,9 +611,18 @@ class SpaceShip(PlayerObject):
                 pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
 
                 # Only draw if the position would be visible
-                if (-scaled_rect.width <= pos_x <= const.SCREEN_HEIGHT + scaled_rect.width and
-                        -scaled_rect.height <= pos_y <= const.SCREEN_HEIGHT + scaled_rect.height):
-                    screen.blit(scaled_sprite, (
-                        const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
-                        pos_y - scaled_rect.height // 2
-                    ))
+                if (
+                    -scaled_rect.width
+                    <= pos_x
+                    <= const.SCREEN_HEIGHT + scaled_rect.width
+                    and -scaled_rect.height
+                    <= pos_y
+                    <= const.SCREEN_HEIGHT + scaled_rect.height
+                ):
+                    screen.blit(
+                        scaled_sprite,
+                        (
+                            const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
+                            pos_y - scaled_rect.height // 2,
+                        ),
+                    )

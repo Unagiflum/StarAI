@@ -8,13 +8,15 @@ button_spaceV = int(Const.SCREEN_HEIGHT * 0.00625)
 
 ok_button_width = int(0.150 * Const.SCREEN_WIDTH)
 ok_button_height = int(0.05 * Const.SCREEN_HEIGHT)
-ok_button_left = Const.SCREEN_WIDTH // 2 - ok_button_width - int(0.0167*Const.SCREEN_WIDTH)
-can_button_left = Const.SCREEN_WIDTH // 2 + int(0.0167*Const.SCREEN_WIDTH)
-ok_button_top = Const.SCREEN_HEIGHT-ok_button_height-button_spaceV*4
+ok_button_left = (
+    Const.SCREEN_WIDTH // 2 - ok_button_width - int(0.0167 * Const.SCREEN_WIDTH)
+)
+can_button_left = Const.SCREEN_WIDTH // 2 + int(0.0167 * Const.SCREEN_WIDTH)
+ok_button_top = Const.SCREEN_HEIGHT - ok_button_height - button_spaceV * 4
 
 SELECTION_WIDTH = int(0.45 * Const.SCREEN_WIDTH)
-SELECTION_HEIGHT = int(.35 * Const.SCREEN_HEIGHT)
-FLEET_HEIGHT = int(.40 * Const.SCREEN_HEIGHT)
+SELECTION_HEIGHT = int(0.35 * Const.SCREEN_HEIGHT)
+FLEET_HEIGHT = int(0.40 * Const.SCREEN_HEIGHT)
 
 # Colors
 WHITE = (255, 255, 255)
@@ -25,10 +27,10 @@ DARK_GREY = (50, 50, 50)
 BLACK = (0, 0, 0)
 
 ORANGE = (255, 100, 0)
-RED = (255,0,0)
+RED = (255, 0, 0)
 DARK_RED = (50, 0, 0)
 
-BRIGHT_GREEN = (150,255,100)
+BRIGHT_GREEN = (150, 255, 100)
 DARK_GREEN = (0, 50, 0)
 
 OK_GREEN = (0, 155, 0, 75)
@@ -46,7 +48,7 @@ MAIN_BUTTON_COLOR_HI = (0, 0, 0, 255)
 
 SLIDER_BG = (50, 50, 100, 100)
 SLIDER_BG_HI = (50, 50, 100, 255)
-SLIDER_LINE = (100,100,100)
+SLIDER_LINE = (100, 100, 100)
 
 HANDLE_COLOR = (255, 0, 0)
 BG_COLOR = (0, 0, 20)
@@ -62,12 +64,14 @@ def load_background(path, screen_width, screen_height, resources=None):
         print(f"Could not load background image: {e}")
         return None
 
+
 def draw_title(screen, text, font_size=40, y_pos=50):
     """Utility function to draw a centered title with consistent styling"""
     font = pygame.font.SysFont(None, font_size)
     title_surf = font.render(text, True, WHITE)
     title_rect = title_surf.get_rect(center=(screen.get_width() // 2, y_pos))
     screen.blit(title_surf, title_rect)
+
 
 class SoundManager:
     def __init__(self, enabled=True, resources=None, audio_service=None):
@@ -85,7 +89,7 @@ class SoundManager:
         if not self.enabled:
             return
         sound_files = {
-            'menu': Const.MENU_WAV_PATH,
+            "menu": Const.MENU_WAV_PATH,
         }
         for sound_name, path in sound_files.items():
             try:

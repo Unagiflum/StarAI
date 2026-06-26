@@ -28,9 +28,11 @@ class Ilwrath(SpaceShip):
             const.SOUND_EFFECT_VOLUME,
         )
         self.black_sprites = self.resources.black_ship_sprites(ship_name)
-        
+
         a2_def = ABILITY_DEFINITIONS.get(f"{ship_name}A2")
-        self.uncloak_look_ahead = a2_def.look_ahead if a2_def and a2_def.look_ahead is not None else 0
+        self.uncloak_look_ahead = (
+            a2_def.look_ahead if a2_def and a2_def.look_ahead is not None else 0
+        )
 
     def plan_action1(self):
         if not self.can_action1():
@@ -43,11 +45,13 @@ class Ilwrath(SpaceShip):
 
         side_effects = ()
         if self.cloaked:
+
             def uncloak_for_attack():
                 if facing is not None:
                     self.heading, self.rotation = facing
                     self.previous_heading = self.heading
                 self.uncloak()
+
             side_effects = (uncloak_for_attack,)
 
         return self.prepare_action_plan(1, flame, side_effects=side_effects)
@@ -91,13 +95,15 @@ class Ilwrath(SpaceShip):
     def _opponent_facing(self):
         if not self.opponent or not self.opponent.trackable:
             return None
-            
+
         target_pos = self.opponent.position
         if self.uncloak_look_ahead > 0:
-            t_traj = self.opponent.predict_unhindered_trajectory(frames=self.uncloak_look_ahead)
+            t_traj = self.opponent.predict_unhindered_trajectory(
+                frames=self.uncloak_look_ahead
+            )
             if t_traj:
                 target_pos = t_traj[-1]
-                
+
         dx, dy = wrapped_delta(self.position, target_pos)
         target_angle = math.degrees(math.atan2(dx, -dy))
         if target_angle < 0:
@@ -105,7 +111,6 @@ class Ilwrath(SpaceShip):
         direction_step = 360 / const.SHIP_DIRECTIONS
         heading = int(target_angle / direction_step) % const.SHIP_DIRECTIONS
         return heading, heading * const.TURN_ANGLE
-
 
     def can_action2(self):
         if self.cloaked:
@@ -130,12 +135,16 @@ class Ilwrath(SpaceShip):
 
     def set_sprite(self, interp_t=0.0):
         from src.Battle.interpolation import interpolated_sprite_index
+
         sprite_idx = interpolated_sprite_index(self, interp_t)
         black_sprite = self.black_sprites[sprite_idx]
         normal_sprite = self.sprites[sprite_idx]
 
         # If we're still within the fade timer, do a fade transition; otherwise pick final
-        fade_timer = self.previous_fade_timer + (self.fade_timer - self.previous_fade_timer) * interp_t
+        fade_timer = (
+            self.previous_fade_timer
+            + (self.fade_timer - self.previous_fade_timer) * interp_t
+        )
         if fade_timer < self.FADE_DURATION:
             progress = fade_timer / self.FADE_DURATION
             final_sprite = pygame.Surface(normal_sprite.get_size(), pygame.SRCALPHA)

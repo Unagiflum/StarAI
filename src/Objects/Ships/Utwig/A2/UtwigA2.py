@@ -1,6 +1,7 @@
 from src.Objects.Ships.ability import Ability
 import src.const as const
 
+
 class UtwigA2(Ability):
     """Timed Utwig damage shield. Absorbs damage to grant energy."""
 
@@ -13,7 +14,7 @@ class UtwigA2(Ability):
         self.can_expire = True
         self.can_collide = False
         self._active = False
-        
+
         self.gain_sound = None
         if self.audio_service:
             self.gain_sound = self.audio_service.load_effect(
@@ -53,17 +54,17 @@ class UtwigA2(Ability):
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         from src.Battle.interpolation import interpolated_position
+
         pos = interpolated_position(self, interp_t)
         return None
 
     def absorb_damage(self, damage):
         if damage <= 0:
             return
-            
+
         self.parent.current_energy = min(
-            self.parent.max_energy,
-            self.parent.current_energy + damage
+            self.parent.max_energy, self.parent.current_energy + damage
         )
-        
+
         if self.gain_sound:
             self.gain_sound.play()

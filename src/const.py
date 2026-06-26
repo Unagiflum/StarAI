@@ -2,7 +2,6 @@
 import pygame
 from pathlib import Path
 
-
 SOURCE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = SOURCE_ROOT.parent
 
@@ -12,9 +11,11 @@ def source_path(path):
     path = Path(path)
     return path if path.is_absolute() else SOURCE_ROOT / path
 
+
 def cooldown_frames(wait_value):
     """Convert UQM gap frames to engine cooldown frames."""
     return round(wait_value) + 1
+
 
 # Player Colors
 P1_COLOR = (50, 200, 200)
@@ -31,8 +32,8 @@ HUD_VIEWPORT_BORDER = HUD_BAR_BORDER
 
 # Screen
 SCREEN_HEIGHT = 960
-SCREEN_WIDTH = int(SCREEN_HEIGHT*1.6)
-SCREEN_LEFT = int((SCREEN_WIDTH - SCREEN_HEIGHT)/2)
+SCREEN_WIDTH = int(SCREEN_HEIGHT * 1.6)
+SCREEN_LEFT = int((SCREEN_WIDTH - SCREEN_HEIGHT) / 2)
 FPS = 24
 INPUT_REPEAT_DELAY_FRAMES = 3
 # Aftermath timing is simulation-owned rather than derived from audio playback.
@@ -45,39 +46,37 @@ VICTORY_DITTY_VIEW_FRAMES = FPS * 6
 
 # Compatibility names retained for callers that import the older constants.
 POST_DEATH_ANIMATION_VIEW_FRAMES = POST_DEATH_EFFECT_FRAMES
-POST_DEATH_CONTROL_FRAMES = (
-    POST_DEATH_EFFECT_FRAMES + VICTORY_DITTY_VIEW_FRAMES
-)
+POST_DEATH_CONTROL_FRAMES = POST_DEATH_EFFECT_FRAMES + VICTORY_DITTY_VIEW_FRAMES
 
-#Graphics Settings
+# Graphics Settings
 
-#Arena
+# Arena
 ARENA_SIZE = 7000
 MIN_SHIP_SEPARATION = ARENA_SIZE // 4
 CENTER_BUFFER = ARENA_SIZE // 4
-PLANET_POSITION = [ARENA_SIZE/2, ARENA_SIZE/2]
+PLANET_POSITION = [ARENA_SIZE / 2, ARENA_SIZE / 2]
 MAX_ZOOM = 1.0
 
-#Game Physics
+# Game Physics
 SPEED_SCALE = 1.0
 GRAVITY_MULTIPLIER = 1.0
 GRAVITY_RANGE = CENTER_BUFFER // 2
 SPEED_LIMIT = 150
 MAX_GRAV_WHIP = 100
 
-#Stars
-STAR_COUNT = int(ARENA_SIZE*ARENA_SIZE/64000)
-STAR_WEIGHTS = [45,45,10,0,0] # Smallest to largest
+# Stars
+STAR_COUNT = int(ARENA_SIZE * ARENA_SIZE / 64000)
+STAR_WEIGHTS = [45, 45, 10, 0, 0]  # Smallest to largest
 STAR_DEPTHS = 3
-PLANET_WEIGHTS = [25,25,25,25] # Gas, Ice, Life, Rocky
+PLANET_WEIGHTS = [25, 25, 25, 25]  # Gas, Ice, Life, Rocky
 STAR_ALPHA = 200
 
-#Asteroids
-ASTEROID_COUNT = 5 # Asteroid placing function will get stuck if you have too many
+# Asteroids
+ASTEROID_COUNT = 5  # Asteroid placing function will get stuck if you have too many
 ASTEROID_PATH = source_path("Objects/Space/Asteroid")
 ASTEROID_SPEED = 30
 
-#Ships
+# Ships
 ASSET_SPRITE_DIRECTIONS = 16
 DIRECTIONS_MULTIPLIER = 1
 SHIP_DIRECTIONS = ASSET_SPRITE_DIRECTIONS * DIRECTIONS_MULTIPLIER
@@ -90,11 +89,14 @@ VIDEO_FPS = FPS * VIDEO_FPS_MULTIPLIER
 TOTAL_SPRITE_DIRECTIONS = SHIP_DIRECTIONS * VIDEO_FPS_MULTIPLIER
 TOTAL_SPRITE_STEP = 360 / TOTAL_SPRITE_DIRECTIONS
 
+
 def heading_to_sprite_index(heading):
     """Convert a gameplay heading to a sprite/mask array index."""
     return (heading * VIDEO_FPS_MULTIPLIER) % TOTAL_SPRITE_DIRECTIONS
-FLEET_ICON_SIZE = (int(SCREEN_HEIGHT*0.078), int(SCREEN_HEIGHT*0.078))
-SELECTION_ICON_SIZE = (int(SCREEN_HEIGHT*0.09755), int(SCREEN_HEIGHT*0.0975))
+
+
+FLEET_ICON_SIZE = (int(SCREEN_HEIGHT * 0.078), int(SCREEN_HEIGHT * 0.078))
+SELECTION_ICON_SIZE = (int(SCREEN_HEIGHT * 0.09755), int(SCREEN_HEIGHT * 0.0975))
 MAX_SHIP_SIZE = 200
 SHIP_COLS = 8
 SHIP_ROWS = 4
@@ -108,10 +110,10 @@ ENTRY_TRAIL_STAGGER_FRAMES = 2
 ENTRY_TRAIL_FADE_FRAMES = 12
 PKUNK_REBIRTH_PAUSE_FRAMES = POST_DEATH_EFFECT_FRAMES
 
-#Projectiles
+# Projectiles
 PROJ_GAP = 5
 
-#File Paths
+# File Paths
 GAME_JSON_PATH = source_path("Config/game_settings.json")
 TRAINING_JSON_PATH = source_path("Config/train_settings.json")
 FLEETS_JSON_PATH = source_path("Config/fleets.json")

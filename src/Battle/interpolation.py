@@ -1,4 +1,5 @@
 """Frame interpolation utilities for VIDEO_FPS_MULTIPLIER > 1."""
+
 import src.const as const
 from src.toroidal import wrapped_delta
 

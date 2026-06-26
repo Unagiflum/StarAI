@@ -15,8 +15,11 @@ def get_ship_class(ship_name):
         module = import_module(f"src.Objects.Ships.{ship_name}.{ship_name}")
         return getattr(module, ship_name)
     except (ImportError, ModuleNotFoundError) as e:
-        print(f"Warning: Could not import ship module for {ship_name}, falling back to base SpaceShip. ({e})")
+        print(
+            f"Warning: Could not import ship module for {ship_name}, falling back to base SpaceShip. ({e})"
+        )
         from src.Objects.Ships.space_ship import SpaceShip
+
         return SpaceShip
 
 
@@ -32,8 +35,11 @@ def get_ability_class(ability_name):
         )
         return getattr(module, ability_name)
     except (ImportError, ModuleNotFoundError) as e:
-        print(f"Warning: Could not import ability module for {ability_name}, falling back to base Ability. ({e})")
+        print(
+            f"Warning: Could not import ability module for {ability_name}, falling back to base Ability. ({e})"
+        )
         from src.Objects.Ships.ability import Ability
+
         return Ability
 
 

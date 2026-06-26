@@ -19,6 +19,7 @@ from src.toroidal import nearest_position, wrapped_delta
 def wrapped_endpoint(start, end):
     return nearest_position(end, start)
 
+
 class Ability(PlayerObject):
     sound_enabled = True
 
@@ -31,7 +32,7 @@ class Ability(PlayerObject):
             sprite_location=const.source_path(ability_definition.file_path),
             sprite_scale=ability_definition.sprite_scale,
             size=[0, 0],
-            player=parent.player
+            player=parent.player,
         )
         self.resources = getattr(parent, "resources", default_assets())
         self.rng = getattr(parent, "rng", random)
@@ -64,11 +65,13 @@ class Ability(PlayerObject):
 
         # Basic properties
         self.type = ability_definition.ability_type
-        self.collision_capabilities = CollisionCapabilities({
-            'projectile': CollisionRole.PROJECTILE,
-            'fighter': CollisionRole.FIGHTER,
-            'laser': CollisionRole.LASER,
-        }.get(self.type, CollisionRole.NONE))
+        self.collision_capabilities = CollisionCapabilities(
+            {
+                "projectile": CollisionRole.PROJECTILE,
+                "fighter": CollisionRole.FIGHTER,
+                "laser": CollisionRole.LASER,
+            }.get(self.type, CollisionRole.NONE)
+        )
         self.laser_target_capabilities = LaserTargetCapabilities(
             targetable=self.type in ("projectile", "fighter"),
             vulnerable=ability_definition.laser_vulnerable,
@@ -122,7 +125,7 @@ class Ability(PlayerObject):
         self.can_die = True
         self.can_expire = True
 
-        if self.type in ('laser', 'projectile', 'fighter'):
+        if self.type in ("laser", "projectile", "fighter"):
             self.can_collide = True
         else:
             self.can_collide = False
@@ -155,7 +158,9 @@ class Ability(PlayerObject):
             self.heading = 0
         else:
             direction_step = 360 / const.SHIP_DIRECTIONS
-            self.heading = int((self.rotation % 360) / direction_step) % const.SHIP_DIRECTIONS
+            self.heading = (
+                int((self.rotation % 360) / direction_step) % const.SHIP_DIRECTIONS
+            )
 
         if self.tracking and self._live_trackable_opponent():
             # Find opponent
@@ -183,15 +188,20 @@ class Ability(PlayerObject):
             if self.turn_timer <= 0:
                 if self.opponent.trackable:
                     if abs(angle_diff) >= direction_step:
-                        self.rotation = (current_angle + (direction_step if angle_diff > 0 else -direction_step)) % 360
+                        self.rotation = (
+                            current_angle
+                            + (direction_step if angle_diff > 0 else -direction_step)
+                        ) % 360
                         self.turn_timer = const.cooldown_frames(self.turn_wait)
                     else:
                         self.rotation = target_angle
             else:
                 self.turn_timer -= 1
             angle_rad = math.radians(self.rotation)
-            self.velocity = [math.sin(angle_rad) * self.speed, -math.cos(angle_rad) * self.speed]
-
+            self.velocity = [
+                math.sin(angle_rad) * self.speed,
+                -math.cos(angle_rad) * self.speed,
+            ]
 
     def update_physics(self):
         self.update_heading()
@@ -214,9 +224,13 @@ class Ability(PlayerObject):
                     self.current_frame += 1
                     # Update properties for new frame
                     self.size = list(self.sizes[self.current_frame])
-                    self.current_damage = self.damages[min(self.current_frame, len(self.damages) - 1)]
+                    self.current_damage = self.damages[
+                        min(self.current_frame, len(self.damages) - 1)
+                    ]
                     if len(self.hp_array) > 1:
-                        self.current_hp = min(self.current_hp, self.hp_array[self.current_frame])
+                        self.current_hp = min(
+                            self.current_hp, self.hp_array[self.current_frame]
+                        )
                     self.frame_timer = self.frame_delay
             else:
                 self.frame_timer -= 1
@@ -224,7 +238,7 @@ class Ability(PlayerObject):
         if self.current_hp <= 0:
             self.currently_alive = False
             return False
-        if self.type == 'laser':
+        if self.type == "laser":
             return self.expiration_timer >= 0 and self.current_hp > 0
         return self.expiration_timer > 0 and self.current_hp > 0
 
@@ -237,9 +251,7 @@ class Ability(PlayerObject):
             if take_damage is not None:
                 take_damage(self.current_damage)
             else:
-                target.current_hp = max(
-                    0, target.current_hp - self.current_damage
-                )
+                target.current_hp = max(0, target.current_hp - self.current_damage)
 
         return True
 
@@ -301,7 +313,6 @@ class Ability(PlayerObject):
     def is_alive(self):
         return self.currently_alive and self.current_hp > 0
 
-
     def set_hp(self, new_hp):
         """Override hp setting to handle evolution and death"""
         if new_hp <= 0:
@@ -323,15 +334,17 @@ class Ability(PlayerObject):
             if self.frames > 1:
                 return self.sprites[0][self.current_frame]
             return self.sprites[0]
-            
+
         if self.frames > 1:
             return self.sprites[0][self.current_frame]
         from src.Battle.interpolation import interpolated_sprite_index
+
         return self.sprites[interpolated_sprite_index(self, interp_t)]
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         sprite = self.get_sprite(interp_t)
         from src.Battle.interpolation import interpolated_position
+
         pos = interpolated_position(self, interp_t)
         scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
         scaled_rect = scaled_sprite.get_rect()
@@ -344,12 +357,21 @@ class Ability(PlayerObject):
                 pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
 
-                if (-scaled_rect.width <= pos_x <= const.SCREEN_HEIGHT + scaled_rect.width and
-                        -scaled_rect.height <= pos_y <= const.SCREEN_HEIGHT + scaled_rect.height):
-                    screen.blit(scaled_sprite, (
-                        const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
-                        pos_y - scaled_rect.height // 2
-                    ))
+                if (
+                    -scaled_rect.width
+                    <= pos_x
+                    <= const.SCREEN_HEIGHT + scaled_rect.width
+                    and -scaled_rect.height
+                    <= pos_y
+                    <= const.SCREEN_HEIGHT + scaled_rect.height
+                ):
+                    screen.blit(
+                        scaled_sprite,
+                        (
+                            const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
+                            pos_y - scaled_rect.height // 2,
+                        ),
+                    )
 
     def get_collision_mask(self):
         if not self.masks:

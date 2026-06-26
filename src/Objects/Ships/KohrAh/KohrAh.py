@@ -18,7 +18,8 @@ class KohrAh(SpaceShip):
     def plan_action1(self):
         # Update active_projectiles from friendly_objects
         live_projectiles = [
-            obj for obj in self.friendly_objects
+            obj
+            for obj in self.friendly_objects
             if isinstance(obj, KohrAhA1) and obj.currently_alive and obj.current_hp > 0
         ]
         self.active_projectiles = live_projectiles
@@ -49,7 +50,8 @@ class KohrAh(SpaceShip):
     def perform_action1_release(self):
         self.last_action1_state = False
         self.active_projectiles = [
-            obj for obj in self.friendly_objects
+            obj
+            for obj in self.friendly_objects
             if isinstance(obj, KohrAhA1) and obj.currently_alive and obj.current_hp > 0
         ]
         for proj in self.active_projectiles:

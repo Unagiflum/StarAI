@@ -27,5 +27,8 @@ class Yehat(SpaceShip):
     def set_sprite(self, interp_t=0.0):
         if self.damage_shield_is_active():
             from src.Battle.interpolation import interpolated_sprite_index
-            return self._active_damage_shield.sprites[interpolated_sprite_index(self, interp_t)]
+
+            return self._active_damage_shield.sprites[
+                interpolated_sprite_index(self, interp_t)
+            ]
         return super().set_sprite(interp_t)

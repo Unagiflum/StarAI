@@ -132,7 +132,9 @@ class HeadlessBattleEnvironment:
             needs_selection=simulation.needs_selection,
         )
 
-    def step(self, actions: Mapping[int | str, Mapping[str, Any]] | None = None) -> BattleTransition:
+    def step(
+        self, actions: Mapping[int | str, Mapping[str, Any]] | None = None
+    ) -> BattleTransition:
         """Advance one frame using action dictionaries accepted by the simulation."""
         simulation = self._require_simulation()
         if self._episode_done:
@@ -159,11 +161,13 @@ class HeadlessBattleEnvironment:
             rewards=MappingProxyType(rewards),
             terminated=terminated,
             truncated=truncated,
-            info=MappingProxyType({
-                "frame_id": state["frame_id"],
-                "seed": self._seed,
-                "winner": winner,
-            }),
+            info=MappingProxyType(
+                {
+                    "frame_id": state["frame_id"],
+                    "seed": self._seed,
+                    "winner": winner,
+                }
+            ),
         )
 
     def close(self) -> None:

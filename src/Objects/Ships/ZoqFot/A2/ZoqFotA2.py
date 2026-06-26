@@ -38,27 +38,34 @@ class ZoqFotA2(Ability):
         )
         self._current_sprite = None
         self._current_mask = None
-        
+
         self._shape_cache = {}
 
         self._sync_to_parent(0)
 
-    @staticmethod
-    def _projection_bounds(mask, heading):
-        width, height = mask.get_size()
-        center_x = (width - 1) / 2
-        center_y = (height - 1) / 2
-        angle = math.radians(heading * const.TURN_ANGLE)
-        forward_x = math.sin(angle)
-        forward_y = -math.cos(angle)
-        projections = (
-            (x - center_x) * forward_x + (y - center_y) * forward_y
-            for y in range(height)
-            for x in range(width)
-            if mask.get_at((x, y))
-        )
-        projections = tuple(projections)
-        return (min(projections), max(projections)) if projections else (0.0, 0.0)
+    def _generate_shape(self, length, visual_idx):
+        cache_key = (length, visual_idx)
+        if cache_key not in self._shape_cache:
+            base_surf = pygame.Surface((self.area_width, length), pygame.SRCALPHA)
+            dark_red = (139, 0, 0)
+            pygame.draw.ellipse(base_surf, dark_red, (0, 0, self.area_width, length))
+            pygame.draw.rect(
+                base_surf, dark_red, (0, length // 2, self.area_width, length // 2)
+            )
+
+            red = (255, 0, 0)
+            inner_width = max(2, self.area_width - 2)
+            inner_length = max(4, length - 2)
+            pygame.draw.ellipse(base_surf, red, (1, 1, inner_width, inner_length))
+            pygame.draw.rect(
+                base_surf, red, (1, length // 2, inner_width, (length // 2) - 1)
+            )
+
+            angle = visual_idx * const.TOTAL_SPRITE_STEP
+            sprite = pygame.transform.rotate(base_surf, -angle)
+            mask = pygame.mask.from_surface(sprite)
+            self._shape_cache[cache_key] = (sprite, mask)
+        return self._shape_cache[cache_key]
 
     def _sync_to_parent(self, age_frame):
         self.heading = self.parent.heading % const.SHIP_DIRECTIONS
@@ -67,38 +74,28 @@ class ZoqFotA2(Ability):
         if age_frame < self.advancing_frames:
             scale_factor = (age_frame + 1) / max(1, self.advancing_frames)
         else:
-            scale_factor = 1.0 - (age_frame - self.advancing_frames + 1) / max(1, self.retracting_frames)
+            scale_factor = 1.0 - (age_frame - self.advancing_frames + 1) / max(
+                1, self.retracting_frames
+            )
         scale_factor = max(0.01, min(1.0, scale_factor))
-        
+
         current_length = max(1, int(self.area_length * scale_factor))
-        cache_key = (current_length, self.heading)
 
-        if cache_key not in self._shape_cache:
-            base_surf = pygame.Surface((self.area_width, current_length), pygame.SRCALPHA)
-            dark_red = (139, 0, 0)
-            pygame.draw.ellipse(base_surf, dark_red, (0, 0, self.area_width, current_length))
-            pygame.draw.rect(base_surf, dark_red, (0, current_length // 2, self.area_width, current_length // 2))
-            
-            red = (255, 0, 0)
-            inner_width = max(2, self.area_width - 2)
-            inner_length = max(4, current_length - 2)
-            pygame.draw.ellipse(base_surf, red, (1, 1, inner_width, inner_length))
-            pygame.draw.rect(base_surf, red, (1, current_length // 2, inner_width, (current_length // 2) - 1))
-            
-            sprite = pygame.transform.rotate(base_surf, -self.heading * const.TURN_ANGLE)
-            mask = pygame.mask.from_surface(sprite)
-            self._shape_cache[cache_key] = (sprite, mask)
-
-        self._current_sprite, self._current_mask = self._shape_cache[cache_key]
+        visual_idx = const.heading_to_sprite_index(self.heading)
+        self._current_sprite, self._current_mask = self._generate_shape(
+            current_length, visual_idx
+        )
         self.size = list(self._current_sprite.get_size())
 
+        from src.resources import _projection_bounds
+
         parent_mask = self.parent.get_collision_mask()
-        parent_forward = self._projection_bounds(parent_mask, self.heading)[1]
-        
+        parent_forward = _projection_bounds(parent_mask, visual_idx)[1]
+
         self.base_distance = (parent_forward + const.PROJ_GAP) * self.base_offset
         self.current_length = current_length
         distance = self.base_distance + self.current_length / 2.0
-        
+
         angle = math.radians(self.rotation)
         self.position = [
             (self.parent.position[0] + math.sin(angle) * distance) % const.ARENA_SIZE,
@@ -125,12 +122,18 @@ class ZoqFotA2(Ability):
         role = target.collision_capabilities.role
         if role == CollisionRole.ASTEROID:
             pass
-        elif role not in (
-            CollisionRole.SHIP,
-            CollisionRole.PROJECTILE,
-            CollisionRole.FIGHTER,
-        ) or target.player == self.player:
+        elif (
+            role
+            not in (
+                CollisionRole.SHIP,
+                CollisionRole.PROJECTILE,
+                CollisionRole.FIGHTER,
+            )
+            or target.player == self.player
+        ):
             return 0
+
+        from src.Battle.collision_geometry import collision_info, objects_overlap
 
         _, _, overlap = collision_info(self, target)
         if not objects_overlap(self, target, overlap):
@@ -144,38 +147,56 @@ class ZoqFotA2(Ability):
         return self._current_mask
 
     def get_sprite(self, interp_t=0.0):
-        return self._current_sprite
+        from src.Battle.interpolation import interpolated_sprite_index
+
+        visual_idx = interpolated_sprite_index(self.parent, interp_t)
+        sprite, _ = self._generate_shape(getattr(self, "current_length", 1), visual_idx)
+        return sprite
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
-        from src.Battle.interpolation import interpolated_position, interpolated_sprite_index
-        
+        from src.Battle.interpolation import (
+            interpolated_position,
+            interpolated_sprite_index,
+        )
+
         parent_pos = interpolated_position(self.parent, interp_t)
         visual_idx = interpolated_sprite_index(self.parent, interp_t)
         visual_heading = visual_idx / const.VIDEO_FPS_MULTIPLIER
         angle_rad = math.radians(visual_heading * const.TURN_ANGLE)
-        
-        distance = getattr(self, "base_distance", 0) + getattr(self, "current_length", 0) / 2.0
-        
+
+        distance = (
+            getattr(self, "base_distance", 0) + getattr(self, "current_length", 0) / 2.0
+        )
+
         visual_pos = [
             (parent_pos[0] + math.sin(angle_rad) * distance) % const.ARENA_SIZE,
             (parent_pos[1] - math.cos(angle_rad) * distance) % const.ARENA_SIZE,
         ]
-        
+
         sprite = self.get_sprite(interp_t)
         scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
         scaled_rect = scaled_sprite.get_rect()
-        
+
         screen_x = int((visual_pos[0] + translation[0]) * scale_factor)
         screen_y = int((visual_pos[1] + translation[1]) * scale_factor)
-        
+
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:
                 pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
 
-                if (-scaled_rect.width <= pos_x <= const.SCREEN_HEIGHT + scaled_rect.width and
-                        -scaled_rect.height <= pos_y <= const.SCREEN_HEIGHT + scaled_rect.height):
-                    screen.blit(scaled_sprite, (
-                        const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
-                        pos_y - scaled_rect.height // 2
-                    ))
+                if (
+                    -scaled_rect.width
+                    <= pos_x
+                    <= const.SCREEN_HEIGHT + scaled_rect.width
+                    and -scaled_rect.height
+                    <= pos_y
+                    <= const.SCREEN_HEIGHT + scaled_rect.height
+                ):
+                    screen.blit(
+                        scaled_sprite,
+                        (
+                            const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
+                            pos_y - scaled_rect.height // 2,
+                        ),
+                    )

@@ -17,7 +17,7 @@ class ZoqFot(SpaceShip):
                 return ActionPlan.invalid(2)
             else:
                 self.active_a2 = None
-            
+
         plan = super().plan_action2()
         if plan.valid and plan.spawned_objects:
             self.active_a2 = plan.spawned_objects[0]

@@ -16,7 +16,11 @@ class OrzA3(Ability):
     BOARDED = "boarded"
     RETURNING = "returning"
 
-    MAX_MARINES = ABILITY_DEFINITIONS["OrzA3"].max_marines if ABILITY_DEFINITIONS["OrzA3"].max_marines is not None else 8
+    MAX_MARINES = (
+        ABILITY_DEFINITIONS["OrzA3"].max_marines
+        if ABILITY_DEFINITIONS["OrzA3"].max_marines is not None
+        else 8
+    )
     BOARDING_WAIT = const.cooldown_frames(12)
     DEATH_ROLL_LIMIT = 16
     KILL_ROLL_LIMIT = 144
@@ -25,22 +29,34 @@ class OrzA3(Ability):
     def __init__(self, parent):
         super().__init__("OrzA3", parent)
         self.expiration_timer = float("inf")
-        
+
         ability_def = ABILITY_DEFINITIONS["OrzA3"]
-        self.launch_time = ability_def.launch_time if ability_def.launch_time is not None else 0
+        self.launch_time = (
+            ability_def.launch_time if ability_def.launch_time is not None else 0
+        )
         self.mode = self.LAUNCHING if self.launch_time > 0 else self.OUTBOUND
         self.launch_timer = self.launch_time
 
         self.boarded_ship = None
         self.boarding_timer = self.BOARDING_WAIT
         self.shield_bounce_timer = 0
-        
+
         ability_def = ABILITY_DEFINITIONS["OrzA3"]
-        self.spiral_distance = ability_def.spiral_distance if ability_def.spiral_distance is not None else 500
-        self.max_thrust = ability_def.max_thrust if ability_def.max_thrust else self.speed
-        self.thrust_increment = ability_def.thrust_increment if ability_def.thrust_increment else 8
+        self.spiral_distance = (
+            ability_def.spiral_distance
+            if ability_def.spiral_distance is not None
+            else 500
+        )
+        self.max_thrust = (
+            ability_def.max_thrust if ability_def.max_thrust else self.speed
+        )
+        self.thrust_increment = (
+            ability_def.thrust_increment if ability_def.thrust_increment else 8
+        )
         self.thrust_wait = ability_def.thrust_wait if ability_def.thrust_wait else 1
-        self.look_ahead = ability_def.look_ahead if ability_def.look_ahead is not None else 15
+        self.look_ahead = (
+            ability_def.look_ahead if ability_def.look_ahead is not None else 15
+        )
         self.thrust_timer = 0
 
         self.spawned_objects = []
@@ -83,9 +99,7 @@ class OrzA3(Ability):
 
     def _load_flight_sprites(self):
         directory = const.source_path("Objects/Ships/Orz/A3")
-        self.red_flight_sprite = self.resources.image(
-            directory / "OrzA3Red.png"
-        ).image
+        self.red_flight_sprite = self.resources.image(directory / "OrzA3Red.png").image
         self.green_flight_sprite = self.resources.image(
             directory / "OrzA3Green.png"
         ).image
@@ -95,12 +109,8 @@ class OrzA3(Ability):
         angle = math.radians(self.rotation)
         distance = const.PROJ_GAP + (self.size[1] + self.parent.size[1]) / 2
         self.position = [
-            (
-                self.parent.position[0] + math.sin(angle) * distance
-            ) % const.ARENA_SIZE,
-            (
-                self.parent.position[1] - math.cos(angle) * distance
-            ) % const.ARENA_SIZE,
+            (self.parent.position[0] + math.sin(angle) * distance) % const.ARENA_SIZE,
+            (self.parent.position[1] - math.cos(angle) * distance) % const.ARENA_SIZE,
         ]
         self.previous_position = self.position.copy()
         speed = self.max_thrust
@@ -136,18 +146,18 @@ class OrzA3(Ability):
             return True
 
         destination = self._flight_destination()
-        
+
         avoid = False
         target = self._live_trackable_opponent() if self.mode == self.OUTBOUND else None
-        
+
         margin = self.size[1]
         t_planet = self.predict_planet_collision(frames=90, margin=margin)
-        
+
         if t_planet is not None:
             t_target = None
             if target:
                 t_target = self.predict_target_interception(target, frames=90)
-            
+
             if t_target is None or t_planet < t_target:
                 avoid = True
 
@@ -159,7 +169,7 @@ class OrzA3(Ability):
             self.velocity = [0.0, 0.0]
 
         self.update_physics()
-            
+
         return self.currently_alive
 
     def _update_boarded(self):
@@ -187,14 +197,15 @@ class OrzA3(Ability):
                 self._leave_ship()
         return self.currently_alive
 
-
     def _flight_destination(self):
         if self.mode == self.OUTBOUND:
             target = self._live_trackable_opponent()
             if target is not None:
-                intercept_frame = self.predict_target_interception(target, frames=self.look_ahead)
+                intercept_frame = self.predict_target_interception(
+                    target, frames=self.look_ahead
+                )
                 t_traj = target.predict_unhindered_trajectory(frames=self.look_ahead)
-                
+
                 if intercept_frame is None or intercept_frame >= self.look_ahead:
                     if len(t_traj) > 0:
                         return t_traj[-1]
@@ -220,7 +231,9 @@ class OrzA3(Ability):
 
         speed = math.hypot(self.velocity[0], self.velocity[1])
         if speed > 0:
-            current_heading = math.degrees(math.atan2(self.velocity[0], -self.velocity[1])) % 360
+            current_heading = (
+                math.degrees(math.atan2(self.velocity[0], -self.velocity[1])) % 360
+            )
         else:
             current_heading = self.rotation
 
@@ -229,16 +242,18 @@ class OrzA3(Ability):
                 abs(abs((k * angle_step - current_heading + 180) % 360 - 180) - 90)
                 for k in range(const.SHIP_DIRECTIONS)
             )
-            current_diff_to_90 = abs(abs((self.rotation - current_heading + 180) % 360 - 180) - 90)
-            
+            current_diff_to_90 = abs(
+                abs((self.rotation - current_heading + 180) % 360 - 180) - 90
+            )
+
             if math.isclose(current_diff_to_90, min_diff_to_90, abs_tol=1e-5):
                 anti_heading = (current_heading + 180) % 360
                 adj1 = (self.rotation + angle_step) % 360
                 adj2 = (self.rotation - angle_step) % 360
-                
+
                 diff1 = abs((adj1 - anti_heading + 180) % 360 - 180)
                 diff2 = abs((adj2 - anti_heading + 180) % 360 - 180)
-                
+
                 if diff1 < diff2:
                     self.rotation = adj1
                 else:
@@ -264,13 +279,11 @@ class OrzA3(Ability):
         else:
             self.thrust_timer -= 1
 
-
-
     def predict_target_interception(self, target, frames=90):
         m_pos = list(self.position)
         m_vel = list(self.velocity)
         t_traj = target.predict_unhindered_trajectory(frames=frames)
-        
+
         for f in range(frames):
             if f >= len(t_traj):
                 break
@@ -279,18 +292,18 @@ class OrzA3(Ability):
             dist = math.hypot(dx, dy)
             if dist < (self.size[0] + target.size[0]) / 2:
                 return f
-            
+
             if dist > 0:
                 dir_x = dx / dist
                 dir_y = dy / dist
                 m_vel[0] += dir_x * self.thrust_increment
                 m_vel[1] += dir_y * self.thrust_increment
-                
+
                 speed = math.hypot(m_vel[0], m_vel[1])
                 if speed > self.max_thrust:
                     m_vel[0] = m_vel[0] * self.max_thrust / speed
                     m_vel[1] = m_vel[1] * self.max_thrust / speed
-            
+
             if self.planet:
                 px, py = wrapped_delta(m_pos, self.planet.position)
                 p_dist = math.hypot(px, py)
@@ -299,7 +312,7 @@ class OrzA3(Ability):
                     if p_dist > 0:
                         m_vel[0] += gf * px / p_dist
                         m_vel[1] += gf * py / p_dist
-            
+
             speed = math.hypot(m_vel[0], m_vel[1])
             if speed > const.SPEED_LIMIT:
                 m_vel[0] = m_vel[0] * const.SPEED_LIMIT / speed
@@ -307,7 +320,7 @@ class OrzA3(Ability):
 
             m_pos[0] = (m_pos[0] + m_vel[0] * const.SPEED_SCALE) % const.ARENA_SIZE
             m_pos[1] = (m_pos[1] + m_vel[1] * const.SPEED_SCALE) % const.ARENA_SIZE
-            
+
         return None
 
     def _apply_avoidance_thrust(self):
@@ -334,7 +347,9 @@ class OrzA3(Ability):
             angle_step = 360 / const.SHIP_DIRECTIONS
             self.rotation = round(desired_angle / angle_step) * angle_step % 360
             if self.thrust_timer <= 0:
-                marker = self.apply_thrust(self.max_thrust, self.thrust_increment, 0, True)
+                marker = self.apply_thrust(
+                    self.max_thrust, self.thrust_increment, 0, True
+                )
                 if marker:
                     self.spawned_objects.append(marker)
                 self.thrust_timer = self.thrust_wait
@@ -352,10 +367,12 @@ class OrzA3(Ability):
     def _spawn_thrust_marker(self):
         angle = math.radians(self.rotation)
         offset = self.size[1] / 2 + 6
-        self.spawned_objects.append(ThrustMarker(
-            self.position[0] - math.sin(angle) * offset,
-            self.position[1] + math.cos(angle) * offset,
-        ))
+        self.spawned_objects.append(
+            ThrustMarker(
+                self.position[0] - math.sin(angle) * offset,
+                self.position[1] + math.cos(angle) * offset,
+            )
+        )
 
     def drain_spawned_objects(self):
         result = self.spawned_objects
@@ -399,9 +416,7 @@ class OrzA3(Ability):
         self.position = ship.position.copy()
         self.velocity = [0.0, 0.0]
         self.can_collide = False
-        self.area_damage_capabilities = AreaDamageCapabilities(
-            targetable=False
-        )
+        self.area_damage_capabilities = AreaDamageCapabilities(targetable=False)
         if self not in ship.boarded_marines:
             ship.boarded_marines.append(self)
         if self.alarm_sound:
@@ -444,6 +459,7 @@ class OrzA3(Ability):
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         from src.Battle.interpolation import interpolated_position
+
         pos = interpolated_position(self, interp_t)
         if not self.is_boarded:
             super().draw(screen, scale_factor, translation, interp_t=interp_t)
@@ -464,9 +480,7 @@ class OrzA3(Ability):
         self._detach_from_ship()
         self._begin_return()
         self.can_collide = True
-        self.area_damage_capabilities = AreaDamageCapabilities(
-            targetable=True
-        )
+        self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
         self.current_hp = max(1, self.current_hp)
 
     def _begin_return(self):

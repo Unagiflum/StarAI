@@ -9,7 +9,6 @@ from src.Objects.Space.space_obj import Asteroid, Planet, Star
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
 
-
 T = TypeVar("T")
 
 
@@ -51,14 +50,14 @@ class World:
         return self._objects[:]
 
     def add(self, obj: Any) -> None:
-        if hasattr(obj, 'position') and hasattr(obj, 'previous_position'):
+        if hasattr(obj, "position") and hasattr(obj, "previous_position"):
             obj.previous_position = obj.position.copy()
         self._objects.append(obj)
 
     def add_all(self, objects: Iterable[Any]) -> None:
         objects_list = list(objects)
         for obj in objects_list:
-            if hasattr(obj, 'position') and hasattr(obj, 'previous_position'):
+            if hasattr(obj, "position") and hasattr(obj, "previous_position"):
                 obj.previous_position = obj.position.copy()
         self._objects.extend(objects_list)
 
@@ -75,16 +74,10 @@ class World:
         return [obj for obj in self._objects if isinstance(obj, object_type)]
 
     def objects_of_types(self, *object_types: type[T]) -> list[T]:
-        return [
-            obj for obj in self._objects
-            if isinstance(obj, object_types)
-        ]
+        return [obj for obj in self._objects if isinstance(obj, object_types)]
 
     def objects_excluding_types(self, *object_types: type) -> list[Any]:
-        return [
-            obj for obj in self._objects
-            if not isinstance(obj, object_types)
-        ]
+        return [obj for obj in self._objects if not isinstance(obj, object_types)]
 
     @property
     def ships(self) -> list[SpaceShip]:
@@ -136,8 +129,7 @@ class World:
 
         # Compatibility boundary for lightweight test and integration doubles.
         return (
-            getattr(obj, "currently_alive", True)
-            and getattr(obj, "current_hp", 1) > 0
+            getattr(obj, "currently_alive", True) and getattr(obj, "current_hp", 1) > 0
         )
 
     @staticmethod
@@ -160,7 +152,8 @@ class World:
 
     def colliding_abilities_of_kind(self, kind: str) -> list[Ability]:
         return [
-            ability for ability in self.abilities_of_kind(kind)
+            ability
+            for ability in self.abilities_of_kind(kind)
             if self.is_colliding_ability_kind(ability, kind)
         ]
 
@@ -178,15 +171,13 @@ class World:
 
     @property
     def live_asteroids(self) -> list[Asteroid]:
-        return [
-            asteroid for asteroid in self.asteroids
-            if asteroid.currently_alive
-        ]
+        return [asteroid for asteroid in self.asteroids if asteroid.currently_alive]
 
     @property
     def pending_area_damage(self) -> list[Any]:
         return [
-            obj for obj in self._objects
+            obj
+            for obj in self._objects
             if (
                 obj.area_damage_capabilities.emits
                 and obj.currently_alive
@@ -216,9 +207,8 @@ class World:
                 if obj.can_collide and obj.is_alive():
                     avoid_bodies.append(obj)
                 continue
-            if (
-                getattr(obj, "can_collide", False)
-                and getattr(obj, "currently_alive", True)
+            if getattr(obj, "can_collide", False) and getattr(
+                obj, "currently_alive", True
             ):
                 avoid_bodies.append(obj)
         return avoid_bodies
@@ -250,7 +240,6 @@ class World:
     def remove_dead_collision_objects(self) -> None:
         self.remove_where(
             lambda obj: (
-                isinstance(obj, (Ability, Asteroid))
-                and not obj.currently_alive
+                isinstance(obj, (Ability, Asteroid)) and not obj.currently_alive
             )
         )

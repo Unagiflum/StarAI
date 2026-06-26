@@ -46,8 +46,7 @@ class Orz(SpaceShip):
 
     def plan_action3(self):
         self.active_marines = [
-            marine for marine in self.active_marines
-            if marine.currently_alive
+            marine for marine in self.active_marines if marine.currently_alive
         ]
         opponent = self.opponent
         if opponent is None:
@@ -77,6 +76,7 @@ class Orz(SpaceShip):
 
     def set_sprite(self, interp_t=0.0):
         from src.Battle.interpolation import interpolated_sprite_index
+
         sprite_idx = interpolated_sprite_index(self, interp_t)
         turret_sprite = self.turret.get_sprite(interp_t)
         key = (sprite_idx, id(turret_sprite))

@@ -23,7 +23,6 @@ from src.collision_capabilities import ShipImpactContext
 from src.Objects.Ships.ability import Ability
 from src.toroidal import view_center_and_size, wrapped_delta
 
-
 PLANET_CONTACT_EXIT_MARGIN = 4.0
 
 
@@ -57,26 +56,20 @@ def area_damage_impacts_ship(target, effects, delta, distance, damage):
     damage_ship(target, damage)
 
 
-def area_damage_impacts_ability(
-    target, effects, delta, distance, damage
-):
+def area_damage_impacts_ability(target, effects, delta, distance, damage):
     if target.current_hp <= 0:
         return
     remaining_hp = target.current_hp - damage
     if remaining_hp <= 0:
         direction = (
-            [delta[0] / distance, delta[1] / distance]
-            if distance > 0
-            else [0, -1]
+            [delta[0] / distance, delta[1] / distance] if distance > 0 else [0, -1]
         )
         destroy_projectile(target, effects, direction, damage)
     else:
         set_projectile_hp(target, remaining_hp)
 
 
-def area_damage_impacts_asteroid(
-    target, effects, delta, distance, damage
-):
+def area_damage_impacts_asteroid(target, effects, delta, distance, damage):
     destroy_asteroid(target, effects)
 
 
@@ -198,9 +191,7 @@ def asteroid_impacts_planet(
     return True
 
 
-def projectile_impacts_projectile(
-    projectile, other, effects, environment
-):
+def projectile_impacts_projectile(projectile, other, effects, environment):
     if not is_live_projectile(other):
         return False
 
@@ -213,9 +204,7 @@ def projectile_impacts_projectile(
         return False
 
     if projectile.projectile_name == other.projectile_name:
-        BattleEffect.play_boom(
-            max(projectile.current_damage, other.current_damage)
-        )
+        BattleEffect.play_boom(max(projectile.current_damage, other.current_damage))
         destroy_projectile(
             projectile,
             effects,
@@ -306,30 +295,22 @@ def projectile_impacts_ship(projectile, ship, effects, environment):
     damage_ship(ship, damage)
     projectile.on_ship_impact(ship)
     BattleEffect.play_boom(damage)
-    destroy_projectile(
-        projectile, effects, impact_normal, damage, contact
-    )
+    destroy_projectile(projectile, effects, impact_normal, damage, contact)
     return True
 
 
-def projectile_impacts_asteroid(
-    projectile, asteroid, effects, environment
-):
+def projectile_impacts_asteroid(projectile, asteroid, effects, environment):
     if not is_live_projectile(projectile) or not asteroid.currently_alive:
         return False
 
     _, _, overlap = collision_info(projectile, asteroid)
-    contact, impact_normal = projectile_impact(
-        projectile, asteroid, overlap
-    )
+    contact, impact_normal = projectile_impact(projectile, asteroid, overlap)
     if contact is None:
         return False
 
     damage = projectile.current_damage
     BattleEffect.play_boom(damage)
-    destroy_projectile(
-        projectile, effects, impact_normal, damage, contact
-    )
+    destroy_projectile(projectile, effects, impact_normal, damage, contact)
     destroy_asteroid(asteroid, effects)
     return True
 
@@ -345,9 +326,7 @@ def projectile_impacts_planet(projectile, planet, effects, environment):
 
     damage = projectile.current_damage
     BattleEffect.play_boom(damage)
-    destroy_projectile(
-        projectile, effects, impact_normal, damage, contact
-    )
+    destroy_projectile(projectile, effects, impact_normal, damage, contact)
     return True
 
 
@@ -355,9 +334,7 @@ def fighter_impacts_fighter(fighter, other, effects, environment):
     if not is_live_fighter(other):
         return False
 
-    fighter_hits = (
-        fighter.fighter_collision_capabilities.collides_with_fighters
-    )
+    fighter_hits = fighter.fighter_collision_capabilities.collides_with_fighters
     other_hits = other.fighter_collision_capabilities.collides_with_fighters
     if not fighter_hits and not other_hits:
         return False
@@ -373,9 +350,7 @@ def fighter_impacts_fighter(fighter, other, effects, environment):
         fighter.current_hp = max(0, fighter.current_hp - other.current_damage)
     BattleEffect.play_boom(max(fighter.current_damage, other.current_damage))
     if fighter.current_hp <= 0:
-        destroy_projectile(
-            fighter, effects, normal, fighter.current_damage, contact
-        )
+        destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
     if other.current_hp <= 0:
         destroy_projectile(
             other,
@@ -387,9 +362,7 @@ def fighter_impacts_fighter(fighter, other, effects, environment):
     return True
 
 
-def fighter_impacts_projectile(
-    fighter, projectile, effects, environment
-):
+def fighter_impacts_projectile(fighter, projectile, effects, environment):
     if (
         not is_live_fighter(fighter)
         or not fighter.fighter_collision_capabilities.collides_with_projectiles
@@ -416,13 +389,9 @@ def fighter_impacts_projectile(
             set_projectile_hp(projectile, projectile_hp)
     BattleEffect.play_boom(fighter.current_damage)
     contact_handler = getattr(fighter, "handle_projectile_contact", None)
-    contact_handled = bool(
-        contact_handler is not None and contact_handler(projectile)
-    )
+    contact_handled = bool(contact_handler is not None and contact_handler(projectile))
     if not contact_handled or fighter.current_hp <= 0:
-        destroy_projectile(
-            fighter, effects, normal, fighter.current_damage, contact
-        )
+        destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
     return True
 
 
@@ -434,13 +403,9 @@ def fighter_impacts_ship(fighter, ship, effects, environment):
         if not fighter.can_recover_with_parent():
             return False
     elif ship.player == fighter.player:
-        if not (
-            fighter.fighter_collision_capabilities.collides_with_friendly_ships
-        ):
+        if not (fighter.fighter_collision_capabilities.collides_with_friendly_ships):
             return False
-    elif not (
-        fighter.fighter_collision_capabilities.collides_with_enemy_ships
-    ):
+    elif not (fighter.fighter_collision_capabilities.collides_with_enemy_ships):
         return False
 
     _, _, overlap = collision_info(fighter, ship)
@@ -478,9 +443,7 @@ def fighter_impacts_asteroid(fighter, asteroid, effects, environment):
         return True
 
     BattleEffect.play_boom(fighter.current_damage)
-    destroy_projectile(
-        fighter, effects, normal, fighter.current_damage, contact
-    )
+    destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
     if fighter.fighter_collision_capabilities.damages_asteroids:
         destroy_asteroid(asteroid, effects)
     return True
@@ -498,9 +461,7 @@ def fighter_impacts_planet(fighter, planet, effects, environment):
     if contact is None:
         return False
 
-    separate_from_static_body(
-        fighter, planet, normal, overlap, extra_clearance=1.0
-    )
+    separate_from_static_body(fighter, planet, normal, overlap, extra_clearance=1.0)
     fighter.begin_planet_avoidance(planet, normal)
     return True
 
@@ -535,9 +496,7 @@ def projectile_can_hit_ship(projectile, ship):
     return False
 
 
-def resolve_laser_hit(
-    laser, target, effects, normal, contact, apply_impact
-):
+def resolve_laser_hit(laser, target, effects, normal, contact, apply_impact):
     damage = laser.current_damage
     laser.end_position = [
         contact[0] % const.ARENA_SIZE,
@@ -545,9 +504,7 @@ def resolve_laser_hit(
     ]
     laser.intercepted = True
 
-    effects.append(
-        BattleEffect.from_blast(contact, normal, damage)
-    )
+    effects.append(BattleEffect.from_blast(contact, normal, damage))
     BattleEffect.play_boom(damage)
     apply_impact(target, effects, normal, damage, contact)
 
@@ -581,28 +538,17 @@ def ship_is_laser_target(laser, target, explicit):
 
 
 def projectile_is_laser_target(laser, target, explicit):
-    if not (
-        target.can_collide
-        and target.currently_alive
-        and target.current_hp > 0
-    ):
+    if not (target.can_collide and target.currently_alive and target.current_hp > 0):
         return False
     return explicit or target.player != laser.player or laser.hit_self
 
 
 def fighter_is_laser_target(laser, target, explicit):
-    if not (
-        target.can_collide
-        and target.currently_alive
-        and target.current_hp > 0
-    ):
+    if not (target.can_collide and target.currently_alive and target.current_hp > 0):
         return False
     if explicit:
         return True
-    return (
-        target is not laser.parent
-        and target.laser_target_capabilities.vulnerable
-    )
+    return target is not laser.parent and target.laser_target_capabilities.vulnerable
 
 
 def asteroid_is_laser_target(laser, target, explicit):
@@ -617,16 +563,12 @@ def generic_is_laser_target(laser, target, explicit):
     return explicit and target.currently_alive
 
 
-def destroy_projectile(
-    projectile, effects, direction, damage, contact_position=None
-):
+def destroy_projectile(projectile, effects, direction, damage, contact_position=None):
     if not projectile.currently_alive:
         return
 
     effect_position = (
-        contact_position
-        if contact_position is not None
-        else projectile.position
+        contact_position if contact_position is not None else projectile.position
     )
     animation = getattr(projectile, "death_animation", None)
     if animation:
@@ -660,9 +602,7 @@ def destroy_asteroid(asteroid, effects):
 
     if asteroid.death_animation:
         effects.append(
-            BattleEffect.from_animation(
-                asteroid.position, asteroid.death_animation
-            )
+            BattleEffect.from_animation(asteroid.position, asteroid.death_animation)
         )
     asteroid.currently_alive = False
 
@@ -671,9 +611,7 @@ def object_on_screen(obj, ships):
     if len(ships) != 2:
         return True
 
-    view_center, view_size = view_center_and_size(
-        [ship.position for ship in ships]
-    )
+    view_center, view_size = view_center_and_size([ship.position for ship in ships])
     delta = wrapped_delta(view_center, obj.position)
     margin = max(collision_size(obj)) / 2
     return (

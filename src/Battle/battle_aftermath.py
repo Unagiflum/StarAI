@@ -13,7 +13,6 @@ from src.audio import (
 )
 from src.resources import default_assets
 
-
 EXPLOSION_PLACEMENT_INTERVAL_FRAMES = 3
 
 
@@ -44,9 +43,7 @@ class AftermathState:
     ditty_started: bool = False
     tie_break_ship: SpaceShip | None = None
     choose_second_player: int | None = None
-    pending_rebirths: dict[SpaceShip, PendingRebirth] = field(
-        default_factory=dict
-    )
+    pending_rebirths: dict[SpaceShip, PendingRebirth] = field(default_factory=dict)
     death_sequence_ready_frame: int | None = None
     conclusion_started_frame: int | None = None
 
@@ -105,9 +102,7 @@ def start_or_update_aftermath(
         with use_audio_service(audio):
             BattleEffect.play_ship_death()
         state.death_effects[ship.player] = []
-        explosion_schedule = create_ship_explosion_schedule(
-            ship, frame_id, rng
-        )
+        explosion_schedule = create_ship_explosion_schedule(ship, frame_id, rng)
         state.pending_explosions.extend(explosion_schedule)
         sequence_ready_frame = (
             explosion_schedule[-1].frame + const.POST_DEATH_EFFECT_FRAMES
@@ -124,7 +119,8 @@ def start_or_update_aftermath(
 
     if player1.current_hp <= 0 and player2.current_hp <= 0:
         self_destructors = [
-            ship for ship in (player1, player2)
+            ship
+            for ship in (player1, player2)
             if getattr(ship, "shofixti_self_destruct", False)
         ]
         if len(self_destructors) == 1:
@@ -167,13 +163,15 @@ def create_ship_explosion_schedule(ship, start_frame, rng=None):
             (base_pos[0] + local_x * cos_a - local_y * sin_a) % const.ARENA_SIZE,
             (base_pos[1] + local_x * sin_a + local_y * cos_a) % const.ARENA_SIZE,
         ]
-        schedule.append(ScheduledExplosion(
-            frame=start_frame + index * EXPLOSION_PLACEMENT_INTERVAL_FRAMES,
-            ship=ship,
-            position=position,
-            scale=rng.uniform(0.85, 1.15),
-            is_final=index == count - 1,
-        ))
+        schedule.append(
+            ScheduledExplosion(
+                frame=start_frame + index * EXPLOSION_PLACEMENT_INTERVAL_FRAMES,
+                ship=ship,
+                position=position,
+                scale=rng.uniform(0.85, 1.15),
+                is_final=index == count - 1,
+            )
+        )
 
     return schedule
 
@@ -194,12 +192,10 @@ def update_aftermath(
     )
     world = World.coerce(game_objects)
     ready_explosions = [
-        item for item in aftermath.pending_explosions
-        if item.frame <= frame_id
+        item for item in aftermath.pending_explosions if item.frame <= frame_id
     ]
     aftermath.pending_explosions = [
-        item for item in aftermath.pending_explosions
-        if item.frame > frame_id
+        item for item in aftermath.pending_explosions if item.frame > frame_id
     ]
 
     for item in ready_explosions:
@@ -214,7 +210,8 @@ def update_aftermath(
             aftermath.ships_pending_hide.discard(item.ship)
 
     living_ships = [
-        ship for ship in (player1, player2)
+        ship
+        for ship in (player1, player2)
         if ship.currently_alive and ship.current_hp > 0
     ]
     death_view_done = (
@@ -257,12 +254,14 @@ def aftermath_camera_targets(
         return None
 
     targets = [
-        ship for ship in (player1, player2)
+        ship
+        for ship in (player1, player2)
         if ship.currently_alive and ship.current_hp > 0
     ]
     if aftermath.pending_rebirths:
         targets.extend(
-            ship for ship in aftermath.camera_hold_targets
+            ship
+            for ship in aftermath.camera_hold_targets
             if ship in aftermath.pending_rebirths
         )
         return targets or None
@@ -283,16 +282,13 @@ def aftermath_ready_for_selection(
     frame_id,
     sound_enabled=True,
 ):
-    if (
-        aftermath.pending_rebirths
-        or aftermath.conclusion_started_frame is None
-    ):
+    if aftermath.pending_rebirths or aftermath.conclusion_started_frame is None:
         return False
     elapsed = frame_id - aftermath.conclusion_started_frame
     return elapsed >= const.VICTORY_DITTY_VIEW_FRAMES
 
 
 def play_victory_ditty(ship):
-    PygameAudioService(
-        getattr(ship, "resources", default_assets())
-    ).play_victory_ditty(ship)
+    PygameAudioService(getattr(ship, "resources", default_assets())).play_victory_ditty(
+        ship
+    )

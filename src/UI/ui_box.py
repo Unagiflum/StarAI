@@ -4,22 +4,27 @@ import src.const as Const
 from src.menu_state import FleetModel
 
 # Constants for ShipList and Fleet
-SCROLLBAR_WIDTH = int(0.01*Const.SCREEN_WIDTH)
-SCROLL_BUTTON_HEIGHT = int(0.01*Const.SCREEN_HEIGHT)
+SCROLLBAR_WIDTH = int(0.01 * Const.SCREEN_WIDTH)
+SCROLL_BUTTON_HEIGHT = int(0.01 * Const.SCREEN_HEIGHT)
 SCROLL_SPEED = 20
-SPACING = int(0.005*Const.SCREEN_WIDTH)
+SPACING = int(0.005 * Const.SCREEN_WIDTH)
 
 
 def create_player_fleet_panels(column_lefts, top, width, height, icon_size):
     """Create the two existing player fleet panels from shared layout data."""
     return {
         player: Fleet(
-            column_lefts[player], top, width, height,
-            f"Player {player} Fleet", icon_size,
-            color=Const.P1_COLOR if player == 1 else Const.P2_COLOR
+            column_lefts[player],
+            top,
+            width,
+            height,
+            f"Player {player} Fleet",
+            icon_size,
+            color=Const.P1_COLOR if player == 1 else Const.P2_COLOR,
         )
         for player in (1, 2)
     }
+
 
 class ShipContainer:
     def __init__(self, x, y, width, height, title, icon_size, color=ui.WHITE):
@@ -39,11 +44,15 @@ class ShipContainer:
             self.icons_per_row = 1
         total_icons_width = self.icons_per_row * self.icon_size[0]
         if self.icons_per_row > 1:
-            self.spacing = (self.available_width - total_icons_width) // (self.icons_per_row - 1)
+            self.spacing = (self.available_width - total_icons_width) // (
+                self.icons_per_row - 1
+            )
         else:
             self.spacing = 0
         self.icon_total_height = self.icon_size[1] + SPACING + 5
-        self.max_fleet_size = self.icons_per_row * ((self.rect.height - 40) // self.icon_total_height)
+        self.max_fleet_size = self.icons_per_row * (
+            (self.rect.height - 40) // self.icon_total_height
+        )
 
     def add_ship(self, sprite, name, cost):
         """To be implemented by subclasses."""
@@ -56,6 +65,7 @@ class ShipContainer:
     def draw(self, screen, font, player_font=None):
         """To be implemented by subclasses."""
         pass
+
 
 class ShipList(ShipContainer):
     def __init__(self, x, y, width, height, title, icon_size, color=ui.WHITE):
@@ -72,36 +82,42 @@ class ShipList(ShipContainer):
         if self.icons_per_row < 1:
             self.icons_per_row = 1
         total_icons_width = self.icons_per_row * self.icon_size[0]
-        self.spacing = (self.available_width - total_icons_width) // (self.icons_per_row + 1)
-        self.icon_total_height = self.icon_size[1] + SPACING + 24 + 5  # 24 for cost text height
+        self.spacing = (self.available_width - total_icons_width) // (
+            self.icons_per_row + 1
+        )
+        self.icon_total_height = (
+            self.icon_size[1] + SPACING + 24 + 5
+        )  # 24 for cost text height
         self.visible_rows = (self.rect.height - 40) // self.icon_total_height
         total_rows = (len(self.ships) + self.icons_per_row - 1) // self.icons_per_row
-        self.max_scroll = max(0, (total_rows - self.visible_rows) * self.icon_total_height)
+        self.max_scroll = max(
+            0, (total_rows - self.visible_rows) * self.icon_total_height
+        )
 
     def create_scrollbar(self):
         self.scrollbar_rect = pygame.Rect(
             self.rect.right - SCROLLBAR_WIDTH - SPACING,
             self.rect.y + SPACING,
             SCROLLBAR_WIDTH,
-            self.rect.height - 2 * SPACING
+            self.rect.height - 2 * SPACING,
         )
         self.scroll_up_rect = pygame.Rect(
             self.scrollbar_rect.x,
             self.scrollbar_rect.y,
             SCROLLBAR_WIDTH,
-            SCROLL_BUTTON_HEIGHT
+            SCROLL_BUTTON_HEIGHT,
         )
         self.scroll_down_rect = pygame.Rect(
             self.scrollbar_rect.x,
             self.scrollbar_rect.bottom - SCROLL_BUTTON_HEIGHT,
             SCROLLBAR_WIDTH,
-            SCROLL_BUTTON_HEIGHT
+            SCROLL_BUTTON_HEIGHT,
         )
         self.scroll_track_rect = pygame.Rect(
             self.scrollbar_rect.x,
             self.scroll_up_rect.bottom,
             SCROLLBAR_WIDTH,
-            self.scrollbar_rect.height - 2 * SCROLL_BUTTON_HEIGHT
+            self.scrollbar_rect.height - 2 * SCROLL_BUTTON_HEIGHT,
         )
         self.update_scrollbar_thumb()
 
@@ -109,17 +125,20 @@ class ShipList(ShipContainer):
         if self.max_scroll == 0:
             thumb_height = self.scroll_track_rect.height
         else:
-            thumb_height = max(30, self.scroll_track_rect.height * self.visible_rows // (
-                        (len(self.ships) + self.icons_per_row - 1) // self.icons_per_row))
+            thumb_height = max(
+                30,
+                self.scroll_track_rect.height
+                * self.visible_rows
+                // ((len(self.ships) + self.icons_per_row - 1) // self.icons_per_row),
+            )
 
         scroll_ratio = self.scroll_y / self.max_scroll if self.max_scroll > 0 else 0
-        thumb_y = self.scroll_track_rect.y + scroll_ratio * (self.scroll_track_rect.height - thumb_height)
+        thumb_y = self.scroll_track_rect.y + scroll_ratio * (
+            self.scroll_track_rect.height - thumb_height
+        )
 
         self.scroll_thumb_rect = pygame.Rect(
-            self.scroll_track_rect.x,
-            thumb_y,
-            SCROLLBAR_WIDTH,
-            thumb_height
+            self.scroll_track_rect.x, thumb_y, SCROLLBAR_WIDTH, thumb_height
         )
 
     def add_ship(self, sprite, name, cost):
@@ -152,11 +171,16 @@ class ShipList(ShipContainer):
             if self.dragging:
                 mouse_y = event.pos[1]
                 new_thumb_y = mouse_y - self.drag_offset
-                new_thumb_y = max(self.scroll_track_rect.y,
-                                  min(new_thumb_y,
-                                      self.scroll_track_rect.bottom - self.scroll_thumb_rect.height))
+                new_thumb_y = max(
+                    self.scroll_track_rect.y,
+                    min(
+                        new_thumb_y,
+                        self.scroll_track_rect.bottom - self.scroll_thumb_rect.height,
+                    ),
+                )
                 scroll_ratio = (new_thumb_y - self.scroll_track_rect.y) / (
-                            self.scroll_track_rect.height - self.scroll_thumb_rect.height)
+                    self.scroll_track_rect.height - self.scroll_thumb_rect.height
+                )
                 self.scroll_y = scroll_ratio * self.max_scroll
                 self.update_scrollbar_thumb()
 
@@ -189,7 +213,7 @@ class ShipList(ShipContainer):
             self.rect.x + SPACING,
             self.rect.y + 40,
             self.available_width,
-            self.rect.height - 40 - SPACING
+            self.rect.height - 40 - SPACING,
         )
         screen.set_clip(clip_rect)
 
@@ -200,7 +224,9 @@ class ShipList(ShipContainer):
             slot_x = self.rect.x + SPACING + col * (self.icon_size[0] + self.spacing)
             slot_y = self.rect.y + 40 + row * self.icon_total_height - self.scroll_y
 
-            ship_rect = pygame.Rect(slot_x, slot_y, self.icon_size[0], self.icon_size[1])
+            ship_rect = pygame.Rect(
+                slot_x, slot_y, self.icon_size[0], self.icon_size[1]
+            )
 
             sprite_rect = sprite.get_rect(center=ship_rect.center)
             self.ships[index] = (sprite, name, cost, sprite_rect)
@@ -208,16 +234,21 @@ class ShipList(ShipContainer):
             if ship_rect.colliderect(clip_rect):
                 screen.blit(sprite, sprite_rect)
                 cost_text = font.render(str(cost), True, ui.WHITE)
-                cost_rect = cost_text.get_rect(centerx=ship_rect.centerx, top=ship_rect.bottom + 2)
+                cost_rect = cost_text.get_rect(
+                    centerx=ship_rect.centerx, top=ship_rect.bottom + 2
+                )
                 screen.blit(cost_text, cost_rect)
 
         screen.set_clip(None)
         self.draw_scrollbar(screen)
 
+
 class Fleet(ShipContainer):
     """Pygame presentation for an ordered :class:`FleetModel`."""
 
-    def __init__(self, x, y, width, height, title, icon_size, model=None, color=ui.WHITE):
+    def __init__(
+        self, x, y, width, height, title, icon_size, model=None, color=ui.WHITE
+    ):
         super().__init__(x, y, width, height, title, icon_size, color=color)
         self.calculate_tiling()
         self.model = model if model is not None else FleetModel(self.max_fleet_size)
@@ -227,7 +258,9 @@ class Fleet(ShipContainer):
     def calculate_tiling(self):
         # Subtract margins from available space
         available_width = self.rect.width - (2 * SPACING)
-        available_height = self.rect.height - 40 - (3 * SPACING)  # 40 for title, extra SPACING for bottom margin
+        available_height = (
+            self.rect.height - 40 - (3 * SPACING)
+        )  # 40 for title, extra SPACING for bottom margin
 
         # Calculate maximum space we can use for each icon including spacing
         total_vertical_space = available_height // Const.SHIP_ROWS
@@ -235,8 +268,7 @@ class Fleet(ShipContainer):
 
         # Subtract spacing to get actual icon size, ensuring square icons
         icon_size = min(
-            total_horizontal_space - SPACING,
-            total_vertical_space - SPACING
+            total_horizontal_space - SPACING, total_vertical_space - SPACING
         )
 
         self.icon_size = (icon_size, icon_size)
@@ -257,10 +289,16 @@ class Fleet(ShipContainer):
             row = len(self.ships) // self.icons_per_row
             col = len(self.ships) % self.icons_per_row
 
-            slot_x = self.rect.x + self.left_offset + col * (self.icon_size[0] + self.spacing)
+            slot_x = (
+                self.rect.x
+                + self.left_offset
+                + col * (self.icon_size[0] + self.spacing)
+            )
             slot_y = self.rect.y + 40 + row * self.icon_total_height
 
-            ship_rect = pygame.Rect(slot_x, slot_y, self.icon_size[0], self.icon_size[1])
+            ship_rect = pygame.Rect(
+                slot_x, slot_y, self.icon_size[0], self.icon_size[1]
+            )
             sprite_rect = sprite.get_rect(center=ship_rect.center)
 
             self.ships.append((sprite, name, cost, sprite_rect))
@@ -285,10 +323,16 @@ class Fleet(ShipContainer):
             row = i // self.icons_per_row
             col = i % self.icons_per_row
 
-            slot_x = self.rect.x + self.left_offset + col * (self.icon_size[0] + self.spacing)
+            slot_x = (
+                self.rect.x
+                + self.left_offset
+                + col * (self.icon_size[0] + self.spacing)
+            )
             slot_y = self.rect.y + 40 + row * self.icon_total_height
 
-            slot_rect = pygame.Rect(slot_x, slot_y, self.icon_size[0], self.icon_size[1])
+            slot_rect = pygame.Rect(
+                slot_x, slot_y, self.icon_size[0], self.icon_size[1]
+            )
             sprite_rect = sprite.get_rect(center=slot_rect.center)
 
             self.ships[i] = (sprite, name, cost, sprite_rect)
@@ -300,7 +344,9 @@ class Fleet(ShipContainer):
         pygame.draw.rect(screen, ui.BLACK, self.rect)
         pygame.draw.rect(screen, self.color, self.rect, 3)
 
-        title_text = font.render(f"{self.title} - cost: {self.get_total_cost()}", True, ui.WHITE)
+        title_text = font.render(
+            f"{self.title} - cost: {self.get_total_cost()}", True, ui.WHITE
+        )
         screen.blit(title_text, (self.rect.x + 10, self.rect.y + 10))
 
         for sprite, _, _, rect in self.ships:

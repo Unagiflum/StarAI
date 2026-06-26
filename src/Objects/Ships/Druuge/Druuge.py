@@ -19,9 +19,9 @@ class Druuge(SpaceShip):
 
     def plan_action2(self):
         if not (
-                self.can_action2()
-                and self.current_energy < self.max_energy
-                and self.current_hp > 1
+            self.can_action2()
+            and self.current_energy < self.max_energy
+            and self.current_hp > 1
         ):
             return ActionPlan.invalid(2)
 

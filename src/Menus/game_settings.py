@@ -5,12 +5,13 @@ import src.const as const
 from src.configuration import GameSettingsRepository
 from src.persistence import PersistenceValidationError
 
-TITLE_FONT_SIZE = int(const.SCREEN_HEIGHT*.08)
+TITLE_FONT_SIZE = int(const.SCREEN_HEIGHT * 0.08)
 SETTINGS_FILE = const.GAME_JSON_PATH
 
 
 def _settings_repository():
     return GameSettingsRepository(SETTINGS_FILE, const.DEFAULT_KEYS)
+
 
 def load_settings():
     """Load settings from file or use defaults."""
@@ -28,46 +29,57 @@ def save_settings(settings):
         print(f"Error saving settings: {e}")
 
 
-
 def run(screen, menu_sound_manager=None, audio_service=None):
     """Run the Play Settings menu."""
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont(None, int(0.03*const.SCREEN_HEIGHT))
+    font = pygame.font.SysFont(None, int(0.03 * const.SCREEN_HEIGHT))
     settings = load_settings()
-    background = ui.load_background(const.MENU_BG_PATH, const.SCREEN_WIDTH, const.SCREEN_HEIGHT)
+    background = ui.load_background(
+        const.MENU_BG_PATH, const.SCREEN_WIDTH, const.SCREEN_HEIGHT
+    )
 
     # Create key bindings
     key_bindings = []
-    start_y = int(0.25*const.SCREEN_HEIGHT)
-    y_spacing = int(0.08*const.SCREEN_HEIGHT)
+    start_y = int(0.25 * const.SCREEN_HEIGHT)
+    y_spacing = int(0.08 * const.SCREEN_HEIGHT)
 
     # Player 1 settings (left column)
-    player1_labels = ["Player 1: Left", "Player 1: Right", "Player 1: Forward", "Player 1: Action 1",
-                      "Player 1: Action 2"]
+    player1_labels = [
+        "Player 1: Left",
+        "Player 1: Right",
+        "Player 1: Forward",
+        "Player 1: Action 1",
+        "Player 1: Action 2",
+    ]
     for i, label in enumerate(player1_labels):
         key_bindings.append(
             ui_button.KeyBinding(
-                int(0.25*const.SCREEN_WIDTH),
+                int(0.25 * const.SCREEN_WIDTH),
                 start_y + i * y_spacing,
-                int(0.2*const.SCREEN_WIDTH),
-                int(0.05*const.SCREEN_HEIGHT),
+                int(0.2 * const.SCREEN_WIDTH),
+                int(0.05 * const.SCREEN_HEIGHT),
                 label,
-                settings[label]
+                settings[label],
             )
         )
 
     # Player 2 settings (right column)
-    player2_labels = ["Player 2: Left", "Player 2: Right", "Player 2: Forward", "Player 2: Action 1",
-                      "Player 2: Action 2"]
+    player2_labels = [
+        "Player 2: Left",
+        "Player 2: Right",
+        "Player 2: Forward",
+        "Player 2: Action 1",
+        "Player 2: Action 2",
+    ]
     for i, label in enumerate(player2_labels):
         key_bindings.append(
             ui_button.KeyBinding(
-                int(0.65*const.SCREEN_WIDTH),
+                int(0.65 * const.SCREEN_WIDTH),
                 start_y + i * y_spacing,
-                int(0.2*const.SCREEN_WIDTH),
-                int(0.05*const.SCREEN_HEIGHT),
+                int(0.2 * const.SCREEN_WIDTH),
+                int(0.05 * const.SCREEN_HEIGHT),
                 label,
-                settings[label]
+                settings[label],
             )
         )
 
@@ -93,7 +105,7 @@ def run(screen, menu_sound_manager=None, audio_service=None):
         text="Save",
         callback=save_and_exit,
         bg_color=ui.OK_GREEN,
-        hover_color=ui.OK_GREEN_HI
+        hover_color=ui.OK_GREEN_HI,
     )
 
     cancel_button = ui_button.Button(
@@ -104,7 +116,7 @@ def run(screen, menu_sound_manager=None, audio_service=None):
         text="Cancel",
         callback=go_back,
         bg_color=ui.CAN_RED,
-        hover_color=ui.CAN_RED_HI
+        hover_color=ui.CAN_RED_HI,
     )
 
     running = True
@@ -132,7 +144,9 @@ def run(screen, menu_sound_manager=None, audio_service=None):
             screen.fill(ui.BG_COLOR)
 
         # Draw title
-        ui.draw_title(screen, "Game Settings", TITLE_FONT_SIZE, 0.1*const.SCREEN_HEIGHT)
+        ui.draw_title(
+            screen, "Game Settings", TITLE_FONT_SIZE, 0.1 * const.SCREEN_HEIGHT
+        )
 
         # Draw key bindings
         for binding in key_bindings:

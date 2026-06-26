@@ -43,9 +43,10 @@ def apply_vux_starting_conditions(player1, player2, preserved_ships=None, rng=No
     import math
     from src.Objects.Ships.catalog import ABILITIES_DATA
     from src.toroidal import wrapped_delta
+
     rng = rng or random
     preserved_ships = preserved_ships or set()
-    
+
     for p, opponent in [(player1, player2), (player2, player1)]:
         if p.name == "Vux" and p.battles_fought == 1 and p not in preserved_ships:
             if opponent in preserved_ships:
@@ -59,15 +60,15 @@ def apply_vux_starting_conditions(player1, player2, preserved_ships=None, rng=No
             min_dist = min(300, laser_range - 50) if laser_range > 300 else 0
             dist = rng.randint(min_dist, laser_range)
             angle = rng.uniform(0, 2 * math.pi)
-            
+
             new_pos = [
                 (anchor.position[0] + math.sin(angle) * dist) % const.ARENA_SIZE,
-                (anchor.position[1] - math.cos(angle) * dist) % const.ARENA_SIZE
+                (anchor.position[1] - math.cos(angle) * dist) % const.ARENA_SIZE,
             ]
             mover.position = new_pos
-            if hasattr(mover, 'previous_position'):
+            if hasattr(mover, "previous_position"):
                 mover.previous_position = new_pos.copy()
-            
+
             dx, dy = wrapped_delta(p.position, opponent.position)
             target_angle = math.degrees(math.atan2(dx, -dy))
             if target_angle < 0:
@@ -95,9 +96,7 @@ def initialize_battle(
     # Create stars
     if include_stars:
         if explicit_runtime:
-            world.add_all(
-                Star.create_random_stars(const.STAR_COUNT, resources, rng)
-            )
+            world.add_all(Star.create_random_stars(const.STAR_COUNT, resources, rng))
         else:
             world.add_all(Star.create_random_stars(const.STAR_COUNT))
 
@@ -132,7 +131,9 @@ def initialize_battle(
     for _ in range(const.ASTEROID_COUNT):
         asteroid = Asteroid(resources, rng) if explicit_runtime else Asteroid()
         asteroid.set_planet(planet)
-        pos = asteroid.get_valid_asteroid_position(planet, [player1, player2], [player1, player2, *asteroids])
+        pos = asteroid.get_valid_asteroid_position(
+            planet, [player1, player2], [player1, player2, *asteroids]
+        )
         asteroid.position = pos
         asteroids.append(asteroid)
         world.add(asteroid)
@@ -141,15 +142,17 @@ def initialize_battle(
     player2.set_planet(planet)
 
     # Create border
-    border_rect = pygame.Rect(const.SCREEN_LEFT, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT)
+    border_rect = pygame.Rect(
+        const.SCREEN_LEFT, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT
+    )
     border_color = (50, 50, 50)
 
     return {
-        'settings': settings,
-        'world': world,
-        'game_objects': world.objects,
-        'border_rect': border_rect,
-        'border_color': border_color,
-        'player1': player1,
-        'player2': player2
+        "settings": settings,
+        "world": world,
+        "game_objects": world.objects,
+        "border_rect": border_rect,
+        "border_color": border_color,
+        "player1": player1,
+        "player2": player2,
     }

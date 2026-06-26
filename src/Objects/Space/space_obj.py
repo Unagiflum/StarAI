@@ -12,37 +12,45 @@ from src.collision_capabilities import (
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_distance
 from src.resources import default_assets
 
+
 class Planet(Object):
     # Load planet data once at module level
-    with open(Const.PLANETS_JSON_PATH, 'r') as f:
+    with open(Const.PLANETS_JSON_PATH, "r") as f:
         _planet_data = json.load(f)
 
     def __init__(self, resources=None, rng=None):
         self.resources = resources or default_assets()
         self.rng = rng or random
         weights = {
-            name: Const.PLANET_WEIGHTS[0] if 'Gas' in name
-            else Const.PLANET_WEIGHTS[1] if 'Ice' in name
-            else Const.PLANET_WEIGHTS[2] if 'Life' in name
-            else Const.PLANET_WEIGHTS[3] if 'Rocky' in name
-            else 0 for name in Planet._planet_data.keys()
+            name: (
+                Const.PLANET_WEIGHTS[0]
+                if "Gas" in name
+                else (
+                    Const.PLANET_WEIGHTS[1]
+                    if "Ice" in name
+                    else (
+                        Const.PLANET_WEIGHTS[2]
+                        if "Life" in name
+                        else Const.PLANET_WEIGHTS[3] if "Rocky" in name else 0
+                    )
+                )
+            )
+            for name in Planet._planet_data.keys()
         }
         planet_name = self.rng.choices(
             list(Planet._planet_data.keys()), weights=list(weights.values()), k=1
         )[0]
         planet_data = Planet._planet_data[planet_name]
 
-        self.gravity = planet_data['Gravity']
-        self.diameter = planet_data['Diameter']
+        self.gravity = planet_data["Gravity"]
+        self.diameter = planet_data["Diameter"]
 
         super().__init__(
-            name=planet_name,
-            sprite_location=None,
-            size=[self.diameter, self.diameter]
+            name=planet_name, sprite_location=None, size=[self.diameter, self.diameter]
         )
 
         assets = self.resources.image(
-            planet_data['Image'], (self.diameter, self.diameter), with_mask=True
+            planet_data["Image"], (self.diameter, self.diameter), with_mask=True
         )
         self.image = assets.image
         self.mask = assets.mask
@@ -67,9 +75,12 @@ class Planet(Object):
         # Draw gravity range circle
         range_color = (255, 255, 255, 8)  # Light blue, semi-transparent
         border_color = (255, 0, 0, 150)  # Red, semi-transparent
-        gravity_range_surface = pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA)
+        gravity_range_surface = pygame.Surface(
+            (Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA
+        )
 
         from src.Battle.interpolation import interpolated_position
+
         pos = interpolated_position(self, interp_t)
         screen_x = int((pos[0] + translation[0]) * scale_factor)
         screen_y = int((pos[1] + translation[1]) * scale_factor)
@@ -85,9 +96,19 @@ class Planet(Object):
                 for i in range(0, num_segments, 2):
                     start_angle = i * (2 * math.pi / num_segments)
                     end_angle = (i + 0.2) * (2 * math.pi / num_segments)
-                    pygame.draw.arc(gravity_range_surface, border_color,
-                                    (Const.SCREEN_LEFT+pos_x - range_radius, pos_y - range_radius,
-                                     range_radius * 2, range_radius * 2), start_angle, end_angle, int(20*scale_factor))
+                    pygame.draw.arc(
+                        gravity_range_surface,
+                        border_color,
+                        (
+                            Const.SCREEN_LEFT + pos_x - range_radius,
+                            pos_y - range_radius,
+                            range_radius * 2,
+                            range_radius * 2,
+                        ),
+                        start_angle,
+                        end_angle,
+                        int(20 * scale_factor),
+                    )
 
         screen.blit(gravity_range_surface, (0, 0))
 
@@ -100,44 +121,60 @@ class Planet(Object):
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-                if (-planet_size <= pos_x <= Const.SCREEN_HEIGHT + planet_size and
-                        -planet_size <= pos_y <= Const.SCREEN_HEIGHT + planet_size):
-                    screen.blit(scaled_image, (
-                        Const.SCREEN_LEFT + pos_x - planet_size // 2,
-                        pos_y - planet_size // 2
-                    ))
+                if (
+                    -planet_size <= pos_x <= Const.SCREEN_HEIGHT + planet_size
+                    and -planet_size <= pos_y <= Const.SCREEN_HEIGHT + planet_size
+                ):
+                    screen.blit(
+                        scaled_image,
+                        (
+                            Const.SCREEN_LEFT + pos_x - planet_size // 2,
+                            pos_y - planet_size // 2,
+                        ),
+                    )
+
 
 class Star(Object):
     # Load star data once at module level
-    with open(Const.STARS_JSON_PATH, 'r') as f:
+    with open(Const.STARS_JSON_PATH, "r") as f:
         _star_data = json.load(f)
 
     def __init__(self, resources=None, rng=None):
         self.resources = resources or default_assets()
         self.rng = rng or random
         weights = {
-            name: Const.STAR_WEIGHTS[0] if 'e' in name
-            else Const.STAR_WEIGHTS[1] if 'd' in name
-            else Const.STAR_WEIGHTS[2] if 'c' in name
-            else Const.STAR_WEIGHTS[3] if 'b' in name
-            else Const.STAR_WEIGHTS[4] if 'a' in name
-            else 0 for name in Star._star_data.keys()
+            name: (
+                Const.STAR_WEIGHTS[0]
+                if "e" in name
+                else (
+                    Const.STAR_WEIGHTS[1]
+                    if "d" in name
+                    else (
+                        Const.STAR_WEIGHTS[2]
+                        if "c" in name
+                        else (
+                            Const.STAR_WEIGHTS[3]
+                            if "b" in name
+                            else Const.STAR_WEIGHTS[4] if "a" in name else 0
+                        )
+                    )
+                )
+            )
+            for name in Star._star_data.keys()
         }
         star_name = self.rng.choices(
             list(Star._star_data.keys()), weights=list(weights.values()), k=1
         )[0]
         star_data = Star._star_data[star_name]
 
-        self.diameter = star_data['Diameter']
-        self.depth = self.rng.randint(0, Const.STAR_DEPTHS-1)
+        self.diameter = star_data["Diameter"]
+        self.depth = self.rng.randint(0, Const.STAR_DEPTHS - 1)
 
         super().__init__(
-            name=star_name,
-            sprite_location=None,
-            size=[self.diameter, self.diameter]
+            name=star_name, sprite_location=None, size=[self.diameter, self.diameter]
         )
 
-        self.image = self.resources.image(star_data['Image']).image
+        self.image = self.resources.image(star_data["Image"]).image
         self.can_move = False
         self.can_die = False
         self.can_collide = False
@@ -151,7 +188,7 @@ class Star(Object):
             star = Star(resources, rng=rng) if explicit_rng else Star(resources)
             star.position = [
                 rng.randint(0, Const.ARENA_SIZE),
-                rng.randint(0, Const.ARENA_SIZE)
+                rng.randint(0, Const.ARENA_SIZE),
             ]
             stars.append(star)
         return stars
@@ -164,17 +201,15 @@ class Asteroid(Object):
     def __init__(self, resources=None, rng=None):
         self.resources = resources or default_assets()
         self.rng = rng or random
-        super().__init__(
-            name="Asteroid",
-            sprite_location=None,
-            size=[0, 0]
-        )
+        super().__init__(name="Asteroid", sprite_location=None, size=[0, 0])
         assets = self.resources.asteroid()
 
         # Randomly rotate sprites for this instance
-        if self.rng.random() < 0.0: # if 0 then no rotation will be applied
-            sprite_rot = self.rng.random()*360
-            self.sprites = [pygame.transform.rotate(sprite, sprite_rot) for sprite in assets.sprites]
+        if self.rng.random() < 0.0:  # if 0 then no rotation will be applied
+            sprite_rot = self.rng.random() * 360
+            self.sprites = [
+                pygame.transform.rotate(sprite, sprite_rot) for sprite in assets.sprites
+            ]
             self.masks = [pygame.mask.from_surface(sprite) for sprite in self.sprites]
         else:
             self.sprites = assets.sprites
@@ -185,13 +220,16 @@ class Asteroid(Object):
         self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
 
         self.current_sprite = self.rng.randint(0, 29)
-        self.size = [self.sprites[self.current_sprite].get_width(), self.sprites[self.current_sprite].get_height()]
+        self.size = [
+            self.sprites[self.current_sprite].get_width(),
+            self.sprites[self.current_sprite].get_height(),
+        ]
 
         self.rotation_delay = self.rng.randint(0, 3)
         self.rotation_timer = 0
 
         speed = self.rng.uniform(Const.ASTEROID_SPEED / 2, Const.ASTEROID_SPEED)
-        angle = self.rng.uniform(0, 2*math.pi)
+        angle = self.rng.uniform(0, 2 * math.pi)
         self.velocity = [speed * math.cos(angle), speed * math.sin(angle)]
 
         self.planet = None
@@ -221,31 +259,37 @@ class Asteroid(Object):
             {"avoid_gravity": False, "avoid_bodies": False},
         ]
         for rules in spawn_rules:
-            position = self._find_spawn_position(planet, view_bodies, avoid_bodies, rules)
+            position = self._find_spawn_position(
+                planet, view_bodies, avoid_bodies, rules
+            )
             if position is not None:
                 return position
 
         return [
             self.rng.randint(0, Const.ARENA_SIZE),
-            self.rng.randint(0, Const.ARENA_SIZE)
+            self.rng.randint(0, Const.ARENA_SIZE),
         ]
 
     def _find_spawn_position(self, planet, view_bodies, avoid_bodies, rules):
         for _ in range(1000):
             position = [
                 self.rng.randint(0, Const.ARENA_SIZE),
-                self.rng.randint(0, Const.ARENA_SIZE)
+                self.rng.randint(0, Const.ARENA_SIZE),
             ]
 
             if not self._position_is_offscreen(position, view_bodies):
                 continue
 
-            if rules["avoid_gravity"] and not self._position_is_outside_gravity(position, planet):
+            if rules["avoid_gravity"] and not self._position_is_outside_gravity(
+                position, planet
+            ):
                 continue
 
             if rules["avoid_bodies"]:
                 bodies = view_bodies if rules.get("only_view_bodies") else avoid_bodies
-                if not self._position_is_away_from_bodies(position, bodies, planet.diameter):
+                if not self._position_is_away_from_bodies(
+                    position, bodies, planet.diameter
+                ):
                     continue
 
             return position
@@ -253,7 +297,10 @@ class Asteroid(Object):
 
     def _position_is_outside_gravity(self, position, planet):
         asteroid_radius = max(self.size[0], self.size[1]) / 2
-        return wrapped_distance(position, planet.position) >= Const.GRAVITY_RANGE + asteroid_radius
+        return (
+            wrapped_distance(position, planet.position)
+            >= Const.GRAVITY_RANGE + asteroid_radius
+        )
 
     def _position_is_away_from_bodies(self, position, bodies, minimum_distance):
         for body in bodies:
@@ -274,10 +321,15 @@ class Asteroid(Object):
         if len(view_bodies) != 2:
             return True
 
-        view_center, view_size = view_center_and_size([body.position for body in view_bodies])
+        view_center, view_size = view_center_and_size(
+            [body.position for body in view_bodies]
+        )
         dx, dy = wrapped_delta(view_center, position)
         asteroid_radius = max(self.size[0], self.size[1]) / 2
-        return abs(dx) > view_size / 2 + asteroid_radius or abs(dy) > view_size / 2 + asteroid_radius
+        return (
+            abs(dx) > view_size / 2 + asteroid_radius
+            or abs(dy) > view_size / 2 + asteroid_radius
+        )
 
     def get_gravity(self):
         if not self.can_move or not self.planet:
@@ -288,10 +340,7 @@ class Asteroid(Object):
             return [0.0, 0.0]
 
         gravity_force = Const.GRAVITY_MULTIPLIER * self.planet.gravity
-        return [
-            gravity_force * dx / distance,
-            gravity_force * dy / distance
-        ]
+        return [gravity_force * dx / distance, gravity_force * dy / distance]
 
     def next_sprite(self):
         next_sprite = (self.current_sprite + 1) % 30
@@ -312,7 +361,9 @@ class Asteroid(Object):
         for asteroid in self.asteroids:
             if asteroid is self or not asteroid.currently_alive:
                 continue
-            if self._candidate_overlaps_object(candidate_mask, candidate_size, asteroid):
+            if self._candidate_overlaps_object(
+                candidate_mask, candidate_size, asteroid
+            ):
                 return True
 
         return False
@@ -337,15 +388,17 @@ class Asteroid(Object):
     def update(self):
         self.previous_position = self.position.copy()
         gravity_impulse = self.get_gravity()
-        acc0 = [gravity_impulse[0], gravity_impulse[1] ]
+        acc0 = [gravity_impulse[0], gravity_impulse[1]]
 
-        self.position[0] = (self.position[0] +
-                            (self.velocity[0] + 0.5 * acc0[0]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
-        self.position[1] = (self.position[1] +
-                            (self.velocity[1] + 0.5 * acc0[1]) * Const.SPEED_SCALE) % Const.ARENA_SIZE
+        self.position[0] = (
+            self.position[0] + (self.velocity[0] + 0.5 * acc0[0]) * Const.SPEED_SCALE
+        ) % Const.ARENA_SIZE
+        self.position[1] = (
+            self.position[1] + (self.velocity[1] + 0.5 * acc0[1]) * Const.SPEED_SCALE
+        ) % Const.ARENA_SIZE
 
         gravity_impulse = self.get_gravity()
-        acc1 = [gravity_impulse[0], gravity_impulse[1] ]
+        acc1 = [gravity_impulse[0], gravity_impulse[1]]
         self.velocity[0] += (acc0[0] + acc1[0]) * 0.5
         self.velocity[1] += (acc0[1] + acc1[1]) * 0.5
 
@@ -370,8 +423,9 @@ class Asteroid(Object):
             self.image = self.sprites[self.current_sprite]
 
         scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)
-        size = [scaled_image.get_width(),scaled_image.get_height()]
+        size = [scaled_image.get_width(), scaled_image.get_height()]
         from src.Battle.interpolation import interpolated_position
+
         pos = interpolated_position(self, interp_t)
         screen_x = int((pos[0] + translation[0]) * scale_factor)
         screen_y = int((pos[1] + translation[1]) * scale_factor)
@@ -381,12 +435,17 @@ class Asteroid(Object):
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
 
-                if (-size[0] <= pos_x <= Const.SCREEN_HEIGHT + size[0] and
-                        -size[1] <= pos_y <= Const.SCREEN_HEIGHT + size[1]):
-                    screen.blit(scaled_image, (
-                        Const.SCREEN_LEFT + pos_x - size[0] // 2,
-                        pos_y - size[1] // 2
-                    ))
+                if (
+                    -size[0] <= pos_x <= Const.SCREEN_HEIGHT + size[0]
+                    and -size[1] <= pos_y <= Const.SCREEN_HEIGHT + size[1]
+                ):
+                    screen.blit(
+                        scaled_image,
+                        (
+                            Const.SCREEN_LEFT + pos_x - size[0] // 2,
+                            pos_y - size[1] // 2,
+                        ),
+                    )
 
     def get_collision_mask(self):
         return self.masks[self.current_sprite]

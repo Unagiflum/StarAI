@@ -7,7 +7,6 @@ from src.Objects.object import Object
 from src.resources import active_asset_manager, default_assets
 from src.audio import active_audio_service, compatibility_audio_service
 
-
 BATTLE_ASSET_PATH = const.source_path("Objects/Battle")
 
 
@@ -44,10 +43,19 @@ class BattleEffect(Object):
         self.can_expire = True
 
     @classmethod
-    def from_animation(cls, position, frames, frame_delay=2, scale=1.0,
-                       direction_vector=None, align_edge=False):
+    def from_animation(
+        cls,
+        position,
+        frames,
+        frame_delay=2,
+        scale=1.0,
+        direction_vector=None,
+        align_edge=False,
+    ):
         if align_edge and frames:
-            position = cls._edge_aligned_position(position, frames[0], scale, direction_vector)
+            position = cls._edge_aligned_position(
+                position, frames[0], scale, direction_vector
+            )
         return cls(position, frames, frame_delay, scale)
 
     @classmethod
@@ -66,12 +74,13 @@ class BattleEffect(Object):
         ship_explosion_sprites = cls._resources().animation(
             "ship-explosions",
             tuple(
-                BATTLE_ASSET_PATH / f"explosion-{index:03d}.png"
-                for index in range(8)
+                BATTLE_ASSET_PATH / f"explosion-{index:03d}.png" for index in range(8)
             ),
         )
 
-        return cls(position, ship_explosion_sprites, frame_delay=frame_delay, scale=scale)
+        return cls(
+            position, ship_explosion_sprites, frame_delay=frame_delay, scale=scale
+        )
 
     @classmethod
     def play_ship_death(cls):
@@ -144,17 +153,14 @@ class BattleEffect(Object):
                 for x in range(rect.left, rect.right):
                     if not mask.get_at((x, y)):
                         continue
-                    projection = (
-                        (x - center_x) * nx + (y - center_y) * ny
-                    )
+                    projection = (x - center_x) * nx + (y - center_y) * ny
                     if inward_projection is None or projection < inward_projection:
                         inward_projection = projection
 
         if inward_projection is None:
-            inward_projection = -(
-                abs(nx) * sprite.get_width()
-                + abs(ny) * sprite.get_height()
-            ) / 2
+            inward_projection = (
+                -(abs(nx) * sprite.get_width() + abs(ny) * sprite.get_height()) / 2
+            )
         offset = -inward_projection * scale
         return [
             (contact_position[0] + nx * offset) % const.ARENA_SIZE,
@@ -180,10 +186,13 @@ class BattleEffect(Object):
         sprite = self.frames[self.current_frame]
         scaled_width = max(1, int(sprite.get_width() * scale_factor * self.scale))
         scaled_height = max(1, int(sprite.get_height() * scale_factor * self.scale))
-        scaled_sprite = pygame.transform.smoothscale(sprite, (scaled_width, scaled_height))
+        scaled_sprite = pygame.transform.smoothscale(
+            sprite, (scaled_width, scaled_height)
+        )
         scaled_rect = scaled_sprite.get_rect()
 
         from src.Battle.interpolation import interpolated_position
+
         pos = interpolated_position(self, interp_t)
         screen_x = int((pos[0] + translation[0]) * scale_factor)
         screen_y = int((pos[1] + translation[1]) * scale_factor)
@@ -193,9 +202,18 @@ class BattleEffect(Object):
                 pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
 
-                if (-scaled_rect.width <= pos_x <= const.SCREEN_HEIGHT + scaled_rect.width and
-                        -scaled_rect.height <= pos_y <= const.SCREEN_HEIGHT + scaled_rect.height):
-                    screen.blit(scaled_sprite, (
-                        const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
-                        pos_y - scaled_rect.height // 2,
-                    ))
+                if (
+                    -scaled_rect.width
+                    <= pos_x
+                    <= const.SCREEN_HEIGHT + scaled_rect.width
+                    and -scaled_rect.height
+                    <= pos_y
+                    <= const.SCREEN_HEIGHT + scaled_rect.height
+                ):
+                    screen.blit(
+                        scaled_sprite,
+                        (
+                            const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
+                            pos_y - scaled_rect.height // 2,
+                        ),
+                    )

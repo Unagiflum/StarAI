@@ -24,7 +24,6 @@ from src.audio import (
 from src.resources import use_asset_manager
 import src.const as const
 
-
 CONTROL_NAMES = ("Forward", "Left", "Right", "Action 1", "Action 2")
 ACTION_ALIASES = {
     "Forward": ("forward",),
@@ -43,14 +42,26 @@ SHIP_CONTROL_NAMES = {
 
 
 class BattleSimulation:
-    def __init__(self, screen, ship1: SpaceShip, ship2: SpaceShip,
-                 player1_ships=None, player2_ships=None, sound_enabled=True,
-                 audio_service=None, seed=None, rng=None, resources=None,
-                 include_stars=True):
+    def __init__(
+        self,
+        screen,
+        ship1: SpaceShip,
+        ship2: SpaceShip,
+        player1_ships=None,
+        player2_ships=None,
+        sound_enabled=True,
+        audio_service=None,
+        seed=None,
+        rng=None,
+        resources=None,
+        include_stars=True,
+    ):
         if seed is not None and rng is not None:
             raise ValueError("Pass either seed or rng, not both")
-        self.rng = rng if rng is not None else (
-            random.Random(seed) if seed is not None else random
+        self.rng = (
+            rng
+            if rng is not None
+            else (random.Random(seed) if seed is not None else random)
         )
         self.resources = resources or getattr(ship1, "resources", None)
         self.audio = (
@@ -59,9 +70,7 @@ class BattleSimulation:
             else compatibility_audio_service(sound_enabled)
         )
         self.sound_enabled = self.audio.enabled
-        self._bind_runtime_to_ships(
-            ship1, ship2, player1_ships, player2_ships
-        )
+        self._bind_runtime_to_ships(ship1, ship2, player1_ships, player2_ships)
         self.audio.start_battle_music()
 
         battle_state = initialize_battle(
@@ -72,12 +81,12 @@ class BattleSimulation:
             resources=self.resources,
             include_stars=include_stars,
         )
-        self.settings = battle_state['settings']
-        self.world = battle_state['world']
-        self.border_rect = battle_state['border_rect']
-        self.border_color = battle_state['border_color']
-        self.player1 = battle_state['player1']
-        self.player2 = battle_state['player2']
+        self.settings = battle_state["settings"]
+        self.world = battle_state["world"]
+        self.border_rect = battle_state["border_rect"]
+        self.border_color = battle_state["border_color"]
+        self.player1 = battle_state["player1"]
+        self.player2 = battle_state["player2"]
         self.player1_ships = player1_ships
         self.player2_ships = player2_ships
 
@@ -94,7 +103,8 @@ class BattleSimulation:
                 self.player2,
                 self.frame_id,
             )
-            if self.entry_animations_enabled else None
+            if self.entry_animations_enabled
+            else None
         )
         self.needs_selection = False
         self.running = True
@@ -208,7 +218,7 @@ class BattleSimulation:
                 self.world.add_all(ship.process_controls(self.frame_id))
 
     def _update_tracking_lists(self):
-        projectiles = self.world.abilities_of_kind('projectile', 'fighter')
+        projectiles = self.world.abilities_of_kind("projectile", "fighter")
         asteroids = self.world.asteroids
         ships = self.world.ships
         tracked_objects = self.world.objects_of_types(SpaceShip, Ability)
@@ -235,13 +245,11 @@ class BattleSimulation:
     def _update_aftermath(self):
         audio = getattr(self, "audio", None)
         newly_dead = [
-            ship for ship in (self.player1, self.player2)
+            ship
+            for ship in (self.player1, self.player2)
             if ship.current_hp <= 0 and ship.currently_alive
         ]
-        reborn_ships = [
-            ship for ship in newly_dead
-            if self._attempt_rebirth(ship)
-        ]
+        reborn_ships = [ship for ship in newly_dead if self._attempt_rebirth(ship)]
         if newly_dead:
             self.aftermath = battle_aftermath.start_or_update_aftermath(
                 self.aftermath,
@@ -256,7 +264,8 @@ class BattleSimulation:
                 rebirth_ships=reborn_ships,
             )
             permanent_deaths = [
-                ship for ship in newly_dead
+                ship
+                for ship in newly_dead
                 if ship not in self.aftermath.pending_rebirths
             ]
             winner = self.winner() if permanent_deaths else None
@@ -314,7 +323,8 @@ class BattleSimulation:
         self.player2.opponent = self.player1
 
         living_ships = [
-            ship for ship in (self.player1, self.player2)
+            ship
+            for ship in (self.player1, self.player2)
             if ship.currently_alive and ship.current_hp > 0
         ]
         if len(living_ships) == 2:
@@ -344,10 +354,7 @@ class BattleSimulation:
             reset_ship_controls(ship)
 
         entering_ships = list(ships)
-        trail_styles = {
-            ship: ship.rebirth_entry_trail_style()
-            for ship in ships
-        }
+        trail_styles = {ship: ship.rebirth_entry_trail_style() for ship in ships}
         if self.entry is not None:
             entering_ships = [
                 *self.entry.entering_ships,
@@ -395,7 +402,8 @@ class BattleSimulation:
                 self.player2,
                 self.frame_id,
             )
-            if self.entry_animations_enabled else None
+            if self.entry_animations_enabled
+            else None
         )
         self.audio.start_battle_music()
         return entering_ships
@@ -417,7 +425,8 @@ class BattleSimulation:
         if self.aftermath is not None and self.aftermath.pending_rebirths:
             return None
         living = [
-            ship for ship in (self.player1, self.player2)
+            ship
+            for ship in (self.player1, self.player2)
             if ship.currently_alive and ship.current_hp > 0
         ]
         if len(living) == 1:
@@ -427,11 +436,22 @@ class BattleSimulation:
         return None
 
 
-def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
-        player2_ships=None, audio_service=None, menu_sound_manager=None):
+def run(
+    screen,
+    ship1: SpaceShip,
+    ship2: SpaceShip,
+    player1_ships=None,
+    player2_ships=None,
+    audio_service=None,
+    menu_sound_manager=None,
+):
     clock = pygame.time.Clock()
     simulation = BattleSimulation(
-        screen, ship1, ship2, player1_ships, player2_ships,
+        screen,
+        ship1,
+        ship2,
+        player1_ships,
+        player2_ships,
         audio_service=audio_service,
     )
     star_field_renderer = StarFieldRenderer()
@@ -468,8 +488,10 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
                 if event.key in simulation.key_states:
                     accumulated_key_changes.append((event.key, False))
 
-        interp_t = (video_frame % const.VIDEO_FPS_MULTIPLIER) / const.VIDEO_FPS_MULTIPLIER
-        is_physics_frame = (video_frame % const.VIDEO_FPS_MULTIPLIER == 0)
+        interp_t = (
+            video_frame % const.VIDEO_FPS_MULTIPLIER
+        ) / const.VIDEO_FPS_MULTIPLIER
+        is_physics_frame = video_frame % const.VIDEO_FPS_MULTIPLIER == 0
 
         if is_physics_frame or is_paused:
             if is_paused:
@@ -491,8 +513,16 @@ def run(screen, ship1: SpaceShip, ship2: SpaceShip, player1_ships=None,
                     player1_ships,
                     player2_ships,
                     start_battle=False,
-                    preselect_player1=simulation.player1 if simulation.player1.currently_alive else None,
-                    preselect_player2=simulation.player2 if simulation.player2.currently_alive else None,
+                    preselect_player1=(
+                        simulation.player1
+                        if simulation.player1.currently_alive
+                        else None
+                    ),
+                    preselect_player2=(
+                        simulation.player2
+                        if simulation.player2.currently_alive
+                        else None
+                    ),
                     choose_second_player=simulation.aftermath.choose_second_player,
                     audio_service=simulation.audio,
                     menu_sound_manager=menu_sound_manager,
@@ -554,7 +584,8 @@ def reset_round_objects(
     world = World.coerce(game_objects)
     selected_ships = [player1, player2]
     preserved_ships = {
-        ship for ship in (previous_player1, previous_player2)
+        ship
+        for ship in (previous_player1, previous_player2)
         if ship in selected_ships and ship.is_alive()
     }
 
@@ -562,11 +593,9 @@ def reset_round_objects(
         SpaceShip, Ability, ThrustMarker, BattleEffect
     )
     preserved_abilities = [
-        obj for obj in world.abilities
-        if (
-            obj.parent in preserved_ships and
-            obj.is_alive()
-        )
+        obj
+        for obj in world.abilities
+        if (obj.parent in preserved_ships and obj.is_alive())
     ]
     world.retain(persistent_objects + preserved_abilities)
 
@@ -582,6 +611,7 @@ def reset_round_objects(
     update_preserved_abilities(preserved_abilities, player1, player2, planet)
 
     from src.Battle.battle_init import apply_vux_starting_conditions
+
     apply_vux_starting_conditions(player1, player2, preserved_ships, rng=rng)
 
     world.add_all(selected_ships)
@@ -594,9 +624,7 @@ def stop_tracking_projectiles(game_objects):
             obj.stop_and_track()
 
 
-def initialize_new_round_ships(
-    selected_ships, preserved_ships, planet, *, rng=None
-):
+def initialize_new_round_ships(selected_ships, preserved_ships, planet, *, rng=None):
     rng = rng or random
     new_ships = [ship for ship in selected_ships if ship not in preserved_ships]
     preserved_list = list(preserved_ships)
@@ -604,16 +632,12 @@ def initialize_new_round_ships(
     if len(new_ships) == 2:
         positions = list(random_ship_positions(rng))
     elif len(new_ships) == 1 and preserved_list:
-        positions = [random_position_away_from(
-            preserved_list[0].position, rng
-        )]
+        positions = [random_position_away_from(preserved_list[0].position, rng)]
     else:
         positions = []
 
     for ship, position in zip(new_ships, positions):
-        ship.initialize_in_battle(
-            position, rng.randint(0, const.SHIP_DIRECTIONS - 1)
-        )
+        ship.initialize_in_battle(position, rng.randint(0, const.SHIP_DIRECTIONS - 1))
         ship.currently_alive = True
         reset_ship_controls(ship)
 
@@ -630,10 +654,7 @@ def update_preserved_abilities(abilities, player1, player2, planet):
         opponent = player2 if ability.player == player1.player else player1
         ability.opponent = opponent
         ability.stop_and_track()
-        if (
-            ability.target is None or
-            not World.is_alive(ability.target)
-        ):
+        if ability.target is None or not World.is_alive(ability.target):
             ability.target = opponent
         if planet:
             ability.planet = planet
@@ -641,6 +662,7 @@ def update_preserved_abilities(abilities, player1, player2, planet):
 
 def random_position_away_from(position, rng=None):
     from src.Battle.battle_init import get_random_position, validate_ship_positions
+
     rng = rng or random
 
     for _ in range(1000):
@@ -653,6 +675,7 @@ def random_position_away_from(position, rng=None):
 
 def random_ship_positions(rng=None):
     from src.Battle.battle_init import get_valid_ship_positions
+
     return get_valid_ship_positions(rng or random)
 
 

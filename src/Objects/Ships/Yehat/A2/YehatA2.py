@@ -46,6 +46,7 @@ class YehatA2(Ability):
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         from src.Battle.interpolation import interpolated_position
+
         pos = interpolated_position(self, interp_t)
         # The parent ship draws these sprites so its position and draw order are
         # unchanged. Its original masks remain authoritative for collisions.

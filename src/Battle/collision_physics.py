@@ -35,14 +35,10 @@ def elastic_bounce(obj, other, normal, distance, overlap):
         other.velocity[0] -= impulse * normal[0] / other_mass
         other.velocity[1] -= impulse * normal[1] / other_mass
 
-    separate_dynamic_bodies(
-        obj, other, normal, overlap, obj_mass, other_mass
-    )
+    separate_dynamic_bodies(obj, other, normal, overlap, obj_mass, other_mass)
 
 
-def bounce_off_static_body(
-    obj, static_body, normal, overlap, extra_clearance=0.0
-):
+def bounce_off_static_body(obj, static_body, normal, overlap, extra_clearance=0.0):
     velocity_along_normal = dot(obj.velocity, normal)
     if velocity_along_normal < 0:
         impulse = [
@@ -55,9 +51,7 @@ def bounce_off_static_body(
     else:
         collided_while_approaching = False
 
-    separate_from_static_body(
-        obj, static_body, normal, overlap, extra_clearance
-    )
+    separate_from_static_body(obj, static_body, normal, overlap, extra_clearance)
     return collided_while_approaching
 
 
@@ -70,30 +64,19 @@ def stop_at_static_body(obj, static_body, normal, overlap):
     separate_from_static_body(obj, static_body, normal, overlap)
 
 
-def separate_from_static_body(
-    obj, static_body, normal, overlap, extra_clearance=0.0
-):
+def separate_from_static_body(obj, static_body, normal, overlap, extra_clearance=0.0):
     if overlap <= 0 and not mask_broadphase_overlap(obj, static_body):
         return
 
-    if (
-        get_collision_mask(obj) is None
-        or get_collision_mask(static_body) is None
-    ):
+    if get_collision_mask(obj) is None or get_collision_mask(static_body) is None:
         if overlap <= 0:
             return
         separation = overlap + extra_clearance
-        obj.position[0] = (
-            obj.position[0] + normal[0] * separation
-        ) % const.ARENA_SIZE
-        obj.position[1] = (
-            obj.position[1] + normal[1] * separation
-        ) % const.ARENA_SIZE
+        obj.position[0] = (obj.position[0] + normal[0] * separation) % const.ARENA_SIZE
+        obj.position[1] = (obj.position[1] + normal[1] * separation) % const.ARENA_SIZE
         return
 
-    max_separation = (
-        int(math.ceil(mask_radius(obj) + mask_radius(static_body))) + 1
-    )
+    max_separation = int(math.ceil(mask_radius(obj) + mask_radius(static_body))) + 1
     moved = 0
     step = 2
     while moved <= max_separation:
@@ -108,12 +91,8 @@ def separate_from_static_body(
                 ) % const.ARENA_SIZE
             return
 
-        obj.position[0] = (
-            obj.position[0] + normal[0] * step
-        ) % const.ARENA_SIZE
-        obj.position[1] = (
-            obj.position[1] + normal[1] * step
-        ) % const.ARENA_SIZE
+        obj.position[0] = (obj.position[0] + normal[0] * step) % const.ARENA_SIZE
+        obj.position[1] = (obj.position[1] + normal[1] * step) % const.ARENA_SIZE
         moved += step
 
     if extra_clearance > 0:
@@ -125,9 +104,7 @@ def separate_from_static_body(
         ) % const.ARENA_SIZE
 
 
-def separate_dynamic_bodies(
-    obj, other, normal, overlap, obj_mass, other_mass
-):
+def separate_dynamic_bodies(obj, other, normal, overlap, obj_mass, other_mass):
     if overlap <= 0:
         return
 
@@ -135,18 +112,10 @@ def separate_dynamic_bodies(
     obj_push = overlap * (other_mass / total_mass)
     other_push = overlap * (obj_mass / total_mass)
 
-    obj.position[0] = (
-        obj.position[0] + normal[0] * obj_push
-    ) % const.ARENA_SIZE
-    obj.position[1] = (
-        obj.position[1] + normal[1] * obj_push
-    ) % const.ARENA_SIZE
-    other.position[0] = (
-        other.position[0] - normal[0] * other_push
-    ) % const.ARENA_SIZE
-    other.position[1] = (
-        other.position[1] - normal[1] * other_push
-    ) % const.ARENA_SIZE
+    obj.position[0] = (obj.position[0] + normal[0] * obj_push) % const.ARENA_SIZE
+    obj.position[1] = (obj.position[1] + normal[1] * obj_push) % const.ARENA_SIZE
+    other.position[0] = (other.position[0] - normal[0] * other_push) % const.ARENA_SIZE
+    other.position[1] = (other.position[1] - normal[1] * other_push) % const.ARENA_SIZE
 
 
 def dot(vector, other):

@@ -4,6 +4,7 @@ import math
 import src.const as const
 from src.toroidal import wrapped_delta
 
+
 class ArilouA1(Ability):
     def __init__(self, parent):
         super().__init__("ArilouA1", parent)
@@ -22,15 +23,18 @@ class ArilouA1(Ability):
 
             # Calculate angle and quantize to nearest SHIP_DIRECTION
             angle = math.atan2(dx, -dy)
-            direction = round(angle / (2 * math.pi) * const.SHIP_DIRECTIONS) % const.SHIP_DIRECTIONS
+            direction = (
+                round(angle / (2 * math.pi) * const.SHIP_DIRECTIONS)
+                % const.SHIP_DIRECTIONS
+            )
         else:
             direction = self.parent.heading
 
         angle = direction * (2 * math.pi / const.SHIP_DIRECTIONS)
 
         # Calculate end position using sin/cos flipped to match coordinate system
-        self.end_position[0] = (self.position[0] + math.sin(angle) * self.LASER_RANGE)
-        self.end_position[1] = (self.position[1] - math.cos(angle) * self.LASER_RANGE)
+        self.end_position[0] = self.position[0] + math.sin(angle) * self.LASER_RANGE
+        self.end_position[1] = self.position[1] - math.cos(angle) * self.LASER_RANGE
 
     def update_physics(self):
         self.position = self.parent.position.copy()
@@ -45,16 +49,23 @@ class ArilouA1(Ability):
         return self.expiration_timer >= 0
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
-        from src.Battle.interpolation import interpolated_position, interpolated_sprite_index
+        from src.Battle.interpolation import (
+            interpolated_position,
+            interpolated_sprite_index,
+        )
+
         pos = interpolated_position(self.parent, interp_t)
-        
+
         if not getattr(self, "intercepted", False):
             opponent = self._live_trackable_opponent()
             if opponent is not None:
                 target_pos = interpolated_position(opponent, interp_t)
                 dx, dy = wrapped_delta(pos, target_pos)
                 angle = math.atan2(dx, -dy)
-                direction = round(angle / (2 * math.pi) * const.SHIP_DIRECTIONS) % const.SHIP_DIRECTIONS
+                direction = (
+                    round(angle / (2 * math.pi) * const.SHIP_DIRECTIONS)
+                    % const.SHIP_DIRECTIONS
+                )
             else:
                 visual_idx = interpolated_sprite_index(self.parent, interp_t)
                 direction = visual_idx / const.VIDEO_FPS_MULTIPLIER
@@ -62,12 +73,12 @@ class ArilouA1(Ability):
             angle = direction * (2 * math.pi / const.SHIP_DIRECTIONS)
             draw_end_position = [
                 pos[0] + math.sin(angle) * self.LASER_RANGE,
-                pos[1] - math.cos(angle) * self.LASER_RANGE
+                pos[1] - math.cos(angle) * self.LASER_RANGE,
             ]
         else:
             end_offset = wrapped_delta(self.position, self.end_position)
             draw_end_position = [pos[0] + end_offset[0], pos[1] + end_offset[1]]
-            
+
         screen_start_x = int((pos[0] + translation[0]) * scale_factor)
         screen_start_y = int((pos[1] + translation[1]) * scale_factor)
         screen_end_x = int((draw_end_position[0] + translation[0]) * scale_factor)
@@ -88,5 +99,5 @@ class ArilouA1(Ability):
                         self.LASER_COLOR,
                         (const.SCREEN_LEFT + start_x, start_y),
                         (const.SCREEN_LEFT + end_x, end_y),
-                        max(1,int(self.LASER_WIDTH * scale_factor))
+                        max(1, int(self.LASER_WIDTH * scale_factor)),
                     )

@@ -5,6 +5,7 @@ import pygame
 import math
 import src.const as const
 
+
 class VuxA1(Ability):
     def __init__(self, parent):
         super().__init__("VuxA1", parent)
@@ -12,7 +13,7 @@ class VuxA1(Ability):
         self.LASER_RANGE = ability_data.get("LASER_RANGE", 644)
         self.LASER_COLOR = (0, 255, 0)
         self.LASER_WIDTH = 4
-        
+
         self.end_position = [0, 0]
         self.place_self()
         self.calculate_end_position()
@@ -23,7 +24,7 @@ class VuxA1(Ability):
         spawn_distance = (self.parent.size[1]) / 2
         self.position = [
             self.parent.position[0] + math.sin(angle_rad) * spawn_distance,
-            self.parent.position[1] - math.cos(angle_rad) * spawn_distance
+            self.parent.position[1] - math.cos(angle_rad) * spawn_distance,
         ]
         self.heading = self.parent.heading
         self.rotation = self.parent.rotation
@@ -40,27 +41,33 @@ class VuxA1(Ability):
         return self.expiration_timer >= 0
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
-        from src.Battle.interpolation import interpolated_position, interpolated_sprite_index
+        from src.Battle.interpolation import (
+            interpolated_position,
+            interpolated_sprite_index,
+        )
         from src.toroidal import wrapped_delta
-        
+
         parent_pos = interpolated_position(self.parent, interp_t)
         visual_idx = interpolated_sprite_index(self.parent, interp_t)
         visual_heading = visual_idx / const.VIDEO_FPS_MULTIPLIER
         angle_rad = math.radians(visual_heading * const.TURN_ANGLE)
-        
+
         spawn_distance = (self.parent.size[1]) / 2
         visual_pos = [
             parent_pos[0] + math.sin(angle_rad) * spawn_distance,
-            parent_pos[1] - math.cos(angle_rad) * spawn_distance
+            parent_pos[1] - math.cos(angle_rad) * spawn_distance,
         ]
-        
+
         if getattr(self, "intercepted", False):
             end_offset = wrapped_delta(self.position, self.end_position)
-            draw_end_position = [visual_pos[0] + end_offset[0], visual_pos[1] + end_offset[1]]
+            draw_end_position = [
+                visual_pos[0] + end_offset[0],
+                visual_pos[1] + end_offset[1],
+            ]
         else:
             draw_end_position = [
                 visual_pos[0] + math.sin(angle_rad) * self.LASER_RANGE,
-                visual_pos[1] - math.cos(angle_rad) * self.LASER_RANGE
+                visual_pos[1] - math.cos(angle_rad) * self.LASER_RANGE,
             ]
 
         screen_start_x = int((visual_pos[0] + translation[0]) * scale_factor)
@@ -83,5 +90,5 @@ class VuxA1(Ability):
                         self.LASER_COLOR,
                         (const.SCREEN_LEFT + start_x, start_y),
                         (const.SCREEN_LEFT + end_x, end_y),
-                        max(1, int(self.LASER_WIDTH * scale_factor))
+                        max(1, int(self.LASER_WIDTH * scale_factor)),
                     )

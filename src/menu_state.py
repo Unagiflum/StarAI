@@ -89,9 +89,7 @@ class ShipSelectionState(Generic[ShipT]):
         choose_second_player: int | None = None,
     ):
         self.fleets = {player: tuple(fleets[player]) for player in self.PLAYERS}
-        self.ship_names = {
-            player: tuple(ship_names[player]) for player in self.PLAYERS
-        }
+        self.ship_names = {player: tuple(ship_names[player]) for player in self.PLAYERS}
         for player in self.PLAYERS:
             if len(self.fleets[player]) != len(self.ship_names[player]):
                 raise ValueError(f"Player {player} ships and names must align")
@@ -180,8 +178,11 @@ class ShipSelectionState(Generic[ShipT]):
     @property
     def confirmation_ready(self) -> bool:
         return all(
-            self._is_alive(self._selections[player].ship)
-            if self._selections[player] is not None else False
+            (
+                self._is_alive(self._selections[player].ship)
+                if self._selections[player] is not None
+                else False
+            )
             for player in self.PLAYERS
         )
 

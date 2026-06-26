@@ -36,11 +36,14 @@ def scale_ship_sprites(
     """Normalize a catalog's sprites by its largest scaled dimension."""
     max_dimension = max(
         1,
-        max((
-            dimension * catalog[name].sprite_scale
-            for name, sprite in original_sprites.items()
-            for dimension in sprite.get_size()
-        ), default=1),
+        max(
+            (
+                dimension * catalog[name].sprite_scale
+                for name, sprite in original_sprites.items()
+                for dimension in sprite.get_size()
+            ),
+            default=1,
+        ),
     )
     scale_factor = target_size / max_dimension
     return {
