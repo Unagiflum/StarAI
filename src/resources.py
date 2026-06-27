@@ -384,7 +384,7 @@ class AssetManager:
             try:
                 sprites = tuple(
                     self._image(const.ASTEROID_PATH / f"asteroid{index:02d}.png")
-                    for index in range(30)
+                    for index in range(29)
                 )
             except (pygame.error, FileNotFoundError, OSError) as error:
                 self._asset_errors.append(
@@ -396,7 +396,7 @@ class AssetManager:
                     )
                 )
                 placeholder = _make_circle_surface(40)
-                sprites = tuple(placeholder.copy() for _ in range(30))
+                sprites = tuple(placeholder.copy() for _ in range(29))
             try:
                 base_death_animation = tuple(
                     self._image(const.ASTEROID_PATH / f"asteroidend{index:02d}.png")

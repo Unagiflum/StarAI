@@ -297,7 +297,7 @@ class Asteroid(Object):
         self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
         self.physical_collision_capabilities = PhysicalCollisionCapabilities(fragile_to_immovable=True)
 
-        self.current_sprite = self.rng.randint(0, 29)
+        self.current_sprite = self.rng.randrange(len(self.sprites))
         self.size = [
             self.sprites[self.current_sprite].get_width(),
             self.sprites[self.current_sprite].get_height(),
@@ -421,7 +421,7 @@ class Asteroid(Object):
         return [gravity_force * dx / distance, gravity_force * dy / distance]
 
     def next_sprite(self):
-        next_sprite = (self.current_sprite + 1) % 30
+        next_sprite = (self.current_sprite + 1) % len(self.sprites)
         if self.sprite_would_overlap(next_sprite):
             return
 

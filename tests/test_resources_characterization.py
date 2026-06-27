@@ -122,7 +122,7 @@ class ResourceCharacterizationTests(unittest.TestCase):
         self.assertIs(first.sprites, second.sprites)
         self.assertIs(first.masks, second.masks)
         self.assertIs(first.death_animation, second.death_animation)
-        self.assertEqual(len(first.sprites), 30)
+        self.assertEqual(len(first.sprites), 29)
         self.assertEqual(len(first.death_animation), 5 * const.VIDEO_FPS_MULTIPLIER)
         self.assertEqual(first.masks[0].get_size(), first.sprites[0].get_size())
         expected = pygame.image.load(
