@@ -315,6 +315,14 @@ def resolve_generic_collision(
                 return False
 
             if is_ship:
+                if other is projectile.parent:
+                    can_recover = getattr(projectile, "can_recover_with_parent", None)
+                    if can_recover and can_recover():
+                        recover_fn = getattr(projectile, "recover_with_parent", None)
+                        if recover_fn:
+                            recover_fn()
+                            return True
+                            
                 handler = getattr(projectile, "handle_ship_contact", None)
                 if handler and handler(other, impact_normal):
                     return True
