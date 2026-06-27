@@ -16,6 +16,68 @@ from src.toroidal import view_center_and_size, wrapped_delta, wrapped_distance
 from src.resources import default_assets
 
 
+_gravity_range_overlay = None
+
+
+def _circle_outline_intersects_rect(center, radius, width, rect):
+    nearest_x = min(max(center[0], rect.left), rect.right)
+    nearest_y = min(max(center[1], rect.top), rect.bottom)
+    nearest_distance = math.hypot(center[0] - nearest_x, center[1] - nearest_y)
+    farthest_distance = max(
+        math.hypot(center[0] - x, center[1] - y)
+        for x in (rect.left, rect.right)
+        for y in (rect.top, rect.bottom)
+    )
+    half_width = width / 2.0
+    return (
+        nearest_distance <= radius + half_width
+        and farthest_distance >= max(0.0, radius - half_width)
+    )
+
+
+def _draw_antialiased_dashed_circle(
+    surface,
+    color,
+    center,
+    radius,
+    width,
+    *,
+    segment_count=64,
+    dash_fraction=0.2,
+):
+    """Draw a thick dashed circle with antialiased inner and outer edges."""
+    angle_step = 2 * math.pi / segment_count
+    half_width = width / 2.0
+    for index in range(0, segment_count, 2):
+        start_angle = index * angle_step
+        end_angle = (index + dash_fraction) * angle_step
+        arc_length = max(1.0, radius * (end_angle - start_angle))
+        point_count = max(2, int(math.ceil(arc_length / 4.0)) + 1)
+        angles = [
+            start_angle + (end_angle - start_angle) * point / (point_count - 1)
+            for point in range(point_count)
+        ]
+
+        center_points = [
+            (
+                center[0] + math.cos(angle) * radius,
+                center[1] + math.sin(angle) * radius,
+            )
+            for angle in angles
+        ]
+        pygame.draw.lines(surface, color, False, center_points, width)
+
+        for edge_radius in (radius - half_width, radius + half_width):
+            edge_points = [
+                (
+                    center[0] + math.cos(angle) * edge_radius,
+                    center[1] + math.sin(angle) * edge_radius,
+                )
+                for angle in angles
+            ]
+            pygame.draw.aalines(surface, color, False, edge_points)
+
+
 class Planet(Object):
     # Load planet data once at module level
     with open(Const.PLANETS_JSON_PATH, "r") as f:
@@ -77,13 +139,17 @@ class Planet(Object):
         planet.previous_position = planet.position.copy()
         return planet
 
-    def draw(self, screen, scale_factor, translation, interp_t=0.0):
-        # Draw gravity range circle
-        range_color = (255, 255, 255, 8)  # Light blue, semi-transparent
+    def draw_gravity_range(self, screen, scale_factor, translation, interp_t=0.0):
+        global _gravity_range_overlay
+
         border_color = (255, 0, 0, 150)  # Red, semi-transparent
-        gravity_range_surface = pygame.Surface(
-            (Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT), pygame.SRCALPHA
-        )
+        if (
+            _gravity_range_overlay is None
+            or _gravity_range_overlay.get_size() != screen.get_size()
+        ):
+            _gravity_range_overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        gravity_range_surface = _gravity_range_overlay
+        gravity_range_surface.fill((0, 0, 0, 0))
 
         from src.Battle.interpolation import interpolated_position
 
@@ -91,34 +157,37 @@ class Planet(Object):
         screen_x = int((pos[0] + translation[0]) * scale_factor)
         screen_y = int((pos[1] + translation[1]) * scale_factor)
         range_radius = int(Const.GRAVITY_RANGE * scale_factor)
+        line_width = max(1, int(20 * scale_factor))
+        clip_rect = screen.get_clip()
 
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:
                 pos_x = screen_x + dx * Const.ARENA_SIZE * scale_factor
                 pos_y = screen_y + dy * Const.ARENA_SIZE * scale_factor
-
-                # Draw dashed outer circle
-                num_segments = 64
-                for i in range(0, num_segments, 2):
-                    start_angle = i * (2 * math.pi / num_segments)
-                    end_angle = (i + 0.2) * (2 * math.pi / num_segments)
-                    pygame.draw.arc(
-                        gravity_range_surface,
-                        border_color,
-                        (
-                            Const.SCREEN_LEFT + pos_x - range_radius,
-                            pos_y - range_radius,
-                            range_radius * 2,
-                            range_radius * 2,
-                        ),
-                        start_angle,
-                        end_angle,
-                        int(20 * scale_factor),
-                    )
+                center = (Const.SCREEN_LEFT + pos_x, pos_y)
+                if not _circle_outline_intersects_rect(
+                    center,
+                    range_radius,
+                    line_width,
+                    clip_rect,
+                ):
+                    continue
+                _draw_antialiased_dashed_circle(
+                    gravity_range_surface,
+                    border_color,
+                    center,
+                    range_radius,
+                    line_width,
+                )
 
         screen.blit(gravity_range_surface, (0, 0))
 
-        # Draw planet sprite
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
+        from src.Battle.interpolation import interpolated_position
+
+        pos = interpolated_position(self, interp_t)
+        screen_x = int((pos[0] + translation[0]) * scale_factor)
+        screen_y = int((pos[1] + translation[1]) * scale_factor)
         scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)
         planet_size = scaled_image.get_width()
 
@@ -430,8 +499,12 @@ class Asteroid(Object):
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         assets = self.resources.asteroid()
         if Const.VIDEO_FPS_MULTIPLIER > 1 and hasattr(assets, 'interpolated_sprites') and assets.interpolated_sprites:
-            fraction = (self.rotation_timer + interp_t) / (self.rotation_delay + 1.0)
-            sub_frame_offset = int(fraction * Const.VIDEO_FPS_MULTIPLIER)
+            animation_duration = max(1.0, float(self.rotation_delay))
+            fraction = (self.rotation_timer + interp_t) / animation_duration
+            sub_frame_offset = min(
+                Const.VIDEO_FPS_MULTIPLIER - 1,
+                max(0, int(fraction * Const.VIDEO_FPS_MULTIPLIER)),
+            )
             draw_sprite_idx = (self.current_sprite * Const.VIDEO_FPS_MULTIPLIER + sub_frame_offset) % len(assets.interpolated_sprites)
             self.image = assets.interpolated_sprites[draw_sprite_idx]
         else:

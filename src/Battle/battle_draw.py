@@ -220,6 +220,7 @@ def _render_world_to_surface(
     frame_id,
     star_field_renderer,
     skip_stars=False,
+    show_gravity_range=True,
     show_crosshairs=False,
     interp_t=0.0,
 ):
@@ -227,6 +228,15 @@ def _render_world_to_surface(
         star_field_renderer.draw(
             surface, world.stars, scale_factor, translation, midpoint
         )
+
+    if show_gravity_range:
+        for planet in world.planets:
+            planet.draw_gravity_range(
+                surface,
+                scale_factor,
+                translation,
+                interp_t=interp_t,
+            )
 
     for planet in world.planets:
         planet.draw(surface, scale_factor, translation, interp_t=interp_t)
@@ -431,6 +441,7 @@ def draw_battle(
                 frame_id,
                 star_field_renderer,
                 skip_stars=True,
+                show_gravity_range=False,
                 show_crosshairs=False,
                 interp_t=interp_t,
             )

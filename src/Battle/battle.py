@@ -1,6 +1,7 @@
 import pygame
 import sys
 import random
+from collections import deque
 
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.ability import Ability
@@ -39,6 +40,61 @@ SHIP_CONTROL_NAMES = {
     "Action 1": "action1",
     "Action 2": "action2",
 }
+
+
+class FixedStepScheduler:
+    """Accumulate wall time for a fixed-rate simulation."""
+
+    def __init__(self, fps, max_catch_up_steps=5, start_ready=True):
+        self.step_seconds = 1.0 / fps
+        self.max_catch_up_steps = max_catch_up_steps
+        self.accumulator = self.step_seconds if start_ready else 0.0
+
+    def advance(self, elapsed_seconds):
+        max_accumulator = self.step_seconds * self.max_catch_up_steps
+        self.accumulator = min(
+            self.accumulator + max(0.0, elapsed_seconds),
+            max_accumulator,
+        )
+        steps = min(
+            int((self.accumulator + 1e-12) / self.step_seconds),
+            self.max_catch_up_steps,
+        )
+        self.accumulator -= steps * self.step_seconds
+        interpolation = min(1.0, max(0.0, self.accumulator / self.step_seconds))
+        return steps, interpolation
+
+    def reset(self, *, start_ready=False):
+        self.accumulator = self.step_seconds if start_ready else 0.0
+
+
+class AdaptiveRenderRate:
+    """Lower the presentation rate when frame work exceeds its budget."""
+
+    def __init__(self, physics_fps, max_multiplier, sample_frames=60):
+        self.physics_fps = physics_fps
+        self.multiplier = max(1, max_multiplier)
+        self.sample_frames = max(1, sample_frames)
+        self._work_samples = deque(maxlen=self.sample_frames)
+
+    @property
+    def target_fps(self):
+        return self.physics_fps * self.multiplier
+
+    def observe(self, work_seconds):
+        if work_seconds <= 0:
+            return
+        self._work_samples.append(work_seconds)
+        if len(self._work_samples) < self.sample_frames:
+            return
+
+        average_work = sum(self._work_samples) / len(self._work_samples)
+        self._work_samples.clear()
+        if average_work > 1.0 / self.target_fps and self.multiplier > 1:
+            self.multiplier -= 1
+
+    def reset_samples(self):
+        self._work_samples.clear()
 
 
 class BattleSimulation:
@@ -462,11 +518,13 @@ def run(
     pygame.event.clear(pygame.KEYUP)
 
     state = simulation.state()
-    video_frame = 0
     accumulated_key_changes = []
+    fixed_step = FixedStepScheduler(const.FPS)
+    render_rate = AdaptiveRenderRate(const.FPS, const.VIDEO_FPS_MULTIPLIER)
 
     while running:
-        clock.tick(const.VIDEO_FPS)
+        elapsed_seconds = clock.tick(render_rate.target_fps) / 1000.0
+        render_rate.observe(clock.get_rawtime() / 1000.0)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -475,6 +533,8 @@ def run(
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_F1:
                     is_paused = not is_paused
+                    fixed_step.reset()
+                    _sync_interpolation_snapshots(simulation.world)
                     if is_paused:
                         simulation.audio.pause()
                     else:
@@ -488,52 +548,57 @@ def run(
                 if event.key in simulation.key_states:
                     accumulated_key_changes.append((event.key, False))
 
-        interp_t = (
-            video_frame % const.VIDEO_FPS_MULTIPLIER
-        ) / const.VIDEO_FPS_MULTIPLIER
-        is_physics_frame = video_frame % const.VIDEO_FPS_MULTIPLIER == 0
-
-        if is_physics_frame or is_paused:
-            if is_paused:
-                for key, pressed in accumulated_key_changes:
-                    simulation.handle_key_change(key, pressed)
-                accumulated_key_changes.clear()
-                state = simulation.state()
-            else:
+        if is_paused:
+            for key, pressed in accumulated_key_changes:
+                simulation.handle_key_change(key, pressed)
+            accumulated_key_changes.clear()
+            state = simulation.state()
+            interp_t = 1.0
+        else:
+            physics_steps, interp_t = fixed_step.advance(elapsed_seconds)
+            for _ in range(physics_steps):
                 state = simulation.step(key_changes=accumulated_key_changes)
                 accumulated_key_changes.clear()
 
-            if state["needs_selection"]:
-                from src.Menus import pick_ship
+                if state["needs_selection"]:
+                    from src.Menus import pick_ship
 
-                stop_tracking_projectiles(simulation.world)
-                simulation.audio.stop_music()
-                selected = pick_ship.run(
-                    screen,
-                    player1_ships,
-                    player2_ships,
-                    start_battle=False,
-                    preselect_player1=(
-                        simulation.player1
-                        if simulation.player1.currently_alive
-                        else None
-                    ),
-                    preselect_player2=(
-                        simulation.player2
-                        if simulation.player2.currently_alive
-                        else None
-                    ),
-                    choose_second_player=simulation.aftermath.choose_second_player,
-                    audio_service=simulation.audio,
-                    menu_sound_manager=menu_sound_manager,
-                )
-                simulation.select_next_round(selected)
-                pygame.event.clear(pygame.KEYDOWN)
-                pygame.event.clear(pygame.KEYUP)
-                if not simulation.running:
-                    running = False
-                    continue
-                state = simulation.state()
+                    stop_tracking_projectiles(simulation.world)
+                    simulation.audio.stop_music()
+                    selected = pick_ship.run(
+                        screen,
+                        player1_ships,
+                        player2_ships,
+                        start_battle=False,
+                        preselect_player1=(
+                            simulation.player1
+                            if simulation.player1.currently_alive
+                            else None
+                        ),
+                        preselect_player2=(
+                            simulation.player2
+                            if simulation.player2.currently_alive
+                            else None
+                        ),
+                        choose_second_player=simulation.aftermath.choose_second_player,
+                        audio_service=simulation.audio,
+                        menu_sound_manager=menu_sound_manager,
+                    )
+                    simulation.select_next_round(selected)
+                    pygame.event.clear(pygame.KEYDOWN)
+                    pygame.event.clear(pygame.KEYUP)
+                    fixed_step.reset()
+                    render_rate.reset_samples()
+                    clock.tick()
+                    if not simulation.running:
+                        running = False
+                        break
+                    state = simulation.state()
+                    interp_t = 0.0
+                    break
+
+        if not running:
+            continue
 
         # Drawing
         draw_battle(
@@ -556,10 +621,16 @@ def run(
             frame_id=simulation.frame_id,
             original_ships=(simulation.player1, simulation.player2),
             is_paused=is_paused,
-            interp_t=0.0 if is_paused else interp_t,
+            interp_t=interp_t,
         )
 
-        video_frame += 1
+
+def _sync_interpolation_snapshots(game_objects):
+    for obj in World.coerce(game_objects):
+        if hasattr(obj, "position") and hasattr(obj, "previous_position"):
+            obj.previous_position = obj.position.copy()
+        if hasattr(obj, "heading") and hasattr(obj, "previous_heading"):
+            obj.previous_heading = obj.heading
 
 
 def play_battle_music():

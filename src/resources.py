@@ -724,17 +724,33 @@ def _interpolate_frames(frames, multiplier, loop=True, fade_to_transparent=False
                 new_frame.blit(current_frame, (c_x, c_y))
             else:
                 a_copy = current_frame.copy()
-                a_copy.set_alpha(int((1.0 - ratio) * 255))
+                a_weight = round((1.0 - ratio) * 255)
+                a_copy.fill(
+                    (a_weight, a_weight, a_weight, a_weight),
+                    special_flags=pygame.BLEND_RGBA_MULT,
+                )
                 a_x = (max_w - a_copy.get_width()) // 2
                 a_y = (max_h - a_copy.get_height()) // 2
-                new_frame.blit(a_copy, (a_x, a_y))
+                new_frame.blit(
+                    a_copy,
+                    (a_x, a_y),
+                    special_flags=pygame.BLEND_RGBA_ADD,
+                )
                 
                 if next_frame is not empty_surface:
                     b_copy = next_frame.copy()
-                    b_copy.set_alpha(int(ratio * 255))
+                    b_weight = 255 - a_weight
+                    b_copy.fill(
+                        (b_weight, b_weight, b_weight, b_weight),
+                        special_flags=pygame.BLEND_RGBA_MULT,
+                    )
                     b_x = (max_w - b_copy.get_width()) // 2
                     b_y = (max_h - b_copy.get_height()) // 2
-                    new_frame.blit(b_copy, (b_x, b_y))
+                    new_frame.blit(
+                        b_copy,
+                        (b_x, b_y),
+                        special_flags=pygame.BLEND_RGBA_ADD,
+                    )
                 
             interpolated.append(new_frame)
                 

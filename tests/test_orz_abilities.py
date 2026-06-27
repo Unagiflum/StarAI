@@ -51,7 +51,10 @@ class OrzAbilityTests(unittest.TestCase):
             projectile.expiration_timer,
             12,
         )
-        self.assertEqual(len(projectile.death_animation), 6)
+        self.assertEqual(
+            len(projectile.death_animation),
+            6 * const.VIDEO_FPS_MULTIPLIER,
+        )
         self.assertTrue(ABILITY_DEFINITIONS["OrzA1"].has_sound)
 
     def test_a2_turns_turret_relative_to_hull_and_wraps(self):

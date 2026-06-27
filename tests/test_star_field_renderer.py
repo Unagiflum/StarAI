@@ -12,8 +12,9 @@ import pygame
 pygame.init()
 
 import src.const as const
-from src.Battle.battle_draw import StarFieldRenderer
+from src.Battle.battle_draw import StarFieldRenderer, _render_world_to_surface
 from src.Objects.Space.space_obj import Star
+from src.Objects.Space.space_obj import _circle_outline_intersects_rect
 
 
 class StarGenerationTests(unittest.TestCase):
@@ -39,20 +40,10 @@ class StarGenerationTests(unittest.TestCase):
 
 
 class StarFieldRendererTests(unittest.TestCase):
-    def test_renderer_instances_do_not_share_surfaces(self):
-        first = StarFieldRenderer()
-        second = StarFieldRenderer()
+    def test_renderer_does_not_allocate_full_screen_depth_surfaces(self):
+        renderer = StarFieldRenderer()
 
-        for first_surface, second_surface in zip(
-            first.depth_surfaces, second.depth_surfaces
-        ):
-            self.assertIsNot(first_surface, second_surface)
-
-        first.depth_surfaces[0].fill((255, 0, 0, 255))
-        self.assertNotEqual(
-            first.depth_surfaces[0].get_at((0, 0)),
-            second.depth_surfaces[0].get_at((0, 0)),
-        )
+        self.assertFalse(hasattr(renderer, "depth_surfaces"))
 
     def test_only_supplied_stars_are_rendered_in_each_depth(self):
         renderer = StarFieldRenderer()
@@ -63,16 +54,52 @@ class StarFieldRendererTests(unittest.TestCase):
             SimpleNamespace(depth=2),
         ]
 
-        with mock.patch.object(renderer, "update_depth_surface") as update:
+        with mock.patch.object(renderer, "draw_depth_stars") as draw_depth:
             renderer.draw(screen, stars, 1.25, [10, 20], [30, 40])
 
-        rendered_by_depth = {
-            call.args[0]: call.args[1] for call in update.call_args_list
-        }
+        rendered_by_depth = [call.args[1] for call in draw_depth.call_args_list]
         self.assertEqual(rendered_by_depth[0], [stars[1]])
         self.assertEqual(rendered_by_depth[1], [])
         self.assertEqual(rendered_by_depth[2], [stars[0], stars[2]])
-        self.assertEqual(update.call_count, const.STAR_DEPTHS)
+        self.assertEqual(draw_depth.call_count, const.STAR_DEPTHS)
+
+    def test_hud_world_render_omits_gravity_range_overlay(self):
+        planet = mock.Mock()
+        world = SimpleNamespace(
+            stars=[],
+            planets=[planet],
+            thrust_markers=[],
+            asteroids=[],
+            abilities=[],
+            ships=[],
+            effects=[],
+        )
+
+        _render_world_to_surface(
+            pygame.Surface((320, 240)),
+            world,
+            1.0,
+            [0, 0],
+            [0, 0],
+            None,
+            0,
+            StarFieldRenderer(),
+            skip_stars=True,
+            show_gravity_range=False,
+        )
+
+        planet.draw_gravity_range.assert_not_called()
+        planet.draw.assert_called_once()
+
+    def test_gravity_ring_culling_rejects_a_ring_surrounding_the_view(self):
+        viewport = pygame.Rect(0, 0, 100, 100)
+
+        self.assertFalse(
+            _circle_outline_intersects_rect((50, 50), 200, 10, viewport)
+        )
+        self.assertTrue(
+            _circle_outline_intersects_rect((150, 50), 50, 2, viewport)
+        )
 
 
 if __name__ == "__main__":

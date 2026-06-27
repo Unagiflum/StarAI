@@ -21,11 +21,17 @@ from src.Objects.Ships.Pkunk.A2.PkunkA2 import PkunkA2
 from src.Objects.Ships.registry import create_ability, create_ship
 from src.Objects.Ships.space_ship import SpaceShip
 from src.UI.ui import SoundManager
-from src.resources import AssetManager
+from src.resources import AssetManager, _interpolate_frames
 
 
 def surface_bytes(surface):
     return pygame.image.tobytes(surface, "RGBA")
+
+
+def centered_on_surface(source, destination):
+    centered = pygame.Surface(destination.get_size(), pygame.SRCALPHA)
+    centered.blit(source, source.get_rect(center=centered.get_rect().center))
+    return centered
 
 
 def opaque_size(mask):
@@ -94,7 +100,15 @@ class ResourceCharacterizationTests(unittest.TestCase):
             first.sprite_scale,
         )
         self.assertEqual(surface_bytes(first.sprites[0][0]), surface_bytes(expected_first))
-        self.assertEqual(surface_bytes(first.death_animation[-1]), surface_bytes(expected_last_end))
+        last_base_frame = 7 * const.VIDEO_FPS_MULTIPLIER
+        expected_last_end = centered_on_surface(
+            expected_last_end,
+            first.death_animation[last_base_frame],
+        )
+        self.assertEqual(
+            surface_bytes(first.death_animation[last_base_frame]),
+            surface_bytes(expected_last_end),
+        )
 
         first.current_frame = 2
         first.frame_timer = 0
@@ -109,12 +123,16 @@ class ResourceCharacterizationTests(unittest.TestCase):
         self.assertIs(first.masks, second.masks)
         self.assertIs(first.death_animation, second.death_animation)
         self.assertEqual(len(first.sprites), 30)
-        self.assertEqual(len(first.death_animation), 4)
+        self.assertEqual(len(first.death_animation), 5 * const.VIDEO_FPS_MULTIPLIER)
         self.assertEqual(first.masks[0].get_size(), first.sprites[0].get_size())
         expected = pygame.image.load(
-            str(const.ASTEROID_PATH / "asteroidend03.png")
+            str(const.ASTEROID_PATH / "asteroidend04.png")
         ).convert_alpha()
-        self.assertEqual(surface_bytes(first.death_animation[-1]), surface_bytes(expected))
+        last_base_frame = 4 * const.VIDEO_FPS_MULTIPLIER
+        self.assertEqual(
+            surface_bytes(first.death_animation[last_base_frame]),
+            surface_bytes(expected),
+        )
 
         first.current_sprite = 0
         second.current_sprite = 1
@@ -136,11 +154,82 @@ class ResourceCharacterizationTests(unittest.TestCase):
             str(const.source_path("Objects/Battle/blast-002.png"))
         ).convert_alpha()
         self.assertEqual(surface_bytes(blast.frames[0]), surface_bytes(expected_blast))
-        self.assertEqual(len(explosion.frames), 8)
+        self.assertEqual(len(explosion.frames), 8 * const.VIDEO_FPS_MULTIPLIER)
         expected_last = pygame.image.load(
             str(const.source_path("Objects/Battle/explosion-007.png"))
         ).convert_alpha()
-        self.assertEqual(surface_bytes(explosion.frames[-1]), surface_bytes(expected_last))
+        last_base_frame = 7 * const.VIDEO_FPS_MULTIPLIER
+        expected_last = centered_on_surface(
+            expected_last,
+            explosion.frames[last_base_frame],
+        )
+        self.assertEqual(
+            surface_bytes(explosion.frames[last_base_frame]),
+            surface_bytes(expected_last),
+        )
+
+    def test_crossfade_preserves_opacity_where_both_frames_are_opaque(self):
+        red = pygame.Surface((1, 1), pygame.SRCALPHA)
+        red.fill((255, 0, 0, 255))
+        blue = pygame.Surface((1, 1), pygame.SRCALPHA)
+        blue.fill((0, 0, 255, 255))
+
+        frames = _interpolate_frames((red, blue), 5, loop=False)
+
+        self.assertEqual(
+            [frame.get_at((0, 0)).a for frame in frames[:5]],
+            [255, 255, 255, 255, 255],
+        )
+        self.assertEqual(frames[2].get_at((0, 0)), pygame.Color(153, 0, 102, 255))
+
+    def test_fade_to_transparent_omits_only_the_invisible_endpoint(self):
+        frame = pygame.Surface((1, 1), pygame.SRCALPHA)
+        frame.fill((255, 255, 255, 255))
+
+        frames = _interpolate_frames(
+            (frame,), 5, loop=False, fade_to_transparent=True
+        )
+
+        self.assertEqual(
+            [value.get_at((0, 0)).a for value in frames],
+            [255, 204, 153, 102, 51],
+        )
+
+    def test_evolving_ability_visual_does_not_overshoot_its_next_base_frame(self):
+        parent = create_ship("Mycon", 1)
+        ability = create_ability("MyconA1", parent)
+        interpolated = ability.resources.ability("MyconA1").interpolated_sprites[0]
+
+        ability.current_frame = 0
+        ability.frame_timer = 1
+        self.assertIs(
+            ability.get_sprite(0.99),
+            interpolated[const.VIDEO_FPS_MULTIPLIER - 1],
+        )
+
+        ability.current_frame = 1
+        ability.frame_timer = ability.frame_delay
+        self.assertIs(
+            ability.get_sprite(0.0),
+            interpolated[const.VIDEO_FPS_MULTIPLIER],
+        )
+
+    def test_asteroid_visual_reaches_last_subframe_before_base_frame_advances(self):
+        asteroid = Asteroid()
+        asteroid.current_sprite = 0
+        asteroid.rotation_delay = 1
+        asteroid.rotation_timer = 0
+        asteroid.position = [100, 100]
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+
+        asteroid.draw(screen, 1.0, [0, 0], interp_t=0.99)
+
+        self.assertIs(
+            asteroid.image,
+            asteroid.resources.asteroid().interpolated_sprites[
+                const.VIDEO_FPS_MULTIPLIER - 1
+            ],
+        )
 
     def test_impact_effect_aligns_its_opaque_edge_to_contact(self):
         sprite = pygame.Surface((20, 20), pygame.SRCALPHA)

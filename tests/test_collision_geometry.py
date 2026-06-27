@@ -13,6 +13,7 @@ from src.Battle.collision_geometry import (
     objects_overlap,
     segment_circle_intercept,
     ship_rotation_blocked,
+    solid_sweep_overlap,
     swept_impact,
     wrapped_segment,
 )
@@ -137,6 +138,18 @@ class CollisionGeometryTests(CollisionTestCase):
         self.assertEqual([-1.0, 0.0], normal)
         self.assertAlmostEqual(45.0, contact[0])
         self.assertAlmostEqual(200.0, contact[1])
+
+    def test_solid_sweep_uses_twelve_pixel_samples(self):
+        full_mask = pygame.mask.Mask((10, 10), fill=True)
+        moving = body(
+            [100, 200],
+            previous_position=[0, 200],
+            mask=full_mask,
+        )
+        target = body([37, 200], mask=full_mask)
+
+        self.assertTrue(solid_sweep_overlap(moving, target))
+        self.assertLess(moving.position[0], 50)
 
     def test_segment_circle_intercept_crosses_wrapped_boundary(self):
         start = [const.ARENA_SIZE - 10, 300]

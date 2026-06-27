@@ -130,7 +130,7 @@ def objects_overlap(obj, other, overlap):
     return obj_mask.overlap(other_mask, offset) is not None
 
 
-def solid_sweep_overlap(obj, other, step_size=25):
+def solid_sweep_overlap(obj, other, step_size=12):
     """
     Checks for collision along the swept path.
     If a collision is found, updates obj and other positions to the point of first contact,
