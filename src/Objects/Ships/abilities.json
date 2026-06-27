@@ -696,13 +696,13 @@
         "damage": [
             1
         ],
-        "speed": 80,
+        "speed": 120,
         "life_time": 10,
         "turn_wait": 1,
         "inertia": true,
         "omnidirectional": true,
         "file_path": "Objects/Ships/ZoqFot/A1/",
-        "SPREAD_ANGLE": 8
+        "SPREAD_ANGLE": 5
     },
     "ZoqFotA2": {
         "ship_name": "ZoqFot",
