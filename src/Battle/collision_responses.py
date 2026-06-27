@@ -534,7 +534,7 @@ def destroy_projectile(projectile, effects, direction, damage, contact_position=
                 attached_target=attached_target,
             )
         )
-    else:
+    elif damage > 0:
         effects.append(
             BattleEffect.from_blast(
                 effect_position,

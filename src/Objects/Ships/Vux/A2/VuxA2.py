@@ -31,7 +31,13 @@ class VuxA2(Ability):
         ]
 
         opponent = getattr(self.parent, "opponent", None)
-        if opponent:
+        has_valid_target = (
+            opponent is not None
+            and getattr(opponent, "currently_alive", True)
+            and getattr(opponent, "current_hp", 1) > 0
+            and not getattr(opponent, "cloaked", False)
+        )
+        if has_valid_target:
             from src.toroidal import wrapped_delta
 
             dx, dy = wrapped_delta(self.position, opponent.position)
@@ -42,8 +48,13 @@ class VuxA2(Ability):
             self.heading = round(target_angle / direction_step) % const.SHIP_DIRECTIONS
             self.rotation = self.heading * const.TURN_ANGLE
         else:
-            self.heading = self.parent.heading
-            self.rotation = self.parent.rotation
+            self.heading = (self.parent.heading + const.SHIP_DIRECTIONS // 2) % const.SHIP_DIRECTIONS
+            self.rotation = (self.parent.rotation + 180) % 360
+            angle_rad = math.radians(self.rotation)
+            self.velocity = [
+                math.sin(angle_rad) * self.speed,
+                -math.cos(angle_rad) * self.speed,
+            ]
 
     def handle_ship_contact(self, ship, normal=None):
         if hasattr(ship, "attach_limpet"):
