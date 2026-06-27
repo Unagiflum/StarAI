@@ -13,12 +13,15 @@ def laser_hit_info(laser, target):
     end = getattr(laser, "end_position", laser.position)
     segment = wrapped_segment(start, end)
     distance = distance_from_segment_to_point(segment[0], segment[1], target.position)
-    if distance > radius(target):
+    
+    laser_width = getattr(laser, "LASER_WIDTH", 1)
+    
+    if distance > radius(target) + (laser_width / 2.0):
         return None
 
     target_mask = get_collision_mask(target)
     if target_mask is not None:
-        contact = sample_laser_mask_hit(segment[0], segment[1], target, target_mask)
+        contact = sample_laser_mask_hit(segment[0], segment[1], target, target_mask, laser_width)
     else:
         contact = segment_circle_intercept(
             segment[0], segment[1], target.position, radius(target)
@@ -43,10 +46,17 @@ def wrapped_segment(start, end):
     return start, [start[0] + delta[0], start[1] + delta[1]]
 
 
-def sample_laser_mask_hit(start, end, target, target_mask):
+def sample_laser_mask_hit(start, end, target, target_mask, laser_width=1):
     dx = end[0] - start[0]
     dy = end[1] - start[1]
-    steps = max(1, int(math.hypot(dx, dy) / 8))
+    length = math.hypot(dx, dy)
+    if length == 0:
+        return None
+        
+    steps = max(1, int(length))
+    nx = dy / length
+    ny = -dx / length
+    
     target_center = nearest_position(target.position, start)
     # Pixel coordinates are relative to the full mask canvas. Gameplay bounds
     # may intentionally exclude transparent sprite padding.
@@ -54,18 +64,37 @@ def sample_laser_mask_hit(start, end, target, target_mask):
     left = target_center[0] - target_size[0] / 2
     top = target_center[1] - target_size[1] / 2
 
+    half_width = laser_width / 2.0
+    width_steps = max(1, int(laser_width))
+    offsets = []
+    
+    if width_steps == 1:
+        offsets = [0.0]
+    else:
+        for i in range(width_steps):
+            offsets.append((i / (width_steps - 1)) * laser_width - half_width)
+            
+    # Sort offsets by absolute distance to center so central hit is favored
+    offsets.sort(key=abs)
+
     for step in range(steps + 1):
         ratio = step / steps
-        x = start[0] + dx * ratio
-        y = start[1] + dy * ratio
-        mask_x = int(x - left)
-        mask_y = int(y - top)
-        if (
-            0 <= mask_x < target_mask.get_size()[0]
-            and 0 <= mask_y < target_mask.get_size()[1]
-            and target_mask.get_at((mask_x, mask_y))
-        ):
-            return [x, y]
+        base_x = start[0] + dx * ratio
+        base_y = start[1] + dy * ratio
+        
+        for offset in offsets:
+            x = base_x + nx * offset
+            y = base_y + ny * offset
+            
+            mask_x = int(x - left)
+            mask_y = int(y - top)
+            
+            if (
+                0 <= mask_x < target_mask.get_size()[0]
+                and 0 <= mask_y < target_mask.get_size()[1]
+                and target_mask.get_at((mask_x, mask_y))
+            ):
+                return [x, y]
 
     return None
 
