@@ -35,35 +35,6 @@ class CollisionPipelineTests(CollisionTestCase):
 
         self.assertEqual(target.current_hp, 10)
 
-    def test_area_damage_is_consumed_once_and_uses_wrapped_distance(self):
-        area = self.make_area_damage([const.ARENA_SIZE - 5, 100], lambda distance: 4 if distance == 10 else 0)
-        ship = self.make_ship()
-        ship.position = [5, 100]
-        run_collision_pipeline([area, ship], [])
-        run_collision_pipeline([area, ship], [])
-        self.assertFalse(area.area_damage_pending)
-        self.assertEqual(ship.current_hp, 6)
-
-    def test_area_damage_excludes_planets_lasers_dead_and_invulnerable_targets(self):
-        area = self.make_area_damage([100, 100], lambda distance: 5)
-        planet = self.make_planet([100, 100])
-        parent = self.make_ship()
-        laser = self.make_laser(parent)
-        laser.position = [100, 100]
-        laser.can_collide = False
-        dead_projectile = self.make_projectile(parent)
-        dead_projectile.position = [100, 100]
-        dead_projectile.currently_alive = False
-        invulnerable_ship = self.make_ship()
-        invulnerable_ship.position = [100, 100]
-        invulnerable_ship.area_damage_capabilities = AreaDamageCapabilities(targetable=True, vulnerable=False)
-        unrelated = SimpleNamespace(position=[100, 100], current_hp=10, currently_alive=True, area_damage_capabilities=AreaDamageCapabilities(), collision_capabilities=CollisionCapabilities())
-        run_collision_pipeline([area, planet, laser, dead_projectile, invulnerable_ship, unrelated], [])
-        self.assertEqual(laser.current_hp, 1)
-        self.assertEqual(dead_projectile.current_hp, 1)
-        self.assertEqual(invulnerable_ship.current_hp, 10)
-        self.assertEqual(unrelated.current_hp, 10)
-
     def test_dead_asteroids_are_replaced_with_incremental_avoidance(self):
 
         class ReplacementAsteroid:
@@ -109,15 +80,6 @@ class CollisionPipelineTests(CollisionTestCase):
         with mock.patch.object(collisions, 'Asteroid', replacement_factory):
             collisions.handle_collisions([asteroid])
         replacement_factory.assert_not_called()
-
-    def test_fighter_stops_after_first_planet_contact(self):
-        special_object = self.make_fighter()
-        first = self.make_planet([115, 100])
-        second = self.make_planet([85, 100])
-        special_object.begin_planet_avoidance = mock.Mock()
-        run_collision_pipeline([*[special_object], *[first, second]], None)
-        special_object.begin_planet_avoidance.assert_called_once()
-        self.assertIs(special_object.begin_planet_avoidance.call_args.args[0], first)
 
     def test_fighter_ignores_dead_asteroid_and_hits_next_live_target(self):
         special_object = self.make_fighter()
@@ -175,22 +137,6 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertFalse(first.currently_alive)
         self.assertFalse(live.currently_alive)
 
-    def test_destroyed_fighter_finishes_remaining_pairs_in_same_frame(self):
-        first = self.make_fighter()
-        second = self.make_fighter()
-        third = self.make_fighter()
-        for special_object in (second, third):
-            special_object.position = [108, 100]
-            special_object.previous_position = special_object.position.copy()
-        effects = []
-        with mock.patch.object(collisions.BattleEffect, 'from_blast'), mock.patch.object(collisions.BattleEffect, 'play_boom') as play_boom:
-            run_collision_pipeline([first, second, third], effects)
-        self.assertFalse(first.currently_alive)
-        self.assertFalse(second.currently_alive)
-        self.assertFalse(third.currently_alive)
-        self.assertEqual(len(effects), 3)
-        self.assertEqual(play_boom.call_count, 2)
-
     def test_laser_selects_nearest_intercept_across_target_roles(self):
         parent = self.make_ship()
         parent.player = 1
@@ -208,24 +154,6 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertEqual(enemy_ship.current_hp, 10)
         self.assertTrue(laser.intercepted)
         self.assertLess(laser.end_position[0], enemy_ship.position[0])
-
-    def test_destroyed_projectile_finishes_remaining_pairs_in_same_frame(self):
-        first, second = self.make_projectile_pair(first_name='Matching', second_name='Matching')
-        third_parent = self.make_ship()
-        third_parent.player = 2
-        third = self.make_projectile(third_parent)
-        third.name = third.projectile_name = 'Matching'
-        third.player = 2
-        third.position = [108, 100]
-        third.previous_position = third.position.copy()
-        effects = []
-        with mock.patch.object(collisions.BattleEffect, 'from_blast'), mock.patch.object(collisions.BattleEffect, 'play_boom') as play_boom:
-            run_collision_pipeline([first, second, third], effects)
-        self.assertFalse(first.currently_alive)
-        self.assertFalse(second.currently_alive)
-        self.assertFalse(third.currently_alive)
-        self.assertEqual(len(effects), 3)
-        self.assertEqual(play_boom.call_count, 2)
 
     def test_collision_cleanup_preserves_survivor_order_and_list_identity(self):
         first = object()

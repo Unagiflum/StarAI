@@ -69,7 +69,7 @@ def apply_generic_area_damage(source_ability, target, effects, delta, distance, 
 
 
 def generic_area_damage_target_is_eligible(source, target):
-    if target is source or not target.currently_alive:
+    if target is source or not getattr(target, 'currently_alive', True):
         return False
         
     # Must have vulnerability flag active
