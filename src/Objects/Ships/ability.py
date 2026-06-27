@@ -87,20 +87,18 @@ class Ability(PlayerObject):
             targetable=self.type != "laser",
         )
         self.area_damage_pending = False
-        self.fighter_collision_capabilities = (
-            FighterCollisionCapabilities(
-                collides_with_planets=ability_definition.collide_planets,
-                collides_with_asteroids=ability_definition.collide_asteroids,
-                damages_asteroids=ability_definition.damage_asteroids,
-                collides_with_projectiles=ability_definition.collide_projectiles,
-                damages_projectiles=ability_definition.damage_projectiles,
-                collides_with_enemy_ships=ability_definition.collide_enemy_ships,
-                collides_with_friendly_ships=ability_definition.collide_friendly_ships,
-                collides_with_fighters=ability_definition.collide_fighters,
-            )
-            if self.type == "fighter"
-            else None
+        self.fighter_collision_capabilities = FighterCollisionCapabilities(
+            collides_with_planets=ability_definition.collide_planets,
+            collides_with_asteroids=ability_definition.collide_asteroids,
+            damages_asteroids=ability_definition.damage_asteroids,
+            collides_with_projectiles=ability_definition.collide_projectiles,
+            damages_projectiles=ability_definition.damage_projectiles,
+            collides_with_enemy_ships=ability_definition.collide_enemy_ships,
+            collides_with_friendly_ships=ability_definition.collide_friendly_ships,
+            collides_with_fighters=ability_definition.collide_fighters,
         )
+        self.is_psychic = getattr(ability_definition, 'is_psychic', False)
+        self.ignores_shields = getattr(ability_definition, 'ignores_shields', False)
         self.start_hp = ability_definition.start_hp[0]
         self.current_hp = self.start_hp
         self.damages = ability_definition.damage

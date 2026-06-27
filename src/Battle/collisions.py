@@ -42,13 +42,7 @@ _PAIR_COLLISION_HANDLERS = {
 }
 
 
-_AREA_DAMAGE_IMPACT_POLICIES = {
-    CollisionRole.SHIP: responses.area_damage_impacts_ship,
-    CollisionRole.NONE: responses.area_damage_impacts_ability,
-    CollisionRole.PROJECTILE: responses.area_damage_impacts_ability,
-    CollisionRole.FIGHTER: responses.area_damage_impacts_ability,
-    CollisionRole.ASTEROID: responses.area_damage_impacts_asteroid,
-}
+
 
 
 def _dispatch_collision_pairs(
@@ -181,8 +175,8 @@ def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):
         for target in world:
             if id(target) in excluded_ids:
                 continue
-            if not responses.area_damage_target_is_eligible(
-                ability, target, _AREA_DAMAGE_IMPACT_POLICIES
+            if not responses.generic_area_damage_target_is_eligible(
+                ability, target
             ):
                 continue
 
@@ -192,8 +186,7 @@ def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):
             if damage <= 0:
                 continue
 
-            policy = _AREA_DAMAGE_IMPACT_POLICIES[target.collision_capabilities.role]
-            policy(target, effects, delta, distance, damage)
+            responses.apply_generic_area_damage(ability, target, effects, delta, distance, damage)
             if ability.area_damage_capabilities.plays_impact_sound:
                 BattleEffect.play_boom(damage)
             ability.on_area_damage_hit(target, damage)

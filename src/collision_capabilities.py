@@ -73,6 +73,7 @@ class PhysicalCollisionCapabilities:
 @dataclass(frozen=True)
 class DurabilityCapabilities:
     is_invulnerable: bool = False
+    immune_to_psychic: bool = False
 
 
 @dataclass(frozen=True)

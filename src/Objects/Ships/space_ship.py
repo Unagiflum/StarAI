@@ -51,6 +51,9 @@ class SpaceShip(PlayerObject):
         self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
         self.physical_collision_capabilities = PhysicalCollisionCapabilities(bounces_on_immovable=True)
         self.impact_capabilities = ImpactCapabilities()
+        self.durability_capabilities = DurabilityCapabilities(
+            immune_to_psychic=ship_definition.immune_to_psychic
+        )
 
         assets = self.resources.ship(ship_name)
         self.size = list(assets.size)
@@ -360,7 +363,7 @@ class SpaceShip(PlayerObject):
                 on_host_self_destruct()
         self.boarded_marines.clear()
 
-    def take_damage(self, damage, *, shieldable=True):
+    def take_damage(self, damage, *, shieldable=True, non_lethal=False):
         """Apply hull/crew damage and return the amount actually taken.
 
         Non-damage effects should not use this method. Exceptional damage that
@@ -373,7 +376,8 @@ class SpaceShip(PlayerObject):
             return 0
 
         previous_hp = self.current_hp
-        self.current_hp = max(0, self.current_hp - damage)
+        min_hp = 1 if non_lethal else 0
+        self.current_hp = max(min_hp, self.current_hp - damage)
         return previous_hp - self.current_hp
 
     def update(self):

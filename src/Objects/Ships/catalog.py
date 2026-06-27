@@ -75,6 +75,7 @@ class ShipDefinition(_DefinitionMapping):
     gas_count: int = 16
     initial_rebirth_chance: float | None = None
     rebirth_chance_decay: float | None = None
+    immune_to_psychic: bool = False
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -106,6 +107,7 @@ class ShipDefinition(_DefinitionMapping):
         "GAS_COUNT": "gas_count",
         "initial_rebirth_chance": "initial_rebirth_chance",
         "rebirth_chance_decay": "rebirth_chance_decay",
+        "immune_to_psychic": "immune_to_psychic",
     }
 
 
@@ -159,6 +161,8 @@ class AbilityDefinition(_DefinitionMapping):
     recoil_increment: float | None = None
     energy_gain: int | None = None
     hp_gain: int | None = None
+    is_psychic: bool = False
+    ignores_shields: bool = False
     track_speed: float | None = None
     track_range: float | None = None
     damage_to_projectiles: int | None = None
@@ -228,6 +232,8 @@ class AbilityDefinition(_DefinitionMapping):
         "RECOIL_INCREMENT": "recoil_increment",
         "ENERGY_GAIN": "energy_gain",
         "HP_GAIN": "hp_gain",
+        "is_psychic": "is_psychic",
+        "ignores_shields": "ignores_shields",
         "TRACK_SPEED": "track_speed",
         "TRACK_RANGE": "track_range",
         "DMG_TO_PROJ": "damage_to_projectiles",
@@ -340,6 +346,7 @@ def parse_ship_definition(name, data):
         "GAS_COUNT",
         "initial_rebirth_chance",
         "rebirth_chance_decay",
+        "immune_to_psychic",
     }
     _check_keys(kind, name, data, allowed, required)
 
@@ -388,6 +395,9 @@ def parse_ship_definition(name, data):
     )
     values["rebirth_chance_decay"] = _optional_typed(
         kind, name, data, "rebirth_chance_decay", float, None
+    )
+    values["immune_to_psychic"] = _optional_typed(
+        kind, name, data, "immune_to_psychic", bool, False
     )
     values["_source_keys"] = tuple(data)
 
@@ -453,6 +463,8 @@ def parse_ability_definition(name, data):
         "MAX_RECOIL",
         "RECOIL_INCREMENT",
         "ENERGY_GAIN",
+        "is_psychic",
+        "ignores_shields",
         "HP_GAIN",
         "TRACK_SPEED",
         "TRACK_RANGE",

@@ -31,7 +31,7 @@ class Utwig(SpaceShip):
             side_effects=(shield.activate,),
         )
 
-    def take_damage(self, damage, *, shieldable=True):
+    def take_damage(self, damage, *, shieldable=True, non_lethal=False):
         damage = max(0, damage)
         if damage <= 0 or self.current_hp <= 0:
             return 0
@@ -41,7 +41,7 @@ class Utwig(SpaceShip):
                 shield.absorb_damage(damage)
             return 0
 
-        return super().take_damage(damage, shieldable=shieldable)
+        return super().take_damage(damage, shieldable=shieldable, non_lethal=non_lethal)
 
     def set_sprite(self, interp_t=0.0):
         sprite = super().set_sprite(interp_t)

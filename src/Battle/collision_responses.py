@@ -26,51 +26,89 @@ from src.toroidal import view_center_and_size, wrapped_delta
 PLANET_CONTACT_EXIT_MARGIN = 4.0
 
 
-def damage_ship(ship, damage, *, shieldable=True):
+def damage_ship(ship, damage, *, shieldable=True, non_lethal=False):
     """Route combat damage through a ship's defenses.
 
     The fallback keeps lightweight collision test doubles compatible.
     """
     take_damage = getattr(ship, "take_damage", None)
     if take_damage is not None:
-        return take_damage(damage, shieldable=shieldable)
+        return take_damage(damage, shieldable=shieldable, non_lethal=non_lethal)
     previous_hp = ship.current_hp
-    ship.current_hp = max(0, ship.current_hp - max(0, damage))
+    min_hp = 1 if non_lethal else 0
+    ship.current_hp = max(min_hp, ship.current_hp - max(0, damage))
     return previous_hp - ship.current_hp
 
 
-def area_damage_target_is_eligible(source, target, impact_policies):
-    capabilities = target.area_damage_capabilities
-    return (
-        target is not source
-        and capabilities.targetable
-        and capabilities.vulnerable
-        and target.currently_alive
-        and target.collision_capabilities.role in impact_policies
-    )
-
-
-def area_damage_impacts_ship(target, effects, delta, distance, damage):
-    if target.current_hp <= 0:
+def apply_generic_area_damage(source_ability, target, effects, delta, distance, damage):
+    phys = getattr(target, "physical_collision_capabilities", None)
+    if not phys:
         return
-    damage_ship(target, damage)
 
-
-def area_damage_impacts_ability(target, effects, delta, distance, damage):
-    if target.current_hp <= 0:
+    if phys.is_immovable:
+        # Planets take no damage, but the ability can spawn effects via on_area_damage_hit
         return
-    remaining_hp = target.current_hp - damage
-    if remaining_hp <= 0:
-        direction = (
-            [delta[0] / distance, delta[1] / distance] if distance > 0 else [0, -1]
-        )
-        destroy_projectile(target, effects, direction, damage)
-    else:
-        set_projectile_hp(target, remaining_hp)
+        
+    if phys.is_solid:
+        if hasattr(target, "player"):
+            shieldable = not getattr(source_ability, "ignores_shields", False)
+            non_lethal = getattr(source_ability, "is_psychic", False)
+            damage_ship(target, damage, shieldable=shieldable, non_lethal=non_lethal)
+        else:
+            destroy_asteroid(target, effects)
+            
+    elif phys.is_projectile:
+        remaining_hp = target.current_hp - damage
+        if remaining_hp <= 0:
+            direction = (
+                [delta[0] / distance, delta[1] / distance] if distance > 0 else [0, -1]
+            )
+            destroy_projectile(target, effects, direction, damage)
+        else:
+            set_projectile_hp(target, remaining_hp)
 
 
-def area_damage_impacts_asteroid(target, effects, delta, distance, damage):
-    destroy_asteroid(target, effects)
+def generic_area_damage_target_is_eligible(source, target):
+    if target is source or not target.currently_alive:
+        return False
+        
+    # Must have vulnerability flag active
+    target_area_cap = getattr(target, "area_damage_capabilities", None)
+    if not target_area_cap or not target_area_cap.vulnerable:
+        return False
+        
+    phys = getattr(target, "physical_collision_capabilities", None)
+    if not phys:
+        return False
+        
+    if phys.is_intangible:
+        return False
+        
+    source_cap = getattr(source, "fighter_collision_capabilities", None)
+    if not source_cap:
+        # Fallback if source doesn't have collision properties initialized
+        return False
+        
+    if phys.is_immovable:
+        return source_cap.collides_with_planets
+        
+    if phys.is_solid:
+        if not hasattr(target, "player"):
+            return source_cap.collides_with_asteroids
+        else:
+            if getattr(source, "is_psychic", False):
+                durability = getattr(target, "durability_capabilities", None)
+                if durability and durability.immune_to_psychic:
+                    return False
+            if target.player != source.player:
+                return source_cap.collides_with_enemy_ships
+            else:
+                return source_cap.collides_with_friendly_ships
+                
+    if phys.is_projectile:
+        return source_cap.collides_with_projectiles
+        
+    return False
 
 
 
