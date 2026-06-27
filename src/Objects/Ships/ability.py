@@ -337,6 +337,15 @@ class Ability(PlayerObject):
     def get_sprite(self, interp_t=0.0):
         if self.omnidirectional:
             if self.frames > 1:
+                assets = self.resources.ability(self.name)
+                video_multiplier = const.VIDEO_FPS_MULTIPLIER
+                
+                if video_multiplier > 1 and getattr(assets, "interpolated_sprites", None):
+                    fraction = (self.frame_delay - self.frame_timer + interp_t) / self.frame_delay
+                    sub_frame = int(fraction * video_multiplier)
+                    draw_idx = self.current_frame * video_multiplier + sub_frame
+                    draw_idx = min(draw_idx, len(assets.interpolated_sprites[0]) - 1)
+                    return assets.interpolated_sprites[0][draw_idx]
                 return self.sprites[0][self.current_frame]
             return self.sprites[0]
 

@@ -541,6 +541,7 @@ def destroy_projectile(projectile, effects, direction, damage, contact_position=
                 direction_vector=direction,
                 align_edge=contact_position is not None,
                 attached_target=attached_target,
+                video_multiplier=const.VIDEO_FPS_MULTIPLIER
             )
         )
     elif damage > 0:
@@ -566,7 +567,11 @@ def destroy_asteroid(asteroid, effects):
 
     if asteroid.death_animation:
         effects.append(
-            BattleEffect.from_animation(asteroid.position, asteroid.death_animation)
+            BattleEffect.from_animation(
+                asteroid.position, 
+                asteroid.death_animation,
+                video_multiplier=const.VIDEO_FPS_MULTIPLIER
+            )
         )
     asteroid.currently_alive = False
 

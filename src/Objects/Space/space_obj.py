@@ -428,7 +428,13 @@ class Asteroid(Object):
         return self.currently_alive
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
-        if not self.image:
+        assets = self.resources.asteroid()
+        if Const.VIDEO_FPS_MULTIPLIER > 1 and hasattr(assets, 'interpolated_sprites') and assets.interpolated_sprites:
+            fraction = (self.rotation_timer + interp_t) / (self.rotation_delay + 1.0)
+            sub_frame_offset = int(fraction * Const.VIDEO_FPS_MULTIPLIER)
+            draw_sprite_idx = (self.current_sprite * Const.VIDEO_FPS_MULTIPLIER + sub_frame_offset) % len(assets.interpolated_sprites)
+            self.image = assets.interpolated_sprites[draw_sprite_idx]
+        else:
             self.image = self.sprites[self.current_sprite]
 
         scaled_image = pygame.transform.smoothscale_by(self.image, scale_factor)

@@ -19,7 +19,8 @@ class BattleEffect(Object):
     def _resources(cls):
         return active_asset_manager() or cls.resources
 
-    def __init__(self, position, frames, frame_delay=2, scale=1.0, attached_target=None, target_offset=None):
+    def __init__(self, position, frames, frame_delay=2, scale=1.0, attached_target=None, target_offset=None, video_multiplier=1):
+        self.video_multiplier = video_multiplier
         first_frame = frames[0] if frames else None
         size = [0, 0]
         if first_frame:
@@ -61,12 +62,13 @@ class BattleEffect(Object):
         direction_vector=None,
         align_edge=False,
         attached_target=None,
+        video_multiplier=1,
     ):
         if align_edge and frames:
             position = cls._edge_aligned_position(
                 position, frames[0], scale, direction_vector
             )
-        return cls(position, frames, frame_delay, scale, attached_target)
+        return cls(position, frames, frame_delay, scale, attached_target, video_multiplier=video_multiplier)
 
     @classmethod
     def from_blast(cls, position, direction_vector, damage, attached_target=None):
@@ -86,10 +88,12 @@ class BattleEffect(Object):
             tuple(
                 BATTLE_ASSET_PATH / f"explosion-{index:03d}.png" for index in range(8)
             ),
+            interpolated=True,
+            fade_to_transparent=True
         )
 
         return cls(
-            position, ship_explosion_sprites, frame_delay=frame_delay, scale=scale
+            position, ship_explosion_sprites, frame_delay=frame_delay, scale=scale, video_multiplier=const.VIDEO_FPS_MULTIPLIER
         )
 
     @classmethod
@@ -187,13 +191,24 @@ class BattleEffect(Object):
 
         self.frame_timer = self.frame_delay
         self.current_frame += 1
-        return self.current_frame < len(self.frames)
+        base_frames_count = len(self.frames) // getattr(self, "video_multiplier", 1)
+        return self.current_frame < base_frames_count
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
-        if not self.frames or self.current_frame >= len(self.frames):
+        video_multiplier = getattr(self, "video_multiplier", 1)
+        base_frames_count = len(self.frames) // video_multiplier if self.frames else 0
+        if not self.frames or self.current_frame >= base_frames_count:
             return
 
-        sprite = self.frames[self.current_frame]
+        if video_multiplier > 1:
+            fraction = (self.frame_delay - self.frame_timer + interp_t) / self.frame_delay
+            sub_frame_offset = int(fraction * video_multiplier)
+            draw_idx = self.current_frame * video_multiplier + sub_frame_offset
+            draw_idx = min(draw_idx, len(self.frames) - 1)
+            sprite = self.frames[draw_idx]
+        else:
+            sprite = self.frames[self.current_frame]
+
         scaled_width = max(1, int(sprite.get_width() * scale_factor * self.scale))
         scaled_height = max(1, int(sprite.get_height() * scale_factor * self.scale))
         scaled_sprite = pygame.transform.smoothscale(

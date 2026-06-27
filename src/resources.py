@@ -40,6 +40,7 @@ class AbilityAssets:
     masks: tuple | None
     end_animation: tuple
     sizes: tuple
+    interpolated_sprites: object = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class AsteroidAssets:
     sprites: tuple
     masks: tuple
     death_animation: tuple
+    interpolated_sprites: tuple
 
 
 @dataclass(frozen=True)
@@ -264,12 +266,20 @@ class AssetManager:
 
             if not definition.omnidirectional:
                 sprite_assets, mask_assets = _expand_directional_sprites(sprites)
+                interpolated_sprites = None
             else:
                 sprite_assets = tuple(sprites)
                 mask_assets = tuple(masks)
+                
+                if const.VIDEO_FPS_MULTIPLIER > 1 and definition.frames > 1:
+                    interpolated_frames = _interpolate_frames(sprites[0], const.VIDEO_FPS_MULTIPLIER, loop=False, fade_to_transparent=False)
+                    interpolated_sprites = (interpolated_frames,)
+                else:
+                    interpolated_sprites = None
         else:
             sprite_assets = None
             mask_assets = None
+            interpolated_sprites = None
 
         try:
             end_animation = tuple(
@@ -290,12 +300,16 @@ class AssetManager:
                     )
                 )
             end_animation = ()
+            
+        if const.VIDEO_FPS_MULTIPLIER > 1 and end_animation:
+            end_animation = _interpolate_frames(end_animation, const.VIDEO_FPS_MULTIPLIER, loop=False, fade_to_transparent=True)
 
         assets = AbilityAssets(
             sprites=sprite_assets,
             masks=mask_assets,
             end_animation=end_animation,
             sizes=tuple(sizes),
+            interpolated_sprites=interpolated_sprites,
         )
         self._abilities[ability_name] = assets
         return assets
@@ -384,9 +398,9 @@ class AssetManager:
                 placeholder = _make_circle_surface(40)
                 sprites = tuple(placeholder.copy() for _ in range(30))
             try:
-                death_animation = tuple(
+                base_death_animation = tuple(
                     self._image(const.ASTEROID_PATH / f"asteroidend{index:02d}.png")
-                    for index in range(4)
+                    for index in range(5)
                 )
             except (pygame.error, FileNotFoundError, OSError) as error:
                 self._asset_errors.append(
@@ -397,11 +411,23 @@ class AssetManager:
                         str(error),
                     )
                 )
-                death_animation = ()
+                base_death_animation = ()
+                
+            if const.VIDEO_FPS_MULTIPLIER > 1:
+                interpolated_sprites = _interpolate_frames(sprites, const.VIDEO_FPS_MULTIPLIER, loop=True, fade_to_transparent=False)
+                if base_death_animation:
+                    death_animation = _interpolate_frames(base_death_animation, const.VIDEO_FPS_MULTIPLIER, loop=False, fade_to_transparent=True)
+                else:
+                    death_animation = ()
+            else:
+                interpolated_sprites = sprites
+                death_animation = base_death_animation
+                
             self._asteroids = AsteroidAssets(
                 sprites=sprites,
                 masks=tuple(pygame.mask.from_surface(sprite) for sprite in sprites),
                 death_animation=death_animation,
+                interpolated_sprites=interpolated_sprites,
             )
         return self._asteroids
 
@@ -428,7 +454,7 @@ class AssetManager:
             self._images[key] = ImageAssets(image, mask)
         return self._images[key]
 
-    def animation(self, key, paths):
+    def animation(self, key, paths, interpolated=False, fade_to_transparent=False):
         if key not in self._animations:
             frames = []
             for path in paths:
@@ -444,6 +470,10 @@ class AssetManager:
                         )
                     )
                     frames.append(_make_circle_surface(32))
+                    
+            if interpolated and const.VIDEO_FPS_MULTIPLIER > 1:
+                frames = _interpolate_frames(frames, const.VIDEO_FPS_MULTIPLIER, loop=False, fade_to_transparent=fade_to_transparent)
+                
             self._animations[key] = tuple(frames)
         return self._animations[key]
 
@@ -599,10 +629,13 @@ class AssetManager:
         self.animation(
             "ship-explosions",
             tuple(battle_path / f"explosion-{i:03d}.png" for i in range(8)),
+            interpolated=True,
+            fade_to_transparent=True
         )
         self.animation(
             "battle-blasts",
             tuple(battle_path / f"blast-{i:03d}.png" for i in range(8)),
+            interpolated=False
         )
 
         # Battle sounds.
@@ -649,6 +682,63 @@ class AssetManager:
         self.sound(const.MENU_WAV_PATH, 1.0)
 
         return list(self._asset_errors)
+
+
+def _interpolate_frames(frames, multiplier, loop=True, fade_to_transparent=False):
+    """Generate intermediate frames using alpha-blended crossfades."""
+    if not frames or multiplier <= 1:
+        return frames
+
+    interpolated = []
+    num_frames = len(frames)
+    
+    max_w = max(frame.get_width() for frame in frames)
+    max_h = max(frame.get_height() for frame in frames)
+    max_size = (max_w, max_h)
+    
+    empty_surface = pygame.Surface(max_size, pygame.SRCALPHA)
+    empty_surface.fill((0, 0, 0, 0))
+
+    for i in range(num_frames):
+        current_frame = frames[i]
+        
+        if i == num_frames - 1:
+            if fade_to_transparent:
+                next_frame = empty_surface
+            elif loop:
+                next_frame = frames[0]
+            else:
+                next_frame = current_frame
+        else:
+            next_frame = frames[i + 1]
+
+        for step in range(multiplier):
+            ratio = step / multiplier
+            
+            new_frame = pygame.Surface(max_size, pygame.SRCALPHA)
+            new_frame.fill((0, 0, 0, 0))
+            
+            if ratio == 0.0:
+                c_x = (max_w - current_frame.get_width()) // 2
+                c_y = (max_h - current_frame.get_height()) // 2
+                new_frame.blit(current_frame, (c_x, c_y))
+            else:
+                a_copy = current_frame.copy()
+                a_copy.set_alpha(int((1.0 - ratio) * 255))
+                a_x = (max_w - a_copy.get_width()) // 2
+                a_y = (max_h - a_copy.get_height()) // 2
+                new_frame.blit(a_copy, (a_x, a_y))
+                
+                if next_frame is not empty_surface:
+                    b_copy = next_frame.copy()
+                    b_copy.set_alpha(int(ratio * 255))
+                    b_x = (max_w - b_copy.get_width()) // 2
+                    b_y = (max_h - b_copy.get_height()) // 2
+                    new_frame.blit(b_copy, (b_x, b_y))
+                
+            interpolated.append(new_frame)
+                
+    return tuple(interpolated)
 
 
 def _expand_directional_sprites(base_sprites, base_masks=None):
