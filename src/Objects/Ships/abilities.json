@@ -702,7 +702,6 @@
         "inertia": true,
         "omnidirectional": true,
         "file_path": "Objects/Ships/ZoqFot/A1/",
-        "sprite_scale": 1.0,
         "SPREAD_ANGLE": 8
     },
     "ZoqFotA2": {
@@ -718,7 +717,6 @@
         "parent_vel": 1.0,
         "life_time": 10,
         "file_path": "Objects/Ships/ZoqFot/A2/",
-        "sprite_scale_y": 2.5,
         "offset": 0.5,
         "has_sprites": false,
         "advancing_frames": 5,

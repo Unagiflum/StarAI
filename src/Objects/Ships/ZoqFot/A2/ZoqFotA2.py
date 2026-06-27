@@ -14,8 +14,6 @@ class ZoqFotA2(Ability):
     def __init__(self, parent):
         super().__init__("ZoqFotA2", parent)
         definition = ABILITY_DEFINITIONS["ZoqFotA2"]
-        self.sprite_scale_x = definition.sprite_scale_x
-        self.sprite_scale_y = definition.sprite_scale_y
         self.advancing_frames = definition.advancing_frames or 5
         self.retracting_frames = definition.retracting_frames or 5
         self.area_width = definition.area_width or 12
