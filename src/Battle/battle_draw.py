@@ -104,10 +104,7 @@ def _draw_dashed_circle(surface, ship, scale_factor, translation, interp_t=0.0):
 
 class StarFieldRenderer:
     def __init__(self):
-        self.depth_surfaces = [
-            pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT), pygame.SRCALPHA)
-            for _ in range(const.STAR_DEPTHS)
-        ]
+        pass
 
     def draw(self, screen, stars, scale_factor, translation, midpoint):
         stars_by_depth = [[] for _ in range(const.STAR_DEPTHS)]
@@ -118,8 +115,8 @@ class StarFieldRenderer:
 
         for depth, depth_stars in enumerate(stars_by_depth):
             parallax_factor = 0.5 + 0.5 * (depth / (const.STAR_DEPTHS - 1))
-            self.update_depth_surface(
-                depth,
+            self.draw_depth_stars(
+                screen,
                 depth_stars,
                 scale_factor,
                 translation,
@@ -127,11 +124,10 @@ class StarFieldRenderer:
                 parallax_factor,
                 scaled_star_cache,
             )
-            screen.blit(self.depth_surfaces[depth], (0, 0))
 
-    def update_depth_surface(
+    def draw_depth_stars(
         self,
-        depth,
+        screen,
         stars,
         scale_factor,
         translation,
@@ -139,9 +135,6 @@ class StarFieldRenderer:
         parallax_factor,
         scaled_star_cache,
     ):
-        surface = self.depth_surfaces[depth]
-        surface.fill((0, 0, 0, 0))
-
         for star in stars:
             dx, dy = wrapped_delta(midpoint, star.position)
 
@@ -164,7 +157,7 @@ class StarFieldRenderer:
                 -star_size <= screen_x <= const.SCREEN_HEIGHT + star_size
                 and -star_size <= screen_y <= const.SCREEN_HEIGHT + star_size
             ):
-                surface.blit(
+                screen.blit(
                     scaled_image,
                     (
                         const.SCREEN_LEFT + screen_x - star_size // 2,
