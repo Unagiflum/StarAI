@@ -223,31 +223,49 @@ def resolve_generic_collision(
         if contact is None:
             return False
 
+        handled1 = False
+        handled2 = False
+        h1 = getattr(first, "handle_projectile_contact", None)
+        if h1: handled1 = h1(second)
+        h2 = getattr(second, "handle_projectile_contact", None)
+        if h2: handled2 = h2(first)
+
+        if handled1 or handled2:
+            BattleEffect.play_boom(max(first.current_damage, second.current_damage))
+            if first.current_hp <= 0:
+                destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
+            if second.current_hp <= 0:
+                destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
+            return True
+
         if first.projectile_name == second.projectile_name:
             BattleEffect.play_boom(max(first.current_damage, second.current_damage))
             destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
             destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
             return True
 
-        proj_dmg = first.current_damage
-        other_dmg = second.current_damage
-        proj_hp = first.current_hp - other_dmg
-        other_hp = second.current_hp - proj_dmg
+        f1_caps = getattr(first, "fighter_collision_capabilities", None)
+        f2_caps = getattr(second, "fighter_collision_capabilities", None)
+        f1_dmg = first.current_damage if not f1_caps or f1_caps.damages_projectiles else 0
+        f2_dmg = second.current_damage if not f2_caps or f2_caps.damages_projectiles else 0
 
-        BattleEffect.play_boom(max(proj_dmg, other_dmg))
+        proj_hp = first.current_hp - f2_dmg
+        other_hp = second.current_hp - f1_dmg
+
+        BattleEffect.play_boom(max(first.current_damage, second.current_damage))
 
         if proj_hp <= 0 and other_hp <= 0:
-            destroy_projectile(first, effects, impact_normal, proj_dmg, contact)
-            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], other_dmg, contact)
+            destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
+            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
         elif proj_hp > 0 and proj_hp > other_hp:
             set_projectile_hp(first, proj_hp)
-            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], other_dmg, contact)
+            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
         elif other_hp > 0 and other_hp > proj_hp:
-            destroy_projectile(first, effects, impact_normal, proj_dmg, contact)
+            destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
             set_projectile_hp(second, other_hp)
         else:
-            destroy_projectile(first, effects, impact_normal, proj_dmg, contact)
-            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], other_dmg, contact)
+            destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
+            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
         return True
 
     elif is_first_proj or is_second_proj:
@@ -258,10 +276,19 @@ def resolve_generic_collision(
         if phys_other.is_immovable:
             if not is_live_projectile(projectile):
                 return False
+                
+            fighter_caps = getattr(projectile, "fighter_collision_capabilities", None)
+            if fighter_caps and not fighter_caps.collides_with_planets:
+                return False
+                
             _, _, overlap = collision_info(projectile, other)
             contact, impact_normal = projectile_impact(projectile, other, overlap)
             if contact is None:
                 return False
+
+            handler = getattr(projectile, "handle_planet_contact", None)
+            if handler and handler(other, impact_normal, overlap):
+                return True
 
             damage = projectile.current_damage
             BattleEffect.play_boom(damage)
@@ -272,25 +299,43 @@ def resolve_generic_collision(
             if not is_live_projectile(projectile) or not getattr(other, "currently_alive", True) or getattr(other, "current_hp", 1) <= 0:
                 return False
                 
-            if hasattr(other, "player") and not projectile_can_hit_ship(projectile, other):
-                return False
+            is_ship = hasattr(other, "player")
+            fighter_caps = getattr(projectile, "fighter_collision_capabilities", None)
+            
+            if is_ship:
+                if not projectile_can_hit_ship(projectile, other):
+                    return False
+            else:
+                if fighter_caps and not fighter_caps.collides_with_asteroids:
+                    return False
 
             _, _, overlap = collision_info(projectile, other)
             contact, impact_normal = projectile_impact(projectile, other, overlap)
             if contact is None:
                 return False
 
+            if is_ship:
+                handler = getattr(projectile, "handle_ship_contact", None)
+                if handler and handler(other, impact_normal):
+                    return True
+            else:
+                handler = getattr(projectile, "handle_asteroid_contact", None)
+                if handler and handler(other, impact_normal):
+                    return True
+
             damage = projectile.current_damage
+            BattleEffect.play_boom(damage)
             
-            if hasattr(other, "player"):
+            if is_ship:
                 damage_ship(other, damage)
                 projectile.on_ship_impact(other)
+                attached = other if (hasattr(other, "player") and other.current_hp > 0) else None
+                destroy_projectile(projectile, effects, impact_normal, damage, contact, attached)
             else:
-                destroy_asteroid(other, effects)
-                
-            BattleEffect.play_boom(damage)
-            attached = other if (hasattr(other, "player") and other.current_hp > 0) else None
-            destroy_projectile(projectile, effects, impact_normal, damage, contact, attached)
+                attached = None if not fighter_caps or fighter_caps.damages_asteroids else other
+                destroy_projectile(projectile, effects, impact_normal, damage, contact, attached)
+                if not fighter_caps or fighter_caps.damages_asteroids:
+                    destroy_asteroid(other, effects)
             return True
             
         return False
@@ -321,11 +366,29 @@ def resolve_generic_collision(
 
         return True
 
-    return False
-
 
 
 def projectiles_can_hit_each_other(projectile, other):
+    is_fighter1 = is_live_fighter(projectile)
+    is_fighter2 = is_live_fighter(other)
+
+    if is_fighter1 and is_fighter2:
+        f1_hits = projectile.fighter_collision_capabilities.collides_with_fighters
+        f2_hits = other.fighter_collision_capabilities.collides_with_fighters
+        if not f1_hits and not f2_hits:
+            return False
+        return True
+
+    if is_fighter1 and not is_fighter2:
+        if not projectile.fighter_collision_capabilities.collides_with_projectiles:
+            return False
+        return True
+
+    if not is_fighter1 and is_fighter2:
+        if not other.fighter_collision_capabilities.collides_with_projectiles:
+            return False
+        return True
+
     if projectile.player != other.player:
         return True
 
@@ -335,157 +398,8 @@ def projectiles_can_hit_each_other(projectile, other):
     return getattr(projectile, "hit_team", False) and getattr(other, "hit_team", False)
 
 
-
-
-def fighter_impacts_fighter(fighter, other, effects, environment):
-    if not is_live_fighter(other):
-        return False
-
-    fighter_hits = fighter.fighter_collision_capabilities.collides_with_fighters
-    other_hits = other.fighter_collision_capabilities.collides_with_fighters
-    if not fighter_hits and not other_hits:
-        return False
-
-    _, _, overlap = collision_info(fighter, other)
-    contact, normal = projectile_impact(fighter, other, overlap)
-    if contact is None:
-        return False
-
-    if fighter_hits:
-        other.current_hp = max(0, other.current_hp - fighter.current_damage)
-    if other_hits:
-        fighter.current_hp = max(0, fighter.current_hp - other.current_damage)
-    BattleEffect.play_boom(max(fighter.current_damage, other.current_damage))
-    if fighter.current_hp <= 0:
-        destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
-    if other.current_hp <= 0:
-        destroy_projectile(
-            other,
-            effects,
-            [-normal[0], -normal[1]],
-            other.current_damage,
-            contact,
-        )
-    return True
-
-
-def fighter_impacts_projectile(fighter, projectile, effects, environment):
-    if (
-        not is_live_fighter(fighter)
-        or not fighter.fighter_collision_capabilities.collides_with_projectiles
-        or not is_live_projectile(projectile)
-    ):
-        return False
-
-    _, _, overlap = collision_info(fighter, projectile)
-    contact, normal = projectile_impact(fighter, projectile, overlap)
-    if contact is None:
-        return False
-
-    initial_proj_hp = projectile.current_hp
-
-    if fighter.fighter_collision_capabilities.damages_projectiles:
-        projectile_hp = projectile.current_hp - fighter.current_damage
-        set_projectile_hp(projectile, projectile_hp)
-
-    BattleEffect.play_boom(fighter.current_damage)
-    contact_handler = getattr(fighter, "handle_projectile_contact", None)
-    contact_handled = bool(contact_handler is not None and contact_handler(projectile))
-
-    if initial_proj_hp > 0 and projectile.current_hp <= 0:
-        projectile.currently_alive = True  # Resurrect so destroy_projectile plays animation
-        attached = fighter if fighter.current_hp > 0 else None
-        destroy_projectile(
-            projectile,
-            effects,
-            [-normal[0], -normal[1]],
-            projectile.current_damage,
-            contact,
-            attached_target=attached,
-        )
-
-    if not contact_handled or fighter.current_hp <= 0:
-        destroy_projectile(fighter, effects, normal, fighter.current_damage, contact)
-    return True
-
-
-def fighter_impacts_ship(fighter, ship, effects, environment):
-    if not is_live_fighter(fighter) or ship.current_hp <= 0:
-        return False
-
-    if ship is fighter.parent:
-        if not fighter.can_recover_with_parent():
-            return False
-    elif ship.player == fighter.player:
-        if not (fighter.fighter_collision_capabilities.collides_with_friendly_ships):
-            return False
-    elif not (fighter.fighter_collision_capabilities.collides_with_enemy_ships):
-        return False
-
-    _, _, overlap = collision_info(fighter, ship)
-    contact, normal = projectile_impact(fighter, ship, overlap)
-    if contact is None:
-        return False
-
-    if ship is fighter.parent:
-        fighter.recover_with_parent()
-    else:
-        contact_handler = getattr(fighter, "handle_ship_contact", None)
-        if contact_handler is not None and contact_handler(ship, normal):
-            return True
-        damage = fighter.current_damage
-        damage_ship(ship, damage)
-        BattleEffect.play_boom(damage)
-        attached = ship if ship.current_hp > 0 else None
-        destroy_projectile(fighter, effects, normal, damage, contact, attached)
-    return True
-
-
-def fighter_impacts_asteroid(fighter, asteroid, effects, environment):
-    if (
-        not is_live_fighter(fighter)
-        or not fighter.fighter_collision_capabilities.collides_with_asteroids
-        or not asteroid.currently_alive
-    ):
-        return False
-
-    _, _, overlap = collision_info(fighter, asteroid)
-    contact, normal = projectile_impact(fighter, asteroid, overlap)
-    if contact is None:
-        return False
-    contact_handler = getattr(fighter, "handle_asteroid_contact", None)
-    if contact_handler is not None and contact_handler(asteroid, normal):
-        return True
-
-    BattleEffect.play_boom(fighter.current_damage)
-    attached = None
-    if not fighter.fighter_collision_capabilities.damages_asteroids:
-        attached = asteroid
-    destroy_projectile(fighter, effects, normal, fighter.current_damage, contact, attached)
-    if fighter.fighter_collision_capabilities.damages_asteroids:
-        destroy_asteroid(asteroid, effects)
-    return True
-
-
-def fighter_impacts_planet(fighter, planet, effects, environment):
-    if (
-        not is_live_fighter(fighter)
-        or not fighter.fighter_collision_capabilities.collides_with_planets
-    ):
-        return False
-
-    normal, _, overlap = collision_info(fighter, planet)
-    contact, _ = projectile_impact(fighter, planet, overlap)
-    if contact is None:
-        return False
-
-    separate_from_static_body(fighter, planet, normal, overlap, extra_clearance=1.0)
-    fighter.begin_planet_avoidance(planet, normal)
-    return True
-
-
 def is_live_projectile(obj):
-    return World.is_colliding_ability_kind(obj, "projectile")
+    return World.is_colliding_ability_kind(obj, "projectile") or World.is_colliding_ability_kind(obj, "fighter")
 
 
 def is_live_fighter(obj):
@@ -497,6 +411,15 @@ def is_live_laser(obj):
 
 
 def projectile_can_hit_ship(projectile, ship):
+    fighter_caps = getattr(projectile, "fighter_collision_capabilities", None)
+    if fighter_caps:
+        if ship is projectile.parent:
+            recover_fn = getattr(projectile, "can_recover_with_parent", None)
+            return recover_fn is not None and recover_fn()
+        if ship.player == projectile.player:
+            return fighter_caps.collides_with_friendly_ships
+        return fighter_caps.collides_with_enemy_ships
+
     if ship.player != projectile.player:
         return True
 

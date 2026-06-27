@@ -443,8 +443,7 @@ class OrzA3(Ability):
             projectile.current_hp = 0
         return True
 
-    def begin_planet_avoidance(self, planet, outward_normal):
-        self._die()
+
 
     def can_recover_with_parent(self):
         return self.mode == self.RETURNING

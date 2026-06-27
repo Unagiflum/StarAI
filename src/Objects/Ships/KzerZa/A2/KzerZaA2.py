@@ -175,9 +175,12 @@ class KzerZaA2(Ability):
             self.position[1] + self.velocity[1] * const.SPEED_SCALE
         ) % const.ARENA_SIZE
 
-    def begin_planet_avoidance(self, planet, outward_normal):
+    def handle_planet_contact(self, planet, outward_normal, overlap):
+        from src.Battle.collision_responses import separate_from_static_body
+        separate_from_static_body(self, planet, outward_normal, overlap, extra_clearance=1.0)
         tangent = [-outward_normal[1], outward_normal[0]]
         self.planet_avoidance = (planet, tangent)
+        return True
 
     def _update_weapon(self, target):
         if self.weapon_timer <= 0:

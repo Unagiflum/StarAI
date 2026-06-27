@@ -30,17 +30,6 @@ def _object_on_screen(obj, ships):
 
 
 
-_PAIR_COLLISION_HANDLERS = {
-    (CollisionRole.FIGHTER, CollisionRole.FIGHTER): responses.fighter_impacts_fighter,
-    (
-        CollisionRole.FIGHTER,
-        CollisionRole.PROJECTILE,
-    ): responses.fighter_impacts_projectile,
-    (CollisionRole.FIGHTER, CollisionRole.SHIP): responses.fighter_impacts_ship,
-    (CollisionRole.FIGHTER, CollisionRole.ASTEROID): responses.fighter_impacts_asteroid,
-    (CollisionRole.FIGHTER, CollisionRole.PLANET): responses.fighter_impacts_planet,
-}
-
 
 
 
@@ -88,14 +77,6 @@ def _dispatch_collision_pair(first, second, effects, environment=None):
 
     if (phys_first and phys_first.is_intangible) or (phys_second and phys_second.is_intangible):
         return True
-
-    pair = (
-        first.collision_capabilities.role,
-        second.collision_capabilities.role,
-    )
-    handler = _PAIR_COLLISION_HANDLERS.get(pair)
-    if handler is not None:
-        return handler(first, second, effects, environment)
 
     return _resolve_generic_collision(first, second, effects, environment)
 
