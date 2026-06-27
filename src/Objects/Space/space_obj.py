@@ -62,7 +62,8 @@ def _draw_antialiased_dashed_circle(
             end_angle,
         )
         pygame.gfxdraw.filled_polygon(surface, polygon, color)
-        pygame.gfxdraw.aapolygon(surface, polygon, color)
+        # We omit the aapolygon call to prevent the double-alpha overlapping border effect.
+
 
 
 def _annular_sector_points(
@@ -155,7 +156,7 @@ class Planet(Object):
     def draw_gravity_range(self, screen, scale_factor, translation, interp_t=0.0):
         global _gravity_range_overlay
 
-        border_color = (255, 0, 0, 150)  # Red, semi-transparent
+        border_color = (255, 0, 0, 200)  # Red, semi-transparent
         if (
             _gravity_range_overlay is None
             or _gravity_range_overlay.get_size() != screen.get_size()
@@ -191,6 +192,7 @@ class Planet(Object):
                     center,
                     range_radius,
                     line_width,
+                    dash_fraction=0.5,
                 )
 
         screen.blit(gravity_range_surface, (0, 0))
