@@ -7,6 +7,7 @@ from src.Battle.collision_geometry import (
     collision_info,
     collision_size,
     objects_overlap,
+    solid_sweep_overlap,
     projectile_impact,
     radius,
 )
@@ -138,8 +139,7 @@ def resolve_generic_collision(
         if not getattr(fragile_obj, "currently_alive", True):
             return False
 
-        _, _, overlap = collision_info(fragile_obj, immovable_obj)
-        if not objects_overlap(fragile_obj, immovable_obj, overlap):
+        if not solid_sweep_overlap(fragile_obj, immovable_obj):
             return False
 
         on_screen = object_on_screen_policy or object_on_screen
@@ -157,9 +157,9 @@ def resolve_generic_collision(
         bouncing_obj = first if is_first_bouncing else second
         immovable_obj = second if is_first_bouncing else first
 
+        overlaps = solid_sweep_overlap(bouncing_obj, immovable_obj)
         normal, distance, overlap = collision_info(bouncing_obj, immovable_obj)
         contact_id = id(immovable_obj)
-        overlaps = objects_overlap(bouncing_obj, immovable_obj, overlap)
 
         # Anti-stutter logic
         contacts_set = getattr(bouncing_obj, "planet_contacts", None)
@@ -355,9 +355,10 @@ def resolve_generic_collision(
         if not getattr(first, "currently_alive", True) or not getattr(second, "currently_alive", True):
             return False
 
-        normal, distance, overlap = collision_info(first, second)
-        if not objects_overlap(first, second, overlap):
+        if not solid_sweep_overlap(first, second):
             return False
+            
+        normal, distance, overlap = collision_info(first, second)
 
         elastic_bounce(first, second, normal, distance, overlap)
 

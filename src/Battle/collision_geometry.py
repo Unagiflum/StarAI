@@ -130,6 +130,55 @@ def objects_overlap(obj, other, overlap):
     return obj_mask.overlap(other_mask, offset) is not None
 
 
+def solid_sweep_overlap(obj, other, step_size=25):
+    """
+    Checks for collision along the swept path.
+    If a collision is found, updates obj and other positions to the point of first contact,
+    and returns True. Otherwise returns False.
+    """
+    obj_previous = sweep_previous_position(obj)
+    other_previous = sweep_previous_position(other)
+    
+    if obj_previous == obj.position and other_previous == other.position:
+        _, _, overlap = collision_info(obj, other)
+        return objects_overlap(obj, other, overlap)
+
+    obj_delta = wrapped_delta(obj_previous, obj.position)
+    other_delta = wrapped_delta(other_previous, other.position)
+    
+    relative_delta = [
+        obj_delta[0] - other_delta[0],
+        obj_delta[1] - other_delta[1],
+    ]
+    relative_distance = math.hypot(relative_delta[0], relative_delta[1])
+    
+    if relative_distance <= step_size:
+        _, _, overlap = collision_info(obj, other)
+        return objects_overlap(obj, other, overlap)
+
+    steps = max(1, int(math.ceil(relative_distance / step_size)))
+    
+    for step in range(1, steps + 1):
+        ratio = step / steps
+        obj_position = [
+            (obj_previous[0] + obj_delta[0] * ratio) % const.ARENA_SIZE,
+            (obj_previous[1] + obj_delta[1] * ratio) % const.ARENA_SIZE,
+        ]
+        other_position = [
+            (other_previous[0] + other_delta[0] * ratio) % const.ARENA_SIZE,
+            (other_previous[1] + other_delta[1] * ratio) % const.ARENA_SIZE,
+        ]
+        
+        if objects_overlap_at_positions(obj, other, obj_position, other_position):
+            if getattr(obj, "can_move", True):
+                obj.position = obj_position
+            if getattr(other, "can_move", True):
+                other.position = other_position
+            return True
+
+    return False
+
+
 def ship_rotation_blocked(ship):
     candidates = []
     if ship.opponent and ship.opponent.current_hp > 0:
