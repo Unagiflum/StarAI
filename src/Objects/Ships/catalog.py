@@ -590,7 +590,7 @@ def parse_ability_definition(name, data):
 
     if values["ability_type"] not in {
         "area",
-        "fighter",
+        "special_object",
         "laser",
         "other",
         "projectile",

@@ -84,7 +84,7 @@ def generic_area_damage_target_is_eligible(source, target):
     if phys.is_intangible:
         return False
         
-    source_cap = getattr(source, "fighter_collision_capabilities", None)
+    source_cap = getattr(source, "special_object_collision_capabilities", None)
     if not source_cap:
         # Fallback if source doesn't have collision properties initialized
         return False
@@ -244,8 +244,8 @@ def resolve_generic_collision(
             destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
             return True
 
-        f1_caps = getattr(first, "fighter_collision_capabilities", None)
-        f2_caps = getattr(second, "fighter_collision_capabilities", None)
+        f1_caps = getattr(first, "special_object_collision_capabilities", None)
+        f2_caps = getattr(second, "special_object_collision_capabilities", None)
         f1_dmg = first.current_damage if not f1_caps or f1_caps.damages_projectiles else 0
         f2_dmg = second.current_damage if not f2_caps or f2_caps.damages_projectiles else 0
 
@@ -277,7 +277,7 @@ def resolve_generic_collision(
             if not is_live_projectile(projectile):
                 return False
                 
-            fighter_caps = getattr(projectile, "fighter_collision_capabilities", None)
+            fighter_caps = getattr(projectile, "special_object_collision_capabilities", None)
             if fighter_caps and not fighter_caps.collides_with_planets:
                 return False
                 
@@ -300,7 +300,7 @@ def resolve_generic_collision(
                 return False
                 
             is_ship = hasattr(other, "player")
-            fighter_caps = getattr(projectile, "fighter_collision_capabilities", None)
+            fighter_caps = getattr(projectile, "special_object_collision_capabilities", None)
             
             if is_ship:
                 if not projectile_can_hit_ship(projectile, other):
@@ -381,19 +381,19 @@ def projectiles_can_hit_each_other(projectile, other):
     is_fighter2 = is_live_fighter(other)
 
     if is_fighter1 and is_fighter2:
-        f1_hits = projectile.fighter_collision_capabilities.collides_with_fighters
-        f2_hits = other.fighter_collision_capabilities.collides_with_fighters
+        f1_hits = projectile.special_object_collision_capabilities.collides_with_fighters
+        f2_hits = other.special_object_collision_capabilities.collides_with_fighters
         if not f1_hits and not f2_hits:
             return False
         return True
 
     if is_fighter1 and not is_fighter2:
-        if not projectile.fighter_collision_capabilities.collides_with_projectiles:
+        if not projectile.special_object_collision_capabilities.collides_with_projectiles:
             return False
         return True
 
     if not is_fighter1 and is_fighter2:
-        if not other.fighter_collision_capabilities.collides_with_projectiles:
+        if not other.special_object_collision_capabilities.collides_with_projectiles:
             return False
         return True
 
@@ -407,11 +407,11 @@ def projectiles_can_hit_each_other(projectile, other):
 
 
 def is_live_projectile(obj):
-    return World.is_colliding_ability_kind(obj, "projectile") or World.is_colliding_ability_kind(obj, "fighter")
+    return World.is_colliding_ability_kind(obj, "projectile") or World.is_colliding_ability_kind(obj, "special_object")
 
 
 def is_live_fighter(obj):
-    return World.is_colliding_ability_kind(obj, "fighter")
+    return World.is_colliding_ability_kind(obj, "special_object")
 
 
 def is_live_laser(obj):
@@ -419,7 +419,7 @@ def is_live_laser(obj):
 
 
 def projectile_can_hit_ship(projectile, ship):
-    fighter_caps = getattr(projectile, "fighter_collision_capabilities", None)
+    fighter_caps = getattr(projectile, "special_object_collision_capabilities", None)
     if fighter_caps:
         if ship is projectile.parent:
             recover_fn = getattr(projectile, "can_recover_with_parent", None)
@@ -469,13 +469,13 @@ def resolve_laser_hit(laser, target, effects, normal, contact, apply_impact):
 def apply_generic_laser_impact(target, effects, normal, damage, contact):
     phys = getattr(target, "physical_collision_capabilities", None)
     if not phys:
-        target.current_hp = max(0, target.current_hp - damage)
+        set_projectile_hp(target, target.current_hp - damage)
         if target.current_hp <= 0:
             destroy_projectile(target, effects, normal, damage, contact)
         return
         
     if phys.is_projectile:
-        target.current_hp = max(0, target.current_hp - damage)
+        set_projectile_hp(target, target.current_hp - damage)
         if target.current_hp <= 0:
             destroy_projectile(target, effects, normal, damage, contact)
     elif phys.is_immovable:

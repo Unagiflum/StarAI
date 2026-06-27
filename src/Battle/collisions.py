@@ -106,7 +106,7 @@ def handle_collisions(
 
     ships = [ship for ship in world.live_ships if id(ship) not in excluded_ids]
     projectiles = world.colliding_projectiles
-    fighters = world.colliding_fighters
+    special_objects = world.colliding_fighters
     lasers = world.colliding_lasers
     asteroids = world.live_asteroids
     planets = world.planets
@@ -115,7 +115,7 @@ def handle_collisions(
         lasers,
         ships,
         projectiles,
-        fighters,
+        special_objects,
         asteroids,
         planets,
         effects,
@@ -129,11 +129,11 @@ def handle_collisions(
     _handle_projectile_ship_collisions(projectiles, ships, effects)
     _handle_projectile_asteroid_collisions(projectiles, asteroids, effects)
     _handle_projectile_planet_collisions(projectiles, planets, effects)
-    _handle_fighter_fighter_collisions(fighters, effects)
-    _handle_fighter_projectile_collisions(fighters, projectiles, effects)
-    _handle_fighter_ship_collisions(fighters, ships, effects)
-    _handle_fighter_asteroid_collisions(fighters, asteroids, effects)
-    _handle_fighter_planet_collisions(fighters, planets)
+    _handle_fighter_fighter_collisions(special_objects, effects)
+    _handle_fighter_projectile_collisions(special_objects, projectiles, effects)
+    _handle_fighter_ship_collisions(special_objects, ships, effects)
+    _handle_fighter_asteroid_collisions(special_objects, asteroids, effects)
+    _handle_fighter_planet_collisions(special_objects, planets)
     _spawn_replacement_asteroids(
         world,
         all_asteroids,
@@ -226,31 +226,31 @@ def _handle_projectile_planet_collisions(projectiles, planets, effects):
     _dispatch_collision_pairs(projectiles, planets, effects)
 
 
-def _handle_fighter_fighter_collisions(fighters, effects):
-    _dispatch_unique_collision_pairs(fighters, effects, responses.is_live_fighter)
+def _handle_fighter_fighter_collisions(special_objects, effects):
+    _dispatch_unique_collision_pairs(special_objects, effects, responses.is_live_fighter)
 
 
-def _handle_fighter_projectile_collisions(fighters, projectiles, effects):
-    _dispatch_collision_pairs(fighters, projectiles, effects)
+def _handle_fighter_projectile_collisions(special_objects, projectiles, effects):
+    _dispatch_collision_pairs(special_objects, projectiles, effects)
 
 
-def _handle_fighter_ship_collisions(fighters, ships, effects):
-    _dispatch_collision_pairs(fighters, ships, effects)
+def _handle_fighter_ship_collisions(special_objects, ships, effects):
+    _dispatch_collision_pairs(special_objects, ships, effects)
 
 
-def _handle_fighter_asteroid_collisions(fighters, asteroids, effects):
-    _dispatch_collision_pairs(fighters, asteroids, effects)
+def _handle_fighter_asteroid_collisions(special_objects, asteroids, effects):
+    _dispatch_collision_pairs(special_objects, asteroids, effects)
 
 
-def _handle_fighter_planet_collisions(fighters, planets):
-    _dispatch_collision_pairs(fighters, planets, [])
+def _handle_fighter_planet_collisions(special_objects, planets):
+    _dispatch_collision_pairs(special_objects, planets, [])
 
 
 def _handle_laser_collisions(
     lasers,
     ships,
     projectiles,
-    fighters,
+    special_objects,
     asteroids,
     planets,
     effects,
@@ -267,7 +267,7 @@ def _handle_laser_collisions(
             laser,
             ships,
             projectiles,
-            fighters,
+            special_objects,
             asteroids,
             planets,
             excluded_ids,
@@ -302,7 +302,7 @@ def _laser_targets(
     laser,
     ships,
     projectiles,
-    fighters,
+    special_objects,
     asteroids,
     planets,
     excluded_ids=frozenset(),
@@ -318,25 +318,25 @@ def _laser_targets(
             else []
         )
         targets.extend(
-            fighter
-            for fighter in fighters
+            special_object
+            for special_object in special_objects
             if (
-                fighter is not explicit_target
-                and _laser_target_is_eligible(laser, fighter)
+                special_object is not explicit_target
+                and _laser_target_is_eligible(laser, special_object)
             )
         )
         return targets
 
     targets = [
         target
-        for target in (*ships, *projectiles, *fighters, *asteroids, *planets)
+        for target in (*ships, *projectiles, *special_objects, *asteroids, *planets)
         if (id(target) not in excluded_ids and _laser_target_is_eligible(laser, target))
     ]
-    return sorted(targets, key=lambda target: distance_between(laser.parent, target))
+    return targets
 
 
 def _laser_target_is_eligible(laser, target, explicit=False):
-    if not getattr(target.collision_capabilities, "role", None) == CollisionRole.FIGHTER:
+    if not getattr(target.collision_capabilities, "role", None) == CollisionRole.SPECIAL_OBJECT:
         if not target.laser_target_capabilities.targetable:
             return False
     return responses.generic_is_laser_target(laser, target, explicit)

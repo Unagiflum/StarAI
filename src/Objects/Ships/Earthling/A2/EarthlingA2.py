@@ -105,7 +105,7 @@ class EarthlingA2(Ability):
                 end_y = screen_end_y + dy * const.ARENA_SIZE * scale_factor
 
                 if view_rect.clipline((start_x, start_y), (end_x, end_y)):
-                    pygame.draw.line(
+                    self.draw_aa_laser(
                         screen,
                         self.LASER_COLOR,
                         (const.SCREEN_LEFT + start_x, start_y),

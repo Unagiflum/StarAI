@@ -95,8 +95,8 @@ class World:
         return self.abilities_of_kind("projectile")
 
     @property
-    def fighters(self) -> list[Ability]:
-        return self.abilities_of_kind("fighter")
+    def special_objects(self) -> list[Ability]:
+        return self.abilities_of_kind("special_object")
 
     @property
     def lasers(self) -> list[Ability]:
@@ -163,7 +163,7 @@ class World:
 
     @property
     def colliding_fighters(self) -> list[Ability]:
-        return self.colliding_abilities_of_kind("fighter")
+        return self.colliding_abilities_of_kind("special_object")
 
     @property
     def colliding_lasers(self) -> list[Ability]:

@@ -8,7 +8,7 @@ class CollisionRole(Enum):
     NONE = auto()
     SHIP = auto()
     PROJECTILE = auto()
-    FIGHTER = auto()
+    SPECIAL_OBJECT = auto()
     LASER = auto()
     ASTEROID = auto()
     PLANET = auto()
@@ -35,7 +35,7 @@ class AreaDamageCapabilities:
 
 
 @dataclass(frozen=True)
-class FighterCollisionCapabilities:
+class SpecialObjectCollisionCapabilities:
     collides_with_planets: bool = True
     collides_with_asteroids: bool = True
     damages_asteroids: bool = True

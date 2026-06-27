@@ -111,26 +111,26 @@ class CollisionPipelineTests(CollisionTestCase):
         replacement_factory.assert_not_called()
 
     def test_fighter_stops_after_first_planet_contact(self):
-        fighter = self.make_fighter()
+        special_object = self.make_fighter()
         first = self.make_planet([115, 100])
         second = self.make_planet([85, 100])
-        fighter.begin_planet_avoidance = mock.Mock()
-        run_collision_pipeline([*[fighter], *[first, second]], None)
-        fighter.begin_planet_avoidance.assert_called_once()
-        self.assertIs(fighter.begin_planet_avoidance.call_args.args[0], first)
+        special_object.begin_planet_avoidance = mock.Mock()
+        run_collision_pipeline([*[special_object], *[first, second]], None)
+        special_object.begin_planet_avoidance.assert_called_once()
+        self.assertIs(special_object.begin_planet_avoidance.call_args.args[0], first)
 
     def test_fighter_ignores_dead_asteroid_and_hits_next_live_target(self):
-        fighter = self.make_fighter()
+        special_object = self.make_fighter()
         dead = self.make_asteroid([108, 100])
         live = self.make_asteroid([108, 100])
         dead.currently_alive = False
         with mock.patch.object(collisions.BattleEffect, 'from_blast'), mock.patch.object(collisions.BattleEffect, 'play_boom'):
-            run_collision_pipeline([*[fighter], *[dead, live]], [])
-        self.assertFalse(fighter.currently_alive)
+            run_collision_pipeline([*[special_object], *[dead, live]], [])
+        self.assertFalse(special_object.currently_alive)
         self.assertFalse(live.currently_alive)
 
     def test_fighter_ignores_dead_projectile_and_hits_next_live_target(self):
-        fighter = self.make_fighter()
+        special_object = self.make_fighter()
         parent = self.make_ship()
         dead = self.make_projectile(parent)
         live = self.make_projectile(parent)
@@ -140,15 +140,15 @@ class CollisionPipelineTests(CollisionTestCase):
         dead.currently_alive = False
         dead.current_hp = 0
         with mock.patch.object(collisions.BattleEffect, 'from_blast'), mock.patch.object(collisions.BattleEffect, 'play_boom'):
-            run_collision_pipeline([*[fighter], *[dead, live]], [])
-        self.assertFalse(fighter.currently_alive)
+            run_collision_pipeline([*[special_object], *[dead, live]], [])
+        self.assertFalse(special_object.currently_alive)
         self.assertFalse(live.currently_alive)
 
     def test_fighter_skips_dead_ship_and_hits_next_live_target(self):
-        fighter = self.make_fighter()
+        special_object = self.make_fighter()
         parent = self.make_ship()
         parent.player = 1
-        fighter.parent = parent
+        special_object.parent = parent
         dead = self.make_ship()
         dead.player = 2
         dead.position = [108, 100]
@@ -157,17 +157,17 @@ class CollisionPipelineTests(CollisionTestCase):
         live.player = 2
         live.position = [108, 100]
         with mock.patch.object(collisions.BattleEffect, 'from_blast'), mock.patch.object(collisions.BattleEffect, 'play_boom'):
-            run_collision_pipeline([*[fighter], *[dead, live]], [])
+            run_collision_pipeline([*[special_object], *[dead, live]], [])
         self.assertEqual(live.current_hp, 9)
-        self.assertFalse(fighter.currently_alive)
+        self.assertFalse(special_object.currently_alive)
 
     def test_fighter_ignores_dead_fighter_and_hits_next_live_target(self):
         first = self.make_fighter()
         dead = self.make_fighter()
         live = self.make_fighter()
-        for fighter in (dead, live):
-            fighter.position = [108, 100]
-            fighter.previous_position = fighter.position.copy()
+        for special_object in (dead, live):
+            special_object.position = [108, 100]
+            special_object.previous_position = special_object.position.copy()
         dead.current_hp = 0
         dead.currently_alive = False
         with mock.patch.object(collisions.BattleEffect, 'from_blast'), mock.patch.object(collisions.BattleEffect, 'play_boom'):
@@ -179,9 +179,9 @@ class CollisionPipelineTests(CollisionTestCase):
         first = self.make_fighter()
         second = self.make_fighter()
         third = self.make_fighter()
-        for fighter in (second, third):
-            fighter.position = [108, 100]
-            fighter.previous_position = fighter.position.copy()
+        for special_object in (second, third):
+            special_object.position = [108, 100]
+            special_object.previous_position = special_object.position.copy()
         effects = []
         with mock.patch.object(collisions.BattleEffect, 'from_blast'), mock.patch.object(collisions.BattleEffect, 'play_boom') as play_boom:
             run_collision_pipeline([first, second, third], effects)

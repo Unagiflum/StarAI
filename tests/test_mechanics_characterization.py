@@ -530,17 +530,17 @@ class AftermathCharacterizationTests(unittest.TestCase):
         projectile.rotation = 90
         projectile.velocity = [12, 0]
 
-        fighter = KzerZaA2.__new__(KzerZaA2)
-        fighter.opponent = dead
-        fighter.parent = survivor
-        fighter.mode = fighter.ATTACKING
+        special_object = KzerZaA2.__new__(KzerZaA2)
+        special_object.opponent = dead
+        special_object.parent = survivor
+        special_object.mode = special_object.ATTACKING
 
         start_or_update_aftermath(
             None,
             [dead],
             dead,
             survivor,
-            [dead, survivor, projectile, fighter],
+            [dead, survivor, projectile, special_object],
             30,
             sound_enabled=False,
         )
@@ -550,8 +550,8 @@ class AftermathCharacterizationTests(unittest.TestCase):
         self.assertIsNone(projectile.opponent)
         self.assertEqual(projectile.rotation, 90)
         self.assertEqual(projectile.velocity, [12, 0])
-        self.assertIsNone(fighter.opponent)
-        self.assertEqual(fighter.mode, fighter.RETURNING)
+        self.assertIsNone(special_object.opponent)
+        self.assertEqual(special_object.mode, special_object.RETURNING)
 
     def test_simultaneous_deaths_are_registered_once_in_player_order(self):
         random.seed(11)

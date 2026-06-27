@@ -334,17 +334,17 @@ class ShipActionCharacterizationTests(unittest.TestCase):
     def test_kzer_za_fighters_preserve_formation_crew_cost_and_launch_index(self):
         ship = create_ship("KzerZa", 1)
         ship.current_hp = 3
-        fighters = [SimpleNamespace(launch_sound=mock.Mock()) for _ in range(2)]
+        special_objects = [SimpleNamespace(launch_sound=mock.Mock()) for _ in range(2)]
         with mock.patch(
-            "src.Objects.Ships.KzerZa.KzerZa.KzerZaA2", side_effect=fighters
+            "src.Objects.Ships.KzerZa.KzerZa.KzerZaA2", side_effect=special_objects
         ) as constructor:
             result = ship.perform_action2()
-        self.assertEqual(result, fighters)
+        self.assertEqual(result, special_objects)
         self.assertEqual(constructor.call_args_list, [mock.call(ship, 135, 0), mock.call(ship, 225, 1)])
         self.assertEqual(ship.current_hp, 1)
         self.assertEqual(ship.fighter_launch_count, 2)
-        fighters[0].launch_sound.play.assert_called_once_with()
-        fighters[1].launch_sound.play.assert_not_called()
+        special_objects[0].launch_sound.play.assert_called_once_with()
+        special_objects[1].launch_sound.play.assert_not_called()
 
     def test_pkunk_secondary_gains_energy_without_paying_action_cost(self):
         ship = create_ship("Pkunk", 1)

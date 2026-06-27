@@ -218,7 +218,7 @@ class BattleSimulation:
                 self.world.add_all(ship.process_controls(self.frame_id))
 
     def _update_tracking_lists(self):
-        projectiles = self.world.abilities_of_kind("projectile", "fighter")
+        projectiles = self.world.abilities_of_kind("projectile", "special_object")
         asteroids = self.world.asteroids
         ships = self.world.ships
         tracked_objects = self.world.objects_of_types(SpaceShip, Ability)

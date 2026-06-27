@@ -93,7 +93,7 @@ class KzerZaA2Laser(Ability):
                     end_y + arena_y,
                 )
                 if view_rect.clipline(line):
-                    pygame.draw.line(
+                    self.draw_aa_laser(
                         screen,
                         self.LASER_COLOR,
                         (const.SCREEN_LEFT + line[0], line[1]),

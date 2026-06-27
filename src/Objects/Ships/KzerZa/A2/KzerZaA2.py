@@ -123,8 +123,8 @@ class KzerZaA2(Ability):
             ),
         )
 
-        # Fighters may share a flank. Fan them out around its center instead of
-        # assigning every other fighter to the far side of the target.
+        # SpecialObjects may share a flank. Fan them out around its center instead of
+        # assigning every other special_object to the far side of the target.
         spread_slot = self.formation_index % 13
         spread_index = (spread_slot + 1) // 2
         spread = spread_index * (5 if spread_slot % 2 else -5)

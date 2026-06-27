@@ -7,7 +7,7 @@ from src.collision_capabilities import (
     AreaDamageCapabilities,
     CollisionCapabilities,
     CollisionRole,
-    FighterCollisionCapabilities,
+    SpecialObjectCollisionCapabilities,
     LaserTargetCapabilities,
     PhysicalCollisionCapabilities,
 )
@@ -69,7 +69,7 @@ class Ability(PlayerObject):
         self.collision_capabilities = CollisionCapabilities(
             {
                 "projectile": CollisionRole.PROJECTILE,
-                "fighter": CollisionRole.FIGHTER,
+                "special_object": CollisionRole.SPECIAL_OBJECT,
                 "laser": CollisionRole.LASER,
             }.get(self.type, CollisionRole.NONE)
         )
@@ -79,7 +79,7 @@ class Ability(PlayerObject):
         )
         
         self.laser_target_capabilities = LaserTargetCapabilities(
-            targetable=self.type in ("projectile", "fighter"),
+            targetable=self.type in ("projectile", "special_object"),
             vulnerable=ability_definition.laser_vulnerable,
         )
         self.area_damage_capabilities = AreaDamageCapabilities(
@@ -87,7 +87,7 @@ class Ability(PlayerObject):
             targetable=self.type != "laser",
         )
         self.area_damage_pending = False
-        self.fighter_collision_capabilities = FighterCollisionCapabilities(
+        self.special_object_collision_capabilities = SpecialObjectCollisionCapabilities(
             collides_with_planets=ability_definition.collide_planets,
             collides_with_asteroids=ability_definition.collide_asteroids,
             damages_asteroids=ability_definition.damage_asteroids,
@@ -130,7 +130,7 @@ class Ability(PlayerObject):
         self.can_die = True
         self.can_expire = True
 
-        if self.type in ("laser", "projectile", "fighter"):
+        if self.type in ("laser", "projectile", "special_object"):
             self.can_collide = True
         else:
             self.can_collide = False
@@ -265,19 +265,19 @@ class Ability(PlayerObject):
         return None
 
     def begin_planet_avoidance(self, planet, outward_normal):
-        """React to fighter separation from a planet."""
+        """React to special_object separation from a planet."""
         return None
 
     def handle_ship_contact(self, ship, normal=None):
-        """Handle a fighter-specific ship collision instead of the default hit."""
+        """Handle a special_object-specific ship collision instead of the default hit."""
         return False
 
     def handle_asteroid_contact(self, asteroid, normal=None):
-        """Handle a fighter-specific asteroid collision instead of the default hit."""
+        """Handle a special_object-specific asteroid collision instead of the default hit."""
         return False
 
     def handle_projectile_contact(self, projectile):
-        """Handle damage from a projectile without the default fighter removal."""
+        """Handle damage from a projectile without the default special_object removal."""
         return False
 
     def on_destroyed(self):
@@ -285,11 +285,11 @@ class Ability(PlayerObject):
         return None
 
     def can_recover_with_parent(self):
-        """Return whether this fighter may currently recover into its parent."""
+        """Return whether this special_object may currently recover into its parent."""
         return False
 
     def recover_with_parent(self):
-        """Apply fighter-specific recovery behavior."""
+        """Apply special_object-specific recovery behavior."""
         return None
 
     def stop_and_track(self):
@@ -297,7 +297,7 @@ class Ability(PlayerObject):
         return None
 
     def on_opponent_lost(self, opponent):
-        """Let an ability react without imposing one fighter behavior."""
+        """Let an ability react without imposing one special_object behavior."""
         if self.opponent is opponent:
             self.opponent = None
 
@@ -384,3 +384,24 @@ class Ability(PlayerObject):
         if self.frames > 1:
             return self.masks[self.current_frame]
         return self.masks[const.heading_to_sprite_index(self.heading)]
+
+    @staticmethod
+    def draw_aa_laser(screen, color, start_pos, end_pos, width):
+        dx = end_pos[0] - start_pos[0]
+        dy = end_pos[1] - start_pos[1]
+        length = math.hypot(dx, dy)
+        if length == 0:
+            return
+        nx = dy / length
+        ny = -dx / length
+        
+        half_width = width / 2
+        p1 = (start_pos[0] + nx * half_width, start_pos[1] + ny * half_width)
+        p2 = (start_pos[0] - nx * half_width, start_pos[1] - ny * half_width)
+        p3 = (end_pos[0] - nx * half_width, end_pos[1] - ny * half_width)
+        p4 = (end_pos[0] + nx * half_width, end_pos[1] + ny * half_width)
+        
+        points = [p1, p2, p3, p4]
+        
+        pygame.draw.polygon(screen, color, points)
+        pygame.draw.aalines(screen, color, True, points)

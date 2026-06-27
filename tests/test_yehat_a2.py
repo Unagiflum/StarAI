@@ -13,7 +13,7 @@ if pygame.display.get_surface() is None:
     pygame.display.set_mode((1, 1))
 
 from src.Battle import collision_responses
-from src.collision_capabilities import FighterCollisionCapabilities
+from src.collision_capabilities import SpecialObjectCollisionCapabilities
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ship
@@ -100,11 +100,11 @@ class YehatA2Tests(unittest.TestCase):
         projectile.on_ship_impact.assert_called_once_with(self.ship)
         destroy.assert_called_once()
 
-        fighter = SimpleNamespace(
+        special_object = SimpleNamespace(
             player=2,
             parent=object(),
             current_damage=4,
-            fighter_collision_capabilities=FighterCollisionCapabilities(),
+            special_object_collision_capabilities=SpecialObjectCollisionCapabilities(),
         )
         with (
             mock.patch.object(collision_responses, "is_live_fighter", return_value=True),
@@ -115,7 +115,7 @@ class YehatA2Tests(unittest.TestCase):
         ):
             self.assertTrue(
                 collision_responses.fighter_impacts_ship(
-                    fighter, self.ship, [], None
+                    special_object, self.ship, [], None
                 )
             )
         self.assertEqual(self.ship.current_hp, starting_hp)

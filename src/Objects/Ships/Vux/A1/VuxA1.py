@@ -12,7 +12,7 @@ class VuxA1(Ability):
         ability_data = ABILITIES_DATA["VuxA1"]
         self.LASER_RANGE = ability_data.get("LASER_RANGE", 644)
         self.LASER_COLOR = (0, 255, 0)
-        self.LASER_WIDTH = 4
+        self.LASER_WIDTH = ability_data.get("LASER_WIDTH", 6)
 
         self.end_position = [0, 0]
         self.place_self()
@@ -100,7 +100,7 @@ class VuxA1(Ability):
                 end_y = screen_end_y + dy * const.ARENA_SIZE * scale_factor
 
                 if view_rect.clipline((start_x, start_y), (end_x, end_y)):
-                    pygame.draw.line(
+                    self.draw_aa_laser(
                         screen,
                         self.LASER_COLOR,
                         (const.SCREEN_LEFT + start_x, start_y),

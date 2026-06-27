@@ -17,7 +17,7 @@ class KzerZa(SpaceShip):
 
         fighter_count = min(2, self.current_hp - 1)
         first_index = self.fighter_launch_count
-        fighters = [
+        special_objects = [
             KzerZaA2(self, launch_angle, first_index + offset)
             for offset, launch_angle in enumerate((135, 225)[:fighter_count])
         ]
@@ -27,7 +27,7 @@ class KzerZa(SpaceShip):
 
         return self.prepare_action_plan(
             2,
-            fighters,
+            special_objects,
             crew_change=-fighter_count,
             side_effects=(commit_launch_indices,),
         )

@@ -246,7 +246,7 @@
     },
     "KzerZaA2": {
         "ship_name": "KzerZa",
-        "type": "fighter",
+        "type": "special_object",
         "action": "A2",
         "start_hp": [
             1
@@ -373,7 +373,7 @@
     },
     "OrzA3": {
         "ship_name": "Orz",
-        "type": "fighter",
+        "type": "special_object",
         "action": "A3",
         "start_hp": [
             3
@@ -642,7 +642,7 @@
     },
     "VuxA2": {
         "ship_name": "Vux",
-        "type": "fighter",
+        "type": "special_object",
         "action": "A2",
         "start_hp": [
             1
@@ -719,8 +719,8 @@
         "file_path": "Objects/Ships/ZoqFot/A2/",
         "offset": 0.5,
         "has_sprites": false,
-        "advancing_frames": 5,
-        "retracting_frames": 5,
+        "advancing_frames": 2,
+        "retracting_frames": 8,
         "area_width": 12,
         "area_length": 100
     }

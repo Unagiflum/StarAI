@@ -112,7 +112,7 @@ class WorldCharacterizationTests(unittest.TestCase):
     def test_typed_snapshots_follow_authoritative_order_after_mutation(self):
         ship = SpaceShip.__new__(SpaceShip)
         projectile = self.ability("projectile")
-        fighter = self.ability("fighter")
+        special_object = self.ability("special_object")
         laser = self.ability("laser")
         asteroid = Asteroid.__new__(Asteroid)
         planet = Planet.__new__(Planet)
@@ -124,7 +124,7 @@ class WorldCharacterizationTests(unittest.TestCase):
             projectile,
             ship,
             asteroid,
-            fighter,
+            special_object,
             planet,
             thrust,
             laser,
@@ -132,9 +132,9 @@ class WorldCharacterizationTests(unittest.TestCase):
         ])
 
         self.assertEqual(world.ships, [ship])
-        self.assertEqual(world.abilities, [projectile, fighter, laser])
+        self.assertEqual(world.abilities, [projectile, special_object, laser])
         self.assertEqual(world.projectiles, [projectile])
-        self.assertEqual(world.fighters, [fighter])
+        self.assertEqual(world.special_objects, [special_object])
         self.assertEqual(world.lasers, [laser])
         self.assertEqual(world.asteroids, [asteroid])
         self.assertEqual(world.planets, [planet])
@@ -143,7 +143,7 @@ class WorldCharacterizationTests(unittest.TestCase):
         self.assertEqual(world.thrust_markers, [thrust])
 
         world.remove(projectile)
-        self.assertEqual(world.abilities, [fighter, laser])
+        self.assertEqual(world.abilities, [special_object, laser])
 
     def test_live_and_collision_queries_preserve_order_and_rules(self):
         live_ship = SpaceShip.__new__(SpaceShip)
@@ -154,7 +154,7 @@ class WorldCharacterizationTests(unittest.TestCase):
         dead_ship.current_hp = 1
         live_projectile = self.ability("projectile")
         disabled_projectile = self.ability("projectile", can_collide=False)
-        zero_hp_fighter = self.ability("fighter", hp=0)
+        zero_hp_fighter = self.ability("special_object", hp=0)
         live_laser = self.ability("laser")
         live_asteroid = Asteroid.__new__(Asteroid)
         live_asteroid.currently_alive = True

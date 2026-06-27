@@ -5,7 +5,7 @@ from src.collision_capabilities import (
     AreaDamageCapabilities,
     CollisionCapabilities,
     CollisionRole,
-    FighterCollisionCapabilities,
+    SpecialObjectCollisionCapabilities,
     LaserTargetCapabilities,
 )
 from src.Objects.Space.space_obj import Asteroid, Planet
@@ -115,31 +115,31 @@ class CollisionTestCase(unittest.TestCase):
         laser_vulnerable=True,
         fighter_class=Ability,
     ):
-        fighter = fighter_class.__new__(fighter_class)
-        fighter.name = "TestFighter"
-        fighter.projectile_name = "TestFighter"
-        fighter.type = "fighter"
-        fighter.player = 1
-        fighter.position = [100, 100]
-        fighter.previous_position = fighter.position.copy()
-        fighter.size = [20, 20]
-        fighter.masks = None
-        fighter.heading = 0
-        fighter.frames = 1
-        fighter.can_move = True
-        fighter.can_collide = True
-        fighter.currently_alive = True
-        fighter.current_hp = 1
-        fighter.current_damage = 1
-        fighter.death_animation = []
-        fighter.velocity = [1.0, 0.0]
-        fighter.collision_capabilities = CollisionCapabilities(
-            CollisionRole.FIGHTER
+        special_object = fighter_class.__new__(fighter_class)
+        special_object.name = "TestFighter"
+        special_object.projectile_name = "TestFighter"
+        special_object.type = "special_object"
+        special_object.player = 1
+        special_object.position = [100, 100]
+        special_object.previous_position = special_object.position.copy()
+        special_object.size = [20, 20]
+        special_object.masks = None
+        special_object.heading = 0
+        special_object.frames = 1
+        special_object.can_move = True
+        special_object.can_collide = True
+        special_object.currently_alive = True
+        special_object.current_hp = 1
+        special_object.current_damage = 1
+        special_object.death_animation = []
+        special_object.velocity = [1.0, 0.0]
+        special_object.collision_capabilities = CollisionCapabilities(
+            CollisionRole.SPECIAL_OBJECT
         )
-        fighter.laser_target_capabilities = LaserTargetCapabilities(
+        special_object.laser_target_capabilities = LaserTargetCapabilities(
             vulnerable=laser_vulnerable
         )
-        fighter.fighter_collision_capabilities = FighterCollisionCapabilities(
+        special_object.special_object_collision_capabilities = SpecialObjectCollisionCapabilities(
             collides_with_planets=collides_with_planets,
             collides_with_asteroids=collides_with_asteroids,
             damages_asteroids=damages_asteroids,
@@ -149,10 +149,10 @@ class CollisionTestCase(unittest.TestCase):
             collides_with_friendly_ships=collides_with_friendly_ships,
             collides_with_fighters=collides_with_fighters,
         )
-        fighter.area_damage_capabilities = AreaDamageCapabilities(
+        special_object.area_damage_capabilities = AreaDamageCapabilities(
             targetable=True
         )
-        return fighter
+        return special_object
 
     @staticmethod
     def make_laser(parent, *, hit_parent=False, hit_self=False, target=None):
