@@ -1,4 +1,5 @@
 import math
+import random
 
 import pygame
 
@@ -40,6 +41,8 @@ class KzerZaA2(Ability):
         self.formation_index = formation_index
         self.spawned_objects = []
         self.planet_avoidance = None
+        self.jitter_angle_toggle = random.choice([True, False])
+        self.jitter_dist_toggle = random.choice([True, False])
 
     def update(self):
         if not self.currently_alive:
@@ -69,6 +72,12 @@ class KzerZaA2(Ability):
             return self.currently_alive
 
         self.attack_elapsed += 1
+        if random.random() < 0.20:
+            if random.choice([True, False]):
+                self.jitter_angle_toggle = not self.jitter_angle_toggle
+            else:
+                self.jitter_dist_toggle = not self.jitter_dist_toggle
+
         target = self._live_trackable_opponent()
         parent_alive = self._parent_alive()
 
@@ -126,11 +135,13 @@ class KzerZaA2(Ability):
         return self._attack_position(target, side + spread)
 
     def _attack_position(self, target, angle_offset):
-        angle = math.radians((target.rotation + angle_offset) % 360)
+        jitter_angle = 5 if self.jitter_angle_toggle else 0
+        angle = math.radians((target.rotation + angle_offset + jitter_angle) % 360)
+        dist = self.laser_range - (5 if self.jitter_dist_toggle else 0)
         return [
-            (target.position[0] + math.sin(angle) * self.laser_range)
+            (target.position[0] + math.sin(angle) * dist)
             % const.ARENA_SIZE,
-            (target.position[1] - math.cos(angle) * self.laser_range)
+            (target.position[1] - math.cos(angle) * dist)
             % const.ARENA_SIZE,
         ]
 
