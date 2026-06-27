@@ -439,8 +439,16 @@ def parse_ability_definition(name, data):
         "frame_delay",
         "has_sprites",
         "has_sound",
+        "hit_parent",
+        "hit_self",
         "hit_team",
+        "inertia",
         "laser_vulnerable",
+        "life_time",
+        "omnidirectional",
+        "parent_vel",
+        "speed",
+        "tracking",
         "collide_planets",
         "collide_asteroids",
         "damage_asteroids",
@@ -495,10 +503,7 @@ def parse_ability_definition(name, data):
         "damage": _int_tuple(kind, name, data, "damage"),
         "file_path": _typed(kind, name, "file_path", data["file_path"], str),
     }
-    for key in ("tracking", "inertia", "hit_parent", "hit_self", "omnidirectional"):
-        values[key] = _typed(kind, name, key, data[key], bool)
-    for key in ("parent_vel", "speed", "life_time"):
-        values[key] = _typed(kind, name, key, data[key], float)
+
 
     defaults = {
         "turn_wait": (float, 0),
@@ -510,8 +515,16 @@ def parse_ability_definition(name, data):
         "frame_delay": (int, 0),
         "has_sprites": (bool, True),
         "has_sound": (bool, True),
+        "hit_parent": (bool, False),
+        "hit_self": (bool, False),
         "hit_team": (bool, False),
+        "inertia": (bool, False),
         "laser_vulnerable": (bool, True),
+        "life_time": (float, 0.0),
+        "omnidirectional": (bool, False),
+        "parent_vel": (float, 0.0),
+        "speed": (float, 0.0),
+        "tracking": (bool, False),
         "collide_planets": (bool, True),
         "collide_asteroids": (bool, True),
         "damage_asteroids": (bool, True),

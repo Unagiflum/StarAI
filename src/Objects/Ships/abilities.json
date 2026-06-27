@@ -13,18 +13,9 @@
         "parent_vel": 1.0,
         "speed": 100,
         "life_time": 1,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Arilou/A1/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
         "has_sprites": false,
-        "has_sound": true,
         "LASER_RANGE": 400,
         "LASER_COLOR": [
             255,
@@ -45,22 +36,12 @@
             0,
             0
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
-        "speed": 0,
         "life_time": 8,
         "turn_wait": 1,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
         "frames": 2,
         "frame_delay": 4,
-        "file_path": "Objects/Ships/Arilou/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "file_path": "Objects/Ships/Arilou/A2/"
     },
     "DruugeA1": {
         "ship_name": "Druuge",
@@ -72,22 +53,11 @@
         "damage": [
             6
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
         "speed": 120,
         "life_time": 20,
-        "turn_wait": 0,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Druuge/A1/",
         "end_anim": 8,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true,
         "MAX_RECOIL": 96,
         "RECOIL_INCREMENT": 24
     },
@@ -101,22 +71,11 @@
         "damage": [
             0
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
-        "speed": 0,
         "life_time": 1,
         "turn_wait": 1,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Druuge/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
         "has_sprites": false,
-        "has_sound": true,
         "ENERGY_GAIN": 16
     },
     "EarthlingA1": {
@@ -130,21 +89,14 @@
             4
         ],
         "tracking": true,
-        "parent_vel": 0.0,
         "speed": 40,
         "life_time": 60,
         "turn_wait": 3,
         "inertia": true,
         "hit_parent": true,
         "hit_self": true,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Earthling/A1/",
-        "end_anim": 9,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "end_anim": 9
     },
     "EarthlingA2": {
         "ship_name": "Earthling",
@@ -160,18 +112,10 @@
         "parent_vel": 1.0,
         "speed": 100,
         "life_time": 1,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
         "hit_self": true,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Earthling/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
         "has_sprites": false,
-        "has_sound": true,
         "LASER_RANGE": 400,
         "LASER_COLOR": [
             255,
@@ -204,22 +148,13 @@
             1,
             1
         ],
-        "tracking": false,
         "parent_vel": 1.0,
         "speed": 25,
         "life_time": 8,
-        "turn_wait": 0,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
         "frames": 8,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Ilwrath/A1/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "file_path": "Objects/Ships/Ilwrath/A1/"
     },
     "IlwrathA2": {
         "ship_name": "Ilwrath",
@@ -231,22 +166,11 @@
         "damage": [
             0
         ],
-        "tracking": false,
         "parent_vel": 1.0,
-        "speed": 0,
         "life_time": 1,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Ilwrath/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
         "has_sprites": false,
-        "has_sound": true,
         "look_ahead": 4
     },
     "KohrAhA1": {
@@ -261,22 +185,13 @@
             4,
             4
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
         "speed": 64,
         "life_time": 64,
-        "turn_wait": 0,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
         "frames": 2,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/KohrAh/A1/",
         "end_anim": 6,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true,
         "TRACK_SPEED": 5,
         "TRACK_RANGE": 896
     },
@@ -304,22 +219,13 @@
             3,
             3
         ],
-        "tracking": false,
         "parent_vel": 1.0,
         "speed": 16,
         "life_time": 24,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
         "frames": 8,
         "frame_delay": 2,
         "file_path": "Objects/Ships/KohrAh/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true,
         "DMG_TO_PROJ": 50
     },
     "KzerZaA1": {
@@ -332,22 +238,11 @@
         "damage": [
             6
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
         "speed": 80,
         "life_time": 20,
-        "turn_wait": 0,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/KzerZa/A1/",
-        "end_anim": 8,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "end_anim": 8
     },
     "KzerZaA2": {
         "ship_name": "KzerZa",
@@ -360,7 +255,6 @@
             1
         ],
         "tracking": true,
-        "parent_vel": 0.0,
         "speed": 32,
         "one_way_flight": 125,
         "life_margin": 150,
@@ -370,28 +264,12 @@
         "offset": 16,
         "range": 176,
         "track_directions": 16,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
         "weapon_wait": 8,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/KzerZa/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true,
-        "laser_vulnerable": true,
         "collide_fighters": false,
-        "collide_projectiles": true,
         "damage_projectiles": false,
-        "collide_asteroids": true,
         "damage_asteroids": false,
-        "collide_enemy_ships": true,
-        "collide_friendly_ships": true,
-        "collide_planets": true
+        "collide_friendly_ships": true
     },
     "KzerZaA2Laser": {
         "ship_name": "KzerZa",
@@ -403,20 +281,8 @@
         "damage": [
             1
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
-        "speed": 0,
-        "life_time": 0,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": true,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/KzerZa/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
         "has_sprites": false,
         "has_sound": false
     },
@@ -449,21 +315,16 @@
             1
         ],
         "tracking": true,
-        "parent_vel": 0.0,
         "speed": 32,
         "life_time": 143,
         "turn_wait": 1,
         "inertia": true,
         "hit_parent": true,
-        "hit_self": false,
         "omnidirectional": true,
         "frames": 10,
         "frame_delay": 13,
         "file_path": "Objects/Ships/Mycon/A1/",
-        "end_anim": 8,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "end_anim": 8
     },
     "MyconA2": {
         "ship_name": "Mycon",
@@ -475,22 +336,9 @@
         "damage": [
             0
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
-        "speed": 0,
-        "life_time": 0,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Mycon/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
         "has_sprites": false,
-        "has_sound": true,
         "HP_GAIN": 4
     },
     "OrzA1": {
@@ -503,22 +351,11 @@
         "damage": [
             3
         ],
-        "tracking": false,
         "parent_vel": 1.0,
         "speed": 120,
         "life_time": 12,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Orz/A1/",
-        "end_anim": 6,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "end_anim": 6
     },
     "OrzA2": {
         "ship_name": "Orz",
@@ -530,21 +367,8 @@
         "damage": [
             0
         ],
-        "tracking": false,
         "parent_vel": 1.0,
-        "speed": 0,
-        "life_time": 0,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Orz/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
         "has_sound": false
     },
     "OrzA3": {
@@ -557,33 +381,19 @@
         "damage": [
             0
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
         "speed": 32,
         "max_thrust": 32,
         "thrust_increment": 8,
         "thrust_wait": 0,
         "launch_time": 10,
-        "life_time": 0,
         "turn_wait": 1,
         "inertia": true,
-        "hit_parent": true,
-        "hit_self": false,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Orz/A3/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
         "has_sound": false,
-        "collide_planets": true,
         "collide_asteroids": false,
         "damage_asteroids": false,
-        "collide_projectiles": true,
         "damage_projectiles": false,
-        "collide_enemy_ships": true,
-        "collide_friendly_ships": false,
         "collide_fighters": false,
         "look_ahead": 15,
         "max_marines": 8,
@@ -599,22 +409,12 @@
         "damage": [
             1
         ],
-        "tracking": false,
         "parent_vel": 1.0,
         "speed": 96,
         "life_time": 5,
-        "turn_wait": 0,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Pkunk/A1/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "file_path": "Objects/Ships/Pkunk/A1/"
     },
     "PkunkA2": {
         "ship_name": "Pkunk",
@@ -626,20 +426,8 @@
         "damage": [
             0
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
-        "speed": 0,
-        "life_time": 0,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Pkunk/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
         "has_sprites": false,
         "has_sound": false,
         "ENERGY_GAIN": 2
@@ -654,22 +442,11 @@
         "damage": [
             1
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
         "speed": 96,
         "life_time": 10,
-        "turn_wait": 0,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Shofixti/A1/",
-        "end_anim": 0,
-        "sprite_scale": 1.5,
-        "has_sprites": true,
-        "has_sound": true
+        "sprite_scale": 1.5
     },
     "ShofixtiA2": {
         "ship_name": "Shofixti",
@@ -682,22 +459,12 @@
         "damage": [
             18
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
-        "speed": 0,
         "life_time": 1,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
+        "hit_parent": true,
+        "hit_self": true,
         "omnidirectional": true,
         "frames": 8,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Shofixti/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1,
-        "has_sprites": true,
-        "has_sound": true
+        "file_path": "Objects/Ships/Shofixti/A2/"
     },
     "SpathiA1": {
         "ship_name": "Spathi",
@@ -709,22 +476,10 @@
         "damage": [
             1
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
         "speed": 120,
         "life_time": 10,
-        "turn_wait": 0,
         "inertia": true,
-        "hit_parent": true,
-        "hit_self": true,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Spathi/A1/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "file_path": "Objects/Ships/Spathi/A1/"
     },
     "SpathiA2": {
         "ship_name": "Spathi",
@@ -737,21 +492,13 @@
             2
         ],
         "tracking": true,
-        "parent_vel": 0.0,
         "speed": 32,
         "life_time": 30,
         "turn_wait": 1,
         "inertia": true,
         "hit_parent": true,
         "hit_self": true,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Spathi/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "file_path": "Objects/Ships/Spathi/A2/"
     },
     "SupoxA1": {
         "ship_name": "Supox",
@@ -763,22 +510,12 @@
         "damage": [
             1
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
         "speed": 120,
         "life_time": 10,
         "turn_wait": 1,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Supox/A1/",
-        "end_anim": 5,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "end_anim": 5
     },
     "ThraddashA1": {
         "ship_name": "Thraddash",
@@ -790,22 +527,10 @@
         "damage": [
             1
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
         "speed": 120,
         "life_time": 15,
-        "turn_wait": 0,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Thraddash/A1/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "file_path": "Objects/Ships/Thraddash/A1/"
     },
     "ThraddashA2": {
         "ship_name": "Thraddash",
@@ -831,22 +556,12 @@
             2,
             2
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
-        "speed": 0,
         "life_time": 48,
         "turn_wait": 1,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
         "frames": 8,
         "frame_delay": 5,
         "file_path": "Objects/Ships/Thraddash/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true,
         "REUNK_THRUST": 72,
         "REUNK_INCREMENT": 12
     },
@@ -860,22 +575,9 @@
         "damage": [
             1
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
         "speed": 120,
         "life_time": 10,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Utwig/A1/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true,
         "gun_locations": [
             [
                 49,
@@ -913,22 +615,11 @@
         "damage": [
             0
         ],
-        "tracking": false,
         "parent_vel": 1.0,
-        "speed": 0,
         "life_time": 14,
-        "turn_wait": 0,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Utwig/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": false,
-        "has_sound": true
+        "has_sprites": false
     },
     "VuxA1": {
         "ship_name": "Vux",
@@ -940,22 +631,13 @@
         "damage": [
             1
         ],
-        "tracking": false,
         "parent_vel": 1.0,
         "speed": 120,
         "life_time": 1,
-        "turn_wait": 0,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/Vux/A1/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
         "has_sprites": false,
-        "has_sound": true,
         "LASER_RANGE": 644
     },
     "VuxA2": {
@@ -969,21 +651,10 @@
             0
         ],
         "tracking": true,
-        "parent_vel": 0.0,
         "speed": 25,
         "life_time": 80,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Vux/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "file_path": "Objects/Ships/Vux/A2/"
     },
     "YehatA1": {
         "ship_name": "Yehat",
@@ -995,22 +666,11 @@
         "damage": [
             1
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
         "speed": 80,
         "life_time": 10,
         "turn_wait": 1,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Yehat/A1/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "file_path": "Objects/Ships/Yehat/A1/"
     },
     "YehatA2": {
         "ship_name": "Yehat",
@@ -1022,22 +682,9 @@
         "damage": [
             0
         ],
-        "tracking": false,
         "parent_vel": 1.0,
-        "speed": 0,
         "life_time": 10,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
-        "file_path": "Objects/Ships/Yehat/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "has_sprites": true,
-        "has_sound": true
+        "file_path": "Objects/Ships/Yehat/A2/"
     },
     "ZoqFotA1": {
         "ship_name": "ZoqFot",
@@ -1049,22 +696,13 @@
         "damage": [
             1
         ],
-        "tracking": false,
-        "parent_vel": 0.0,
         "speed": 80,
         "life_time": 10,
         "turn_wait": 1,
         "inertia": true,
-        "hit_parent": false,
-        "hit_self": false,
         "omnidirectional": true,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/ZoqFot/A1/",
-        "end_anim": 0,
         "sprite_scale": 0.7,
-        "has_sprites": true,
-        "has_sound": true,
         "SPREAD_ANGLE": 8
     },
     "ZoqFotA2": {
@@ -1077,26 +715,12 @@
         "damage": [
             12
         ],
-        "tracking": false,
         "parent_vel": 1.0,
-        "speed": 0,
         "life_time": 10,
-        "turn_wait": 0,
-        "inertia": false,
-        "hit_parent": false,
-        "hit_self": false,
-        "omnidirectional": false,
-        "frames": 1,
-        "frame_delay": 0,
         "file_path": "Objects/Ships/ZoqFot/A2/",
-        "end_anim": 0,
-        "sprite_scale": 1.0,
-        "sprite_scale_x": 1.0,
         "sprite_scale_y": 2.5,
         "offset": 0.5,
         "has_sprites": false,
-        "has_sound": true,
-        "collide_planets": true,
         "advancing_frames": 5,
         "retracting_frames": 5,
         "area_width": 12,
