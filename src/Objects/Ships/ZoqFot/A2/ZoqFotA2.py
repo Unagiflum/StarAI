@@ -119,19 +119,7 @@ class ZoqFotA2(Ability):
         if target in self._damaged_targets:
             return 0
 
-        role = target.collision_capabilities.role
-        if role == CollisionRole.ASTEROID:
-            pass
-        elif (
-            role
-            not in (
-                CollisionRole.SHIP,
-                CollisionRole.PROJECTILE,
-                CollisionRole.FIGHTER,
-            )
-            or target.player == self.player
-        ):
-            return 0
+
 
         from src.Battle.collision_geometry import collision_info, objects_overlap
 

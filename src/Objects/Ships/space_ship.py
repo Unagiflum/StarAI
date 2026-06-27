@@ -11,6 +11,7 @@ from src.collision_capabilities import (
     ShipImpactResult,
     PhysicalCollisionCapabilities,
     ImpactCapabilities,
+    DurabilityCapabilities,
 )
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS, SHIPS_DATA
 from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, ActionResult

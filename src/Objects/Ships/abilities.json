@@ -1096,6 +1096,7 @@
         "offset": 0.5,
         "has_sprites": false,
         "has_sound": true,
+        "collide_planets": true,
         "advancing_frames": 5,
         "retracting_frames": 5,
         "area_width": 12,
