@@ -167,16 +167,30 @@ class KzerZaA2(Ability):
         return math.hypot(dx, dy) <= 0.5
 
     def _move_around_planet(self, destination):
-        planet, tangent = self.planet_avoidance
+        planet, direction = self.planet_avoidance
         if not _segment_intersects_body(self.position, destination, planet, self.size):
             self.planet_avoidance = None
             self._move_toward(destination)
             return
 
-        dx, dy = wrapped_delta(self.position, destination)
-        if tangent[0] * dx + tangent[1] * dy < 0:
-            tangent = [-tangent[0], -tangent[1]]
-            self.planet_avoidance = (planet, tangent)
+        cx, cy = wrapped_delta(planet.position, self.position)
+        dist = math.hypot(cx, cy)
+        if dist > 0:
+            normal = [cx / dist, cy / dist]
+            base_tangent = [-normal[1], normal[0]]
+        else:
+            base_tangent = [1.0, 0.0]
+
+        if direction is None:
+            dx, dy = wrapped_delta(self.position, destination)
+            if base_tangent[0] * dx + base_tangent[1] * dy < 0:
+                direction = -1
+            else:
+                direction = 1
+            self.planet_avoidance = (planet, direction)
+
+        tangent = [base_tangent[0] * direction, base_tangent[1] * direction]
+
         self.velocity = [tangent[0] * self.speed, tangent[1] * self.speed]
         self._update_rotation_from_vector(*self.velocity)
         self.position[0] = (
@@ -189,8 +203,7 @@ class KzerZaA2(Ability):
     def handle_planet_contact(self, planet, outward_normal, overlap):
         from src.Battle.collision_responses import separate_from_static_body
         separate_from_static_body(self, planet, outward_normal, overlap, extra_clearance=1.0)
-        tangent = [-outward_normal[1], outward_normal[0]]
-        self.planet_avoidance = (planet, tangent)
+        self.planet_avoidance = (planet, None)
         return True
 
     def _update_weapon(self, target):
