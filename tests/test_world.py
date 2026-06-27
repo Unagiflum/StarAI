@@ -179,6 +179,10 @@ class WorldCharacterizationTests(unittest.TestCase):
 
     def test_battle_initialization_preserves_legacy_object_order(self):
         class Ship:
+            def __init__(self):
+                self.name = "TestShip"
+                self.battles_fought = 0
+                
             def initialize_in_battle(self, position, rotation):
                 self.position = position
                 self.rotation = rotation

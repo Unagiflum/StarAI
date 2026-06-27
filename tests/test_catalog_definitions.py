@@ -73,7 +73,7 @@ class CatalogDefinitionTests(unittest.TestCase):
             "turn_wait", "end_anim", "sprite_scale", "frames", "frame_delay",
             "has_sprites", "has_sound",
         ):
-            ability_data.pop(key)
+            ability_data.pop(key, None)
         ability = parse_ability_definition("TestAbility", ability_data)
         self.assertEqual(ability.turn_wait, 0)
         self.assertEqual(ability.end_anim, 0)

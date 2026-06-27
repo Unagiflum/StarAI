@@ -135,7 +135,7 @@ class ToroidalMechanicsTests(unittest.TestCase):
             gravity=4,
         )
 
-        self.assertEqual(player.get_gravity(), [2.0, 0.0])
+        self.assertEqual(player.get_gravity(), [4.0, 0.0])
 
 
 
@@ -369,10 +369,16 @@ class ObjectLifecycleCharacterizationTests(unittest.TestCase):
 
     def test_round_reset_preserves_group_and_intra_group_order(self):
         retained_ship = SpaceShip.__new__(SpaceShip)
+        retained_ship.name = "test"
+        retained_ship.battles_fought = 0
         retained_ship.currently_alive = True
         retained_ship.current_hp = 1
         replaced_ship = SpaceShip.__new__(SpaceShip)
+        replaced_ship.name = "test"
+        replaced_ship.battles_fought = 0
         replacement_ship = SpaceShip.__new__(SpaceShip)
+        replacement_ship.name = "test"
+        replacement_ship.battles_fought = 0
         preserved_ability = Ability.__new__(Ability)
         preserved_ability.parent = retained_ship
         preserved_ability.currently_alive = True

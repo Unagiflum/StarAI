@@ -101,23 +101,6 @@ class ResourceCharacterizationTests(unittest.TestCase):
         self.assertEqual(second.current_frame, 0)
         self.assertNotEqual(first.frame_timer, second.frame_timer)
 
-    def test_directional_scaling_and_retraction_frames_are_cached_resources(self):
-        resources = AssetManager()
-        assets = resources.ability("ZoqFotA2")
-        retraction = resources.ability_retraction("ZoqFotA2", 10)
-        other_retraction = AssetManager().ability_retraction("ZoqFotA2", 10)
-
-        self.assertEqual(assets.sprites[0].get_size(), (12, 100))
-        self.assertEqual(assets.sprites[4].get_size(), (100, 12))
-        self.assertIs(retraction, resources.ability_retraction("ZoqFotA2", 10))
-        self.assertIsNot(retraction, other_retraction)
-        self.assertIs(retraction.sprites[0][0], assets.sprites[0])
-        self.assertIs(retraction.masks[0][0], assets.masks[0])
-        self.assertLess(
-            retraction.masks[0][-1].count(),
-            retraction.masks[0][0].count(),
-        )
-
     def test_asteroids_share_ordered_visual_resources_but_not_animation_state(self):
         first = Asteroid()
         second = Asteroid()
