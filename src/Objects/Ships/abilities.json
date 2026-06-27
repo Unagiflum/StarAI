@@ -702,7 +702,7 @@
         "inertia": true,
         "omnidirectional": true,
         "file_path": "Objects/Ships/ZoqFot/A1/",
-        "sprite_scale": 0.7,
+        "sprite_scale": 1.0,
         "SPREAD_ANGLE": 8
     },
     "ZoqFotA2": {
