@@ -1,5 +1,7 @@
 import pygame
 import math
+from dataclasses import dataclass
+
 from src.UI import ui
 from src.Battle.status_bar import (
     draw_player_status,
@@ -11,6 +13,11 @@ import src.const as const
 from src.toroidal import view_center_and_size, wrapped_delta, wrapped_midpoint
 from src.Battle.world import World
 from src.Battle.interpolation import interpolated_position
+from src.Battle.effects import BattleEffect
+from src.Objects.object import ThrustMarker
+from src.Objects.Space.space_obj import Asteroid, Planet, Star
+from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.space_ship import SpaceShip
 
 # HUD layout constants
 VIEWPORT_SIZE = 200
@@ -51,6 +58,58 @@ VP_CLIP_RECT = pygame.Rect(
 
 # Cached viewport surface (module-level instead of function attribute).
 _viewport_surface = None
+
+
+@dataclass(frozen=True)
+class RenderSnapshot:
+    stars: tuple
+    planets: tuple
+    thrust_markers: tuple
+    asteroids: tuple
+    abilities: tuple
+    ships: tuple
+    effects: tuple
+    live_ships: tuple
+
+    @classmethod
+    def capture(cls, game_objects):
+        if isinstance(game_objects, cls):
+            return game_objects
+
+        stars = []
+        planets = []
+        thrust_markers = []
+        asteroids = []
+        abilities = []
+        ships = []
+        effects = []
+
+        for obj in World.coerce(game_objects):
+            if isinstance(obj, Star):
+                stars.append(obj)
+            elif isinstance(obj, Planet):
+                planets.append(obj)
+            elif isinstance(obj, ThrustMarker):
+                thrust_markers.append(obj)
+            elif isinstance(obj, Asteroid):
+                asteroids.append(obj)
+            elif isinstance(obj, Ability):
+                abilities.append(obj)
+            elif isinstance(obj, SpaceShip):
+                ships.append(obj)
+            elif isinstance(obj, BattleEffect):
+                effects.append(obj)
+
+        return cls(
+            stars=tuple(stars),
+            planets=tuple(planets),
+            thrust_markers=tuple(thrust_markers),
+            asteroids=tuple(asteroids),
+            abilities=tuple(abilities),
+            ships=tuple(ships),
+            effects=tuple(effects),
+            live_ships=tuple(ship for ship in ships if World.is_alive(ship)),
+        )
 
 
 def _draw_empty_rect(surface, rect, border_color, fill_color):
@@ -167,10 +226,10 @@ class StarFieldRenderer:
 
 
 def calculate_view_parameters(game_objects, camera_targets=None, interp_t=0.0):
-    world = World.coerce(game_objects)
+    snapshot = RenderSnapshot.capture(game_objects)
     targets = camera_targets
     if targets is None:
-        targets = world.live_ships
+        targets = snapshot.live_ships
 
     if len(targets) == 1:
         view_size = (const.SCREEN_HEIGHT / const.MAX_ZOOM) * 1.5
@@ -212,7 +271,7 @@ def calculate_view_parameters(game_objects, camera_targets=None, interp_t=0.0):
 
 def _render_world_to_surface(
     surface,
-    world,
+    snapshot,
     scale_factor,
     translation,
     midpoint,
@@ -226,11 +285,11 @@ def _render_world_to_surface(
 ):
     if not skip_stars:
         star_field_renderer.draw(
-            surface, world.stars, scale_factor, translation, midpoint
+            surface, snapshot.stars, scale_factor, translation, midpoint
         )
 
     if show_gravity_range:
-        for planet in world.planets:
+        for planet in snapshot.planets:
             planet.draw_gravity_range(
                 surface,
                 scale_factor,
@@ -238,16 +297,16 @@ def _render_world_to_surface(
                 interp_t=interp_t,
             )
 
-    for planet in world.planets:
+    for planet in snapshot.planets:
         planet.draw(surface, scale_factor, translation, interp_t=interp_t)
 
-    for marker in world.thrust_markers:
+    for marker in snapshot.thrust_markers:
         marker.draw(surface, scale_factor, translation, interp_t=interp_t)
 
-    for asteroid in world.asteroids:
+    for asteroid in snapshot.asteroids:
         asteroid.draw(surface, scale_factor, translation, interp_t=interp_t)
 
-    for ability in world.abilities:
+    for ability in snapshot.abilities:
         ability.draw(surface, scale_factor, translation, interp_t=interp_t)
 
     entering_ships = set(entry_state.entering_ships if entry_state else ())
@@ -260,13 +319,13 @@ def _render_world_to_surface(
             translation,
         )
 
-    for ship in world.ships:
+    for ship in snapshot.ships:
         if ship not in entering_ships:
             if show_crosshairs and not getattr(ship, "cloaked", False):
                 _draw_dashed_circle(surface, ship, scale_factor, translation, interp_t)
             ship.draw(surface, scale_factor, translation, interp_t=interp_t)
 
-    for effect in world.effects:
+    for effect in snapshot.effects:
         effect.draw(surface, scale_factor, translation, interp_t=interp_t)
 
 
@@ -283,12 +342,12 @@ def draw_battle(
     is_paused=False,
     interp_t=0.0,
 ):
-    world = World.coerce(game_objects)
+    snapshot = RenderSnapshot.capture(game_objects)
     scale_factor, translation = calculate_view_parameters(
-        world, camera_targets, interp_t
+        snapshot, camera_targets, interp_t
     )
 
-    players = world.live_ships
+    players = snapshot.live_ships
     is_mirror = False
     if original_ships and len(original_ships) == 2:
         is_mirror = original_ships[0].name == original_ships[1].name
@@ -307,7 +366,7 @@ def draw_battle(
 
     _render_world_to_surface(
         screen,
-        world,
+        snapshot,
         scale_factor,
         translation,
         midpoint,
@@ -340,7 +399,7 @@ def draw_battle(
 
         live_ship = next((s for s in players if s.player == player_id), None)
         ship_to_track = live_ship or next(
-            (s for s in world.ships if s.player == player_id), None
+            (s for s in snapshot.ships if s.player == player_id), None
         )
 
         # Calculate max height of elements to size the panel
@@ -433,7 +492,7 @@ def draw_battle(
 
             _render_world_to_surface(
                 viewport_surface,
-                world,
+                snapshot,
                 1.0,
                 ship_translation,
                 midpoint,

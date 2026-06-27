@@ -2,6 +2,7 @@ import math
 from src.Objects.object import Object
 import src.const as Const
 import pygame
+import pygame.gfxdraw
 import json
 import random
 from src.collision_capabilities import (
@@ -43,39 +44,51 @@ def _draw_antialiased_dashed_circle(
     width,
     *,
     segment_count=64,
-    dash_fraction=0.2,
+    dash_fraction=1.0,
 ):
-    """Draw a thick dashed circle with antialiased inner and outer edges."""
+    """Draw radially sliced annular dashes with antialiased boundaries."""
     angle_step = 2 * math.pi / segment_count
     half_width = width / 2.0
+    inner_radius = max(0.0, radius - half_width)
+    outer_radius = radius + half_width
     for index in range(0, segment_count, 2):
         start_angle = index * angle_step
         end_angle = (index + dash_fraction) * angle_step
-        arc_length = max(1.0, radius * (end_angle - start_angle))
-        point_count = max(2, int(math.ceil(arc_length / 4.0)) + 1)
-        angles = [
-            start_angle + (end_angle - start_angle) * point / (point_count - 1)
-            for point in range(point_count)
-        ]
+        polygon = _annular_sector_points(
+            center,
+            inner_radius,
+            outer_radius,
+            start_angle,
+            end_angle,
+        )
+        pygame.gfxdraw.filled_polygon(surface, polygon, color)
+        pygame.gfxdraw.aapolygon(surface, polygon, color)
 
-        center_points = [
-            (
-                center[0] + math.cos(angle) * radius,
-                center[1] + math.sin(angle) * radius,
-            )
-            for angle in angles
-        ]
-        pygame.draw.lines(surface, color, False, center_points, width)
 
-        for edge_radius in (radius - half_width, radius + half_width):
-            edge_points = [
-                (
-                    center[0] + math.cos(angle) * edge_radius,
-                    center[1] + math.sin(angle) * edge_radius,
-                )
-                for angle in angles
-            ]
-            pygame.draw.aalines(surface, color, False, edge_points)
+def _annular_sector_points(
+    center,
+    inner_radius,
+    outer_radius,
+    start_angle,
+    end_angle,
+):
+    """Return an annular sector whose closing edges point toward ``center``."""
+    arc_length = max(1.0, outer_radius * (end_angle - start_angle))
+    point_count = max(3, int(math.ceil(arc_length / 4.0)) + 1)
+    angles = [
+        start_angle + (end_angle - start_angle) * point / (point_count - 1)
+        for point in range(point_count)
+    ]
+
+    def point_at(radius, angle):
+        return (
+            round(center[0] + math.cos(angle) * radius),
+            round(center[1] + math.sin(angle) * radius),
+        )
+
+    outer_points = [point_at(outer_radius, angle) for angle in angles]
+    inner_points = [point_at(inner_radius, angle) for angle in reversed(angles)]
+    return outer_points + inner_points
 
 
 class Planet(Object):

@@ -1,4 +1,5 @@
 import os
+import math
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -12,9 +13,21 @@ import pygame
 pygame.init()
 
 import src.const as const
-from src.Battle.battle_draw import StarFieldRenderer, _render_world_to_surface
-from src.Objects.Space.space_obj import Star
-from src.Objects.Space.space_obj import _circle_outline_intersects_rect
+from src.Battle.battle_draw import (
+    RenderSnapshot,
+    StarFieldRenderer,
+    _render_world_to_surface,
+)
+from src.Battle.effects import BattleEffect
+from src.Objects.object import ThrustMarker
+from src.Objects.Space.space_obj import Asteroid, Planet, Star
+from src.Objects.Space.space_obj import (
+    _annular_sector_points,
+    _circle_outline_intersects_rect,
+    _draw_antialiased_dashed_circle,
+)
+from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.space_ship import SpaceShip
 
 
 class StarGenerationTests(unittest.TestCase):
@@ -40,6 +53,30 @@ class StarGenerationTests(unittest.TestCase):
 
 
 class StarFieldRendererTests(unittest.TestCase):
+    def test_render_snapshot_classifies_the_world_once_into_stable_tuples(self):
+        star = Star.__new__(Star)
+        planet = Planet.__new__(Planet)
+        marker = ThrustMarker.__new__(ThrustMarker)
+        asteroid = Asteroid.__new__(Asteroid)
+        ability = Ability.__new__(Ability)
+        ship = SpaceShip.__new__(SpaceShip)
+        ship.currently_alive = True
+        ship.current_hp = 1
+        effect = BattleEffect.__new__(BattleEffect)
+        objects = [star, planet, marker, asteroid, ability, ship, effect]
+
+        snapshot = RenderSnapshot.capture(objects)
+        objects.clear()
+
+        self.assertEqual(snapshot.stars, (star,))
+        self.assertEqual(snapshot.planets, (planet,))
+        self.assertEqual(snapshot.thrust_markers, (marker,))
+        self.assertEqual(snapshot.asteroids, (asteroid,))
+        self.assertEqual(snapshot.abilities, (ability,))
+        self.assertEqual(snapshot.ships, (ship,))
+        self.assertEqual(snapshot.effects, (effect,))
+        self.assertEqual(snapshot.live_ships, (ship,))
+
     def test_renderer_does_not_allocate_full_screen_depth_surfaces(self):
         renderer = StarFieldRenderer()
 
@@ -100,6 +137,37 @@ class StarFieldRendererTests(unittest.TestCase):
         self.assertTrue(
             _circle_outline_intersects_rect((150, 50), 50, 2, viewport)
         )
+
+    def test_gravity_dash_polygon_has_radial_closing_edges(self):
+        polygon = _annular_sector_points(
+            (100, 100),
+            80,
+            100,
+            0,
+            math.pi / 2,
+        )
+        midpoint = len(polygon) // 2
+
+        self.assertEqual((polygon[0], polygon[-1]), ((200, 100), (180, 100)))
+        self.assertEqual(
+            (polygon[midpoint - 1], polygon[midpoint]),
+            ((100, 200), (100, 180)),
+        )
+
+    def test_gravity_dashes_do_not_draw_streaks_inside_the_annulus(self):
+        surface = pygame.Surface((400, 400), pygame.SRCALPHA)
+
+        _draw_antialiased_dashed_circle(
+            surface,
+            (255, 0, 0, 150),
+            (200, 200),
+            150,
+            10,
+        )
+
+        self.assertEqual(surface.get_at((200, 200)).a, 0)
+        self.assertEqual(surface.get_at((200, 100)).a, 0)
+        self.assertGreater(surface.get_at((350, 200)).a, 0)
 
 
 if __name__ == "__main__":
