@@ -392,16 +392,46 @@ class Ability(PlayerObject):
         length = math.hypot(dx, dy)
         if length == 0:
             return
-        nx = dy / length
-        ny = -dx / length
+            
+        # Draw at 2x scale for anti-aliasing
+        scale = 2
+        w = width * scale
+        l = length * scale
         
-        half_width = width / 2
-        p1 = (start_pos[0] + nx * half_width, start_pos[1] + ny * half_width)
-        p2 = (start_pos[0] - nx * half_width, start_pos[1] - ny * half_width)
-        p3 = (end_pos[0] - nx * half_width, end_pos[1] - ny * half_width)
-        p4 = (end_pos[0] + nx * half_width, end_pos[1] + ny * half_width)
+        # Surface width: l + w/2 (half-circle tip) + scale (right border). Left edge has no border.
+        surf_w = int(l + w/2 + scale)
+        surf_h = int(w + 2 * scale)
         
-        points = [p1, p2, p3, p4]
+        # Create surface with per-pixel alpha
+        surf = pygame.Surface((surf_w, surf_h), pygame.SRCALPHA)
         
-        pygame.draw.polygon(screen, color, points)
-        pygame.draw.aalines(screen, color, True, points)
+        # Inner rect: starts at x=0 (flat base). Half-circle only on the right.
+        inner_rect = pygame.Rect(0, scale, int(l + w/2), int(w))
+        pygame.draw.rect(surf, color, inner_rect, 
+                         border_top_right_radius=int(w // 2),
+                         border_bottom_right_radius=int(w // 2))
+        
+        # Outer border
+        border_color = (*color[:3], 128)
+        # Start at x=-scale so the left border is drawn completely outside the surface bounds
+        border_rect = pygame.Rect(-scale, 0, int(l + w/2 + 2*scale), surf_h)
+        pygame.draw.rect(surf, border_color, border_rect, width=scale, 
+                         border_top_right_radius=int((w + 2*scale) // 2),
+                         border_bottom_right_radius=int((w + 2*scale) // 2))
+        
+        # Calculate angle
+        angle = math.degrees(math.atan2(-dy, dx))
+        
+        # Rotate and downscale
+        rotated_surf = pygame.transform.rotozoom(surf, angle, 1.0 / scale)
+        
+        # Calculate world center position to perfectly anchor the flat base at start_pos
+        nx = dx / length
+        ny = dy / length
+        dist_to_center = surf_w / (2.0 * scale)
+        world_center_x = start_pos[0] + nx * dist_to_center
+        world_center_y = start_pos[1] + ny * dist_to_center
+        
+        # Blit
+        rot_rect = rotated_surf.get_rect(center=(world_center_x, world_center_y))
+        screen.blit(rotated_surf, rot_rect)
