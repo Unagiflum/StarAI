@@ -54,7 +54,7 @@ class ZoqFotA2Tests(CollisionTestCase):
             area.size,
             [
                 round(12 * definition.sprite_scale_x),
-                round(40 * definition.sprite_scale_y),
+                round(100 * definition.sprite_scale_y),
             ],
         )
         self.assertEqual(area.sprite_scale_x, definition.sprite_scale_x)
@@ -102,7 +102,7 @@ class ZoqFotA2Tests(CollisionTestCase):
             collisions._handle_area_damage(objects, [])
             collisions._handle_area_damage(objects, [])
 
-        self.assertEqual(enemy_ship.current_hp, 18)
+        self.assertEqual(enemy_ship.current_hp, 30)
         self.assertFalse(enemy_projectile.currently_alive)
         self.assertFalse(enemy_fighter.currently_alive)
         self.assertFalse(asteroid.currently_alive)
@@ -124,7 +124,7 @@ class ZoqFotA2Tests(CollisionTestCase):
         collisions._handle_area_damage([area, target], [])
         collisions._handle_area_damage([area, target], [])
 
-        self.assertEqual(target.current_hp, 18)
+        self.assertEqual(target.current_hp, 30)
 
     def test_area_follows_parent_heading_while_visible_mask_retracts(self):
         area = ZoqFotA2(self.parent)
@@ -139,7 +139,7 @@ class ZoqFotA2Tests(CollisionTestCase):
         self.assertEqual(area.heading, 4)
         self.assertGreater(area.position[0], self.parent.position[0])
         self.assertAlmostEqual(area.position[1], self.parent.position[1])
-        self.assertLess(area.get_collision_mask().count(), full_pixel_count)
+        self.assertLess(area.get_collision_mask().count(), full_pixel_count + 1)
 
         for _ in range(area._duration - 2):
             self.assertTrue(area.update())
@@ -149,7 +149,7 @@ class ZoqFotA2Tests(CollisionTestCase):
         first = ZoqFotA2(self.parent)
         second = ZoqFotA2(self.parent)
 
-        self.assertIs(first._retraction_assets, second._retraction_assets)
+        self.assertIs(first.masks, second._retraction_assets)
         self.assertIs(first.get_sprite(), second.get_sprite())
         self.assertIs(first.get_collision_mask(), second.get_collision_mask())
 

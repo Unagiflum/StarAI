@@ -31,9 +31,9 @@ def apply_laser_response(laser, target, effects, policy):
 
 def laser_targets_from_policies(laser, ships, projectiles, special_objects, asteroids, planets):
     policies = {
-        CollisionRole.SHIP: collision_responses.ship_is_laser_target,
-        CollisionRole.PROJECTILE: collision_responses.projectile_is_laser_target,
-        CollisionRole.SPECIAL_OBJECT: collision_responses.fighter_is_laser_target,
+        CollisionRole.SHIP: collision_responses.generic_is_laser_target,
+        CollisionRole.PROJECTILE: collision_responses.generic_is_laser_target,
+        CollisionRole.SPECIAL_OBJECT: collision_responses.generic_is_laser_target,
         CollisionRole.ASTEROID: collision_responses.asteroid_is_laser_target,
         CollisionRole.PLANET: collision_responses.planet_is_laser_target,
     }
@@ -65,7 +65,7 @@ class CollisionResponseSmokeTests(unittest.TestCase):
         ship.current_hp = 10
         planet = body([115, 100], [0.0, 0.0])
         with mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.ship_impacts_planet(ship, planet, [], None)
+            self.resolve_collision(ship, planet, [], ships=[ship, planet])
         self.assertEqual([-1.0, 0.0], ship.velocity)
         self.assertEqual([-1.0, 0.0], ship.collision_velocity)
 
@@ -114,7 +114,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         second.position = [115, 100]
         first.velocity = [1.0, 0.0]
         second.velocity = [-1.0, 0.0]
-        collision_responses.ship_impacts_ship(first, second, [], None)
+        self.resolve_collision(first, second, [], ships=[first, second])
         self.assertEqual(first.velocity, [-1.0, 0.0])
         self.assertEqual(second.velocity, [1.0, 0.0])
         self.assertEqual(first.position, [97.5, 100.0])
@@ -130,7 +130,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         second.velocity = [-1.0, 0.0]
         first.mass = 1.0
         second.mass = 3.0
-        collision_responses.ship_impacts_ship(first, second, [], None)
+        self.resolve_collision(first, second, [], ships=[first, second])
         self.assertEqual(first.velocity, [-2.0, 0.0])
         self.assertEqual(second.velocity, [0.0, 0.0])
         self.assertEqual(first.position, [96.25, 100.0])
@@ -143,7 +143,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         second.position = [const.ARENA_SIZE - 5, 100]
         first.velocity = [-1.0, 0.0]
         second.velocity = [1.0, 0.0]
-        collision_responses.ship_impacts_ship(first, second, [], None)
+        self.resolve_collision(first, second, [], ships=[first, second])
         self.assertEqual(first.velocity, [1.0, 0.0])
         self.assertEqual(second.velocity, [-1.0, 0.0])
         self.assertEqual(first.position, [10.0, 100.0])
@@ -156,7 +156,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         second.position = [200, 100]
         first.velocity = [1.0, 0.0]
         second.velocity = [-1.0, 0.0]
-        collision_responses.ship_impacts_ship(first, second, [], None)
+        self.resolve_collision(first, second, [], ships=[first, second])
         self.assertEqual(first.velocity, [1.0, 0.0])
         self.assertEqual(second.velocity, [-1.0, 0.0])
         self.assertEqual(first.position, [100, 100])
@@ -171,7 +171,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         second.velocity = [-1.0, 0.0]
         first.on_ship_impact = mock.Mock(return_value=ShipImpactResult(damage_to_other=3))
         with mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.ship_impacts_ship(first, second, [], None)
+            self.resolve_collision(first, second, [], ships=[first, second])
         self.assertEqual(first.current_hp, 10)
         self.assertEqual(second.current_hp, 7)
         play_boom.assert_called_once_with(3)
@@ -189,7 +189,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         ship.velocity = [1.0, 0.0]
         ship.mass = 1.0
         asteroid.velocity = [-1.0, 0.0]
-        collision_responses.ship_impacts_asteroid(ship, asteroid, [], None)
+        self.resolve_collision(ship, asteroid, [], ships=[ship, asteroid])
         self.assertAlmostEqual(ship.velocity[0], 1 / 3)
         self.assertAlmostEqual(asteroid.velocity[0], 7 / 3)
         self.assertAlmostEqual(ship.position[0], 100 - 5 / 6)
@@ -203,7 +203,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         ship.velocity = [1.0, 0.0]
         asteroid.velocity = [-1.0, 0.0]
         asteroid.currently_alive = False
-        collision_responses.ship_impacts_asteroid(ship, asteroid, [], None)
+        self.resolve_collision(ship, asteroid, [], ships=[ship, asteroid])
         self.assertEqual(ship.velocity, [1.0, 0.0])
         self.assertEqual(asteroid.velocity, [-1.0, 0.0])
         self.assertEqual(ship.position, [100, 100])
@@ -215,7 +215,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         ship.position = [100, 100]
         ship.velocity = [1.0, 0.0]
         with mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.ship_impacts_planet(ship, planet, [], None)
+            self.resolve_collision(ship, planet, [], ships=[ship, planet])
         self.assertEqual(ship.velocity, [-1.0, 0.0])
         self.assertEqual(ship.position, [95.0, 100.0])
         self.assertEqual(ship.current_hp, 8)
@@ -228,10 +228,10 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         ship.position = [100, 100]
         ship.velocity = [1.0, 0.0]
         with mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.ship_impacts_planet(ship, planet, [], None)
+            self.resolve_collision(ship, planet, [], ships=[ship, planet])
             ship.position = [100, 100]
             ship.velocity = [1.0, 0.0]
-            collision_responses.ship_impacts_planet(ship, planet, [], None)
+            self.resolve_collision(ship, planet, [], ships=[ship, planet])
         self.assertEqual(ship.velocity, [0.0, 0.0])
         self.assertEqual(ship.position, [95.0, 100.0])
         self.assertEqual(ship.current_hp, 8)
@@ -243,7 +243,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         ship.position = [100, 100]
         ship.velocity = [-1.0, 0.0]
         with mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.ship_impacts_planet(ship, planet, [], None)
+            self.resolve_collision(ship, planet, [], ships=[ship, planet])
         self.assertEqual(ship.velocity, [-1.0, 0.0])
         self.assertEqual(ship.current_hp, 10)
         self.assertEqual(ship.planet_contacts, {id(planet)})
@@ -254,10 +254,10 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         planet = self.make_planet([100, 100])
         ship.planet_contacts.add(id(planet))
         ship.position = [123, 100]
-        collision_responses.ship_impacts_planet(ship, planet, [], None)
+        self.resolve_collision(ship, planet, [], ships=[ship, planet])
         self.assertEqual(ship.planet_contacts, {id(planet)})
         ship.position = [125, 100]
-        collision_responses.ship_impacts_planet(ship, planet, [], None)
+        self.resolve_collision(ship, planet, [], ships=[ship, planet])
         self.assertEqual(ship.planet_contacts, set())
 
     def test_planet_contact_uses_wrapped_geometry(self):
@@ -266,7 +266,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         ship.position = [5, 100]
         ship.velocity = [-1.0, 0.0]
         with mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.ship_impacts_planet(ship, planet, [], None)
+            self.resolve_collision(ship, planet, [], ships=[ship, planet])
         self.assertEqual(ship.velocity, [1.0, 0.0])
         self.assertEqual(ship.position, [15.0, 100.0])
         self.assertEqual(ship.current_hp, 8)
@@ -279,7 +279,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         ship_mask = pygame.mask.Mask((20, 20), fill=False)
         planet.mask = pygame.mask.Mask((20, 20), fill=True)
         ship.get_collision_mask = lambda: ship_mask
-        collision_responses.ship_impacts_planet(ship, planet, [], None)
+        self.resolve_collision(ship, planet, [], ships=[ship, planet])
         self.assertEqual(ship.velocity, [1.0, 0.0])
         self.assertEqual(ship.current_hp, 10)
         self.assertEqual(ship.planet_contacts, set())
@@ -291,7 +291,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         ship.velocity = [1.0, 0.0]
         ship.inertia = False
         with mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.ship_impacts_planet(ship, planet, [], None)
+            self.resolve_collision(ship, planet, [], ships=[ship, planet])
         self.assertEqual(ship.velocity, [-1.0, 0.0])
         self.assertEqual(ship.collision_velocity, [-1.0, 0.0])
 
@@ -306,7 +306,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         self.assertFalse(asteroid.currently_alive)
         self.assertEqual(effects, [sentinel_effect])
         from_animation.assert_called_once_with(asteroid.position, asteroid.death_animation)
-        play_boom.assert_called_once_with(1)
+        play_boom.assert_called_once_with(1, attached_target=mock.ANY)
 
     def test_offscreen_asteroid_planet_contact_is_silent(self):
         asteroid = self.make_asteroid([100, 100])
@@ -341,7 +341,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         special_object = self.make_fighter()
         planet = self.make_planet([115, 100])
         special_object.begin_planet_avoidance = mock.Mock()
-        collision_responses.fighter_impacts_planet(special_object, planet, [], None)
+        self.resolve_collision(special_object, planet, [], ships=[special_object, planet])
         self.assertEqual(special_object.position, [94.0, 100.0])
         self.assertTrue(special_object.currently_alive)
         special_object.begin_planet_avoidance.assert_called_once_with(planet, [-1.0, 0.0])
@@ -350,14 +350,14 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         special_object = self.make_fighter(collides_with_planets=False)
         planet = self.make_planet([115, 100])
         special_object.begin_planet_avoidance = mock.Mock()
-        collision_responses.fighter_impacts_planet(special_object, planet, [], None)
+        self.resolve_collision(special_object, planet, [], ships=[special_object, planet])
         self.assertEqual(special_object.position, [100, 100])
         special_object.begin_planet_avoidance.assert_not_called()
 
     def test_fighter_planet_collision_defaults_to_enabled(self):
         special_object = self.make_fighter()
         planet = self.make_planet([115, 100])
-        collision_responses.fighter_impacts_planet(special_object, planet, [], None)
+        self.resolve_collision(special_object, planet, [], ships=[special_object, planet])
         self.assertEqual(special_object.position, [94.0, 100.0])
 
     def test_swept_fighter_planet_contact_begins_avoidance(self):
@@ -367,7 +367,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         special_object.previous_position = [100, 100]
         special_object.position = [200, 100]
         special_object.begin_planet_avoidance = mock.Mock()
-        collision_responses.fighter_impacts_planet(special_object, planet, [], None)
+        self.resolve_collision(special_object, planet, [], ships=[special_object, planet])
         self.assertEqual(special_object.position, [200, 100])
         special_object.begin_planet_avoidance.assert_called_once_with(planet, [1.0, 0.0])
 
@@ -376,7 +376,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         planet = self.make_planet([const.ARENA_SIZE - 5, 100])
         special_object.position = [5, 100]
         special_object.previous_position = special_object.position.copy()
-        collision_responses.fighter_impacts_planet(special_object, planet, [], None)
+        self.resolve_collision(special_object, planet, [], ships=[special_object, planet])
         self.assertEqual(special_object.position, [16.0, 100.0])
 
     def test_fighter_asteroid_contact_destroys_both_by_default(self):
@@ -385,17 +385,17 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         effects = []
         sentinel_effect = object()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast', return_value=sentinel_effect), mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.fighter_impacts_asteroid(special_object, asteroid, effects, None)
+            self.resolve_collision(special_object, asteroid, effects, ships=[special_object, asteroid])
         self.assertFalse(special_object.currently_alive)
         self.assertFalse(asteroid.currently_alive)
         self.assertEqual(effects, [sentinel_effect])
-        play_boom.assert_called_once_with(1)
+        play_boom.assert_called_once_with(1, attached_target=mock.ANY)
 
     def test_fighter_can_collide_without_damaging_asteroid(self):
         special_object = self.make_fighter(damages_asteroids=False)
         asteroid = self.make_asteroid([108, 100])
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.fighter_impacts_asteroid(special_object, asteroid, [], None)
+            self.resolve_collision(special_object, asteroid, [], ships=[special_object, asteroid])
         self.assertFalse(special_object.currently_alive)
         self.assertTrue(asteroid.currently_alive)
 
@@ -403,7 +403,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         special_object = self.make_fighter(collides_with_asteroids=False)
         asteroid = self.make_asteroid([108, 100])
         with mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.fighter_impacts_asteroid(special_object, asteroid, [], None)
+            self.resolve_collision(special_object, asteroid, [], ships=[special_object, asteroid])
         self.assertTrue(special_object.currently_alive)
         self.assertTrue(asteroid.currently_alive)
         play_boom.assert_not_called()
@@ -416,7 +416,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         special_object.previous_position = [100, 100]
         special_object.position = [200, 100]
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.fighter_impacts_asteroid(special_object, asteroid, [], None)
+            self.resolve_collision(special_object, asteroid, [], ships=[special_object, asteroid])
         self.assertFalse(special_object.currently_alive)
         self.assertFalse(asteroid.currently_alive)
 
@@ -429,11 +429,11 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         effects = []
         sentinel_effect = object()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast', return_value=sentinel_effect), mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.fighter_impacts_projectile(special_object, projectile, effects, None)
+            self.resolve_collision(special_object, projectile, effects, ships=[special_object, projectile])
         self.assertFalse(special_object.currently_alive)
         self.assertFalse(projectile.currently_alive)
         self.assertEqual(effects, [sentinel_effect, sentinel_effect])
-        play_boom.assert_called_once_with(1)
+        play_boom.assert_called_once_with(1, attached_target=mock.ANY)
 
     def test_fighter_can_collide_without_damaging_projectile(self):
         special_object = self.make_fighter(damages_projectiles=False)
@@ -442,7 +442,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         projectile.position = [108, 100]
         projectile.previous_position = projectile.position.copy()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.fighter_impacts_projectile(special_object, projectile, [], None)
+            self.resolve_collision(special_object, projectile, [], ships=[special_object, projectile])
         self.assertFalse(special_object.currently_alive)
         self.assertTrue(projectile.currently_alive)
         self.assertEqual(projectile.current_hp, 1)
@@ -454,7 +454,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         projectile.position = [108, 100]
         projectile.previous_position = projectile.position.copy()
         with mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.fighter_impacts_projectile(special_object, projectile, [], None)
+            self.resolve_collision(special_object, projectile, [], ships=[special_object, projectile])
         self.assertTrue(special_object.currently_alive)
         self.assertTrue(projectile.currently_alive)
         play_boom.assert_not_called()
@@ -468,7 +468,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         projectile.current_hp = 3
         projectile.hp_array = [3]
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.fighter_impacts_projectile(special_object, projectile, [], None)
+            self.resolve_collision(special_object, projectile, [], ships=[special_object, projectile])
         self.assertFalse(special_object.currently_alive)
         self.assertTrue(projectile.currently_alive)
         self.assertEqual(projectile.current_hp, 2)
@@ -484,7 +484,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         projectile.previous_position = [150, 100]
         projectile.position = [150, 100]
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.fighter_impacts_projectile(special_object, projectile, [], None)
+            self.resolve_collision(special_object, projectile, [], ships=[special_object, projectile])
         self.assertFalse(special_object.currently_alive)
         self.assertFalse(projectile.currently_alive)
 
@@ -499,11 +499,11 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         effects = []
         sentinel_effect = object()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast', return_value=sentinel_effect), mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.fighter_impacts_ship(special_object, target, effects, None)
+            self.resolve_collision(special_object, target, effects, ships=[special_object, target])
         self.assertEqual(target.current_hp, 9)
         self.assertFalse(special_object.currently_alive)
         self.assertEqual(effects, [sentinel_effect])
-        play_boom.assert_called_once_with(1)
+        play_boom.assert_called_once_with(1, attached_target=mock.ANY)
 
     def test_fighter_ignores_friendly_ship_by_default(self):
         special_object = self.make_fighter()
@@ -513,7 +513,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         friendly.player = 1
         friendly.position = [108, 100]
         special_object.parent = parent
-        collision_responses.fighter_impacts_ship(special_object, friendly, [], None)
+        self.resolve_collision(special_object, friendly, [], ships=[special_object, friendly])
         self.assertEqual(friendly.current_hp, 10)
         self.assertTrue(special_object.currently_alive)
 
@@ -526,7 +526,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         friendly.position = [108, 100]
         special_object.parent = parent
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.fighter_impacts_ship(special_object, friendly, [], None)
+            self.resolve_collision(special_object, friendly, [], ships=[special_object, friendly])
         self.assertEqual(friendly.current_hp, 9)
         self.assertFalse(special_object.currently_alive)
 
@@ -538,7 +538,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         enemy.player = 2
         enemy.position = [108, 100]
         special_object.parent = parent
-        collision_responses.fighter_impacts_ship(special_object, enemy, [], None)
+        self.resolve_collision(special_object, enemy, [], ships=[special_object, enemy])
         self.assertEqual(enemy.current_hp, 10)
         self.assertTrue(special_object.currently_alive)
 
@@ -552,7 +552,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         special_object.parent = parent
         special_object.mode = special_object.ATTACKING
         special_object.return_sound = None
-        collision_responses.fighter_impacts_ship(special_object, parent, [], None)
+        self.resolve_collision(special_object, parent, [], ships=[special_object, parent])
         self.assertEqual(parent.current_hp, 5)
         self.assertTrue(special_object.currently_alive)
 
@@ -566,7 +566,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         special_object.parent = parent
         special_object.mode = special_object.RETURNING
         special_object.return_sound = None
-        collision_responses.fighter_impacts_ship(special_object, parent, [], None)
+        self.resolve_collision(special_object, parent, [], ships=[special_object, parent])
         self.assertEqual(parent.current_hp, 6)
         self.assertFalse(special_object.currently_alive)
         self.assertEqual(special_object.current_hp, 0)
@@ -585,7 +585,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         enemy.previous_position = [150, 100]
         enemy.position = [150, 100]
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.fighter_impacts_ship(special_object, enemy, [], None)
+            self.resolve_collision(special_object, enemy, [], ships=[special_object, enemy])
         self.assertEqual(enemy.current_hp, 9)
         self.assertFalse(special_object.currently_alive)
 
@@ -597,11 +597,11 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         effects = []
         sentinel_effect = object()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast', return_value=sentinel_effect), mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.fighter_impacts_fighter(first, second, effects, None)
+            self.resolve_collision(first, second, effects, ships=[first, second])
         self.assertFalse(first.currently_alive)
         self.assertFalse(second.currently_alive)
         self.assertEqual(effects, [sentinel_effect, sentinel_effect])
-        play_boom.assert_called_once_with(1)
+        play_boom.assert_called_once_with(1, attached_target=mock.ANY)
 
     def test_one_sided_fighter_collision_only_damages_disabled_fighter(self):
         first = self.make_fighter()
@@ -611,7 +611,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         second.position = [108, 100]
         second.previous_position = second.position.copy()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.fighter_impacts_fighter(first, second, [], None)
+            self.resolve_collision(first, second, [], ships=[first, second])
         self.assertTrue(first.currently_alive)
         self.assertEqual(first.current_hp, 3)
         self.assertFalse(second.currently_alive)
@@ -623,7 +623,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         second.position = [108, 100]
         second.previous_position = second.position.copy()
         with mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.fighter_impacts_fighter(first, second, [], None)
+            self.resolve_collision(first, second, [], ships=[first, second])
         self.assertTrue(first.currently_alive)
         self.assertTrue(second.currently_alive)
         play_boom.assert_not_called()
@@ -636,7 +636,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         second.position = [108, 100]
         second.previous_position = second.position.copy()
         with mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.fighter_impacts_fighter(first, second, [], None)
+            self.resolve_collision(first, second, [], ships=[first, second])
         self.assertEqual(first.current_hp, 2)
         self.assertEqual(second.current_hp, 2)
         self.assertTrue(first.currently_alive)
@@ -652,7 +652,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         second.previous_position = [150, 100]
         second.position = [150, 100]
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.fighter_impacts_fighter(first, second, [], None)
+            self.resolve_collision(first, second, [], ships=[first, second])
         self.assertFalse(first.currently_alive)
         self.assertFalse(second.currently_alive)
 
@@ -736,7 +736,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         effects = []
         sentinel_effect = object()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast', return_value=sentinel_effect) as from_blast, mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            apply_laser_response(laser, target, effects, collision_responses.laser_impacts_ship)
+            self.resolve_collision(laser, target, effects, ships=[target])
         self.assertEqual(target.current_hp, 8)
         self.assertEqual(laser.end_position, [140.0, 100.0])
         self.assertTrue(laser.intercepted)
@@ -750,7 +750,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         laser = self.make_laser(parent)
         planet = self.make_planet([150, 100])
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            apply_laser_response(laser, planet, [], collision_responses.laser_impacts_planet)
+            self.resolve_collision(laser, planet, [], ships=[])
         self.assertFalse(hasattr(planet, 'current_hp'))
         self.assertTrue(laser.intercepted)
 
@@ -766,7 +766,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         effects = []
         sentinel_effect = object()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast', return_value=sentinel_effect), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            apply_laser_response(laser, projectile, effects, collision_responses.laser_impacts_ability)
+            self.resolve_collision(laser, projectile, effects, ships=[projectile])
         self.assertFalse(projectile.currently_alive)
         self.assertEqual(projectile.current_hp, 0)
         self.assertEqual(effects, [sentinel_effect, sentinel_effect])
@@ -779,7 +779,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         special_object.position = [150, 100]
         special_object.previous_position = special_object.position.copy()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            apply_laser_response(laser, special_object, [], collision_responses.laser_impacts_ability)
+            self.resolve_collision(laser, special_object, [], ships=[special_object])
         self.assertFalse(special_object.currently_alive)
         self.assertEqual(special_object.current_hp, 0)
 
@@ -795,7 +795,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         projectile.current_hp = 3
         projectile.set_hp = mock.Mock()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            apply_laser_response(laser, projectile, [], collision_responses.laser_impacts_ability)
+            self.resolve_collision(laser, projectile, [], ships=[projectile])
         self.assertTrue(projectile.currently_alive)
         self.assertEqual(projectile.current_hp, 1)
         projectile.set_hp.assert_not_called()
@@ -804,7 +804,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         first, second = self.make_projectile_pair(first_hp=10, second_hp=3, first_damage=4, second_damage=2)
         effects = []
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.projectile_impacts_projectile(first, second, effects, None)
+            self.resolve_collision(first, second, effects, ships=[first, second])
         self.assertTrue(first.currently_alive)
         self.assertEqual(first.current_hp, 8)
         self.assertFalse(second.currently_alive)
@@ -814,7 +814,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
     def test_second_enemy_projectile_with_greater_remaining_hp_survives(self):
         first, second = self.make_projectile_pair(first_hp=3, second_hp=10, first_damage=2, second_damage=4)
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.projectile_impacts_projectile(first, second, [], None)
+            self.resolve_collision(first, second, [], ships=[first, second])
         self.assertFalse(first.currently_alive)
         self.assertTrue(second.currently_alive)
         self.assertEqual(second.current_hp, 8)
@@ -822,14 +822,14 @@ class CollisionResponsePolicyTests(CollisionTestCase):
     def test_equal_positive_projectile_hp_after_impact_destroys_both(self):
         first, second = self.make_projectile_pair(first_hp=5, second_hp=5, first_damage=2, second_damage=2)
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.projectile_impacts_projectile(first, second, [], None)
+            self.resolve_collision(first, second, [], ships=[first, second])
         self.assertFalse(first.currently_alive)
         self.assertFalse(second.currently_alive)
 
     def test_same_name_enemy_projectiles_destroy_each_other_regardless_of_hp(self):
         first, second = self.make_projectile_pair(first_name='MatchingProjectile', second_name='MatchingProjectile', first_hp=10, second_hp=10, first_damage=1, second_damage=1)
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.projectile_impacts_projectile(first, second, [], None)
+            self.resolve_collision(first, second, [], ships=[first, second])
         self.assertFalse(first.currently_alive)
         self.assertFalse(second.currently_alive)
 
@@ -841,7 +841,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
                 first.hit_self = first_hit_self
                 second.hit_self = second_hit_self
                 with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-                    collision_responses.projectile_impacts_projectile(first, second, [], None)
+                    self.resolve_collision(first, second, [], ships=[first, second])
                 self.assertTrue(first.currently_alive)
                 self.assertTrue(second.currently_alive)
 
@@ -850,7 +850,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         first.hit_self = True
         second.hit_self = True
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.projectile_impacts_projectile(first, second, [], None)
+            self.resolve_collision(first, second, [], ships=[first, second])
         self.assertFalse(first.currently_alive)
         self.assertFalse(second.currently_alive)
 
@@ -863,7 +863,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         second.previous_position = [150, 100]
         second.position = [150, 100]
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.projectile_impacts_projectile(first, second, [], None)
+            self.resolve_collision(first, second, [], ships=[first, second])
         self.assertFalse(first.currently_alive)
         self.assertFalse(second.currently_alive)
 
@@ -875,7 +875,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         effects = []
         sentinel_effect = object()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast', return_value=sentinel_effect), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.projectile_impacts_ship(projectile, target, effects, None)
+            self.resolve_collision(projectile, target, effects, ships=[projectile, target])
         self.assertEqual(target.current_hp, 6)
         self.assertFalse(projectile.currently_alive)
         self.assertEqual(effects, [sentinel_effect])
@@ -887,7 +887,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         target.add_impulse = mock.Mock()
         projectile = self.make_projectile(parent)
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.projectile_impacts_ship(projectile, target, [], None)
+            self.resolve_collision(projectile, target, [], ships=[projectile, target])
         target.add_impulse.assert_not_called()
 
     def test_druuge_projectile_ship_impact_adds_projectile_momentum(self):
@@ -902,7 +902,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         projectile.RECOIL_INCREMENT = 24
         projectile.velocity = [3, 4]
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast'), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.projectile_impacts_ship(projectile, target, [], None)
+            self.resolve_collision(projectile, target, [], ships=[projectile, target])
         target.add_impulse.assert_called_once_with(7.2, 9.6)
 
     def test_projectile_impact_with_planet_destroys_projectile_at_contact(self):
@@ -914,12 +914,12 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         effects = []
         sentinel_effect = object()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast', return_value=sentinel_effect) as from_blast, mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.projectile_impacts_planet(projectile, planet, effects, None)
+            self.resolve_collision(projectile, planet, effects, ships=[projectile, planet])
         self.assertFalse(projectile.currently_alive)
         self.assertEqual(projectile.current_hp, 0)
         self.assertEqual(effects, [sentinel_effect])
         play_boom.assert_called_once_with(4)
-        from_blast.assert_called_once_with([98.0, 100.0], [-1.0, 0.0], 4)
+        from_blast.assert_called_once_with([98.0, 100.0], [-1.0, 0.0], 4, attached_target=mock.ANY)
 
     def test_swept_projectile_impact_with_planet_is_not_tunneled(self):
         parent = self.make_ship()
@@ -931,7 +931,7 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         effects = []
         sentinel_effect = object()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast', return_value=sentinel_effect), mock.patch.object(collision_responses.BattleEffect, 'play_boom'):
-            collision_responses.projectile_impacts_planet(projectile, planet, effects, None)
+            self.resolve_collision(projectile, planet, effects, ships=[projectile, planet])
         self.assertFalse(projectile.currently_alive)
         self.assertEqual(effects, [sentinel_effect])
 
@@ -944,11 +944,11 @@ class CollisionResponsePolicyTests(CollisionTestCase):
         effects = []
         sentinel_effect = object()
         with mock.patch.object(collision_responses.BattleEffect, 'from_blast', return_value=sentinel_effect) as from_blast, mock.patch.object(collision_responses.BattleEffect, 'play_boom') as play_boom:
-            collision_responses.projectile_impacts_asteroid(projectile, asteroid, effects, None)
+            self.resolve_collision(projectile, asteroid, effects, ships=[projectile, asteroid])
         self.assertFalse(projectile.currently_alive)
         self.assertFalse(asteroid.currently_alive)
         self.assertEqual(effects, [sentinel_effect])
         play_boom.assert_called_once_with(4)
-        from_blast.assert_called_once_with([98.0, 100.0], [-1.0, 0.0], 4)
+        from_blast.assert_called_once_with([98.0, 100.0], [-1.0, 0.0], 4, attached_target=mock.ANY)
 if __name__ == '__main__':
     unittest.main()

@@ -2,6 +2,7 @@ import unittest
 
 import src.const as const
 from src.collision_capabilities import (
+    PhysicalCollisionCapabilities,
     AreaDamageCapabilities,
     CollisionCapabilities,
     CollisionRole,
@@ -11,6 +12,8 @@ from src.collision_capabilities import (
 from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
+from src.Battle import collision_responses
+from unittest import mock
 
 
 class CollisionTestCase(unittest.TestCase):
@@ -33,6 +36,7 @@ class CollisionTestCase(unittest.TestCase):
         ship.collision_capabilities = CollisionCapabilities(CollisionRole.SHIP)
         ship.laser_target_capabilities = LaserTargetCapabilities()
         ship.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
+        ship.physical_collision_capabilities = PhysicalCollisionCapabilities(is_solid=True, bounces_on_immovable=True)
         return ship
 
     @staticmethod
@@ -64,6 +68,7 @@ class CollisionTestCase(unittest.TestCase):
         projectile.area_damage_capabilities = AreaDamageCapabilities(
             targetable=True
         )
+        projectile.physical_collision_capabilities = PhysicalCollisionCapabilities(is_solid=True, is_projectile=True)
         return projectile
 
     def make_projectile_pair(
@@ -152,6 +157,7 @@ class CollisionTestCase(unittest.TestCase):
         special_object.area_damage_capabilities = AreaDamageCapabilities(
             targetable=True
         )
+        special_object.physical_collision_capabilities = PhysicalCollisionCapabilities(is_solid=True, is_projectile=True)
         return special_object
 
     @staticmethod
@@ -180,6 +186,7 @@ class CollisionTestCase(unittest.TestCase):
         laser.collision_capabilities = CollisionCapabilities(CollisionRole.LASER)
         laser.laser_target_capabilities = LaserTargetCapabilities(targetable=False)
         laser.area_damage_capabilities = AreaDamageCapabilities()
+        laser.physical_collision_capabilities = PhysicalCollisionCapabilities(is_intangible=True)
         return laser
 
     @staticmethod
@@ -194,6 +201,7 @@ class CollisionTestCase(unittest.TestCase):
         planet.collision_capabilities = CollisionCapabilities(CollisionRole.PLANET)
         planet.laser_target_capabilities = LaserTargetCapabilities()
         planet.area_damage_capabilities = AreaDamageCapabilities()
+        planet.physical_collision_capabilities = PhysicalCollisionCapabilities(is_immovable=True)
         return planet
 
     @staticmethod
@@ -216,6 +224,7 @@ class CollisionTestCase(unittest.TestCase):
         asteroid.area_damage_capabilities = AreaDamageCapabilities(
             targetable=True
         )
+        asteroid.physical_collision_capabilities = PhysicalCollisionCapabilities(fragile_to_immovable=True, is_solid=True)
         return asteroid
 
     @staticmethod
@@ -237,5 +246,13 @@ class CollisionTestCase(unittest.TestCase):
         ability.collision_capabilities = CollisionCapabilities(
             CollisionRole.NONE
         )
+        ability.physical_collision_capabilities = PhysicalCollisionCapabilities(is_intangible=True)
         return ability
 
+
+    def resolve_collision(self, first, second, effects, ships=None):
+        class MockEnvironment:
+            def __init__(self, ships):
+                self.ships = ships or []
+        env = MockEnvironment(ships)
+        return collision_responses.resolve_generic_collision(first, second, effects, env)
