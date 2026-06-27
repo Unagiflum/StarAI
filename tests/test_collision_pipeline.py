@@ -19,6 +19,43 @@ def run_collision_pipeline(game_objects, effects=None):
 
 class CollisionPipelineTests(CollisionTestCase):
 
+    def test_asteroids_collide_elastically_without_damage(self):
+        first = self.make_asteroid([100, 100])
+        second = self.make_asteroid([118, 100])
+        first.velocity = [1.0, 0.0]
+        second.velocity = [-1.0, 0.0]
+
+        collisions.handle_collisions([first, second])
+
+        self.assertEqual(first.velocity, [-1.0, 0.0])
+        self.assertEqual(second.velocity, [1.0, 0.0])
+        self.assertTrue(first.currently_alive)
+        self.assertTrue(second.currently_alive)
+
+    def test_each_asteroid_pair_is_dispatched_once(self):
+        asteroids = [
+            self.make_asteroid([100, 100]),
+            self.make_asteroid([200, 100]),
+            self.make_asteroid([300, 100]),
+        ]
+
+        with mock.patch.object(collisions, "_dispatch_collision_pair") as dispatch:
+            collisions._handle_asteroid_asteroid_collisions(asteroids, [])
+
+        self.assertEqual(dispatch.call_count, 3)
+        dispatched_pairs = {
+            frozenset((id(call.args[0]), id(call.args[1])))
+            for call in dispatch.call_args_list
+        }
+        self.assertEqual(
+            dispatched_pairs,
+            {
+                frozenset((id(asteroids[0]), id(asteroids[1]))),
+                frozenset((id(asteroids[0]), id(asteroids[2]))),
+                frozenset((id(asteroids[1]), id(asteroids[2]))),
+            },
+        )
+
     def test_excluded_ship_is_not_hit_as_an_explicit_laser_target(self):
         parent = self.make_ship()
         parent.player = 1

@@ -123,6 +123,7 @@ def handle_collisions(
     )
     _handle_ship_ship_collisions(ships, effects)
     _handle_ship_asteroid_collisions(ships, asteroids)
+    _handle_asteroid_asteroid_collisions(asteroids, effects)
     _handle_ship_planet_collisions(ships, planets)
     _handle_asteroid_planet_collisions(asteroids, planets, ships, effects)
     _handle_projectile_projectile_collisions(projectiles, effects)
@@ -189,6 +190,14 @@ def _handle_ship_asteroid_collisions(ships, asteroids):
         asteroids,
         [],
         stop_after_handled=False,
+    )
+
+
+def _handle_asteroid_asteroid_collisions(asteroids, effects):
+    _dispatch_unique_collision_pairs(
+        asteroids,
+        effects,
+        lambda asteroid: asteroid.currently_alive,
     )
 
 
