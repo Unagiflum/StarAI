@@ -547,6 +547,12 @@
         "life_time": 2,
         "separation_distance": 3,
         "spawn_angle_increment": 25,
+        "is_psychic": true,
+        "ignores_shields": true,
+        "collide_planets": false,
+        "collide_asteroids": false,
+        "collide_projectiles": false,
+        "collide_fighters": false,
         "omnidirectional": true,
         "has_sprites": false,
         "file_path": "Objects/Ships/Syreen/A2/"

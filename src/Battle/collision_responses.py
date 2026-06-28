@@ -42,31 +42,42 @@ def damage_ship(ship, damage, *, shieldable=True, non_lethal=False):
 
 
 def apply_generic_area_damage(source_ability, target, effects, delta, distance, damage):
+    """Apply area damage and return the amount actually removed from the target."""
     phys = getattr(target, "physical_collision_capabilities", None)
     if not phys:
-        return
+        return 0
 
     if phys.is_immovable:
         # Planets take no damage, but the ability can spawn effects via on_area_damage_hit
-        return
+        return 0
         
     if phys.is_solid:
         if hasattr(target, "player"):
             shieldable = not getattr(source_ability, "ignores_shields", False)
             non_lethal = getattr(source_ability, "is_psychic", False)
-            damage_ship(target, damage, shieldable=shieldable, non_lethal=non_lethal)
+            return damage_ship(
+                target, damage, shieldable=shieldable, non_lethal=non_lethal
+            )
         else:
+            was_alive = getattr(target, "currently_alive", True)
             destroy_asteroid(target, effects)
+            return damage if was_alive and not target.currently_alive else 0
             
     elif phys.is_projectile:
+        previous_hp = target.current_hp
         remaining_hp = target.current_hp - damage
         if remaining_hp <= 0:
             direction = (
-                [delta[0] / distance, delta[1] / distance] if distance > 0 else [0, -1]
+                [delta[0] / distance, delta[1] / distance]
+                if distance > 0
+                else [0, -1]
             )
             destroy_projectile(target, effects, direction, damage)
         else:
             set_projectile_hp(target, remaining_hp)
+        return previous_hp - target.current_hp
+
+    return 0
 
 
 def generic_area_damage_target_is_eligible(source, target):

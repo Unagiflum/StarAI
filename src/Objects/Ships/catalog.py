@@ -542,6 +542,8 @@ def parse_ability_definition(name, data):
         "collide_enemy_ships": (bool, True),
         "collide_friendly_ships": (bool, False),
         "collide_fighters": (bool, True),
+        "is_psychic": (bool, False),
+        "ignores_shields": (bool, False),
     }
     for key, (expected_type, default) in defaults.items():
         values[key] = _optional_typed(kind, name, data, key, expected_type, default)
