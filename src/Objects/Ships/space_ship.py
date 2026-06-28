@@ -351,6 +351,10 @@ class SpaceShip(PlayerObject):
         """Return optional behavior for a physical collision with another ship."""
         return ShipImpactResult()
 
+    def on_elastic_bounce(self, other):
+        """React after elastic collision physics updates this object's velocity."""
+        return None
+
     def is_alive(self):
         return self.currently_alive and self.current_hp > 0
 

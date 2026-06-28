@@ -97,6 +97,10 @@ class Slylandro(SpaceShip):
         PlayerObject.update_physics(self)
         self._set_velocity_from_heading()
 
+    def on_elastic_bounce(self, other):
+        self._quantize_heading_from_velocity(self.velocity)
+        self._set_velocity_from_heading()
+
     def predict_unhindered_trajectory(self, frames=60):
         position = list(self.position)
         candidate = (
@@ -136,6 +140,13 @@ class Slylandro(SpaceShip):
             math.sin(angle) * self.max_thrust,
             -math.cos(angle) * self.max_thrust,
         ]
+
+    def _quantize_heading_from_velocity(self, velocity):
+        if math.hypot(velocity[0], velocity[1]) <= 0:
+            return
+        angle = math.degrees(math.atan2(velocity[0], -velocity[1])) % 360
+        self.heading = round(angle / const.TURN_ANGLE) % const.SHIP_DIRECTIONS
+        self.rotation = self.heading * const.TURN_ANGLE
 
     def _set_velocity_from_heading(self):
         self.velocity = self._heading_velocity()

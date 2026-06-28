@@ -387,6 +387,10 @@ def resolve_generic_collision(
         normal, distance, overlap = collision_info(first, second)
 
         elastic_bounce(first, second, normal, distance, overlap)
+        for obj, other in ((first, second), (second, first)):
+            on_elastic_bounce = getattr(obj, "on_elastic_bounce", None)
+            if on_elastic_bounce is not None:
+                on_elastic_bounce(other)
 
         first_impact = getattr(first, "impact_capabilities", None)
         second_impact = getattr(second, "impact_capabilities", None)

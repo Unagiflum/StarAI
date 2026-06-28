@@ -2,6 +2,7 @@ import math
 import os
 import random
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -181,6 +182,45 @@ class SlylandroTests(unittest.TestCase):
         self.assertEqual(self.ship.heading, 1)
         self.assertAlmostEqual(math.hypot(*self.ship.velocity), 60)
         self.assertEqual(self.ship.rotation, const.TURN_ANGLE)
+
+    def test_ship_and_asteroid_bounces_immediately_adopt_a_new_heading(self):
+        asteroid = Asteroid(rng=random.Random(5))
+        asteroid.position = [500.0, 450.0]
+        asteroid.previous_position = asteroid.position.copy()
+
+        def bounce_side_effect(first, second, normal, distance, overlap):
+            first.velocity = [60.0, 0.0]
+
+        with (
+            mock.patch.object(
+                collision_responses, "solid_sweep_overlap", return_value=True
+            ),
+            mock.patch.object(
+                collision_responses,
+                "collision_info",
+                return_value=([0.0, 1.0], 50.0, 1.0),
+            ),
+            mock.patch.object(
+                collision_responses,
+                "elastic_bounce",
+                side_effect=bounce_side_effect,
+            ),
+        ):
+            collision_responses.resolve_generic_collision(
+                self.ship,
+                asteroid,
+                [],
+                SimpleNamespace(ships=(self.ship,)),
+            )
+
+        self.assertEqual(self.ship.heading, 4)
+        self.assertAlmostEqual(self.ship.velocity[0], 60.0)
+        self.assertAlmostEqual(self.ship.velocity[1], 0.0)
+
+        self.ship.process_controls(frame_id=1)
+        self.assertEqual(self.ship.heading, 4)
+        self.assertAlmostEqual(self.ship.velocity[0], 60.0)
+        self.assertAlmostEqual(self.ship.velocity[1], 0.0)
 
     def test_trajectory_prediction_preserves_inertialess_max_speed(self):
         predicted = self.ship.predict_unhindered_trajectory(3)
