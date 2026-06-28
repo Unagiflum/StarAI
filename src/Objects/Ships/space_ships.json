@@ -146,6 +146,57 @@
         "sprite_path": "Objects/Ships/KzerZa/",
         "sprite_scale": 1.0
     },
+    "Mmrnmrhm": {
+        "ship_type": "Transformer",
+        "cost": 19,
+        "max_hp": 20,
+        "start_hp": 20,
+        "max_energy": 10,
+        "start_energy": 10,
+        "energy_regen": 2,
+        "energy_wait": 6,
+        "max_thrust": 20,
+        "thrust_increment": 5,
+        "thrust_wait": 1,
+        "turn_wait": 2,
+        "a1_cost": 1,
+        "a2_cost": 10,
+        "a3_cost": 0,
+        "a1_wait": 0,
+        "a2_wait": 0,
+        "a3_wait": 0,
+        "mass": 3,
+        "inertia": true,
+        "sprite_path": "Objects/Ships/Mmrnmrhm/",
+        "sprite_scale": 1.0,
+        "default_form": "XForm",
+        "forms": {
+            "XForm": {
+                "energy_regen": 2,
+                "energy_wait": 6,
+                "max_thrust": 20,
+                "thrust_increment": 5,
+                "thrust_wait": 1,
+                "turn_wait": 2,
+                "a1_cost": 1,
+                "a1_wait": 0,
+                "sprite_path": "Objects/Ships/Mmrnmrhm/XForm/",
+                "sprite_scale": 1.0
+            },
+            "YWing": {
+                "energy_regen": 1,
+                "energy_wait": 6,
+                "max_thrust": 50,
+                "thrust_increment": 10,
+                "thrust_wait": 0,
+                "turn_wait": 14,
+                "a1_cost": 1,
+                "a1_wait": 20,
+                "sprite_path": "Objects/Ships/Mmrnmrhm/YWing/",
+                "sprite_scale": 1.0
+            }
+        }
+    },
     "Mycon": {
         "ship_type": "Podship",
         "cost": 21,

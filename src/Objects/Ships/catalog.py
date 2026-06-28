@@ -14,6 +14,8 @@ class CatalogValidationError(ValueError):
 
 
 def _json_value(value):
+    if isinstance(value, Mapping):
+        return {key: _json_value(item) for key, item in value.items()}
     if isinstance(value, tuple):
         return [_json_value(item) for item in value]
     return value
@@ -43,6 +45,34 @@ class _DefinitionMapping(Mapping):
     def to_json_dict(self):
         """Return a mutable JSON-compatible copy in the original key format."""
         return {key: self[key] for key in self}
+
+
+@dataclass(frozen=True)
+class ShipFormDefinition(_DefinitionMapping):
+    energy_regen: int
+    energy_wait: int
+    max_thrust: float
+    thrust_increment: float
+    thrust_wait: float
+    turn_wait: float
+    a1_cost: int
+    a1_wait: float
+    sprite_path: str
+    sprite_scale: float = 1.0
+    _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
+
+    _json_key_to_attribute = {
+        "energy_regen": "energy_regen",
+        "energy_wait": "energy_wait",
+        "max_thrust": "max_thrust",
+        "thrust_increment": "thrust_increment",
+        "thrust_wait": "thrust_wait",
+        "turn_wait": "turn_wait",
+        "a1_cost": "a1_cost",
+        "a1_wait": "a1_wait",
+        "sprite_path": "sprite_path",
+        "sprite_scale": "sprite_scale",
+    }
 
 
 @dataclass(frozen=True)
@@ -76,6 +106,10 @@ class ShipDefinition(_DefinitionMapping):
     initial_rebirth_chance: float | None = None
     rebirth_chance_decay: float | None = None
     immune_to_psychic: bool = False
+    default_form: str | None = None
+    forms: Mapping[str, ShipFormDefinition] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -108,6 +142,8 @@ class ShipDefinition(_DefinitionMapping):
         "initial_rebirth_chance": "initial_rebirth_chance",
         "rebirth_chance_decay": "rebirth_chance_decay",
         "immune_to_psychic": "immune_to_psychic",
+        "default_form": "default_form",
+        "forms": "forms",
     }
 
 
@@ -181,6 +217,7 @@ class AbilityDefinition(_DefinitionMapping):
     area_width: int | None = None
     area_length: int | None = None
     gun_locations: tuple[tuple[int, int], ...] | None = None
+    gun_directions: tuple[float, ...] | None = None
     radius: int | None = None
     separation_distance: int | None = None
     spawn_angle_increment: float | None = None
@@ -255,6 +292,7 @@ class AbilityDefinition(_DefinitionMapping):
         "area_width": "area_width",
         "area_length": "area_length",
         "gun_locations": "gun_locations",
+        "gun_directions": "gun_directions",
         "radius": "radius",
         "separation_distance": "separation_distance",
         "spawn_angle_increment": "spawn_angle_increment",
@@ -339,6 +377,51 @@ def _int_pair_tuple(kind, name, data, field_name):
     return tuple(result)
 
 
+def _number_tuple(kind, name, data, field_name):
+    value = data[field_name]
+    if not isinstance(value, list) or not value:
+        raise CatalogValidationError(
+            f"{kind} '{name}' field '{field_name}' must be a non-empty array"
+        )
+    return tuple(
+        _typed(kind, name, f"{field_name}[{index}]", item, float)
+        for index, item in enumerate(value)
+    )
+
+
+def parse_ship_form_definition(ship_name, form_name, data):
+    """Validate one runtime form belonging to a ship definition."""
+    kind = "Ship form"
+    name = f"{ship_name}.{form_name}"
+    data = _entry_mapping(kind, name, data)
+    allowed = set(ShipFormDefinition._json_key_to_attribute)
+    required = allowed - {"sprite_scale"}
+    _check_keys(kind, name, data, allowed, required)
+
+    values = {
+        "energy_regen": _typed(kind, name, "energy_regen", data["energy_regen"], int),
+        "energy_wait": _typed(kind, name, "energy_wait", data["energy_wait"], int),
+        "max_thrust": _typed(kind, name, "max_thrust", data["max_thrust"], float),
+        "thrust_increment": _typed(
+            kind, name, "thrust_increment", data["thrust_increment"], float
+        ),
+        "thrust_wait": _typed(kind, name, "thrust_wait", data["thrust_wait"], float),
+        "turn_wait": _typed(kind, name, "turn_wait", data["turn_wait"], float),
+        "a1_cost": _typed(kind, name, "a1_cost", data["a1_cost"], int),
+        "a1_wait": _typed(kind, name, "a1_wait", data["a1_wait"], float),
+        "sprite_path": _typed(kind, name, "sprite_path", data["sprite_path"], str),
+        "sprite_scale": _optional_typed(
+            kind, name, data, "sprite_scale", float, 1.0
+        ),
+        "_source_keys": tuple(data),
+    }
+    if values["sprite_scale"] <= 0:
+        raise CatalogValidationError(
+            f"Ship form '{name}' sprite_scale must be positive"
+        )
+    return ShipFormDefinition(**values)
+
+
 def parse_ship_definition(name, data):
     """Validate one JSON ship object and return its immutable definition."""
     kind = "Ship"
@@ -353,6 +436,8 @@ def parse_ship_definition(name, data):
         "initial_rebirth_chance",
         "rebirth_chance_decay",
         "immune_to_psychic",
+        "default_form",
+        "forms",
     }
     _check_keys(kind, name, data, allowed, required)
 
@@ -405,6 +490,17 @@ def parse_ship_definition(name, data):
     values["immune_to_psychic"] = _optional_typed(
         kind, name, data, "immune_to_psychic", bool, False
     )
+    values["default_form"] = _optional_typed(
+        kind, name, data, "default_form", str, None
+    )
+    forms_data = data.get("forms", {})
+    if not isinstance(forms_data, Mapping):
+        raise CatalogValidationError(f"Ship '{name}' field 'forms' must be an object")
+    forms = {
+        form_name: parse_ship_form_definition(name, form_name, form_data)
+        for form_name, form_data in forms_data.items()
+    }
+    values["forms"] = MappingProxyType(forms)
     values["_source_keys"] = tuple(data)
 
     if values["start_hp"] > values["max_hp"]:
@@ -413,6 +509,19 @@ def parse_ship_definition(name, data):
         raise CatalogValidationError(f"Ship '{name}' start_energy exceeds max_energy")
     if values["sprite_scale"] <= 0:
         raise CatalogValidationError(f"Ship '{name}' sprite_scale must be positive")
+    if values["forms"]:
+        if values["default_form"] is None:
+            raise CatalogValidationError(
+                f"Ship '{name}' with forms must define default_form"
+            )
+        if values["default_form"] not in values["forms"]:
+            raise CatalogValidationError(
+                f"Ship '{name}' default_form references an unknown form"
+            )
+    elif values["default_form"] is not None:
+        raise CatalogValidationError(
+            f"Ship '{name}' defines default_form without forms"
+        )
     if (
         values["initial_rebirth_chance"] is not None
         and not 0 <= values["initial_rebirth_chance"] <= 1
@@ -501,6 +610,7 @@ def parse_ability_definition(name, data):
         "area_width",
         "area_length",
         "gun_locations",
+        "gun_directions",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -600,6 +710,12 @@ def parse_ability_definition(name, data):
         values["gun_locations"] = _int_pair_tuple(kind, name, data, "gun_locations")
     else:
         values["gun_locations"] = None
+    if "gun_directions" in data:
+        values["gun_directions"] = _number_tuple(
+            kind, name, data, "gun_directions"
+        )
+    else:
+        values["gun_directions"] = None
     values["_source_keys"] = tuple(data)
 
     if values["ability_type"] not in {

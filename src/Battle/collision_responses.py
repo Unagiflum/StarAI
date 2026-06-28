@@ -472,7 +472,9 @@ def resolve_laser_hit(laser, target, effects, normal, contact, apply_impact):
     ]
     laser.intercepted = True
     
-    apply_impact(target, effects, normal, damage, contact)
+    should_damage = getattr(laser, "should_damage_target", None)
+    if should_damage is None or should_damage(target):
+        apply_impact(target, effects, normal, damage, contact)
 
     attached = target if (getattr(target, 'current_hp', 1) > 0 and getattr(target, 'currently_alive', True) and not is_live_projectile(target)) else None
     

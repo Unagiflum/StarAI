@@ -129,6 +129,7 @@ class AssetManager:
 
     def __init__(self):
         self._ships = {}
+        self._ship_forms = {}
         self._abilities = {}
         self._ability_retractions = {}
         self._asteroids = None
@@ -163,35 +164,65 @@ class AssetManager:
     def ship(self, ship_name):
         if ship_name not in self._ships:
             definition = SHIP_DEFINITIONS[ship_name]
-            resource_dir = const.source_path(definition.sprite_path)
-            scale = definition.sprite_scale
-            try:
-                base_sprites = tuple(
-                    pygame.transform.smoothscale_by(
-                        self._image(resource_dir / f"{ship_name}{index:02d}.png"),
-                        scale,
-                    )
-                    for index in range(const.ASSET_SPRITE_DIRECTIONS)
+            if definition.forms:
+                self._ships[ship_name] = self.ship_form(
+                    ship_name, definition.default_form
                 )
-            except (pygame.error, FileNotFoundError, OSError) as error:
-                self._asset_errors.append(
-                    AssetError(
-                        "ship",
-                        ship_name,
-                        str(resource_dir),
-                        str(error),
-                    )
+            else:
+                resource_dir = const.source_path(definition.sprite_path)
+                self._ships[ship_name] = self._load_ship_assets(
+                    cache_name=ship_name,
+                    resource_dir=resource_dir,
+                    sprite_prefix=ship_name,
+                    scale=definition.sprite_scale,
+                    ditty_path=resource_dir / f"{ship_name}-ditty.mp3",
                 )
-                base_sprites = _placeholder_ship_sprites(scale)
-
-            sprites, masks = _expand_directional_sprites(base_sprites)
-            self._ships[ship_name] = ShipAssets(
-                sprites=sprites,
-                masks=masks,
-                size=self._opaque_size(masks[0]),
-                ditty_path=resource_dir / f"{ship_name}-ditty.mp3",
-            )
         return self._ships[ship_name]
+
+    def ship_form(self, ship_name, form_name):
+        """Return directional assets for one configured runtime ship form."""
+        key = (ship_name, form_name)
+        if key not in self._ship_forms:
+            definition = SHIP_DEFINITIONS[ship_name]
+            try:
+                form = definition.forms[form_name]
+            except KeyError:
+                raise KeyError(f"Unknown form for {ship_name}: {form_name}") from None
+            resource_dir = const.source_path(form.sprite_path)
+            ditty_dir = const.source_path(definition.sprite_path)
+            self._ship_forms[key] = self._load_ship_assets(
+                cache_name=f"{ship_name}.{form_name}",
+                resource_dir=resource_dir,
+                sprite_prefix=f"{ship_name}{form_name}",
+                scale=form.sprite_scale,
+                ditty_path=ditty_dir / f"{ship_name}-ditty.mp3",
+            )
+        return self._ship_forms[key]
+
+    def _load_ship_assets(
+        self, *, cache_name, resource_dir, sprite_prefix, scale, ditty_path
+    ):
+        try:
+            base_sprites = tuple(
+                pygame.transform.smoothscale_by(
+                    self._image(resource_dir / f"{sprite_prefix}{index:02d}.png"),
+                    scale,
+                )
+                for index in range(const.ASSET_SPRITE_DIRECTIONS)
+            )
+        except (pygame.error, FileNotFoundError, OSError) as error:
+            self._asset_errors.append(
+                AssetError("ship", cache_name, str(resource_dir), str(error))
+            )
+            base_sprites = _placeholder_ship_sprites(scale)
+
+        sprites, masks = _expand_directional_sprites(base_sprites)
+        return ShipAssets(
+            sprites=sprites,
+            masks=masks,
+            size=self._opaque_size(masks[0]),
+            ditty_path=ditty_path,
+        )
 
     def ability(self, ability_name):
         if ability_name in self._abilities:
@@ -529,7 +560,14 @@ class AssetManager:
             definition = SHIP_DEFINITIONS[ship_name]
             resource_dir = const.source_path(definition.sprite_path)
             try:
-                sprite = self._image(resource_dir / f"{ship_name}00.png")
+                if definition.forms:
+                    form = definition.forms[definition.default_form]
+                    form_dir = const.source_path(form.sprite_path)
+                    sprite = self._image(
+                        form_dir / f"{ship_name}{definition.default_form}00.png"
+                    )
+                else:
+                    sprite = self._image(resource_dir / f"{ship_name}00.png")
                 if definition.menu_overlay_path is not None:
                     overlay = self._image(definition.menu_overlay_path)
                     sprite = centered_overlay(sprite, overlay)
@@ -563,6 +601,9 @@ class AssetManager:
         for ship_name in SHIP_DEFINITIONS:
             self.ship(ship_name)
             self.menu_ship_sprite(ship_name)
+            definition = SHIP_DEFINITIONS[ship_name]
+            for form_name in definition.forms:
+                self.ship_form(ship_name, form_name)
 
         # Abilities, their sounds, and retraction assets.
         for ability_name, definition in ABILITY_DEFINITIONS.items():

@@ -195,6 +195,40 @@ def ship_rotation_blocked(ship):
     return False
 
 
+def ship_shape_change_blocked(ship, candidate_masks, candidate_size):
+    """Return whether a prospective ship shape overlaps a collidable object."""
+    candidates = []
+    if ship.opponent and ship.opponent.current_hp > 0:
+        candidates.append(ship.opponent)
+    candidates.extend(obj for obj in ship.asteroids if obj.currently_alive)
+    if ship.planet:
+        candidates.append(ship.planet)
+    candidates.extend(
+        obj
+        for obj in (*ship.friendly_objects, *ship.enemy_objects)
+        if (
+            obj is not ship
+            and getattr(obj, "can_collide", False)
+            and getattr(obj, "currently_alive", True)
+            and getattr(obj, "current_hp", 1) > 0
+        )
+    )
+
+    original_masks = ship.masks
+    original_size = ship.size
+    ship.masks = candidate_masks
+    ship.size = list(candidate_size)
+    try:
+        for candidate in dict.fromkeys(candidates):
+            _, _, overlap = collision_info(ship, candidate)
+            if objects_overlap(ship, candidate, overlap):
+                return True
+        return False
+    finally:
+        ship.masks = original_masks
+        ship.size = original_size
+
+
 def projectile_impact(projectile, other, overlap):
     swept = swept_impact(projectile, other)
     if swept[0] is not None:

@@ -286,6 +286,86 @@
         "has_sprites": false,
         "has_sound": false
     },
+    "MmrnmrhmA2": {
+        "ship_name": "Mmrnmrhm",
+        "type": "other",
+        "action": "A2",
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            0
+        ],
+        "life_time": 1,
+        "file_path": "Objects/Ships/Mmrnmrhm/A2/",
+        "has_sprites": false
+    },
+    "MmrnmrhmXFormA1": {
+        "ship_name": "Mmrnmrhm",
+        "type": "laser",
+        "action": "A1",
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            2
+        ],
+        "parent_vel": 1.0,
+        "speed": 120,
+        "life_time": 1,
+        "inertia": true,
+        "omnidirectional": true,
+        "file_path": "Objects/Ships/Mmrnmrhm/A1/",
+        "has_sprites": false,
+        "LASER_RANGE": 564,
+        "LASER_COLOR": [
+            255,
+            0,
+            0
+        ],
+        "LASER_WIDTH": 6,
+        "gun_locations": [
+            [
+                3,
+                37
+            ],
+            [
+                100,
+                37
+            ]
+        ]
+    },
+    "MmrnmrhmYWingA1": {
+        "ship_name": "Mmrnmrhm",
+        "type": "projectile",
+        "action": "A1",
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
+        "tracking": true,
+        "speed": 80,
+        "life_time": 40,
+        "turn_wait": 5,
+        "inertia": true,
+        "file_path": "Objects/Ships/Mmrnmrhm/A1/",
+        "gun_locations": [
+            [
+                36,
+                31
+            ],
+            [
+                58,
+                31
+            ]
+        ],
+        "gun_directions": [
+            337.5,
+            22.5
+        ]
+    },
     "MyconA1": {
         "ship_name": "Mycon",
         "type": "projectile",

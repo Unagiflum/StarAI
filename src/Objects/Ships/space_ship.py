@@ -135,7 +135,7 @@ class SpaceShip(PlayerObject):
         self.battles_fought += 1
 
     def attach_limpet(self):
-        ship_definition = SHIP_DEFINITIONS[self.name]
+        ship_definition = self._intrinsic_movement_definition()
         start_thrust_inc = ship_definition.thrust_increment
         start_max_thrust = ship_definition.max_thrust
         start_turn_wait = ship_definition.turn_wait
@@ -213,11 +213,15 @@ class SpaceShip(PlayerObject):
         self.sprites = self.base_sprites
 
         # Reset stats
-        ship_definition = SHIP_DEFINITIONS[self.name]
+        ship_definition = self._intrinsic_movement_definition()
         self.max_thrust = ship_definition.max_thrust
         self.thrust_increment = ship_definition.thrust_increment
         self.thrust_wait = ship_definition.thrust_wait
         self.turn_wait = ship_definition.turn_wait
+
+    def _intrinsic_movement_definition(self):
+        """Return unmodified movement stats for status-effect calculations."""
+        return SHIP_DEFINITIONS[self.name]
 
     def reset_controls(self):
         for attribute in CONTROL_STATE_ATTRIBUTES.values():
