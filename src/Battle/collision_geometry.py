@@ -203,16 +203,6 @@ def ship_shape_change_blocked(ship, candidate_masks, candidate_size):
     candidates.extend(obj for obj in ship.asteroids if obj.currently_alive)
     if ship.planet:
         candidates.append(ship.planet)
-    candidates.extend(
-        obj
-        for obj in (*ship.friendly_objects, *ship.enemy_objects)
-        if (
-            obj is not ship
-            and getattr(obj, "can_collide", False)
-            and getattr(obj, "currently_alive", True)
-            and getattr(obj, "current_hp", 1) > 0
-        )
-    )
 
     original_masks = ship.masks
     original_size = ship.size
