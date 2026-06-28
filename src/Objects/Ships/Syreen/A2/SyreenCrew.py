@@ -93,6 +93,19 @@ class SyreenCrew(Ability):
                 -math.cos(angle_rad) * self.speed,
             ]
             
+        if self.planet:
+            [p_dx, p_dy], distance = self.distance_to(self.planet)
+            if self.planet.diameter / 2 <= distance <= const.GRAVITY_RANGE:
+                gravity_force = const.GRAVITY_MULTIPLIER * self.planet.gravity
+                if not hasattr(self, "gravity_velocity"):
+                    self.gravity_velocity = [0.0, 0.0]
+                self.gravity_velocity[0] += gravity_force * p_dx / distance
+                self.gravity_velocity[1] += gravity_force * p_dy / distance
+                
+        if hasattr(self, "gravity_velocity"):
+            self.velocity[0] += self.gravity_velocity[0]
+            self.velocity[1] += self.gravity_velocity[1]
+            
         super().update_physics()
 
     def update(self):
