@@ -237,6 +237,42 @@ class SlylandroTests(unittest.TestCase):
             self.ship.update()
         self.assertEqual(self.ship.animation_frame, 3)
 
+    def test_limpet_tracks_full_rotation_across_two_animation_cycles(self):
+        limpet = self.ship.resources.ability("VuxA2").sprites[0]
+        clean_sprites = self.ship.base_sprites
+        with mock.patch.object(
+            self.ship,
+            "_new_limpet_visual",
+            return_value=(limpet, 20.0, 0.0),
+        ):
+            self.ship.attach_limpet()
+
+        self.assertEqual(self.ship.limpets_attached, 1)
+        self.assertEqual(len(self.ship.sprites), 32)
+        self.assertEqual(self.ship._limpet_phase_offset(20, 0, 0), (20, 0))
+        phase_8 = self.ship._limpet_phase_offset(20, 0, 8)
+        self.assertAlmostEqual(phase_8[0], 0)
+        self.assertAlmostEqual(phase_8[1], 20)
+        phase_16 = self.ship._limpet_phase_offset(20, 0, 16)
+        self.assertAlmostEqual(phase_16[0], -20)
+        self.assertAlmostEqual(phase_16[1], 0)
+        self.assertNotEqual(
+            pygame.image.tobytes(self.ship.sprites[0], "RGBA"),
+            pygame.image.tobytes(self.ship.sprites[16], "RGBA"),
+        )
+
+        self.ship.animation_frame = 15
+        with mock.patch.object(
+            self.ship, "_sprite_would_overlap", return_value=False
+        ):
+            self.ship.update()
+        self.assertEqual(self.ship.animation_frame, 16)
+        self.assertIs(self.ship.set_sprite(), self.ship.sprites[16])
+        self.assertIs(self.ship.get_collision_mask(), self.ship.masks[0])
+
+        self.ship.reset_limpets()
+        self.assertEqual(self.ship.sprites, clean_sprites)
+
     def test_a2_recharges_once_and_only_destroys_in_range_asteroids(self):
         nearby = Asteroid(rng=random.Random(1))
         nearby.position = [600.0, 500.0]

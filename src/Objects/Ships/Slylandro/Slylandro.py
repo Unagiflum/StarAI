@@ -1,5 +1,7 @@
 import math
 
+import pygame
+
 import src.const as const
 from src.Battle.collision_geometry import ship_shape_change_blocked
 from src.Objects.Ships.action_transaction import ActionPlan
@@ -16,6 +18,8 @@ from src.toroidal import wrapped_distance
 
 class Slylandro(SpaceShip):
     crew_bar_color = const.HUD_NONSENTIENT_HP_COLOR
+    animation_phases = 32
+    animation_rotation_step = 360 / animation_phases
 
     def __init__(self, ship_name, player_num, resources=None, audio_service=None):
         super().__init__(ship_name, player_num, resources, audio_service)
@@ -65,10 +69,11 @@ class Slylandro(SpaceShip):
     def update(self):
         self.previous_position = self.position.copy()
         self.update_physics()
-        next_frame = (self.animation_frame + 1) % len(self.sprites)
-        if not self._sprite_would_overlap(next_frame):
-            self.animation_frame = next_frame
-            self.size = list(self._opaque_mask_size(self.masks[next_frame]))
+        next_phase = (self.animation_frame + 1) % self.animation_phases
+        next_sprite = next_phase % len(self.masks)
+        if not self._sprite_would_overlap(next_sprite):
+            self.animation_frame = next_phase
+            self.size = list(self._opaque_mask_size(self.masks[next_sprite]))
         return True
 
     def update_physics(self):
@@ -171,11 +176,49 @@ class Slylandro(SpaceShip):
         bottom = max(rect.bottom for rect in bounds)
         return (right - left, bottom - top)
 
+    @classmethod
+    def _limpet_phase_offset(cls, offset_x, offset_y, phase):
+        angle = math.radians(phase * cls.animation_rotation_step)
+        return (
+            offset_x * math.cos(angle) - offset_y * math.sin(angle),
+            offset_x * math.sin(angle) + offset_y * math.cos(angle),
+        )
+
+    def _attach_limpet_visual(self):
+        visual = self._new_limpet_visual()
+        if visual is None:
+            return
+        limpet_sprite, offset_x, offset_y = visual
+        frame_count = len(self.base_sprites)
+        has_full_cycle = len(self.sprites) == self.animation_phases
+        new_sprites = []
+
+        for phase in range(self.animation_phases):
+            source_index = phase if has_full_cycle else phase % frame_count
+            current_sprite = self.sprites[source_index].copy()
+            rotated_x, rotated_y = self._limpet_phase_offset(
+                offset_x, offset_y, phase
+            )
+            angle = phase * self.animation_rotation_step
+            rotated_limpet = pygame.transform.rotate(limpet_sprite, -angle)
+            destination = rotated_limpet.get_rect(
+                center=(
+                    round(current_sprite.get_width() / 2 + rotated_x),
+                    round(current_sprite.get_height() / 2 + rotated_y),
+                )
+            )
+            current_sprite.blit(rotated_limpet, destination)
+            new_sprites.append(current_sprite)
+
+        self.sprites = tuple(new_sprites)
+
     def set_sprite(self, interp_t=0.0):
-        return self.sprites[self.animation_frame]
+        if len(self.sprites) == self.animation_phases:
+            return self.sprites[self.animation_frame]
+        return self.sprites[self.animation_frame % len(self.sprites)]
 
     def get_collision_mask(self):
-        return self.masks[self.animation_frame]
+        return self.masks[self.animation_frame % len(self.masks)]
 
     def plan_action1(self):
         if not self.can_action1():

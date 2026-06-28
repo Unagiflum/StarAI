@@ -156,10 +156,13 @@ class SpaceShip(PlayerObject):
             self.thrust_increment = start_thrust_inc
             self.max_thrust = 8
 
-        # Draw limpet onto the ship's sprites
+        self._attach_limpet_visual()
+
+    def _new_limpet_visual(self):
+        """Return a limpet sprite and random opaque attachment offset."""
         limpet_assets = self.resources.ability("VuxA2")
         if not limpet_assets.sprites:
-            return
+            return None
 
         limpet_sprite = limpet_assets.sprites[0]
 
@@ -183,9 +186,17 @@ class SpaceShip(PlayerObject):
                 break
 
         if not found:
-            return
+            return None
 
-        # Draw the limpet at the rotated offset for all 64 directions
+        return limpet_sprite, spot_offset_x, spot_offset_y
+
+    def _attach_limpet_visual(self):
+        visual = self._new_limpet_visual()
+        if visual is None:
+            return
+        limpet_sprite, spot_offset_x, spot_offset_y = visual
+
+        # Draw the limpet at the rotated offset for every rendered direction.
         new_sprites = []
         for heading in range(const.TOTAL_SPRITE_DIRECTIONS):
             angle = math.radians(heading * const.TOTAL_SPRITE_STEP)
