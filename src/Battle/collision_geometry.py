@@ -9,36 +9,53 @@ from src.toroidal import nearest_position, wrapped_delta, wrapped_distance
 
 
 def laser_hit_info(laser, target):
-    start = getattr(laser, "start_position", laser.parent.position)
-    end = getattr(laser, "end_position", laser.position)
-    segment = wrapped_segment(start, end)
-    distance = distance_from_segment_to_point(segment[0], segment[1], target.position)
-    
-    laser_width = getattr(laser, "LASER_WIDTH", 1)
-    
-    if distance > radius(target) + (laser_width / 2.0):
-        return None
-
-    target_mask = get_collision_mask(target)
-    if target_mask is not None:
-        contact = sample_laser_mask_hit(segment[0], segment[1], target, target_mask, laser_width)
+    segment_provider = getattr(laser, "collision_segments", None)
+    if segment_provider is None:
+        start = getattr(laser, "start_position", laser.parent.position)
+        end = getattr(laser, "end_position", laser.position)
+        raw_segments = ((start, end),)
     else:
-        contact = segment_circle_intercept(
-            segment[0], segment[1], target.position, radius(target)
+        raw_segments = segment_provider()
+    laser_width = getattr(laser, "LASER_WIDTH", 1)
+    target_mask = get_collision_mask(target)
+    path_distance = 0.0
+    hits = []
+    for segment_index, (start, end) in enumerate(raw_segments):
+        segment = wrapped_segment(start, end)
+        segment_length = math.hypot(
+            segment[1][0] - segment[0][0], segment[1][1] - segment[0][1]
         )
-
-    if contact is None:
-        return None
-
-    normal = normal_from_target(
-        target, contact, segment_direction(segment[0], segment[1])
-    )
-    return {
-        "target": target,
-        "contact": contact,
-        "normal": normal,
-        "distance": math.hypot(contact[0] - segment[0][0], contact[1] - segment[0][1]),
-    }
+        distance = distance_from_segment_to_point(
+            segment[0], segment[1], target.position
+        )
+        if distance <= radius(target) + (laser_width / 2.0):
+            if target_mask is not None:
+                contact = sample_laser_mask_hit(
+                    segment[0], segment[1], target, target_mask, laser_width
+                )
+            else:
+                contact = segment_circle_intercept(
+                    segment[0], segment[1], target.position, radius(target)
+                )
+            if contact is not None:
+                normal = normal_from_target(
+                    target, contact, segment_direction(segment[0], segment[1])
+                )
+                hits.append(
+                    {
+                        "target": target,
+                        "contact": contact,
+                        "normal": normal,
+                        "distance": path_distance
+                        + math.hypot(
+                            contact[0] - segment[0][0],
+                            contact[1] - segment[0][1],
+                        ),
+                        "segment_index": segment_index,
+                    }
+                )
+        path_distance += segment_length
+    return min(hits, key=lambda hit: hit["distance"]) if hits else None
 
 
 def wrapped_segment(start, end):

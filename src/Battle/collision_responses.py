@@ -478,13 +478,25 @@ def projectile_can_hit_ship(projectile, ship):
     return False
 
 
-def resolve_laser_hit(laser, target, effects, normal, contact, apply_impact):
+def resolve_laser_hit(
+    laser,
+    target,
+    effects,
+    normal,
+    contact,
+    apply_impact,
+    *,
+    segment_index=None,
+):
     damage = laser.current_damage
     laser.end_position = [
         contact[0] % const.ARENA_SIZE,
         contact[1] % const.ARENA_SIZE,
     ]
     laser.intercepted = True
+    on_laser_hit = getattr(laser, "on_laser_hit", None)
+    if on_laser_hit is not None:
+        on_laser_hit(target, contact, segment_index)
     
     should_damage = getattr(laser, "should_damage_target", None)
     if should_damage is None or should_damage(target):

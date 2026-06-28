@@ -302,6 +302,7 @@ def _handle_laser_collisions(
             normal,
             contact,
             _apply_laser_impact,
+            segment_index=hit_info.get("segment_index"),
         )
 
 
@@ -347,6 +348,9 @@ def _laser_targets(
 
 
 def _laser_target_is_eligible(laser, target, explicit=False):
+    target_filter = getattr(laser, "should_consider_laser_target", None)
+    if target_filter is not None and not target_filter(target):
+        return False
     if not getattr(target.collision_capabilities, "role", None) == CollisionRole.SPECIAL_OBJECT:
         if not target.laser_target_capabilities.targetable:
             return False

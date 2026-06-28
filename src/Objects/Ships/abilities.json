@@ -584,6 +584,61 @@
         "frames": 8,
         "file_path": "Objects/Ships/Shofixti/A2/"
     },
+    "SlylandroA1": {
+        "ship_name": "Slylandro",
+        "type": "laser",
+        "action": "A1",
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            1
+        ],
+        "parent_vel": 1.0,
+        "speed": 120,
+        "tracking": true,
+        "turn_wait": 0,
+        "life_time": 1,
+        "inertia": false,
+        "omnidirectional": true,
+        "file_path": "Objects/Ships/Slylandro/A1/",
+        "has_sprites": false,
+        "NUMBER_OF_BOLTS": 2,
+        "LASER_WIDTH": 6,
+        "SEGMENT_LENGTH_MIN": 16,
+        "SEGMENT_LENGTH_MAX": 128,
+        "BOLT_COLORS": [
+            [255, 255, 255],
+            [181, 189, 255],
+            [49, 58, 255],
+            [0, 0, 197]
+        ]
+    },
+    "SlylandroA2": {
+        "ship_name": "Slylandro",
+        "type": "area",
+        "action": "A2",
+        "start_hp": [
+            100
+        ],
+        "range": 312,
+        "damage": [
+            1
+        ],
+        "life_time": 1,
+        "hit_parent": false,
+        "hit_self": false,
+        "omnidirectional": true,
+        "collide_planets": false,
+        "collide_asteroids": true,
+        "collide_projectiles": false,
+        "collide_enemy_ships": false,
+        "collide_friendly_ships": false,
+        "collide_fighters": false,
+        "has_sprites": false,
+        "file_path": "Objects/Ships/Slylandro/A2/",
+        "BATTERY_GAIN": 20
+    },
     "SpathiA1": {
         "ship_name": "Spathi",
         "type": "projectile",

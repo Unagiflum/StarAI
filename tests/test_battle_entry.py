@@ -9,6 +9,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import src.const as const
+import pygame
 from src.Battle.battle import BattleSimulation
 from src.Battle.battle_entry import (
     BLACK,
@@ -17,6 +18,7 @@ from src.Battle.battle_entry import (
     YELLOW,
     entry_complete,
     entry_duration_frames,
+    draw_entry_silhouettes,
     finish_entry,
     silhouette_color,
     silhouette_lines,
@@ -54,6 +56,24 @@ class Ship:
 
 
 class BattleEntryAnimationTests(unittest.TestCase):
+    def test_entry_uses_ship_collision_mask_for_animated_ships(self):
+        ship = Ship([1000, 1000], 0)
+        ship.heading = const.SHIP_DIRECTIONS - 1
+        ship.masks = tuple(pygame.mask.Mask((8, 8), fill=True) for _ in range(16))
+        active_mask = ship.masks[3]
+        ship.get_collision_mask = mock.Mock(return_value=active_mask)
+        animation = start_entry((ship,), ship, object(), frame_id=0)
+
+        draw_entry_silhouettes(
+            pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT)),
+            animation,
+            0,
+            1.0,
+            [0.0, 0.0],
+        )
+
+        ship.get_collision_mask.assert_called_once_with()
+
     def test_standard_trail_runs_from_farthest_to_nearest_behind_heading(self):
         ship = Ship([1000, 1000], 90)
         positions = silhouette_positions(ship)

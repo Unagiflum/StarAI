@@ -229,6 +229,11 @@ class AbilityDefinition(_DefinitionMapping):
     radius: int | None = None
     separation_distance: int | None = None
     spawn_angle_increment: float | None = None
+    number_of_bolts: int | None = None
+    segment_length_min: int | None = None
+    segment_length_max: int | None = None
+    bolt_colors: tuple[tuple[int, int, int], ...] | None = None
+    battery_gain: int | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -304,6 +309,11 @@ class AbilityDefinition(_DefinitionMapping):
         "radius": "radius",
         "separation_distance": "separation_distance",
         "spawn_angle_increment": "spawn_angle_increment",
+        "NUMBER_OF_BOLTS": "number_of_bolts",
+        "SEGMENT_LENGTH_MIN": "segment_length_min",
+        "SEGMENT_LENGTH_MAX": "segment_length_max",
+        "BOLT_COLORS": "bolt_colors",
+        "BATTERY_GAIN": "battery_gain",
     }
 
 
@@ -633,6 +643,11 @@ def parse_ability_definition(name, data):
         "area_length",
         "gun_locations",
         "gun_directions",
+        "NUMBER_OF_BOLTS",
+        "SEGMENT_LENGTH_MIN",
+        "SEGMENT_LENGTH_MAX",
+        "BOLT_COLORS",
+        "BATTERY_GAIN",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -715,6 +730,10 @@ def parse_ability_definition(name, data):
         "radius": ("radius", int),
         "separation_distance": ("separation_distance", int),
         "spawn_angle_increment": ("spawn_angle_increment", float),
+        "NUMBER_OF_BOLTS": ("number_of_bolts", int),
+        "SEGMENT_LENGTH_MIN": ("segment_length_min", int),
+        "SEGMENT_LENGTH_MAX": ("segment_length_max", int),
+        "BATTERY_GAIN": ("battery_gain", int),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(
@@ -738,6 +757,30 @@ def parse_ability_definition(name, data):
         )
     else:
         values["gun_directions"] = None
+    if "BOLT_COLORS" in data:
+        value = data["BOLT_COLORS"]
+        if not isinstance(value, list) or not value:
+            raise CatalogValidationError(
+                f"Ability '{name}' field 'BOLT_COLORS' must be a non-empty array"
+            )
+        colors = []
+        for index, color in enumerate(value):
+            if not isinstance(color, list) or len(color) != 3:
+                raise CatalogValidationError(
+                    f"Ability '{name}' field 'BOLT_COLORS[{index}]' must contain 3 values"
+                )
+            parsed = tuple(
+                _typed(kind, name, f"BOLT_COLORS[{index}][{channel}]", item, int)
+                for channel, item in enumerate(color)
+            )
+            if any(channel < 0 or channel > 255 for channel in parsed):
+                raise CatalogValidationError(
+                    f"Ability '{name}' BOLT_COLORS channels must be between 0 and 255"
+                )
+            colors.append(parsed)
+        values["bolt_colors"] = tuple(colors)
+    else:
+        values["bolt_colors"] = None
     values["_source_keys"] = tuple(data)
 
     if values["ability_type"] not in {
@@ -758,6 +801,14 @@ def parse_ability_definition(name, data):
     if values["sprite_scale_x"] <= 0 or values["sprite_scale_y"] <= 0:
         raise CatalogValidationError(
             f"Ability '{name}' directional sprite scales must be positive"
+        )
+    if (
+        values["segment_length_min"] is not None
+        and values["segment_length_max"] is not None
+        and values["segment_length_min"] > values["segment_length_max"]
+    ):
+        raise CatalogValidationError(
+            f"Ability '{name}' SEGMENT_LENGTH_MIN exceeds SEGMENT_LENGTH_MAX"
         )
     return AbilityDefinition(**values)
 

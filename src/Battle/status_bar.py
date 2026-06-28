@@ -93,7 +93,7 @@ def draw_player_status(
         hp_x,
         hp_y,
         ship.current_hp,
-        const.HUD_HP_COLOR,
+        getattr(ship, "crew_bar_color", const.HUD_HP_COLOR),
         const.HUD_BAR_BORDER,
         const.HUD_BAR_BG,
     )
