@@ -133,6 +133,14 @@ class OrzAbilityTests(unittest.TestCase):
         # self.assertIs(self.ship.get_collision_mask(), self.ship.masks[self.ship.heading])
         self.assertFalse(ABILITY_DEFINITIONS["OrzA2"].has_sound)
 
+    def test_attaching_limpet_invalidates_cached_turret_composites(self):
+        cached_composite = self.ship.set_sprite()
+
+        self.ship.attach_limpet()
+
+        self.assertEqual(self.ship._turret_composites, {})
+        self.assertIsNot(self.ship.set_sprite(), cached_composite)
+
     def test_new_battle_initialization_resets_turret_forward(self):
         self.ship.turret.relative_heading = 9
         self.ship.initialize_in_battle([100, 200], 12)

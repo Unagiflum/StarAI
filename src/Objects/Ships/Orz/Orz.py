@@ -74,6 +74,10 @@ class Orz(SpaceShip):
     def handles_combined_action(self):
         return True
 
+    def attach_limpet(self):
+        super().attach_limpet()
+        self._turret_composites.clear()
+
     def set_sprite(self, interp_t=0.0):
         from src.Battle.interpolation import interpolated_sprite_index
 
