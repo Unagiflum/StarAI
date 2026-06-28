@@ -181,6 +181,9 @@ class AbilityDefinition(_DefinitionMapping):
     area_width: int | None = None
     area_length: int | None = None
     gun_locations: tuple[tuple[int, int], ...] | None = None
+    radius: int | None = None
+    separation_distance: int | None = None
+    spawn_angle_increment: float | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -252,6 +255,9 @@ class AbilityDefinition(_DefinitionMapping):
         "area_width": "area_width",
         "area_length": "area_length",
         "gun_locations": "gun_locations",
+        "radius": "radius",
+        "separation_distance": "separation_distance",
+        "spawn_angle_increment": "spawn_angle_increment",
     }
 
 
@@ -474,6 +480,9 @@ def parse_ability_definition(name, data):
         "is_psychic",
         "ignores_shields",
         "HP_GAIN",
+        "radius",
+        "separation_distance",
+        "spawn_angle_increment",
         "TRACK_SPEED",
         "TRACK_RANGE",
         "DMG_TO_PROJ",
@@ -569,6 +578,9 @@ def parse_ability_definition(name, data):
         "retracting_frames": ("retracting_frames", int),
         "area_width": ("area_width", int),
         "area_length": ("area_length", int),
+        "radius": ("radius", int),
+        "separation_distance": ("separation_distance", int),
+        "spawn_angle_increment": ("spawn_angle_increment", float),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(

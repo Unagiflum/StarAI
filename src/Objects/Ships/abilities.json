@@ -517,6 +517,57 @@
         "file_path": "Objects/Ships/Supox/A1/",
         "end_anim": 5
     },
+    "SyreenA1": {
+        "ship_name": "Syreen",
+        "type": "projectile",
+        "action": "A1",
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            2
+        ],
+        "speed": 120,
+        "life_time": 10,
+        "inertia": true,
+        "file_path": "Objects/Ships/Syreen/A1/",
+        "sprite_scale": 1.0
+    },
+    "SyreenA2": {
+        "ship_name": "Syreen",
+        "type": "area",
+        "action": "A2",
+        "start_hp": [
+            100
+        ],
+        "range": 832,
+        "damage": [
+            8
+        ],
+        "life_time": 2,
+        "separation_distance": 3,
+        "spawn_angle_increment": 25,
+        "omnidirectional": true,
+        "has_sprites": false,
+        "file_path": "Objects/Ships/Syreen/A2/"
+    },
+    "SyreenCrew": {
+        "ship_name": "Syreen",
+        "type": "special_object",
+        "action": "A2",
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            0
+        ],
+        "speed": 5,
+        "life_time": 384,
+        "inertia": false,
+        "radius": 4,
+        "has_sprites": false,
+        "file_path": "Objects/Ships/Syreen/A2/"
+    },
     "ThraddashA1": {
         "ship_name": "Thraddash",
         "type": "projectile",

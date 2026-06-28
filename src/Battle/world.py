@@ -222,10 +222,10 @@ class World:
                 continue
             if isinstance(obj, SpaceShip) and obj.current_hp <= 0:
                 continue
-            if not obj.update():
-                self.remove(obj)
-                continue
+            alive = obj.update()
             spawned_objects.extend(self._drain_spawned_objects(obj))
+            if not alive:
+                self.remove(obj)
         self.add_all(spawned_objects)
 
     @staticmethod

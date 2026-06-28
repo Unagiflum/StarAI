@@ -239,6 +239,13 @@ def resolve_generic_collision(
             return True
 
         if first.projectile_name == second.projectile_name:
+            f1_caps = getattr(first, "special_object_collision_capabilities", None)
+            f2_caps = getattr(second, "special_object_collision_capabilities", None)
+            if f1_caps and f1_caps.bounces_off_same_type and f2_caps and f2_caps.bounces_off_same_type:
+                normal, distance, overlap_real = collision_info(first, second)
+                elastic_bounce(first, second, normal, distance, overlap_real)
+                return True
+
             BattleEffect.play_boom(max(first.current_damage, second.current_damage))
             destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
             destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)

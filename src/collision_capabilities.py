@@ -44,6 +44,7 @@ class SpecialObjectCollisionCapabilities:
     collides_with_enemy_ships: bool = True
     collides_with_friendly_ships: bool = False
     collides_with_fighters: bool = True
+    bounces_off_same_type: bool = False
 
 
 @dataclass(frozen=True)
