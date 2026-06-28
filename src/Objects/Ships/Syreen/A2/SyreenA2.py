@@ -42,7 +42,6 @@ class SyreenA2(Ability):
 
         syreen_dx, syreen_dy = wrapped_delta(target.position, self.parent.position)
         base_angle = math.degrees(math.atan2(-syreen_dy, syreen_dx))
-        print(f"RAYCAST DEBUG: Target={target.position}, Syreen={self.parent.position}, dx={syreen_dx}, dy={syreen_dy}, base_angle={base_angle}")
         
         for i in range(damage):
             multiplier = (i + 1) // 2
