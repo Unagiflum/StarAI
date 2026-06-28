@@ -1,4 +1,5 @@
 import math
+import src.const as const
 from src.Objects.Ships.ability import Ability, ABILITIES_DATA
 from src.Objects.Ships.Syreen.A2.SyreenCrew import SyreenCrew
 
@@ -32,7 +33,7 @@ class SyreenA2(Ability):
         if getattr(target, "player", None) == self.parent.player:
             return 0
             
-        raw_damage = max(1, round(8 * (1.0 - distance / self.range)))
+        raw_damage = max(1, round(self.damages[0] * (1.0 - distance / self.range)))
         max_allowed = max(0, target.current_hp - 1)
         return min(raw_damage, max_allowed)
 
@@ -69,8 +70,8 @@ class SyreenA2(Ability):
             # Add separation buffer amount
             dist += self.separation_distance
             crew.position = [
-                target.position[0] + dx * dist,
-                target.position[1] + dy * dist,
+                (target.position[0] + dx * dist) % const.ARENA_SIZE,
+                (target.position[1] + dy * dist) % const.ARENA_SIZE,
             ]
             self._spawned_crew.append(crew)
 
