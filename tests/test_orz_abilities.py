@@ -296,6 +296,12 @@ class OrzAbilityTests(unittest.TestCase):
         draw_boarded_marine_icons(screen, ship, 10, 100, 65)
 
         self.assertEqual(screen.blit.call_count, 6)
+        self.assertTrue(
+            all(
+                call.args[1][1] == 100 + (20 - call.args[0].get_height()) // 2
+                for call in screen.blit.call_args_list
+            )
+        )
 
     def test_a3_uses_red_and_green_flight_sprites_and_original_hud_sprite(self):
         enemy = create_ship("Earthling", 2)

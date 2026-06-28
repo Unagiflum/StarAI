@@ -6,6 +6,7 @@ from src.UI import ui
 from src.Battle.status_bar import (
     draw_player_status,
     draw_boarded_marine_icons,
+    draw_limpet_count,
     StatusBar,
 )
 from src.Battle.battle_entry import draw_entry_silhouettes
@@ -528,8 +529,17 @@ def draw_battle(
                 panel_surface,
                 live_ship,
                 draw_x_offset,
-                local_base_y - VIEWPORT_SIZE + 2,
+                0,
                 _TOTAL_WIDTH,
+                MARINE_REGION_HEIGHT,
+            )
+            draw_limpet_count(
+                panel_surface,
+                live_ship,
+                draw_x_offset,
+                local_base_y,
+                _TOTAL_WIDTH,
+                HUD_BOTTOM_PADDING,
             )
 
         # Blit the unified panel to the screen

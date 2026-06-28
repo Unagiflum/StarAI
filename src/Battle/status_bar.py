@@ -114,6 +114,12 @@ def draw_player_status(
 
 
 _scaled_icon_cache = {}
+_limpet_counter_font = None
+
+MAX_STATUS_ICON_HEIGHT = 18
+LIMPET_COUNTER_FONT_SIZE = 18
+LIMPET_COUNTER_GAP = 2
+LIMPET_COUNTER_COLOR = (255, 255, 255)
 
 
 def _get_scaled_icon(icon, new_width, new_height):
@@ -126,7 +132,56 @@ def _get_scaled_icon(icon, new_width, new_height):
     return result
 
 
-def draw_boarded_marine_icons(screen, ship, base_x, top_y, total_width):
+def _get_limpet_counter_font():
+    global _limpet_counter_font
+    if _limpet_counter_font is None:
+        _limpet_counter_font = pygame.font.Font(None, LIMPET_COUNTER_FONT_SIZE)
+    return _limpet_counter_font
+
+
+def draw_limpet_count(
+    screen, ship, base_x, top_y, total_width, region_height=20
+):
+    """Draw the active ship form's limpet count centered in a HUD region."""
+    count = getattr(ship, "limpets_attached", 0)
+    if count <= 0:
+        return
+
+    limpet_sprites = ship.resources.ability("VuxA2").sprites
+    if not limpet_sprites:
+        return
+
+    icon = limpet_sprites[0]
+    if icon.get_height() > MAX_STATUS_ICON_HEIGHT:
+        scale = MAX_STATUS_ICON_HEIGHT / icon.get_height()
+        icon = _get_scaled_icon(
+            icon,
+            max(1, int(icon.get_width() * scale)),
+            MAX_STATUS_ICON_HEIGHT,
+        )
+
+    count_text = _get_limpet_counter_font().render(
+        f"x{count}", True, LIMPET_COUNTER_COLOR
+    )
+    content_width = icon.get_width() + LIMPET_COUNTER_GAP + count_text.get_width()
+    content_x = base_x + (total_width - content_width) // 2
+
+    screen.blit(
+        icon,
+        (content_x, top_y + (region_height - icon.get_height()) // 2),
+    )
+    screen.blit(
+        count_text,
+        (
+            content_x + icon.get_width() + LIMPET_COUNTER_GAP,
+            top_y + (region_height - count_text.get_height()) // 2,
+        ),
+    )
+
+
+def draw_boarded_marine_icons(
+    screen, ship, base_x, top_y, total_width, region_height=20
+):
     status_marines = tuple(getattr(ship, "boarded_marines", ()))
     marines = [
         marine
@@ -147,11 +202,10 @@ def draw_boarded_marine_icons(screen, ship, base_x, top_y, total_width):
         width_scale = total_width / raw_width
 
     # Scale based on height constraints (matching bottom padding of roughly 20)
-    MAX_ICON_HEIGHT = 18  # 20 - 2 for gap
     height_scale = 1.0
     raw_max_height = max(icon.get_height() for icon in icons)
-    if raw_max_height > MAX_ICON_HEIGHT:
-        height_scale = MAX_ICON_HEIGHT / raw_max_height
+    if raw_max_height > MAX_STATUS_ICON_HEIGHT:
+        height_scale = MAX_STATUS_ICON_HEIGHT / raw_max_height
 
     scale = min(width_scale, height_scale)
 
@@ -164,12 +218,12 @@ def draw_boarded_marine_icons(screen, ship, base_x, top_y, total_width):
         else:
             scaled_icons.append(icon)
 
-    icon_height = max(icon.get_height() for icon in scaled_icons)
     total_icons_width = sum(icon.get_width() for icon in scaled_icons) + gap * (
         len(scaled_icons) - 1
     )
 
     current_x = base_x + (total_width - total_icons_width) // 2
     for icon in scaled_icons:
-        screen.blit(icon, (current_x, top_y))
+        icon_y = top_y + (region_height - icon.get_height()) // 2
+        screen.blit(icon, (current_x, icon_y))
         current_x += icon.get_width() + gap
