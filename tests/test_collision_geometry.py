@@ -17,6 +17,7 @@ from src.Battle.collision_geometry import (
     swept_impact,
     wrapped_segment,
 )
+from src.collision_capabilities import SpecialObjectCollisionCapabilities
 
 
 def body(position, size=(10, 10), *, previous_position=None, mask=None):
@@ -54,6 +55,24 @@ class CollisionGeometryTests(CollisionTestCase):
         ship.planet = body([200, 100], size=(20, 20))
 
         self.assertFalse(ship_rotation_blocked(ship))
+
+    def test_ship_rotation_is_blocked_by_elastic_special_objects(self):
+        ship = body([100, 100], size=(20, 20))
+        special_object = body([110, 100], size=(20, 20))
+        special_object.current_hp = 1
+        special_object.currently_alive = True
+        special_object.special_object_collision_capabilities = (
+            SpecialObjectCollisionCapabilities(
+                bounces_off_ships_without_damage=True
+            )
+        )
+        ship.opponent = None
+        ship.asteroids = []
+        ship.planet = None
+        ship.friendly_objects = [special_object]
+        ship.enemy_objects = []
+
+        self.assertTrue(ship_rotation_blocked(ship))
 
     def test_contact_info_uses_shortest_toroidal_displacement(self):
         left = body([5, 100], size=(8, 8))

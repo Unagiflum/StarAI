@@ -179,13 +179,36 @@ def solid_sweep_overlap(obj, other, step_size=12):
     return False
 
 
-def ship_rotation_blocked(ship):
+def _ship_shape_blocking_candidates(ship):
     candidates = []
     if ship.opponent and ship.opponent.current_hp > 0:
         candidates.append(ship.opponent)
     candidates.extend([obj for obj in ship.asteroids if obj.currently_alive])
     if ship.planet:
         candidates.append(ship.planet)
+    for obj in (
+        *getattr(ship, "friendly_objects", ()),
+        *getattr(ship, "enemy_objects", ()),
+    ):
+        capabilities = getattr(obj, "special_object_collision_capabilities", None)
+        if (
+            capabilities
+            and capabilities.bounces_off_ships_without_damage
+            and getattr(obj, "currently_alive", True)
+            and getattr(obj, "current_hp", 1) > 0
+        ):
+            candidates.append(obj)
+    unique = []
+    seen_ids = set()
+    for candidate in candidates:
+        if id(candidate) not in seen_ids:
+            unique.append(candidate)
+            seen_ids.add(id(candidate))
+    return tuple(unique)
+
+
+def ship_rotation_blocked(ship):
+    candidates = _ship_shape_blocking_candidates(ship)
 
     for candidate in candidates:
         _, _, overlap = collision_info(ship, candidate)
@@ -197,19 +220,14 @@ def ship_rotation_blocked(ship):
 
 def ship_shape_change_blocked(ship, candidate_masks, candidate_size):
     """Return whether a prospective ship shape overlaps a collidable object."""
-    candidates = []
-    if ship.opponent and ship.opponent.current_hp > 0:
-        candidates.append(ship.opponent)
-    candidates.extend(obj for obj in ship.asteroids if obj.currently_alive)
-    if ship.planet:
-        candidates.append(ship.planet)
+    candidates = _ship_shape_blocking_candidates(ship)
 
     original_masks = ship.masks
     original_size = ship.size
     ship.masks = candidate_masks
     ship.size = list(candidate_size)
     try:
-        for candidate in dict.fromkeys(candidates):
+        for candidate in candidates:
             _, _, overlap = collision_info(ship, candidate)
             if objects_overlap(ship, candidate, overlap):
                 return True

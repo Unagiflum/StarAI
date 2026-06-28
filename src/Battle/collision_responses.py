@@ -333,6 +333,14 @@ def resolve_generic_collision(
                 return False
 
             if is_ship:
+                incoming_handler = getattr(
+                    other, "handle_incoming_special_object_contact", None
+                )
+                if fighter_caps and incoming_handler and incoming_handler(
+                    projectile, impact_normal
+                ):
+                    return True
+
                 if other is projectile.parent:
                     can_recover = getattr(projectile, "can_recover_with_parent", None)
                     if can_recover and can_recover():
@@ -384,11 +392,17 @@ def resolve_generic_collision(
         second_impact = getattr(second, "impact_capabilities", None)
 
         if first_impact and first_impact.ramming_damage > 0:
-            damage_ship(second, first_impact.ramming_damage)
+            if hasattr(second, "player"):
+                damage_ship(second, first_impact.ramming_damage)
+            else:
+                destroy_asteroid(second, effects)
             BattleEffect.play_boom(first_impact.ramming_damage)
 
         if second_impact and second_impact.ramming_damage > 0:
-            damage_ship(first, second_impact.ramming_damage)
+            if hasattr(first, "player"):
+                damage_ship(first, second_impact.ramming_damage)
+            else:
+                destroy_asteroid(first, effects)
             BattleEffect.play_boom(second_impact.ramming_damage)
 
         return True

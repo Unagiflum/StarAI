@@ -193,7 +193,7 @@ class AssetManager:
             self._ship_forms[key] = self._load_ship_assets(
                 cache_name=f"{ship_name}.{form_name}",
                 resource_dir=resource_dir,
-                sprite_prefix=f"{ship_name}{form_name}",
+                sprite_prefix=form.sprite_prefix or f"{ship_name}{form_name}",
                 scale=form.sprite_scale,
                 ditty_path=ditty_dir / f"{ship_name}-ditty.mp3",
             )
@@ -563,8 +563,12 @@ class AssetManager:
                 if definition.forms:
                     form = definition.forms[definition.default_form]
                     form_dir = const.source_path(form.sprite_path)
+                    sprite_prefix = (
+                        form.sprite_prefix
+                        or f"{ship_name}{definition.default_form}"
+                    )
                     sprite = self._image(
-                        form_dir / f"{ship_name}{definition.default_form}00.png"
+                        form_dir / f"{sprite_prefix}00.png"
                     )
                 else:
                     sprite = self._image(resource_dir / f"{ship_name}00.png")

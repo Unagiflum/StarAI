@@ -59,6 +59,10 @@ class ShipFormDefinition(_DefinitionMapping):
     a1_wait: float
     sprite_path: str
     sprite_scale: float = 1.0
+    sprite_prefix: str | None = None
+    inertia: bool | None = None
+    mass: float | None = None
+    collision_damage: float = 0.0
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -72,6 +76,10 @@ class ShipFormDefinition(_DefinitionMapping):
         "a1_wait": "a1_wait",
         "sprite_path": "sprite_path",
         "sprite_scale": "sprite_scale",
+        "sprite_prefix": "sprite_prefix",
+        "inertia": "inertia",
+        "mass": "mass",
+        "COLLISION_DAMAGE": "collision_damage",
     }
 
 
@@ -395,7 +403,13 @@ def parse_ship_form_definition(ship_name, form_name, data):
     name = f"{ship_name}.{form_name}"
     data = _entry_mapping(kind, name, data)
     allowed = set(ShipFormDefinition._json_key_to_attribute)
-    required = allowed - {"sprite_scale"}
+    required = allowed - {
+        "sprite_scale",
+        "sprite_prefix",
+        "inertia",
+        "mass",
+        "COLLISION_DAMAGE",
+    }
     _check_keys(kind, name, data, allowed, required)
 
     values = {
@@ -412,6 +426,14 @@ def parse_ship_form_definition(ship_name, form_name, data):
         "sprite_path": _typed(kind, name, "sprite_path", data["sprite_path"], str),
         "sprite_scale": _optional_typed(
             kind, name, data, "sprite_scale", float, 1.0
+        ),
+        "sprite_prefix": _optional_typed(
+            kind, name, data, "sprite_prefix", str, None
+        ),
+        "inertia": _optional_typed(kind, name, data, "inertia", bool, None),
+        "mass": _optional_typed(kind, name, data, "mass", float, None),
+        "collision_damage": _optional_typed(
+            kind, name, data, "COLLISION_DAMAGE", float, 0.0
         ),
         "_source_keys": tuple(data),
     }

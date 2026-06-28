@@ -122,7 +122,7 @@ def handle_collisions(
         excluded_ids,
     )
     _handle_ship_ship_collisions(ships, effects)
-    _handle_ship_asteroid_collisions(ships, asteroids)
+    _handle_ship_asteroid_collisions(ships, asteroids, effects)
     _handle_asteroid_asteroid_collisions(asteroids, effects)
     _handle_ship_planet_collisions(ships, planets)
     _handle_asteroid_planet_collisions(asteroids, planets, ships, effects)
@@ -186,11 +186,11 @@ def _handle_ship_ship_collisions(ships, effects=None):
     _dispatch_unique_collision_pairs(ships, effects, lambda ship: True)
 
 
-def _handle_ship_asteroid_collisions(ships, asteroids):
+def _handle_ship_asteroid_collisions(ships, asteroids, effects=None):
     _dispatch_collision_pairs(
         ships,
         asteroids,
-        [],
+        effects if effects is not None else [],
         stop_after_handled=False,
     )
 

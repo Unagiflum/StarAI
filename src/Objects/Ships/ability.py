@@ -395,6 +395,8 @@ class Ability(PlayerObject):
     def get_collision_mask(self):
         if not self.masks:
             return None
+        if self.omnidirectional:
+            return self.masks[self.current_frame if self.frames > 1 else 0]
         if self.frames > 1:
             return self.masks[self.current_frame]
         return self.masks[const.heading_to_sprite_index(self.heading)]
