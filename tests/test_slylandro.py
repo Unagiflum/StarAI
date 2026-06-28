@@ -144,6 +144,20 @@ class SlylandroTests(unittest.TestCase):
         self.assertAlmostEqual(second_delta[0], 0)
         self.assertAlmostEqual(second_delta[1], 20)
 
+    def test_lightning_turns_as_close_to_target_as_three_steps_allow(self):
+        bolt = self.ship.plan_action1().spawned_objects[0]
+        point = [500.0, 500.0]
+
+        self.target.position = [700.0, 500.0]
+        self.assertEqual(bolt._next_direction(0, point), 3)
+        self.assertEqual(bolt._next_direction(2, point), 4)
+
+        self.target.position = [500.0, 300.0]
+        bolt.rng = mock.Mock()
+        bolt.rng.choice.return_value = 1
+        self.assertEqual(bolt._next_direction(0, point), 1)
+        bolt.rng.choice.assert_called_once_with((-1, 1))
+
     def test_probe_always_moves_at_max_thrust_and_thrust_reverses_once(self):
         self.assertEqual(self.ship.velocity, [0.0, -60.0])
 

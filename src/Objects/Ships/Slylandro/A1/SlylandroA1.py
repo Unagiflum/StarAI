@@ -110,13 +110,11 @@ class SlylandroA1(Ability):
             % const.SHIP_DIRECTIONS
         ) - half_turn
 
-        if abs(difference) > 3:
-            turn = self.rng.randint(0, 3)
+        if abs(difference) > 1:
+            turn = min(3, abs(difference))
             turn *= 1 if difference > 0 else -1
-        elif abs(difference) <= 1:
-            turn = self.rng.choice((-1, 1))
         else:
-            turn = self.rng.randint(-3, 3)
+            turn = self.rng.choice((-1, 1))
         return (previous_direction + turn) % const.SHIP_DIRECTIONS
 
     def calculate_end_position(self):
