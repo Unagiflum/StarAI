@@ -85,7 +85,18 @@ class CatalogDefinitionTests(unittest.TestCase):
         self.assertTrue(ability.has_sprites)
         self.assertTrue(ability.has_sound)
         self.assertTrue(ability.laser_vulnerable)
+        self.assertTrue(ability.blocks_lasers)
         self.assertFalse(ability.collide_friendly_ships)
+
+    def test_special_object_collision_contracts_are_configured(self):
+        for name in ("VuxA2", "SyreenCrew", "KzerZaA2"):
+            with self.subTest(name=name):
+                self.assertFalse(ABILITY_DEFINITIONS[name].blocks_lasers)
+
+        self.assertFalse(ABILITY_DEFINITIONS["VuxA2"].damage_asteroids)
+        self.assertFalse(ABILITY_DEFINITIONS["VuxA2"].damage_projectiles)
+        self.assertTrue(ABILITY_DEFINITIONS["OrzA3"].collide_asteroids)
+        self.assertFalse(ABILITY_DEFINITIONS["OrzA3"].damage_asteroids)
 
     def test_missing_unknown_and_wrongly_typed_fields_are_rejected(self):
         cases = []

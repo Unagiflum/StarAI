@@ -385,6 +385,13 @@ class OrzA3(Ability):
             return False
         return super().on_collide(target)
 
+    def should_collide_with_ship(self, ship):
+        if self.mode in (self.OUTBOUND, self.LAUNCHING):
+            return ship is self.opponent
+        if self.mode == self.RETURNING:
+            return ship is self.parent
+        return False
+
     def handle_ship_contact(self, ship, normal=None):
         if (
             self.mode not in (self.OUTBOUND, self.LAUNCHING)

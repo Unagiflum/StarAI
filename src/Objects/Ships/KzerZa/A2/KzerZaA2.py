@@ -206,6 +206,10 @@ class KzerZaA2(Ability):
         self.planet_avoidance = (planet, None)
         return True
 
+    def handle_projectile_contact(self, projectile):
+        self.set_hp(0)
+        return True
+
     def _update_weapon(self, target):
         if self.weapon_timer <= 0:
             self.spawned_objects.append(KzerZaA2Laser(self, target))

@@ -305,6 +305,7 @@
         "weapon_wait": 8,
         "file_path": "Objects/Ships/KzerZa/A2/",
         "collide_fighters": false,
+        "blocks_lasers": false,
         "damage_projectiles": false,
         "damage_asteroids": false,
         "collide_friendly_ships": true
@@ -509,7 +510,7 @@
         "omnidirectional": true,
         "file_path": "Objects/Ships/Orz/A3/",
         "has_sound": false,
-        "collide_asteroids": false,
+        "collide_asteroids": true,
         "damage_asteroids": false,
         "damage_projectiles": false,
         "collide_fighters": false,
@@ -744,6 +745,7 @@
         "life_time": 384,
         "inertia": false,
         "radius": 4,
+        "blocks_lasers": false,
         "has_sprites": false,
         "file_path": "Objects/Ships/Syreen/A2/"
     },
@@ -884,6 +886,9 @@
         "speed": 25,
         "life_time": 80,
         "omnidirectional": true,
+        "blocks_lasers": false,
+        "damage_asteroids": false,
+        "damage_projectiles": false,
         "file_path": "Objects/Ships/Vux/A2/"
     },
     "YehatA1": {

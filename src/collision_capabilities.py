@@ -23,6 +23,7 @@ class CollisionCapabilities:
 class LaserTargetCapabilities:
     targetable: bool = True
     vulnerable: bool = True
+    blocks_lasers: bool = True
 
 
 @dataclass(frozen=True)

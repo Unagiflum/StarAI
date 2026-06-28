@@ -81,6 +81,7 @@ class Ability(PlayerObject):
         self.laser_target_capabilities = LaserTargetCapabilities(
             targetable=self.type in ("projectile", "special_object"),
             vulnerable=ability_definition.laser_vulnerable,
+            blocks_lasers=ability_definition.blocks_lasers,
         )
         self.area_damage_capabilities = AreaDamageCapabilities(
             emits=self.type == "area",

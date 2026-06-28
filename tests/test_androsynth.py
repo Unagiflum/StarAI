@@ -158,6 +158,7 @@ class AndrosynthTests(unittest.TestCase):
 
         orz = create_ship("Orz", 2, resources=self.resources)
         orz.position = [2000.0, 2000.0]
+        orz.opponent = self.ship
         marine = create_ability("OrzA3", orz)
         marine.mode = marine.OUTBOUND
         marine.position = self.ship.position.copy()
@@ -170,6 +171,7 @@ class AndrosynthTests(unittest.TestCase):
         self.assertTrue(self.ship._try_transform())
         orz = create_ship("Orz", 2, resources=self.resources)
         orz.position = [2000.0, 2000.0]
+        orz.opponent = self.ship
         marine = create_ability("OrzA3", orz)
         marine.mode = marine.OUTBOUND
         marine.current_hp = 4
@@ -184,6 +186,20 @@ class AndrosynthTests(unittest.TestCase):
         self.assertEqual(marine.position, marine.previous_position)
         self.assertGreater(marine.shield_bounce_timer, 0)
         self.assertEqual(self.ship.boarded_marines, [])
+
+    def test_blazer_destroys_syreen_crew_instead_of_recovering_it(self):
+        self.assertTrue(self.ship._try_transform())
+        syreen = create_ship("Syreen", 2, resources=self.resources)
+        syreen.position = [2000.0, 2000.0]
+        crew = create_ability("SyreenCrew", syreen)
+        crew.position = self.ship.position.copy()
+        crew.previous_position = crew.position.copy()
+        starting_hp = self.ship.current_hp
+
+        handle_collisions([self.ship, syreen, crew])
+
+        self.assertFalse(crew.currently_alive)
+        self.assertEqual(self.ship.current_hp, starting_hp)
 
     def test_blazer_rams_ships_and_destroys_asteroids(self):
         self.assertTrue(self.ship._try_transform())

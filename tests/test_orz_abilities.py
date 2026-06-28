@@ -214,6 +214,24 @@ class OrzAbilityTests(unittest.TestCase):
         self.assertFalse(marine.can_collide)
         self.assertEqual(enemy.boarded_marines, [marine])
 
+    def test_a3_only_collides_with_its_destination_ship(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        bystander = create_ship("Vux", 2)
+        bystander.initialize_in_battle([600, 500], 0)
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+
+        marine.mode = OrzA3.OUTBOUND
+        self.assertTrue(marine.should_collide_with_ship(enemy))
+        self.assertFalse(marine.should_collide_with_ship(bystander))
+        self.assertFalse(marine.should_collide_with_ship(self.ship))
+
+        marine.mode = OrzA3.RETURNING
+        self.assertTrue(marine.should_collide_with_ship(self.ship))
+        self.assertFalse(marine.should_collide_with_ship(enemy))
+        self.assertFalse(marine.should_collide_with_ship(bystander))
+
     def test_boarded_a3_uses_original_death_kill_and_no_result_ranges(self):
         enemy = create_ship("Earthling", 2)
         enemy.initialize_in_battle([700, 500], 0)

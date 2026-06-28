@@ -456,6 +456,10 @@ def is_live_laser(obj):
 
 
 def projectile_can_hit_ship(projectile, ship):
+    collision_filter = getattr(projectile, "should_collide_with_ship", None)
+    if collision_filter is not None:
+        return collision_filter(ship)
+
     fighter_caps = getattr(projectile, "special_object_collision_capabilities", None)
     if fighter_caps:
         if ship is projectile.parent:
@@ -493,11 +497,17 @@ def resolve_laser_hit(
     segment_index=None,
 ):
     damage = laser.current_damage
-    laser.end_position = [
-        contact[0] % const.ARENA_SIZE,
-        contact[1] % const.ARENA_SIZE,
-    ]
-    laser.intercepted = True
+    target_capabilities = getattr(target, "laser_target_capabilities", None)
+    blocks_laser = (
+        target_capabilities is None
+        or getattr(target_capabilities, "blocks_lasers", True)
+    )
+    if blocks_laser:
+        laser.end_position = [
+            contact[0] % const.ARENA_SIZE,
+            contact[1] % const.ARENA_SIZE,
+        ]
+        laser.intercepted = True
     on_laser_hit = getattr(laser, "on_laser_hit", None)
     if on_laser_hit is not None:
         on_laser_hit(target, contact, segment_index)
@@ -506,7 +516,12 @@ def resolve_laser_hit(
     if should_damage is None or should_damage(target):
         apply_impact(target, effects, normal, damage, contact)
 
-    attached = target if (getattr(target, 'current_hp', 1) > 0 and getattr(target, 'currently_alive', True) and not is_live_projectile(target)) else None
+    attached = target if (
+        blocks_laser
+        and getattr(target, 'current_hp', 1) > 0
+        and getattr(target, 'currently_alive', True)
+        and not is_live_projectile(target)
+    ) else None
     
     laser.attached_target = attached
     if attached:

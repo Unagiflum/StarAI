@@ -65,3 +65,9 @@ class VuxA2(Ability):
         self.current_hp = 0
         self.currently_alive = False
         return True
+
+    def handle_projectile_contact(self, projectile):
+        if getattr(projectile, "projectile_name", None) == self.projectile_name:
+            return False
+        self.set_hp(0)
+        return True

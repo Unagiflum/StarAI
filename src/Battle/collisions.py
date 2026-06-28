@@ -291,19 +291,25 @@ def _handle_laser_collisions(
         if not hit_infos:
             continue
 
-        hit_info = min(hit_infos, key=lambda info: info["distance"])
-        target = hit_info["target"]
-        contact = hit_info["contact"]
-        normal = hit_info["normal"]
-        responses.resolve_laser_hit(
-            laser,
-            target,
-            effects,
-            normal,
-            contact,
-            _apply_laser_impact,
-            segment_index=hit_info.get("segment_index"),
-        )
+        for hit_info in sorted(hit_infos, key=lambda info: info["distance"]):
+            target = hit_info["target"]
+            responses.resolve_laser_hit(
+                laser,
+                target,
+                effects,
+                hit_info["normal"],
+                hit_info["contact"],
+                _apply_laser_impact,
+                segment_index=hit_info.get("segment_index"),
+            )
+            target_capabilities = getattr(
+                target, "laser_target_capabilities", None
+            )
+            if (
+                target_capabilities is None
+                or getattr(target_capabilities, "blocks_lasers", True)
+            ):
+                break
 
 
 def _apply_laser_impact(target, effects, normal, damage, contact):

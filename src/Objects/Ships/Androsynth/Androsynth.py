@@ -162,7 +162,7 @@ class Androsynth(SpaceShip):
         if not self.is_blazer:
             return False
 
-        if special_object.name == "VuxA2":
+        if special_object.name in ("VuxA2", "SyreenCrew"):
             special_object.set_hp(0)
             return True
 

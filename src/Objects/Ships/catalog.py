@@ -182,6 +182,7 @@ class AbilityDefinition(_DefinitionMapping):
     has_sprites: bool = True
     has_sound: bool = True
     laser_vulnerable: bool = True
+    blocks_lasers: bool = True
     collide_planets: bool = True
     collide_asteroids: bool = True
     damage_asteroids: bool = True
@@ -262,6 +263,7 @@ class AbilityDefinition(_DefinitionMapping):
         "has_sprites": "has_sprites",
         "has_sound": "has_sound",
         "laser_vulnerable": "laser_vulnerable",
+        "blocks_lasers": "blocks_lasers",
         "collide_planets": "collide_planets",
         "collide_asteroids": "collide_asteroids",
         "damage_asteroids": "damage_asteroids",
@@ -591,6 +593,7 @@ def parse_ability_definition(name, data):
         "hit_team",
         "inertia",
         "laser_vulnerable",
+        "blocks_lasers",
         "life_time",
         "omnidirectional",
         "parent_vel",
@@ -676,6 +679,7 @@ def parse_ability_definition(name, data):
         "hit_team": (bool, False),
         "inertia": (bool, False),
         "laser_vulnerable": (bool, True),
+        "blocks_lasers": (bool, True),
         "life_time": (float, 0.0),
         "omnidirectional": (bool, False),
         "parent_vel": (float, 0.0),

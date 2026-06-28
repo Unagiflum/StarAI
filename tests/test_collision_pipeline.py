@@ -5,9 +5,15 @@ import src.const as const
 from collision_test_support import CollisionTestCase
 from src.Battle import collisions
 from src.Battle.world import World
-from src.collision_capabilities import AreaDamageCapabilities, CollisionCapabilities
+from src.collision_capabilities import (
+    AreaDamageCapabilities,
+    CollisionCapabilities,
+    LaserTargetCapabilities,
+)
 from src.Objects.Space.space_obj import Asteroid
 from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
+from src.Objects.Ships.Vux.A2.VuxA2 import VuxA2
 
 
 def run_collision_pipeline(game_objects, effects=None):
@@ -143,6 +149,24 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertFalse(special_object.currently_alive)
         self.assertFalse(live.currently_alive)
 
+    def test_limpet_and_kzerza_fighter_die_to_zero_damage_projectiles(self):
+        for fighter_class, name in ((VuxA2, "VuxA2"), (KzerZaA2, "KzerZaA2")):
+            with self.subTest(name=name):
+                fighter = self.make_fighter(fighter_class=fighter_class)
+                fighter.name = fighter.projectile_name = name
+                projectile = self.make_projectile(self.make_ship())
+                projectile.current_damage = 0
+                projectile.position = fighter.position.copy()
+                projectile.previous_position = projectile.position.copy()
+
+                with mock.patch.object(
+                    collisions.BattleEffect, "play_boom"
+                ):
+                    collisions.handle_collisions([fighter, projectile])
+
+                self.assertFalse(fighter.currently_alive)
+                self.assertTrue(projectile.currently_alive)
+
     def test_fighter_skips_dead_ship_and_hits_next_live_target(self):
         special_object = self.make_fighter()
         parent = self.make_ship()
@@ -191,6 +215,30 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertEqual(enemy_ship.current_hp, 10)
         self.assertTrue(laser.intercepted)
         self.assertLess(laser.end_position[0], enemy_ship.position[0])
+
+    def test_laser_damages_nonblocking_target_then_hits_blocker_behind_it(self):
+        parent = self.make_ship()
+        parent.player = 1
+        parent.position = [100, 100]
+        laser = self.make_laser(parent)
+        fighter = self.make_fighter()
+        fighter.position = [170, 100]
+        fighter.laser_target_capabilities = LaserTargetCapabilities(
+            blocks_lasers=False
+        )
+        enemy_ship = self.make_ship()
+        enemy_ship.player = 2
+        enemy_ship.position = [240, 100]
+
+        with mock.patch.object(
+            collisions.BattleEffect, "from_blast", return_value=object()
+        ), mock.patch.object(collisions.BattleEffect, "play_boom"):
+            collisions.handle_collisions([parent, enemy_ship, laser, fighter])
+
+        self.assertFalse(fighter.currently_alive)
+        self.assertEqual(enemy_ship.current_hp, 8)
+        self.assertTrue(laser.intercepted)
+        self.assertGreater(laser.end_position[0], fighter.position[0])
 
     def test_collision_cleanup_preserves_survivor_order_and_list_identity(self):
         first = object()
