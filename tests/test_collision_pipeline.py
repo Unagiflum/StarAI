@@ -14,6 +14,7 @@ from src.collision_capabilities import (
 from src.Objects.Space.space_obj import Asteroid
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
+from src.Objects.Ships.Orz.A3.OrzA3 import OrzA3
 from src.Objects.Ships.Vux.A2.VuxA2 import VuxA2
 
 
@@ -25,6 +26,21 @@ def run_collision_pipeline(game_objects, effects=None):
 
 
 class CollisionPipelineTests(CollisionTestCase):
+
+    def make_orz_marine_projectile_contact(self, death_animation):
+        marine = self.make_fighter(fighter_class=OrzA3)
+        marine.name = marine.projectile_name = "OrzA3"
+        marine.mode = OrzA3.OUTBOUND
+        marine.get_collision_mask = lambda: None
+        marine.boarded_ship = None
+        marine._death_sound_played = False
+        marine.die_sound = None
+
+        projectile = self.make_projectile(self.make_ship())
+        projectile.position = marine.position.copy()
+        projectile.previous_position = projectile.position.copy()
+        projectile.death_animation = death_animation
+        return marine, projectile
 
     def make_kzerza_parent_contact(self, mode):
         parent = self.make_ship()
@@ -351,6 +367,57 @@ class CollisionPipelineTests(CollisionTestCase):
                 self.assertFalse(fighter.currently_alive)
                 self.assertTrue(projectile.currently_alive)
 
+    def test_projectile_death_animation_is_emitted_when_killing_orz_marine(self):
+        animation = [object()]
+        marine, projectile = self.make_orz_marine_projectile_contact(animation)
+
+        with (
+            mock.patch.object(
+                collisions.BattleEffect,
+                "from_animation",
+                return_value=object(),
+            ) as from_animation,
+            mock.patch.object(collisions.BattleEffect, "from_blast"),
+            mock.patch.object(collisions.BattleEffect, "play_boom"),
+        ):
+            collisions.handle_collisions([marine, projectile])
+
+        self.assertTrue(
+            any(call.args[1] is animation for call in from_animation.call_args_list)
+        )
+
+    def test_projectile_blast_is_emitted_when_killing_orz_marine(self):
+        marine, projectile = self.make_orz_marine_projectile_contact([])
+
+        with (
+            mock.patch.object(
+                collisions.BattleEffect,
+                "from_blast",
+                return_value=object(),
+            ) as from_blast,
+            mock.patch.object(collisions.BattleEffect, "play_boom"),
+        ):
+            collisions.handle_collisions([marine, projectile])
+
+        self.assertTrue(
+            any(
+                call.args[2] == projectile.current_damage
+                for call in from_blast.call_args_list
+            )
+        )
+
+    def test_kzerza_fighter_survives_planet_contact_and_begins_avoidance(self):
+        fighter = self.make_fighter(fighter_class=KzerZaA2)
+        fighter.name = fighter.projectile_name = "KzerZaA2"
+        fighter.position = [100, 100]
+        fighter.previous_position = fighter.position.copy()
+        planet = self.make_planet([100, 100])
+
+        collisions.handle_collisions([fighter, planet])
+
+        self.assertTrue(fighter.currently_alive)
+        self.assertEqual(fighter.planet_avoidance, (planet, None))
+
     def test_fighter_skips_dead_ship_and_hits_next_live_target(self):
         special_object = self.make_fighter()
         parent = self.make_ship()
@@ -423,6 +490,37 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertEqual(enemy_ship.current_hp, 8)
         self.assertTrue(laser.intercepted)
         self.assertGreater(laser.end_position[0], fighter.position[0])
+
+    def test_exact_laser_stops_at_explicit_nonblocking_target(self):
+        parent = self.make_ship()
+        parent.player = 1
+        parent.position = [100, 100]
+        intended = self.make_fighter()
+        intended.parent = parent
+        intended.hit_parent = False
+        intended.position = [170, 100]
+        intended.laser_target_capabilities = LaserTargetCapabilities(
+            blocks_lasers=False
+        )
+        behind = self.make_fighter()
+        behind.parent = parent
+        behind.hit_parent = False
+        behind.position = [220, 100]
+        behind.laser_target_capabilities = LaserTargetCapabilities(
+            blocks_lasers=False
+        )
+        laser = self.make_laser(parent, target=intended)
+        laser.calculate_end_position = mock.Mock()
+
+        with (
+            mock.patch.object(collisions.BattleEffect, "from_blast", return_value=object()),
+            mock.patch.object(collisions.BattleEffect, "play_boom"),
+        ):
+            collisions.handle_collisions([parent, laser, intended, behind])
+
+        self.assertFalse(intended.currently_alive)
+        self.assertTrue(behind.currently_alive)
+        self.assertEqual(laser.end_position, intended.position)
 
     def test_collision_cleanup_preserves_survivor_order_and_list_identity(self):
         first = object()

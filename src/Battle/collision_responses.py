@@ -863,8 +863,11 @@ def generic_is_laser_target(laser, target, explicit):
 
 
 def destroy_projectile(projectile, effects, direction, damage, contact_position=None, attached_target=None):
-    if not projectile.currently_alive:
+    if getattr(projectile, "_destruction_finalized", False):
         return
+    if not projectile.currently_alive and getattr(projectile, "current_hp", 0) > 0:
+        return
+    projectile._destruction_finalized = True
 
     effect_position = (
         contact_position if contact_position is not None else projectile.position

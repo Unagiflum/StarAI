@@ -79,6 +79,37 @@ class CollisionPairRegistryTests(unittest.TestCase):
 
                 self.assertIs(registered, handler)
 
+    def test_special_object_pairs_use_dedicated_handlers(self):
+        for second_role, handler in (
+            (
+                CollisionRole.SPECIAL_OBJECT,
+                collision_responses.resolve_projectile_projectile_collision,
+            ),
+            (
+                CollisionRole.PROJECTILE,
+                collision_responses.resolve_projectile_projectile_collision,
+            ),
+            (
+                CollisionRole.SHIP,
+                collision_responses.resolve_projectile_ship_collision,
+            ),
+            (
+                CollisionRole.ASTEROID,
+                collision_responses.resolve_projectile_asteroid_collision,
+            ),
+            (
+                CollisionRole.PLANET,
+                collision_responses.resolve_projectile_planet_collision,
+            ),
+        ):
+            with self.subTest(second_role=second_role):
+                registered = collisions.COLLISION_PAIR_REGISTRY.handler_for(
+                    CollisionRole.SPECIAL_OBJECT,
+                    second_role,
+                )
+
+                self.assertIs(registered, handler)
+
     def test_bidirectional_registration_preserves_incoming_object_order(self):
         registry = CollisionPairRegistry()
         handler = mock.Mock(return_value=CollisionOutcome.RESOLVED)

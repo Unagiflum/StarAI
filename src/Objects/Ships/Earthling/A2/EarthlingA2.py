@@ -1,6 +1,5 @@
-from src.Objects.Ships.ability import Ability, ABILITIES_DATA, wrapped_endpoint
+from src.Objects.Ships.ability import Ability, ABILITIES_DATA
 import pygame
-import math
 import src.const as const
 from src.toroidal import wrapped_delta, wrapped_distance
 
@@ -56,10 +55,8 @@ class EarthlingA2(Ability):
     def calculate_end_position(self):
         self.position = self.configured_gun_position()
         dx, dy = wrapped_delta(self.position, self.target.position)
-
-        angle = math.atan2(dy, dx)
-        self.end_position[0] = self.position[0] + math.cos(angle) * self.LASER_RANGE
-        self.end_position[1] = self.position[1] + math.sin(angle) * self.LASER_RANGE
+        self.end_position[0] = self.position[0] + dx
+        self.end_position[1] = self.position[1] + dy
 
     def update_physics(self):
         self.position = self.configured_gun_position()
@@ -89,16 +86,11 @@ class EarthlingA2(Ability):
         )
 
         if not getattr(self, "intercepted", False):
-            target_pos = (
-                interpolated_position(self.target, interp_t)
-                if self.target
-                else self.target.position
-            )
+            target_pos = interpolated_position(self.target, interp_t)
             dx, dy = wrapped_delta(pos, target_pos)
-            angle = math.atan2(dy, dx)
             draw_end_position = [
-                pos[0] + math.cos(angle) * self.LASER_RANGE,
-                pos[1] + math.sin(angle) * self.LASER_RANGE,
+                pos[0] + dx,
+                pos[1] + dy,
             ]
         else:
             end_offset = wrapped_delta(self.position, self.end_position)

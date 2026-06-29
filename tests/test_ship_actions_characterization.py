@@ -271,6 +271,17 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(ship.action2_timer, 0)
         point_defense.launch_sound.play.assert_not_called()
 
+    def test_earthling_point_defense_beam_ends_at_exact_target(self):
+        from src.Objects.Ships.Earthling.A2.EarthlingA2 import EarthlingA2
+
+        ship = create_ship("Earthling", 1)
+        ship.position = [1000, 1000]
+        target = SimpleNamespace(position=[1100, 1000])
+
+        laser = EarthlingA2(ship, target)
+
+        self.assertEqual(laser.end_position, target.position)
+
     def test_arilou_teleport_commits_action_and_moves_after_constructing_effect(self):
         ship = create_ship("Arilou", 1)
         effect = SimpleNamespace(launch_sound=mock.Mock())

@@ -119,5 +119,34 @@ class LaserParentTargetTests(CollisionTestCase):
             )
         )
 
+
+class ProjectileDestructionTests(CollisionTestCase):
+    def test_destruction_effect_and_callback_are_finalized_once(self):
+        projectile = self.make_projectile(self.make_ship())
+        projectile.on_destroyed = mock.Mock()
+        effects = []
+
+        with mock.patch.object(
+            collision_responses.BattleEffect,
+            "from_blast",
+            return_value=object(),
+        ) as from_blast:
+            collision_responses.destroy_projectile(
+                projectile,
+                effects,
+                [1.0, 0.0],
+                projectile.current_damage,
+            )
+            collision_responses.destroy_projectile(
+                projectile,
+                effects,
+                [1.0, 0.0],
+                projectile.current_damage,
+            )
+
+        from_blast.assert_called_once()
+        projectile.on_destroyed.assert_called_once_with()
+        self.assertEqual(len(effects), 1)
+
 if __name__ == '__main__':
     unittest.main()

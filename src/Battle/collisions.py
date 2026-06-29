@@ -147,15 +147,35 @@ def _create_collision_pair_registry():
         responses.resolve_projectile_planet_collision,
         canonical_order=True,
     )
-    generic_pairs = (
-        (CollisionRole.SPECIAL_OBJECT, CollisionRole.SPECIAL_OBJECT),
-        (CollisionRole.SPECIAL_OBJECT, CollisionRole.PROJECTILE),
-        (CollisionRole.SPECIAL_OBJECT, CollisionRole.SHIP),
-        (CollisionRole.SPECIAL_OBJECT, CollisionRole.ASTEROID),
-        (CollisionRole.SPECIAL_OBJECT, CollisionRole.PLANET),
+    registry.register(
+        CollisionRole.SPECIAL_OBJECT,
+        CollisionRole.SPECIAL_OBJECT,
+        responses.resolve_projectile_projectile_collision,
     )
-    for first_role, second_role in generic_pairs:
-        registry.register(first_role, second_role, _resolve_generic_collision)
+    registry.register(
+        CollisionRole.SPECIAL_OBJECT,
+        CollisionRole.PROJECTILE,
+        responses.resolve_projectile_projectile_collision,
+        canonical_order=True,
+    )
+    registry.register(
+        CollisionRole.SPECIAL_OBJECT,
+        CollisionRole.SHIP,
+        responses.resolve_projectile_ship_collision,
+        canonical_order=True,
+    )
+    registry.register(
+        CollisionRole.SPECIAL_OBJECT,
+        CollisionRole.ASTEROID,
+        responses.resolve_projectile_asteroid_collision,
+        canonical_order=True,
+    )
+    registry.register(
+        CollisionRole.SPECIAL_OBJECT,
+        CollisionRole.PLANET,
+        responses.resolve_projectile_planet_collision,
+        canonical_order=True,
+    )
     return registry
 
 
@@ -344,6 +364,12 @@ def _handle_laser_collisions(
 
         laser.position = laser.parent.position.copy()
         laser.calculate_end_position()
+        if laser.target is not None:
+            target_delta = _wrapped_delta(laser.position, laser.target.position)
+            laser.end_position = [
+                laser.position[0] + target_delta[0],
+                laser.position[1] + target_delta[1],
+            ]
 
         targets = _laser_targets(
             laser,
