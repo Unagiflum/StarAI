@@ -1,12 +1,28 @@
-from src.Objects.Ships.ability import Ability, ABILITIES_DATA
+from src.Objects.Ships.ability import Ability
 import pygame
 
 
 class ArilouA2(Ability):
     def __init__(self, parent):
         super().__init__("ArilouA2", parent)
-        ability_data = ABILITIES_DATA["ArilouA2"]
+        self.destination = None
         self.place_self()
+
+    def begin(self, destination):
+        self.destination = destination.copy()
+
+    def update(self):
+        teleport_frame = self.parent.teleport_frame
+        if teleport_frame == 0:
+            self.currently_alive = False
+            return False
+
+        self.previous_position = self.position.copy()
+        self.current_frame = 0 if teleport_frame in (1, 4) else 1
+        if teleport_frame >= 3:
+            self.position = self.destination.copy()
+            self.previous_position = self.position.copy()
+        return True
 
     def place_self(self):
         self.position = self.parent.position.copy()

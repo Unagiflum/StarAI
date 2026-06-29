@@ -249,6 +249,11 @@ def _currently_alive(obj):
     return obj.currently_alive
 
 
+def _is_intangible(obj):
+    physics = getattr(obj, "physical_collision_capabilities", None)
+    return bool(physics and physics.is_intangible)
+
+
 COLLISION_PHASES = (
     _CollisionPhase("ships", unique_pairs=True),
     _CollisionPhase("ships", "asteroids", stop_after_handled=False),
@@ -305,7 +310,14 @@ def handle_collisions(
     all_asteroids = world.asteroids
     _handle_area_damage(world, effects, excluded_ids)
 
-    ships = [ship for ship in world.live_ships if id(ship) not in excluded_ids]
+    ships = [
+        ship
+        for ship in world.live_ships
+        if (
+            id(ship) not in excluded_ids
+            and not _is_intangible(ship)
+        )
+    ]
     projectiles = world.colliding_projectiles
     special_objects = world.colliding_special_objects
     lasers = world.colliding_lasers

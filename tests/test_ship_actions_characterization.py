@@ -14,6 +14,7 @@ pygame.init()
 pygame.display.set_mode((1, 1))
 
 import src.const as const
+from src.Battle import collisions
 from src.Battle.battle import BattleSimulation
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, ActionResult
@@ -282,26 +283,150 @@ class ShipActionCharacterizationTests(unittest.TestCase):
 
         self.assertEqual(laser.end_position, target.position)
 
-    def test_arilou_teleport_commits_action_and_moves_after_constructing_effect(self):
+    def test_arilou_teleport_commits_action_and_starts_at_old_location(self):
         ship = create_ship("Arilou", 1)
-        effect = SimpleNamespace(launch_sound=mock.Mock())
+        ship.position = [10, 20]
         initial_energy = ship.current_energy
-        with (
-            mock.patch(
-                "src.Objects.Ships.Arilou.Arilou.ArilouA2",
-                return_value=effect,
-            ),
-            mock.patch(
-                "src.Objects.Ships.Arilou.Arilou.random.randint",
-                side_effect=[123, 456],
-            ),
-        ):
+        with mock.patch.object(ship.rng, "randint", side_effect=[123, 456]):
             result = ship.perform_action2()
-        self.assertIs(result, effect)
-        self.assertEqual(ship.position, [123, 456])
+        self.assertIsInstance(result, Ability)
+        self.assertEqual(ship.position, [10, 20])
+        self.assertEqual(result.position, [10, 20])
+        self.assertEqual(ship.teleport_destination, [123, 456])
         self.assertEqual(ship.current_energy, initial_energy - ship.a2_cost)
         self.assertEqual(ship.action2_timer, const.cooldown_frames(ship.a2_wait))
-        effect.launch_sound.play.assert_called_once_with()
+
+    def test_arilou_teleport_runs_the_five_frame_sequence(self):
+        ship = create_ship("Arilou", 1)
+        ship.position = [10, 20]
+        with mock.patch.object(ship.rng, "randint", side_effect=[123, 456]):
+            effect = ship.perform_action2()
+
+        states = []
+        for _ in range(5):
+            ship.update()
+            alive = effect.update()
+            states.append(
+                (
+                    ship.teleport_frame,
+                    effect.current_frame,
+                    effect.position.copy(),
+                    ship.position.copy(),
+                    ship.camera_position.copy(),
+                    ship.physical_collision_capabilities.is_intangible,
+                    alive,
+                )
+            )
+
+        self.assertEqual(
+            states,
+            [
+                (1, 0, [10, 20], [10, 20], [10, 20], True, True),
+                (2, 1, [10, 20], [10, 20], [10, 20], True, True),
+                (3, 1, [123, 456], [123, 456], [123, 456], True, True),
+                (4, 0, [123, 456], [123, 456], [123, 456], True, True),
+                (0, 0, [123, 456], [123, 456], [123, 456], False, False),
+            ],
+        )
+
+    def test_arilou_teleport_pauses_timers_battery_damage_and_commands(self):
+        ship = create_ship("Arilou", 1)
+        ship.position = [10, 20]
+        ship.energy_timer = ship.energy_wait
+        ship.thrust_active = True
+        ship.turn_left_active = True
+        ship.action1_active = True
+        ship.velocity = [7.0, 8.0]
+        ship.accumulated_impulses = [2.0, 3.0]
+        with mock.patch.object(ship.rng, "randint", side_effect=[123, 456]):
+            ship.perform_action2()
+
+        timers = (
+            ship.thrust_timer,
+            ship.turn_timer,
+            ship.action1_timer,
+            ship.action2_timer,
+            ship.action3_timer,
+            ship.energy_timer,
+        )
+        energy = ship.current_energy
+        hp = ship.current_hp
+        ship.update_timers()
+
+        self.assertEqual(
+            timers,
+            (
+                ship.thrust_timer,
+                ship.turn_timer,
+                ship.action1_timer,
+                ship.action2_timer,
+                ship.action3_timer,
+                ship.energy_timer,
+            ),
+        )
+        self.assertEqual(ship.current_energy, energy)
+        self.assertEqual(ship.take_damage(5, shieldable=False), 0)
+        self.assertEqual(ship.current_hp, hp)
+        self.assertEqual(ship.velocity, [0.0, 0.0])
+        self.assertEqual(ship.accumulated_impulses, [0.0, 0.0])
+        self.assertFalse(ship.thrust_active)
+        self.assertFalse(ship.turn_left_active)
+        self.assertFalse(ship.action1_active)
+
+    def test_arilou_teleport_acceptance_cancels_same_frame_commands(self):
+        ship = create_ship("Arilou", 1)
+        ship.position = [10, 20]
+        ship.heading = 4
+        ship.rotation = ship.heading * const.TURN_ANGLE
+        ship.energy_timer = ship.energy_wait
+        initial_energy = ship.current_energy
+        initial_timers = (
+            ship.thrust_timer,
+            ship.turn_timer,
+            ship.action1_timer,
+            ship.action3_timer,
+            ship.energy_timer,
+        )
+        for control in ("thrust", "turn_left", "action1", "action2"):
+            ship.set_control_state(control, True, frame_id=1)
+
+        with mock.patch.object(ship.rng, "randint", side_effect=[123, 456]):
+            spawned = ship.process_controls(frame_id=1)
+
+        self.assertEqual(len(spawned), 1)
+        self.assertEqual(spawned[0].name, "ArilouA2")
+        self.assertEqual(ship.heading, 4)
+        self.assertEqual(ship.current_energy, initial_energy - ship.a2_cost)
+        self.assertEqual(
+            (
+                ship.thrust_timer,
+                ship.turn_timer,
+                ship.action1_timer,
+                ship.action3_timer,
+                ship.energy_timer,
+            ),
+            initial_timers,
+        )
+
+    def test_arilou_teleport_excludes_ship_from_collision_pipeline(self):
+        ship = create_ship("Arilou", 1)
+        enemy = create_ship("Earthling", 2)
+        ship.initialize_in_battle([500, 500], 0)
+        enemy.initialize_in_battle([900, 500], 0)
+        ship.opponent = enemy
+        enemy.opponent = ship
+        projectile = create_ability("EarthlingA1", enemy)
+        projectile.position = ship.position.copy()
+        projectile.previous_position = projectile.position.copy()
+
+        with mock.patch.object(ship.rng, "randint", side_effect=[123, 456]):
+            ship.perform_action2()
+        hp = ship.current_hp
+        collisions.handle_collisions([ship, enemy, projectile])
+
+        self.assertEqual(ship.current_hp, hp)
+        self.assertTrue(projectile.currently_alive)
+        self.assertGreater(projectile.current_hp, 0)
 
     def test_arilou_teleport_effect_clips_square_source_background(self):
         ship = create_ship("Arilou", 1)

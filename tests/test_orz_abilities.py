@@ -258,6 +258,25 @@ class OrzAbilityTests(unittest.TestCase):
         self.assertFalse(marine.update())
         self.assertNotIn(marine, enemy.boarded_marines)
 
+    def test_boarded_a3_action_pauses_during_arilou_teleport(self):
+        enemy = create_ship("Arilou", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
+        marine.handle_ship_contact(enemy)
+        boarded_hp = enemy.current_hp
+        marine.rng = mock.Mock()
+        marine.boarding_timer = 1
+
+        with mock.patch.object(enemy.rng, "randint", side_effect=[123, 456]):
+            enemy.perform_action2()
+        marine.update()
+
+        self.assertEqual(marine.boarding_timer, 1)
+        marine.rng.randrange.assert_not_called()
+        self.assertEqual(enemy.current_hp, boarded_hp)
+
     def test_surviving_a3_returns_and_restores_parent_crew(self):
         enemy = create_ship("Earthling", 2)
         enemy.initialize_in_battle([700, 500], 0)

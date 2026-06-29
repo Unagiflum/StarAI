@@ -322,7 +322,12 @@ def _render_world_to_surface(
 
     for ship in snapshot.ships:
         if ship not in entering_ships:
-            if show_crosshairs and not getattr(ship, "cloaked", False):
+            physics = getattr(ship, "physical_collision_capabilities", None)
+            if (
+                show_crosshairs
+                and not getattr(ship, "cloaked", False)
+                and not (physics and physics.is_intangible)
+            ):
                 _draw_dashed_circle(surface, ship, scale_factor, translation, interp_t)
             ship.draw(surface, scale_factor, translation, interp_t=interp_t)
 

@@ -269,6 +269,18 @@ class SpaceShip(PlayerObject):
         thrust_ready = self.control_ready("thrust", frame_id)
         action1_ready = self.control_ready("action1", frame_id)
         action2_ready = self.control_ready("action2", frame_id)
+        action2_active = self.action2_active or "action2" in self.newly_pressed_controls
+
+        if (
+            self.action2_cancels_other_commands()
+            and action2_active
+            and action2_ready
+        ):
+            result = self.commit_action(self._select_action_plan(2))
+            if result.valid:
+                self.newly_pressed_controls.clear()
+                self.released_controls.clear()
+                return list(result.spawned_objects)
 
         if self.turn_left_active and turn_left_ready and self.turn_input_enabled():
             self.turn_left()
@@ -292,7 +304,6 @@ class SpaceShip(PlayerObject):
         # Input processing consumes typed transactions directly. The
         # perform_action* methods below remain compatibility wrappers.
         action1_active = self.action1_active or "action1" in self.newly_pressed_controls
-        action2_active = self.action2_active or "action2" in self.newly_pressed_controls
         if action1_active and action2_active and (action1_ready or action2_ready):
             result = self.commit_action(self._select_action_plan(3))
             new_objects.extend(result.spawned_objects)
@@ -340,6 +351,9 @@ class SpaceShip(PlayerObject):
 
     def turn_input_enabled(self):
         return True
+
+    def action2_cancels_other_commands(self):
+        return False
 
     def get_active_thrust_angles(self, thrust_ready, turn_left_ready, turn_right_ready):
         if self.thrust_active and thrust_ready:

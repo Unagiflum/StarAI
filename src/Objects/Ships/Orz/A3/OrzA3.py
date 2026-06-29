@@ -185,6 +185,8 @@ class OrzA3(Ability):
 
         self.position = ship.position.copy()
         self.velocity = [0.0, 0.0]
+        if getattr(ship, "ability_actions_paused", False):
+            return True
         self.boarding_timer -= 1
         if self.boarding_timer > 0:
             return True
