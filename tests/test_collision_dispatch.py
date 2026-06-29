@@ -16,13 +16,21 @@ def collision_object(role):
 
 
 class CollisionPairRegistryTests(unittest.TestCase):
-    def test_ship_pair_uses_dedicated_mobile_solid_handler(self):
-        handler = collisions.COLLISION_PAIR_REGISTRY.handler_for(
-            CollisionRole.SHIP,
-            CollisionRole.SHIP,
-        )
+    def test_migrated_pairs_use_dedicated_mobile_solid_handler(self):
+        for first_role, second_role in (
+            (CollisionRole.SHIP, CollisionRole.SHIP),
+            (CollisionRole.ASTEROID, CollisionRole.ASTEROID),
+        ):
+            with self.subTest(first_role=first_role, second_role=second_role):
+                handler = collisions.COLLISION_PAIR_REGISTRY.handler_for(
+                    first_role,
+                    second_role,
+                )
 
-        self.assertIs(handler, collision_responses.resolve_mobile_solid_collision)
+                self.assertIs(
+                    handler,
+                    collision_responses.resolve_mobile_solid_collision,
+                )
 
     def test_bidirectional_registration_preserves_incoming_object_order(self):
         registry = CollisionPairRegistry()

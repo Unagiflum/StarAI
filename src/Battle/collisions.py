@@ -102,9 +102,13 @@ def _create_collision_pair_registry():
         CollisionRole.SHIP,
         responses.resolve_mobile_solid_collision,
     )
+    registry.register(
+        CollisionRole.ASTEROID,
+        CollisionRole.ASTEROID,
+        responses.resolve_mobile_solid_collision,
+    )
     generic_pairs = (
         (CollisionRole.SHIP, CollisionRole.ASTEROID),
-        (CollisionRole.ASTEROID, CollisionRole.ASTEROID),
         (CollisionRole.SHIP, CollisionRole.PLANET),
         (CollisionRole.ASTEROID, CollisionRole.PLANET),
         (CollisionRole.PROJECTILE, CollisionRole.PROJECTILE),
