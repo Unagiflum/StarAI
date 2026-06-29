@@ -154,6 +154,74 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertEqual(ship.current_hp, 8)
         play_boom.assert_called_once_with(2)
 
+    def test_projectile_is_consumed_by_planet_contact(self):
+        projectile = self.make_projectile(self.make_ship())
+        projectile.position = [100, 100]
+        projectile.previous_position = projectile.position.copy()
+        planet = self.make_planet([100, 100])
+        game_objects = [projectile, planet]
+
+        with (
+            mock.patch.object(collisions.BattleEffect, "from_blast"),
+            mock.patch.object(collisions.BattleEffect, "play_boom"),
+        ):
+            collisions.handle_collisions(game_objects)
+
+        self.assertFalse(projectile.currently_alive)
+        self.assertNotIn(projectile, game_objects)
+
+    def test_projectile_and_asteroid_consume_each_other(self):
+        projectile = self.make_projectile(self.make_ship())
+        projectile.position = [100, 100]
+        projectile.previous_position = projectile.position.copy()
+        asteroid = self.make_asteroid([100, 100])
+        game_objects = [projectile, asteroid]
+
+        with (
+            mock.patch.object(collisions.BattleEffect, "from_blast"),
+            mock.patch.object(collisions.BattleEffect, "play_boom"),
+        ):
+            collisions.handle_collisions(game_objects)
+
+        self.assertFalse(projectile.currently_alive)
+        self.assertFalse(asteroid.currently_alive)
+        self.assertNotIn(projectile, game_objects)
+        self.assertNotIn(asteroid, game_objects)
+
+    def test_projectile_damages_ship_and_is_consumed(self):
+        projectile = self.make_projectile(self.make_ship())
+        projectile.position = [100, 100]
+        projectile.previous_position = projectile.position.copy()
+        ship = self.make_ship()
+        ship.position = [100, 100]
+        ship.previous_position = ship.position.copy()
+        game_objects = [projectile, ship]
+
+        with (
+            mock.patch.object(collisions.BattleEffect, "from_blast"),
+            mock.patch.object(collisions.BattleEffect, "play_boom"),
+        ):
+            collisions.handle_collisions(game_objects)
+
+        self.assertEqual(ship.current_hp, 6)
+        self.assertFalse(projectile.currently_alive)
+        self.assertNotIn(projectile, game_objects)
+
+    def test_enemy_projectiles_consume_each_other(self):
+        first, second = self.make_projectile_pair()
+        game_objects = [first, second]
+
+        with (
+            mock.patch.object(collisions.BattleEffect, "from_blast"),
+            mock.patch.object(collisions.BattleEffect, "play_boom"),
+        ):
+            collisions.handle_collisions(game_objects)
+
+        self.assertFalse(first.currently_alive)
+        self.assertFalse(second.currently_alive)
+        self.assertNotIn(first, game_objects)
+        self.assertNotIn(second, game_objects)
+
     def test_each_asteroid_pair_is_dispatched_once(self):
         asteroids = [
             self.make_asteroid([100, 100]),

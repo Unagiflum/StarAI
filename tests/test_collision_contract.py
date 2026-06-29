@@ -38,7 +38,7 @@ class CollisionOutcomeTests(CollisionTestCase):
         self.assertIs(outcome, CollisionOutcome.IGNORED)
         self.assertFalse(outcome)
 
-    def test_resolved_pair_returns_explicit_outcome(self):
+    def test_consumed_projectile_returns_explicit_outcome(self):
         parent, projectile = self.make_parent_contact(hit_parent=True)
 
         with mock.patch.object(collision_responses.BattleEffect, "from_blast"):
@@ -48,7 +48,7 @@ class CollisionOutcomeTests(CollisionTestCase):
                 CollisionContext([]),
             )
 
-        self.assertIs(outcome, CollisionOutcome.RESOLVED)
+        self.assertIs(outcome, CollisionOutcome.CONSUMED_FIRST)
         self.assertTrue(outcome)
         self.assertFalse(projectile.currently_alive)
 

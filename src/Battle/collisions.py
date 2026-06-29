@@ -124,11 +124,30 @@ def _create_collision_pair_registry():
         responses.resolve_ship_planet_collision,
         canonical_order=True,
     )
+    registry.register(
+        CollisionRole.PROJECTILE,
+        CollisionRole.PROJECTILE,
+        responses.resolve_projectile_projectile_collision,
+    )
+    registry.register(
+        CollisionRole.PROJECTILE,
+        CollisionRole.SHIP,
+        responses.resolve_projectile_ship_collision,
+        canonical_order=True,
+    )
+    registry.register(
+        CollisionRole.PROJECTILE,
+        CollisionRole.ASTEROID,
+        responses.resolve_projectile_asteroid_collision,
+        canonical_order=True,
+    )
+    registry.register(
+        CollisionRole.PROJECTILE,
+        CollisionRole.PLANET,
+        responses.resolve_projectile_planet_collision,
+        canonical_order=True,
+    )
     generic_pairs = (
-        (CollisionRole.PROJECTILE, CollisionRole.PROJECTILE),
-        (CollisionRole.PROJECTILE, CollisionRole.SHIP),
-        (CollisionRole.PROJECTILE, CollisionRole.ASTEROID),
-        (CollisionRole.PROJECTILE, CollisionRole.PLANET),
         (CollisionRole.SPECIAL_OBJECT, CollisionRole.SPECIAL_OBJECT),
         (CollisionRole.SPECIAL_OBJECT, CollisionRole.PROJECTILE),
         (CollisionRole.SPECIAL_OBJECT, CollisionRole.SHIP),

@@ -286,6 +286,325 @@ def resolve_ship_planet_collision(
     return CollisionOutcome.RESOLVED
 
 
+def resolve_projectile_projectile_collision(
+    first,
+    second,
+    context_or_effects,
+    environment=None,
+):
+    """Resolve contact between two projectile-like objects."""
+    context = collision_context(context_or_effects, environment)
+    effects = context.effects
+    if not is_live_projectile(first) or not is_live_projectile(second):
+        return CollisionOutcome.IGNORED
+    if not projectiles_can_hit_each_other(first, second):
+        return CollisionOutcome.IGNORED
+
+    _, _, overlap = collision_info(first, second)
+    contact, impact_normal = projectile_impact(first, second, overlap)
+    if contact is None:
+        return CollisionOutcome.IGNORED
+
+    first_handler = getattr(first, "handle_projectile_contact", None)
+    second_handler = getattr(second, "handle_projectile_contact", None)
+    first_handled = bool(first_handler and first_handler(second))
+    second_handled = bool(second_handler and second_handler(first))
+
+    if first_handled or second_handled:
+        BattleEffect.play_boom(max(first.current_damage, second.current_damage))
+        if first.current_hp <= 0:
+            destroy_projectile(
+                first,
+                effects,
+                impact_normal,
+                first.current_damage,
+                contact,
+            )
+        if second.current_hp <= 0:
+            destroy_projectile(
+                second,
+                effects,
+                [-impact_normal[0], -impact_normal[1]],
+                second.current_damage,
+                contact,
+            )
+        return _consumption_outcome(first, second)
+
+    if first.projectile_name == second.projectile_name:
+        first_caps = getattr(first, "special_object_collision_capabilities", None)
+        second_caps = getattr(second, "special_object_collision_capabilities", None)
+        if (
+            first_caps
+            and first_caps.bounces_off_same_type
+            and second_caps
+            and second_caps.bounces_off_same_type
+        ):
+            normal, distance, actual_overlap = collision_info(first, second)
+            elastic_bounce(first, second, normal, distance, actual_overlap)
+            return CollisionOutcome.RESOLVED
+
+        BattleEffect.play_boom(max(first.current_damage, second.current_damage))
+        destroy_projectile(
+            first,
+            effects,
+            impact_normal,
+            first.current_damage,
+            contact,
+        )
+        destroy_projectile(
+            second,
+            effects,
+            [-impact_normal[0], -impact_normal[1]],
+            second.current_damage,
+            contact,
+        )
+        return CollisionOutcome.CONSUMED_BOTH
+
+    first_caps = getattr(first, "special_object_collision_capabilities", None)
+    second_caps = getattr(second, "special_object_collision_capabilities", None)
+    first_damage = (
+        first.current_damage
+        if not first_caps or first_caps.damages_projectiles
+        else 0
+    )
+    second_damage = (
+        second.current_damage
+        if not second_caps or second_caps.damages_projectiles
+        else 0
+    )
+
+    first_hp = first.current_hp - second_damage
+    second_hp = second.current_hp - first_damage
+
+    BattleEffect.play_boom(max(first.current_damage, second.current_damage))
+
+    if first_hp <= 0 and second_hp <= 0:
+        destroy_projectile(
+            first,
+            effects,
+            impact_normal,
+            first.current_damage,
+            contact,
+        )
+        destroy_projectile(
+            second,
+            effects,
+            [-impact_normal[0], -impact_normal[1]],
+            second.current_damage,
+            contact,
+        )
+    elif first_hp > 0 and first_hp > second_hp:
+        set_projectile_hp(first, first_hp)
+        destroy_projectile(
+            second,
+            effects,
+            [-impact_normal[0], -impact_normal[1]],
+            second.current_damage,
+            contact,
+        )
+    elif second_hp > 0 and second_hp > first_hp:
+        destroy_projectile(
+            first,
+            effects,
+            impact_normal,
+            first.current_damage,
+            contact,
+        )
+        set_projectile_hp(second, second_hp)
+    else:
+        destroy_projectile(
+            first,
+            effects,
+            impact_normal,
+            first.current_damage,
+            contact,
+        )
+        destroy_projectile(
+            second,
+            effects,
+            [-impact_normal[0], -impact_normal[1]],
+            second.current_damage,
+            contact,
+        )
+    return _consumption_outcome(first, second)
+
+
+def resolve_projectile_planet_collision(
+    projectile,
+    planet,
+    context_or_effects,
+    environment=None,
+):
+    """Resolve projectile contact with an immovable planet."""
+    context = collision_context(context_or_effects, environment)
+    if not is_live_projectile(projectile):
+        return CollisionOutcome.IGNORED
+
+    capabilities = getattr(
+        projectile,
+        "special_object_collision_capabilities",
+        None,
+    )
+    if capabilities and not capabilities.collides_with_planets:
+        return CollisionOutcome.IGNORED
+
+    _, _, overlap = collision_info(projectile, planet)
+    contact, impact_normal = projectile_impact(projectile, planet, overlap)
+    if contact is None:
+        return CollisionOutcome.IGNORED
+
+    handler = getattr(projectile, "handle_planet_contact", None)
+    if handler and handler(planet, impact_normal, overlap):
+        return _consumption_outcome(projectile, planet)
+
+    damage = projectile.current_damage
+    BattleEffect.play_boom(damage)
+    destroy_projectile(
+        projectile,
+        context.effects,
+        impact_normal,
+        damage,
+        contact,
+        planet,
+    )
+    return CollisionOutcome.CONSUMED_FIRST
+
+
+def resolve_projectile_ship_collision(
+    projectile,
+    ship,
+    context_or_effects,
+    environment=None,
+):
+    """Resolve projectile contact with a ship."""
+    context = collision_context(context_or_effects, environment)
+    if (
+        not is_live_projectile(projectile)
+        or not getattr(ship, "currently_alive", True)
+        or getattr(ship, "current_hp", 1) <= 0
+        or not projectile_can_hit_ship(projectile, ship)
+    ):
+        return CollisionOutcome.IGNORED
+
+    _, _, overlap = collision_info(projectile, ship)
+    contact, impact_normal = projectile_impact(projectile, ship, overlap)
+    if contact is None:
+        return CollisionOutcome.IGNORED
+
+    capabilities = getattr(
+        projectile,
+        "special_object_collision_capabilities",
+        None,
+    )
+    incoming_handler = getattr(
+        ship,
+        "handle_incoming_special_object_contact",
+        None,
+    )
+    if capabilities and incoming_handler and incoming_handler(
+        projectile,
+        impact_normal,
+    ):
+        return _consumption_outcome(projectile, ship)
+
+    if ship is projectile.parent:
+        can_recover = getattr(projectile, "can_recover_with_parent", None)
+        if can_recover and can_recover():
+            recover = getattr(projectile, "recover_with_parent", None)
+            if recover:
+                recover()
+                return _consumption_outcome(projectile, ship)
+
+    handler = getattr(projectile, "handle_ship_contact", None)
+    if handler and handler(ship, impact_normal):
+        return _consumption_outcome(projectile, ship)
+
+    damage = projectile.current_damage
+    BattleEffect.play_boom(damage)
+    damage_ship(ship, damage)
+    projectile.on_ship_impact(ship)
+    attached = ship if ship.current_hp > 0 else None
+    destroy_projectile(
+        projectile,
+        context.effects,
+        impact_normal,
+        damage,
+        contact,
+        attached,
+    )
+    return _consumption_outcome(projectile, ship)
+
+
+def resolve_projectile_asteroid_collision(
+    projectile,
+    asteroid,
+    context_or_effects,
+    environment=None,
+):
+    """Resolve projectile contact with an asteroid."""
+    context = collision_context(context_or_effects, environment)
+    if (
+        not is_live_projectile(projectile)
+        or not getattr(asteroid, "currently_alive", True)
+        or getattr(asteroid, "current_hp", 1) <= 0
+    ):
+        return CollisionOutcome.IGNORED
+
+    capabilities = getattr(
+        projectile,
+        "special_object_collision_capabilities",
+        None,
+    )
+    if capabilities and not capabilities.collides_with_asteroids:
+        return CollisionOutcome.IGNORED
+
+    _, _, overlap = collision_info(projectile, asteroid)
+    contact, impact_normal = projectile_impact(projectile, asteroid, overlap)
+    if contact is None:
+        return CollisionOutcome.IGNORED
+
+    handler = getattr(projectile, "handle_asteroid_contact", None)
+    if handler and handler(asteroid, impact_normal):
+        return _consumption_outcome(projectile, asteroid)
+
+    damage = projectile.current_damage
+    BattleEffect.play_boom(damage)
+    attached = (
+        asteroid
+        if capabilities and not capabilities.damages_asteroids
+        else None
+    )
+    destroy_projectile(
+        projectile,
+        context.effects,
+        impact_normal,
+        damage,
+        contact,
+        attached,
+    )
+    if not capabilities or capabilities.damages_asteroids:
+        destroy_asteroid(asteroid, context.effects)
+    return _consumption_outcome(projectile, asteroid)
+
+
+def _consumption_outcome(first, second):
+    first_consumed = (
+        not getattr(first, "currently_alive", True)
+        or getattr(first, "current_hp", 1) <= 0
+    )
+    second_consumed = (
+        not getattr(second, "currently_alive", True)
+        or getattr(second, "current_hp", 1) <= 0
+    )
+    if first_consumed and second_consumed:
+        return CollisionOutcome.CONSUMED_BOTH
+    if first_consumed:
+        return CollisionOutcome.CONSUMED_FIRST
+    if second_consumed:
+        return CollisionOutcome.CONSUMED_SECOND
+    return CollisionOutcome.RESOLVED
+
+
 
 
 
@@ -302,7 +621,6 @@ def resolve_generic_collision(
         environment,
         object_on_screen_policy=object_on_screen_policy,
     )
-    effects = context.effects
     phys_first = getattr(first, "physical_collision_capabilities", None)
     phys_second = getattr(second, "physical_collision_capabilities", None)
 
@@ -329,155 +647,39 @@ def resolve_generic_collision(
     is_second_proj = phys_second.is_projectile
 
     if is_first_proj and is_second_proj:
-        if not is_live_projectile(first) or not is_live_projectile(second):
-            return CollisionOutcome.IGNORED
-        if not projectiles_can_hit_each_other(first, second):
-            return CollisionOutcome.IGNORED
-            
-        _, _, overlap = collision_info(first, second)
-        contact, impact_normal = projectile_impact(first, second, overlap)
-        if contact is None:
-            return CollisionOutcome.IGNORED
-
-        handled1 = False
-        handled2 = False
-        h1 = getattr(first, "handle_projectile_contact", None)
-        if h1: handled1 = h1(second)
-        h2 = getattr(second, "handle_projectile_contact", None)
-        if h2: handled2 = h2(first)
-
-        if handled1 or handled2:
-            BattleEffect.play_boom(max(first.current_damage, second.current_damage))
-            if first.current_hp <= 0:
-                destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
-            if second.current_hp <= 0:
-                destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
-            return CollisionOutcome.RESOLVED
-
-        if first.projectile_name == second.projectile_name:
-            f1_caps = getattr(first, "special_object_collision_capabilities", None)
-            f2_caps = getattr(second, "special_object_collision_capabilities", None)
-            if f1_caps and f1_caps.bounces_off_same_type and f2_caps and f2_caps.bounces_off_same_type:
-                normal, distance, overlap_real = collision_info(first, second)
-                elastic_bounce(first, second, normal, distance, overlap_real)
-                return CollisionOutcome.RESOLVED
-
-            BattleEffect.play_boom(max(first.current_damage, second.current_damage))
-            destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
-            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
-            return CollisionOutcome.RESOLVED
-
-        f1_caps = getattr(first, "special_object_collision_capabilities", None)
-        f2_caps = getattr(second, "special_object_collision_capabilities", None)
-        f1_dmg = first.current_damage if not f1_caps or f1_caps.damages_projectiles else 0
-        f2_dmg = second.current_damage if not f2_caps or f2_caps.damages_projectiles else 0
-
-        proj_hp = first.current_hp - f2_dmg
-        other_hp = second.current_hp - f1_dmg
-
-        BattleEffect.play_boom(max(first.current_damage, second.current_damage))
-
-        if proj_hp <= 0 and other_hp <= 0:
-            destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
-            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
-        elif proj_hp > 0 and proj_hp > other_hp:
-            set_projectile_hp(first, proj_hp)
-            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
-        elif other_hp > 0 and other_hp > proj_hp:
-            destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
-            set_projectile_hp(second, other_hp)
-        else:
-            destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
-            destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
-        return CollisionOutcome.RESOLVED
+        return resolve_projectile_projectile_collision(first, second, context)
 
     elif is_first_proj or is_second_proj:
         projectile = first if is_first_proj else second
         other = second if is_first_proj else first
         phys_other = phys_second if is_first_proj else phys_first
+        reverse_outcome = not is_first_proj
 
         if phys_other.is_immovable:
-            if not is_live_projectile(projectile):
-                return CollisionOutcome.IGNORED
-                
-            fighter_caps = getattr(projectile, "special_object_collision_capabilities", None)
-            if fighter_caps and not fighter_caps.collides_with_planets:
-                return CollisionOutcome.IGNORED
-                
-            _, _, overlap = collision_info(projectile, other)
-            contact, impact_normal = projectile_impact(projectile, other, overlap)
-            if contact is None:
-                return CollisionOutcome.IGNORED
-
-            handler = getattr(projectile, "handle_planet_contact", None)
-            if handler and handler(other, impact_normal, overlap):
-                return CollisionOutcome.RESOLVED
-
-            damage = projectile.current_damage
-            BattleEffect.play_boom(damage)
-            destroy_projectile(projectile, effects, impact_normal, damage, contact, other)
-            return CollisionOutcome.RESOLVED
+            outcome = resolve_projectile_planet_collision(
+                projectile,
+                other,
+                context,
+            )
 
         elif phys_other.is_solid:
-            if not is_live_projectile(projectile) or not getattr(other, "currently_alive", True) or getattr(other, "current_hp", 1) <= 0:
-                return CollisionOutcome.IGNORED
-                
             is_ship = hasattr(other, "player")
-            fighter_caps = getattr(projectile, "special_object_collision_capabilities", None)
-            
             if is_ship:
-                if not projectile_can_hit_ship(projectile, other):
-                    return CollisionOutcome.IGNORED
-            else:
-                if fighter_caps and not fighter_caps.collides_with_asteroids:
-                    return CollisionOutcome.IGNORED
-
-            _, _, overlap = collision_info(projectile, other)
-            contact, impact_normal = projectile_impact(projectile, other, overlap)
-            if contact is None:
-                return CollisionOutcome.IGNORED
-
-            if is_ship:
-                incoming_handler = getattr(
-                    other, "handle_incoming_special_object_contact", None
+                outcome = resolve_projectile_ship_collision(
+                    projectile,
+                    other,
+                    context,
                 )
-                if fighter_caps and incoming_handler and incoming_handler(
-                    projectile, impact_normal
-                ):
-                    return CollisionOutcome.RESOLVED
-
-                if other is projectile.parent:
-                    can_recover = getattr(projectile, "can_recover_with_parent", None)
-                    if can_recover and can_recover():
-                        recover_fn = getattr(projectile, "recover_with_parent", None)
-                        if recover_fn:
-                            recover_fn()
-                            return CollisionOutcome.RESOLVED
-                            
-                handler = getattr(projectile, "handle_ship_contact", None)
-                if handler and handler(other, impact_normal):
-                    return CollisionOutcome.RESOLVED
             else:
-                handler = getattr(projectile, "handle_asteroid_contact", None)
-                if handler and handler(other, impact_normal):
-                    return CollisionOutcome.RESOLVED
+                outcome = resolve_projectile_asteroid_collision(
+                    projectile,
+                    other,
+                    context,
+                )
+        else:
+            outcome = CollisionOutcome.IGNORED
 
-            damage = projectile.current_damage
-            BattleEffect.play_boom(damage)
-            
-            if is_ship:
-                damage_ship(other, damage)
-                projectile.on_ship_impact(other)
-                attached = other if (hasattr(other, "player") and other.current_hp > 0) else None
-                destroy_projectile(projectile, effects, impact_normal, damage, contact, attached)
-            else:
-                attached = None if not fighter_caps or fighter_caps.damages_asteroids else other
-                destroy_projectile(projectile, effects, impact_normal, damage, contact, attached)
-                if not fighter_caps or fighter_caps.damages_asteroids:
-                    destroy_asteroid(other, effects)
-            return CollisionOutcome.RESOLVED
-
-        return CollisionOutcome.IGNORED
+        return outcome.reversed() if reverse_outcome else outcome
 
     is_first_solid = phys_first.is_solid and not phys_first.is_immovable
     is_second_solid = phys_second.is_solid and not phys_second.is_immovable
