@@ -1,4 +1,5 @@
 import sys
+import traceback
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,42 @@ import src.const as const
 _WARNING_VISIBLE_FRAMES = const.FPS * 5  # fully visible
 _WARNING_FADE_FRAMES = const.FPS * 2  # fade-out
 _WARNING_TOTAL_FRAMES = _WARNING_VISIBLE_FRAMES + _WARNING_FADE_FRAMES
+
+
+def package_smoke_test():
+    """Exercise packaged resources and dynamic imports without opening a window."""
+    const.initialize_user_data()
+    log_path = const.USER_DATA_ROOT / "smoke-test-error.log"
+    try:
+        pygame.init()
+        pygame.display.set_mode((1, 1))
+        pygame.mixer.init()
+
+        asset_errors = default_assets().preload_all()
+        if asset_errors:
+            failures = "\n".join(
+                f"[{error.category}] {error.name}: {error.message} ({error.path})"
+                for error in asset_errors
+            )
+            raise RuntimeError(f"Packaged assets failed to load:\n{failures}")
+
+        from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
+        from src.Objects.Ships.registry import get_ability_class, get_ship_class
+
+        for ship_name in SHIP_DEFINITIONS:
+            get_ship_class(ship_name)
+        for ability_name in ABILITY_DEFINITIONS:
+            get_ability_class(ability_name)
+    except Exception:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(traceback.format_exc(), encoding="utf-8")
+        return 1
+    finally:
+        pygame.quit()
+
+    if log_path.exists():
+        log_path.unlink()
+    return 0
 
 
 def _build_warning_surface(asset_errors):
@@ -73,6 +110,9 @@ def handle_menu_selection(
 
 
 def main():
+    # Create writable per-user copies of the bundled configuration defaults.
+    const.initialize_user_data()
+
     # Initialize Pygame
     pygame.init()
     pygame.mixer.init()
@@ -186,4 +226,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--smoke-test" in sys.argv:
+        sys.exit(package_smoke_test())
     main()

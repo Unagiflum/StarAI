@@ -1,9 +1,33 @@
 # Constants for game mechanics
+import os
 import pygame
 from pathlib import Path
+import shutil
+import sys
 
-SOURCE_ROOT = Path(__file__).resolve().parent
+SOURCE_ROOT = (
+    Path(sys._MEIPASS) / "src"
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+    else Path(__file__).resolve().parent
+)
 PROJECT_ROOT = SOURCE_ROOT.parent
+
+
+def _default_user_data_root():
+    """Return a per-user writable directory without adding a dependency."""
+    override = os.environ.get("STARAI_DATA_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
+
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        return Path(local_app_data) / "StarAI"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "StarAI"
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "StarAI"
+
+
+USER_DATA_ROOT = _default_user_data_root()
 
 
 def source_path(path):
@@ -115,9 +139,13 @@ PKUNK_REBIRTH_PAUSE_FRAMES = POST_DEATH_EFFECT_FRAMES
 PROJ_GAP = 5
 
 # File Paths
-GAME_JSON_PATH = source_path("Config/game_settings.json")
-TRAINING_JSON_PATH = source_path("Config/train_settings.json")
-FLEETS_JSON_PATH = source_path("Config/fleets.json")
+DEFAULT_GAME_JSON_PATH = source_path("Config/game_settings.json")
+DEFAULT_TRAINING_JSON_PATH = source_path("Config/train_settings.json")
+DEFAULT_FLEETS_JSON_PATH = source_path("Config/fleets.json")
+
+GAME_JSON_PATH = USER_DATA_ROOT / "game_settings.json"
+TRAINING_JSON_PATH = USER_DATA_ROOT / "train_settings.json"
+FLEETS_JSON_PATH = USER_DATA_ROOT / "fleets.json"
 
 SHIPS_JSON_PATH = source_path("Objects/Ships/space_ships.json")
 ABILITIES_JSON_PATH = source_path("Objects/Ships/abilities.json")
@@ -153,3 +181,33 @@ DEFAULT_TRAINING = {
     "layer_size": 128,
     "batch_size": 64,
 }
+
+
+def initialize_user_data(user_data_root=None):
+    """Seed missing user configuration from the bundled defaults.
+
+    Existing files are intentionally left untouched so installing a new game
+    build cannot reset player settings or saved fleets.
+    """
+    root = Path(user_data_root) if user_data_root is not None else USER_DATA_ROOT
+    root.mkdir(parents=True, exist_ok=True)
+    paths = {
+        "game_settings": root / "game_settings.json",
+        "train_settings": root / "train_settings.json",
+        "fleets": root / "fleets.json",
+    }
+    defaults = {
+        "game_settings": DEFAULT_GAME_JSON_PATH,
+        "train_settings": DEFAULT_TRAINING_JSON_PATH,
+        "fleets": DEFAULT_FLEETS_JSON_PATH,
+    }
+    for name, destination in paths.items():
+        if destination.exists():
+            continue
+        try:
+            with defaults[name].open("rb") as source, destination.open("xb") as target:
+                shutil.copyfileobj(source, target)
+        except FileExistsError:
+            # Another process initialized the same file first.
+            pass
+    return paths

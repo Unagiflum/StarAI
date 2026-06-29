@@ -1,0 +1,54 @@
+{
+    "Player1": {
+        "ships": [
+            "Androsynth",
+            "Arilou",
+            "Druuge",
+            "Earthling",
+            "Ilwrath",
+            "KohrAh",
+            "KzerZa",
+            "Mmrnmrhm",
+            "Mycon",
+            "Orz",
+            "Pkunk",
+            "Shofixti",
+            "Slylandro",
+            "Spathi",
+            "Supox",
+            "Syreen",
+            "Thraddash",
+            "Utwig",
+            "Vux",
+            "Yehat",
+            "ZoqFot"
+        ],
+        "ai": false
+    },
+    "Player2": {
+        "ships": [
+            "Androsynth",
+            "Arilou",
+            "Druuge",
+            "Earthling",
+            "Ilwrath",
+            "KohrAh",
+            "KzerZa",
+            "Mmrnmrhm",
+            "Mycon",
+            "Orz",
+            "Pkunk",
+            "Shofixti",
+            "Slylandro",
+            "Spathi",
+            "Supox",
+            "Syreen",
+            "Thraddash",
+            "Utwig",
+            "Vux",
+            "Yehat",
+            "ZoqFot"
+        ],
+        "ai": false
+    }
+}

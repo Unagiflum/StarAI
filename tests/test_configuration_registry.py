@@ -37,9 +37,10 @@ from src.resources import AssetManager
 
 class ConfigurationPathTests(unittest.TestCase):
     def test_resource_and_configuration_paths_are_absolute(self):
-        paths = (
-            const.GAME_JSON_PATH,
-            const.TRAINING_JSON_PATH,
+        resource_paths = (
+            const.DEFAULT_GAME_JSON_PATH,
+            const.DEFAULT_TRAINING_JSON_PATH,
+            const.DEFAULT_FLEETS_JSON_PATH,
             const.SHIPS_JSON_PATH,
             const.ABILITIES_JSON_PATH,
             const.PLANETS_JSON_PATH,
@@ -50,8 +51,15 @@ class ConfigurationPathTests(unittest.TestCase):
             const.MENU_WAV_PATH,
         )
 
-        self.assertTrue(all(path.is_absolute() for path in paths))
-        self.assertTrue(all(path.exists() for path in paths))
+        user_paths = (
+            const.GAME_JSON_PATH,
+            const.TRAINING_JSON_PATH,
+            const.FLEETS_JSON_PATH,
+        )
+
+        self.assertTrue(all(path.is_absolute() for path in resource_paths))
+        self.assertTrue(all(path.exists() for path in resource_paths))
+        self.assertTrue(all(path.is_absolute() for path in user_paths))
 
     def test_source_path_preserves_absolute_paths(self):
         absolute = const.SOURCE_ROOT / "Objects"
@@ -65,14 +73,17 @@ class ConfigurationPathTests(unittest.TestCase):
             def add_ship(self, sprite, name, cost):
                 self.ships.append((sprite, name, cost, None))
 
-        ships_data = load_ships()
-        sprites = {name: object() for name in ships_data}
-        left_fleet = Fleet()
-        right_fleet = Fleet()
+        with tempfile.TemporaryDirectory() as directory:
+            paths = const.initialize_user_data(directory)
+            ships_data = load_ships()
+            sprites = {name: object() for name in ships_data}
+            left_fleet = Fleet()
+            right_fleet = Fleet()
 
-        left_ai, right_ai = load_fleets(
-            left_fleet, right_fleet, sprites, ships_data
-        )
+            with mock.patch("src.Menus.pick_fleet.const.FLEETS_JSON_PATH", paths["fleets"]):
+                left_ai, right_ai = load_fleets(
+                    left_fleet, right_fleet, sprites, ships_data
+                )
 
         self.assertIsInstance(left_ai, bool)
         self.assertIsInstance(right_ai, bool)

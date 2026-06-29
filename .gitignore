@@ -3,4 +3,6 @@
 src/Model/
 __pycache__/
 *.py[cod]
-src/Config/fleets.json
+build/
+dist/
+*.spec.bak
