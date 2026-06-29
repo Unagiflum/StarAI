@@ -20,6 +20,7 @@ class CollisionPairRegistryTests(unittest.TestCase):
         for first_role, second_role in (
             (CollisionRole.SHIP, CollisionRole.SHIP),
             (CollisionRole.ASTEROID, CollisionRole.ASTEROID),
+            (CollisionRole.SHIP, CollisionRole.ASTEROID),
         ):
             with self.subTest(first_role=first_role, second_role=second_role):
                 handler = collisions.COLLISION_PAIR_REGISTRY.handler_for(

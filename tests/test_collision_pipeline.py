@@ -101,6 +101,22 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertTrue(first.currently_alive)
         self.assertTrue(second.currently_alive)
 
+    def test_ship_and_asteroid_collide_elastically_without_damage(self):
+        ship = self.make_ship()
+        ship.position = [100, 100]
+        ship.previous_position = ship.position.copy()
+        ship.velocity = [1.0, 0.0]
+        asteroid = self.make_asteroid([118, 100])
+        asteroid.mass = 1.0
+        asteroid.velocity = [-1.0, 0.0]
+
+        collisions.handle_collisions([ship, asteroid])
+
+        self.assertEqual(ship.velocity, [-1.0, 0.0])
+        self.assertEqual(asteroid.velocity, [1.0, 0.0])
+        self.assertEqual(ship.current_hp, 10)
+        self.assertTrue(asteroid.currently_alive)
+
     def test_each_asteroid_pair_is_dispatched_once(self):
         asteroids = [
             self.make_asteroid([100, 100]),
