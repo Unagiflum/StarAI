@@ -128,6 +128,77 @@ class StarFieldRendererTests(unittest.TestCase):
         planet.draw_gravity_range.assert_not_called()
         planet.draw.assert_called_once()
 
+    def test_world_objects_render_in_explicit_combat_layers(self):
+        order = []
+
+        class Drawable:
+            def __init__(self, name, ability_type=None, render_priority=0):
+                self.name = name
+                self.type = ability_type
+                self.render_priority = render_priority
+                self.physical_collision_capabilities = None
+                self.cloaked = False
+
+            def draw(self, *args, **kwargs):
+                order.append(self.name)
+
+        class RecordingStars:
+            def draw(self, *args, **kwargs):
+                order.append("stars")
+
+        planet = Drawable("planet")
+        marker = Drawable("thrust marker")
+        asteroid = Drawable("asteroid")
+        ship = Drawable("ship")
+        effect = Drawable("battle effect")
+        abilities = [
+            Drawable("Zoq-Fot area", "area", render_priority=1),
+            Drawable("laser", "laser"),
+            Drawable("other ability", "other"),
+            Drawable("Shofixti area", "area"),
+            Drawable("projectile", "projectile"),
+            Drawable("special object", "special_object"),
+        ]
+        world = SimpleNamespace(
+            stars=[object()],
+            planets=[planet],
+            thrust_markers=[marker],
+            asteroids=[asteroid],
+            abilities=abilities,
+            ships=[ship],
+            effects=[effect],
+        )
+
+        _render_world_to_surface(
+            mock.sentinel.surface,
+            world,
+            1.0,
+            [0, 0],
+            [0, 0],
+            None,
+            0,
+            RecordingStars(),
+            show_gravity_range=False,
+        )
+
+        self.assertEqual(
+            order,
+            [
+                "stars",
+                "planet",
+                "thrust marker",
+                "asteroid",
+                "other ability",
+                "ship",
+                "special object",
+                "projectile",
+                "laser",
+                "Shofixti area",
+                "Zoq-Fot area",
+                "battle effect",
+            ],
+        )
+
     def test_gravity_ring_culling_rejects_a_ring_surrounding_the_view(self):
         viewport = pygame.Rect(0, 0, 100, 100)
 

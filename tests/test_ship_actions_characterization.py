@@ -482,6 +482,52 @@ class ShipActionCharacterizationTests(unittest.TestCase):
             laser.end_position[1], origin[1] - math.cos(angle) * laser.LASER_RANGE
         )
 
+    def test_arilou_laser_draw_starts_half_a_ship_height_outward(self):
+        ship = create_ship("Arilou", 1)
+        ship.position = [500, 500]
+        ship.previous_position = ship.position.copy()
+        ship.heading = 0
+        ship.rotation = 0
+        laser = create_ability("ArilouA1", ship)
+
+        with mock.patch.object(laser, "draw_aa_laser") as draw_laser:
+            laser.draw(
+                pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT)),
+                1,
+                [0, 0],
+            )
+
+        self.assertEqual(laser.position, [500, 499])
+        draw_start = draw_laser.call_args.args[2]
+        self.assertEqual(draw_start, (const.SCREEN_LEFT + 500, 464))
+
+    def test_kzerza_fighter_laser_draw_starts_half_a_fighter_height_outward(self):
+        carrier = create_ship("KzerZa", 1)
+        target = create_ship("Shofixti", 2)
+        carrier.position = [500, 500]
+        carrier.previous_position = carrier.position.copy()
+        carrier.heading = 0
+        carrier.rotation = 0
+        fighter = create_ability("KzerZaA2", carrier)
+        fighter.position = [500, 500]
+        fighter.previous_position = fighter.position.copy()
+        fighter.heading = 0
+        fighter.rotation = 0
+        target.position = [500, 100]
+        target.previous_position = target.position.copy()
+        laser = create_ability("KzerZaA2Laser", fighter, target)
+
+        with mock.patch.object(laser, "draw_aa_laser") as draw_laser:
+            laser.draw(
+                pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT)),
+                1,
+                [0, 0],
+            )
+
+        self.assertEqual(laser.start_position, [500, 500])
+        draw_start = draw_laser.call_args.args[2]
+        self.assertEqual(draw_start, (const.SCREEN_LEFT + 500, 491))
+
     def test_kohr_ah_primary_is_press_only_and_release_stops_live_saws(self):
         ship = create_ship("KohrAh", 1)
         ship.action1_active = True

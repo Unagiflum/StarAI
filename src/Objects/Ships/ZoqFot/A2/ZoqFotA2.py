@@ -11,6 +11,8 @@ from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 class ZoqFotA2(Ability):
     """A parent-mounted, sprite-shaped area attack that retracts toward the ship."""
 
+    render_priority = 1
+
     def __init__(self, parent):
         super().__init__("ZoqFotA2", parent)
         definition = ABILITY_DEFINITIONS["ZoqFotA2"]

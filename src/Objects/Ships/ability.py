@@ -22,6 +22,20 @@ def wrapped_endpoint(start, end):
     return nearest_position(end, start)
 
 
+def outward_visual_laser_start(start, end, distance):
+    """Move a beam's drawn origin toward its end by a visual-only distance."""
+    dx, dy = wrapped_delta(start, end)
+    length = math.hypot(dx, dy)
+    if length == 0:
+        return list(start)
+
+    distance = min(length, max(0.0, distance))
+    return [
+        start[0] + dx / length * distance,
+        start[1] + dy / length * distance,
+    ]
+
+
 class Ability(PlayerObject):
     sound_enabled = True
 

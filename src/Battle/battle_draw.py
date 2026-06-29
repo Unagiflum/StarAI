@@ -307,7 +307,10 @@ def _render_world_to_surface(
     for asteroid in snapshot.asteroids:
         asteroid.draw(surface, scale_factor, translation, interp_t=interp_t)
 
+    foreground_types = {"special_object", "projectile", "laser", "area"}
     for ability in snapshot.abilities:
+        if getattr(ability, "type", None) in foreground_types:
+            continue
         ability.draw(surface, scale_factor, translation, interp_t=interp_t)
 
     entering_ships = set(entry_state.entering_ships if entry_state else ())
@@ -330,6 +333,22 @@ def _render_world_to_surface(
             ):
                 _draw_dashed_circle(surface, ship, scale_factor, translation, interp_t)
             ship.draw(surface, scale_factor, translation, interp_t=interp_t)
+
+    for ability_type in ("special_object", "projectile", "laser"):
+        for ability in snapshot.abilities:
+            if getattr(ability, "type", None) == ability_type:
+                ability.draw(surface, scale_factor, translation, interp_t=interp_t)
+
+    area_abilities = sorted(
+        (
+            ability
+            for ability in snapshot.abilities
+            if getattr(ability, "type", None) == "area"
+        ),
+        key=lambda ability: getattr(ability, "render_priority", 0),
+    )
+    for ability in area_abilities:
+        ability.draw(surface, scale_factor, translation, interp_t=interp_t)
 
     for effect in snapshot.effects:
         effect.draw(surface, scale_factor, translation, interp_t=interp_t)

@@ -1,4 +1,9 @@
-from src.Objects.Ships.ability import Ability, ABILITIES_DATA, wrapped_endpoint
+from src.Objects.Ships.ability import (
+    ABILITIES_DATA,
+    Ability,
+    outward_visual_laser_start,
+    wrapped_endpoint,
+)
 import pygame
 import math
 import src.const as const
@@ -94,8 +99,17 @@ class ArilouA1(Ability):
             end_offset = wrapped_delta(self.position, self.end_position)
             draw_end_position = [pos[0] + end_offset[0], pos[1] + end_offset[1]]
 
-        screen_start_x = int((pos[0] + translation[0]) * scale_factor)
-        screen_start_y = int((pos[1] + translation[1]) * scale_factor)
+        draw_start_position = outward_visual_laser_start(
+            pos,
+            draw_end_position,
+            self.parent.sprites[visual_idx].get_height() / 2.0,
+        )
+        screen_start_x = int(
+            (draw_start_position[0] + translation[0]) * scale_factor
+        )
+        screen_start_y = int(
+            (draw_start_position[1] + translation[1]) * scale_factor
+        )
         screen_end_x = int((draw_end_position[0] + translation[0]) * scale_factor)
         screen_end_y = int((draw_end_position[1] + translation[1]) * scale_factor)
         view_rect = pygame.Rect(0, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT)

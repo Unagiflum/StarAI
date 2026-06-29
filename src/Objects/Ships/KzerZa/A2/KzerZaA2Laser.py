@@ -3,7 +3,11 @@ import math
 import pygame
 
 import src.const as const
-from src.Objects.Ships.ability import Ability, ABILITIES_DATA
+from src.Objects.Ships.ability import (
+    ABILITIES_DATA,
+    Ability,
+    outward_visual_laser_start,
+)
 from src.toroidal import wrapped_delta
 
 
@@ -71,6 +75,11 @@ class KzerZaA2Laser(Ability):
             draw_start_position[0] + end_offset[0],
             draw_start_position[1] + end_offset[1],
         ]
+        draw_start_position = outward_visual_laser_start(
+            draw_start_position,
+            draw_end_position,
+            self.parent.get_sprite(interp_t).get_height() / 2.0,
+        )
 
         start_x = int((draw_start_position[0] + translation[0]) * scale_factor)
         start_y = int((draw_start_position[1] + translation[1]) * scale_factor)
