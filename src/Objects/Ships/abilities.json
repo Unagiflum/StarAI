@@ -23,7 +23,16 @@
         "frame_delay": 1,
         "file_path": "Objects/Ships/Androsynth/A1/",
         "has_sprites": true,
-        "end_anim": 1
+        "end_anim": 1,
+        "gun_locations": [
+            [
+                55,
+                14
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "AndrosynthA2": {
         "ship_name": "Androsynth",
@@ -60,7 +69,16 @@
             255,
             0
         ],
-        "LASER_WIDTH": 6
+        "LASER_WIDTH": 6,
+        "gun_locations": [
+            [
+                35,
+                34
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "ArilouA2": {
         "ship_name": "Arilou",
@@ -97,7 +115,16 @@
         "file_path": "Objects/Ships/Druuge/A1/",
         "end_anim": 8,
         "MAX_RECOIL": 96,
-        "RECOIL_INCREMENT": 24
+        "RECOIL_INCREMENT": 24,
+        "gun_locations": [
+            [
+                74,
+                1
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "DruugeA2": {
         "ship_name": "Druuge",
@@ -134,7 +161,16 @@
         "hit_parent": true,
         "hit_self": true,
         "file_path": "Objects/Ships/Earthling/A1/",
-        "end_anim": 9
+        "end_anim": 9,
+        "gun_locations": [
+            [
+                72,
+                0
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "EarthlingA2": {
         "ship_name": "Earthling",
@@ -160,7 +196,13 @@
             255,
             255
         ],
-        "LASER_WIDTH": 4
+        "LASER_WIDTH": 4,
+        "gun_locations": [
+            [
+                72,
+                78
+            ]
+        ]
     },
     "IlwrathA1": {
         "ship_name": "Ilwrath",
@@ -192,7 +234,16 @@
         "inertia": true,
         "omnidirectional": true,
         "frames": 8,
-        "file_path": "Objects/Ships/Ilwrath/A1/"
+        "file_path": "Objects/Ships/Ilwrath/A1/",
+        "gun_locations": [
+            [
+                83,
+                0
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "IlwrathA2": {
         "ship_name": "Ilwrath",
@@ -231,7 +282,16 @@
         "file_path": "Objects/Ships/KohrAh/A1/",
         "end_anim": 6,
         "TRACK_SPEED": 5,
-        "TRACK_RANGE": 896
+        "TRACK_RANGE": 896,
+        "gun_locations": [
+            [
+                80,
+                0
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "KohrAhA2": {
         "ship_name": "KohrAh",
@@ -280,7 +340,16 @@
         "life_time": 20,
         "inertia": true,
         "file_path": "Objects/Ships/KzerZa/A1/",
-        "end_anim": 8
+        "end_anim": 8,
+        "gun_locations": [
+            [
+                66,
+                5
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "KzerZaA2": {
         "ship_name": "KzerZa",
@@ -308,7 +377,21 @@
         "blocks_lasers": false,
         "damage_projectiles": false,
         "damage_asteroids": false,
-        "collide_friendly_ships": true
+        "collide_friendly_ships": true,
+        "gun_locations": [
+            [
+                32,
+                116
+            ],
+            [
+                100,
+                116
+            ]
+        ],
+        "gun_directions": [
+            225.0,
+            135.0
+        ]
     },
     "KzerZaA2Laser": {
         "ship_name": "KzerZa",
@@ -323,7 +406,13 @@
         "omnidirectional": true,
         "file_path": "Objects/Ships/KzerZa/A2/",
         "has_sprites": false,
-        "has_sound": false
+        "has_sound": false,
+        "gun_locations": [
+            [
+                9,
+                9
+            ]
+        ]
     },
     "MmrnmrhmA2": {
         "ship_name": "Mmrnmrhm",
@@ -396,7 +485,7 @@
                 31
             ],
             [
-                58,
+                59,
                 31
             ]
         ],
@@ -443,7 +532,16 @@
         "frames": 10,
         "frame_delay": 13,
         "file_path": "Objects/Ships/Mycon/A1/",
-        "end_anim": 8
+        "end_anim": 8,
+        "gun_locations": [
+            [
+                57,
+                2
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "MyconA2": {
         "ship_name": "Mycon",
@@ -474,7 +572,16 @@
         "speed": 120,
         "life_time": 12,
         "file_path": "Objects/Ships/Orz/A1/",
-        "end_anim": 6
+        "end_anim": 6,
+        "gun_locations": [
+            [
+                71,
+                18
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "OrzA2": {
         "ship_name": "Orz",
@@ -516,7 +623,16 @@
         "collide_fighters": false,
         "look_ahead": 15,
         "max_marines": 8,
-        "spiral_distance": 500
+        "spiral_distance": 500,
+        "gun_locations": [
+            [
+                71,
+                92
+            ]
+        ],
+        "gun_directions": [
+            180.0
+        ]
     },
     "PkunkA1": {
         "ship_name": "Pkunk",
@@ -533,7 +649,26 @@
         "life_time": 5,
         "inertia": true,
         "omnidirectional": true,
-        "file_path": "Objects/Ships/Pkunk/A1/"
+        "file_path": "Objects/Ships/Pkunk/A1/",
+        "gun_locations": [
+            [
+                51,
+                15
+            ],
+            [
+                2,
+                63
+            ],
+            [
+                109,
+                63
+            ]
+        ],
+        "gun_directions": [
+            0.0,
+            270.0,
+            90.0
+        ]
     },
     "PkunkA2": {
         "ship_name": "Pkunk",
@@ -565,7 +700,16 @@
         "life_time": 10,
         "inertia": true,
         "file_path": "Objects/Ships/Shofixti/A1/",
-        "sprite_scale": 1.5
+        "sprite_scale": 1.5,
+        "gun_locations": [
+            [
+                32,
+                3
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "ShofixtiA2": {
         "ship_name": "Shofixti",
@@ -583,7 +727,13 @@
         "hit_self": true,
         "omnidirectional": true,
         "frames": 8,
-        "file_path": "Objects/Ships/Shofixti/A2/"
+        "file_path": "Objects/Ships/Shofixti/A2/",
+        "gun_locations": [
+            [
+                33,
+                33
+            ]
+        ]
     },
     "SlylandroA1": {
         "ship_name": "Slylandro",
@@ -609,10 +759,35 @@
         "SEGMENT_LENGTH_MIN": 16,
         "SEGMENT_LENGTH_MAX": 128,
         "BOLT_COLORS": [
-            [255, 255, 255],
-            [181, 189, 255],
-            [49, 58, 255],
-            [0, 0, 197]
+            [
+                255,
+                255,
+                255
+            ],
+            [
+                181,
+                189,
+                255
+            ],
+            [
+                49,
+                58,
+                255
+            ],
+            [
+                0,
+                0,
+                197
+            ]
+        ],
+        "gun_locations": [
+            [
+                93,
+                93
+            ]
+        ],
+        "gun_directions": [
+            0.0
         ]
     },
     "SlylandroA2": {
@@ -638,7 +813,13 @@
         "collide_fighters": false,
         "has_sprites": false,
         "file_path": "Objects/Ships/Slylandro/A2/",
-        "BATTERY_GAIN": 20
+        "BATTERY_GAIN": 20,
+        "gun_locations": [
+            [
+                93,
+                93
+            ]
+        ]
     },
     "SpathiA1": {
         "ship_name": "Spathi",
@@ -653,7 +834,16 @@
         "speed": 120,
         "life_time": 10,
         "inertia": true,
-        "file_path": "Objects/Ships/Spathi/A1/"
+        "file_path": "Objects/Ships/Spathi/A1/",
+        "gun_locations": [
+            [
+                66,
+                45
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "SpathiA2": {
         "ship_name": "Spathi",
@@ -672,7 +862,16 @@
         "inertia": true,
         "hit_parent": true,
         "hit_self": true,
-        "file_path": "Objects/Ships/Spathi/A2/"
+        "file_path": "Objects/Ships/Spathi/A2/",
+        "gun_locations": [
+            [
+                66,
+                111
+            ]
+        ],
+        "gun_directions": [
+            180.0
+        ]
     },
     "SupoxA1": {
         "ship_name": "Supox",
@@ -689,7 +888,16 @@
         "turn_wait": 1,
         "inertia": true,
         "file_path": "Objects/Ships/Supox/A1/",
-        "end_anim": 5
+        "end_anim": 5,
+        "gun_locations": [
+            [
+                60,
+                0
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "SyreenA1": {
         "ship_name": "Syreen",
@@ -705,7 +913,16 @@
         "life_time": 10,
         "inertia": true,
         "file_path": "Objects/Ships/Syreen/A1/",
-        "sprite_scale": 1.0
+        "sprite_scale": 1.0,
+        "gun_locations": [
+            [
+                78,
+                0
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "SyreenA2": {
         "ship_name": "Syreen",
@@ -729,7 +946,13 @@
         "collide_fighters": false,
         "omnidirectional": true,
         "has_sprites": false,
-        "file_path": "Objects/Ships/Syreen/A2/"
+        "file_path": "Objects/Ships/Syreen/A2/",
+        "gun_locations": [
+            [
+                78,
+                78
+            ]
+        ]
     },
     "SyreenCrew": {
         "ship_name": "Syreen",
@@ -762,7 +985,16 @@
         "speed": 120,
         "life_time": 15,
         "inertia": true,
-        "file_path": "Objects/Ships/Thraddash/A1/"
+        "file_path": "Objects/Ships/Thraddash/A1/",
+        "gun_locations": [
+            [
+                55,
+                23
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "ThraddashA2": {
         "ship_name": "Thraddash",
@@ -795,7 +1027,16 @@
         "frame_delay": 5,
         "file_path": "Objects/Ships/Thraddash/A2/",
         "REUNK_THRUST": 72,
-        "REUNK_INCREMENT": 12
+        "REUNK_INCREMENT": 12,
+        "gun_locations": [
+            [
+                55,
+                91
+            ]
+        ],
+        "gun_directions": [
+            180.0
+        ]
     },
     "UtwigA1": {
         "ship_name": "Utwig",
@@ -812,28 +1053,28 @@
         "file_path": "Objects/Ships/Utwig/A1/",
         "gun_locations": [
             [
-                49,
-                0
+                60,
+                2
             ],
             [
-                84,
-                0
+                95,
+                2
             ],
             [
-                20,
-                37
+                32,
+                39
             ],
             [
-                113,
-                37
+                124,
+                39
             ],
             [
-                3,
-                50
+                15,
+                53
             ],
             [
-                130,
-                50
+                141,
+                53
             ]
         ]
     },
@@ -870,7 +1111,16 @@
         "omnidirectional": true,
         "file_path": "Objects/Ships/Vux/A1/",
         "has_sprites": false,
-        "LASER_RANGE": 644
+        "LASER_RANGE": 644,
+        "gun_locations": [
+            [
+                56,
+                4
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "VuxA2": {
         "ship_name": "Vux",
@@ -889,7 +1139,16 @@
         "blocks_lasers": false,
         "damage_asteroids": false,
         "damage_projectiles": false,
-        "file_path": "Objects/Ships/Vux/A2/"
+        "file_path": "Objects/Ships/Vux/A2/",
+        "gun_locations": [
+            [
+                51,
+                52
+            ]
+        ],
+        "gun_directions": [
+            180.0
+        ]
     },
     "YehatA1": {
         "ship_name": "Yehat",
@@ -905,7 +1164,21 @@
         "life_time": 10,
         "turn_wait": 1,
         "inertia": true,
-        "file_path": "Objects/Ships/Yehat/A1/"
+        "file_path": "Objects/Ships/Yehat/A1/",
+        "gun_locations": [
+            [
+                22,
+                40
+            ],
+            [
+                89,
+                40
+            ]
+        ],
+        "gun_directions": [
+            0.0,
+            0.0
+        ]
     },
     "YehatA2": {
         "ship_name": "Yehat",
@@ -937,7 +1210,16 @@
         "inertia": true,
         "omnidirectional": true,
         "file_path": "Objects/Ships/ZoqFot/A1/",
-        "SPREAD_ANGLE": 5
+        "SPREAD_ANGLE": 5,
+        "gun_locations": [
+            [
+                59,
+                42
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     },
     "ZoqFotA2": {
         "ship_name": "ZoqFot",
@@ -957,6 +1239,15 @@
         "advancing_frames": 2,
         "retracting_frames": 8,
         "area_width": 12,
-        "area_length": 100
+        "area_length": 100,
+        "gun_locations": [
+            [
+                59,
+                42
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ]
     }
 }
