@@ -235,6 +235,7 @@ class AbilityDefinition(_DefinitionMapping):
     segment_length_max: int | None = None
     bolt_colors: tuple[tuple[int, int, int], ...] | None = None
     battery_gain: int | None = None
+    excluded_radius: int | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -316,6 +317,7 @@ class AbilityDefinition(_DefinitionMapping):
         "SEGMENT_LENGTH_MAX": "segment_length_max",
         "BOLT_COLORS": "bolt_colors",
         "BATTERY_GAIN": "battery_gain",
+        "EXCLUDED_RADIUS": "excluded_radius",
     }
 
 
@@ -651,6 +653,7 @@ def parse_ability_definition(name, data):
         "SEGMENT_LENGTH_MAX",
         "BOLT_COLORS",
         "BATTERY_GAIN",
+        "EXCLUDED_RADIUS",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -738,6 +741,7 @@ def parse_ability_definition(name, data):
         "SEGMENT_LENGTH_MIN": ("segment_length_min", int),
         "SEGMENT_LENGTH_MAX": ("segment_length_max", int),
         "BATTERY_GAIN": ("battery_gain", int),
+        "EXCLUDED_RADIUS": ("excluded_radius", int),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(

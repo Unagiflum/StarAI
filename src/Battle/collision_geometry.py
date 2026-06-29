@@ -267,6 +267,18 @@ def projectile_impact(projectile, other, overlap):
 
 
 def swept_impact(obj, other):
+    obj_position, other_position = swept_overlap_positions(obj, other)
+    if obj_position is not None:
+        return estimated_impact_at_positions(
+            obj, other, obj_position, other_position
+        )
+
+    normal, _, _ = collision_info(obj, other)
+    return None, normal
+
+
+def swept_overlap_positions(obj, other):
+    """Return both bodies' positions at their first swept overlap."""
     obj_previous = sweep_previous_position(obj)
     other_previous = sweep_previous_position(other)
     obj_delta = wrapped_delta(obj_previous, obj.position)
@@ -277,8 +289,7 @@ def swept_impact(obj, other):
     ]
     relative_distance = math.hypot(relative_delta[0], relative_delta[1])
     if relative_distance <= 0:
-        normal, _, _ = collision_info(obj, other)
-        return None, normal
+        return None, None
 
     steps = max(1, int(math.ceil(relative_distance / sweep_step_size(obj, other))))
     for step in range(1, steps + 1):
@@ -292,12 +303,9 @@ def swept_impact(obj, other):
             (other_previous[1] + other_delta[1] * ratio) % const.ARENA_SIZE,
         ]
         if objects_overlap_at_positions(obj, other, obj_position, other_position):
-            return estimated_impact_at_positions(
-                obj, other, obj_position, other_position
-            )
+            return obj_position, other_position
 
-    normal, _, _ = collision_info(obj, other)
-    return None, normal
+    return None, None
 
 
 def sweep_previous_position(obj):

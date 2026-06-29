@@ -13,6 +13,7 @@ from src.Battle.collision_geometry import (
     projectile_impact,
     radius,
     solid_sweep_overlap,
+    swept_overlap_positions,
 )
 from src.Battle.collision_physics import (
     bounce_off_static_body,
@@ -44,6 +45,8 @@ def damage_ship(ship, damage, *, shieldable=True, non_lethal=False):
 def ship_is_area_target(source, ship):
     if not _area_target_is_active(source, ship):
         return False
+    if ship is getattr(source, "parent", None):
+        return getattr(source, "hit_parent", False)
     if getattr(source, "is_psychic", False):
         durability = getattr(ship, "durability_capabilities", None)
         if durability and durability.immune_to_psychic:
@@ -153,6 +156,9 @@ def apply_asteroid_area_damage(
 
 
 def apply_planet_area_damage(source, planet, effects, delta, distance, damage):
+    handler = getattr(source, "on_planet_area_hit", None)
+    if handler is not None:
+        handler(planet, effects, delta, distance, damage)
     return 0
 
 
@@ -599,6 +605,10 @@ def resolve_projectile_ship_collision(
     BattleEffect.play_boom(damage)
     damage_ship(ship, damage)
     projectile.on_ship_impact(ship)
+    motion_handler = getattr(ship, "on_projectile_motion_contact", None)
+    if motion_handler is not None:
+        _, ship_contact_position = swept_overlap_positions(projectile, ship)
+        motion_handler(projectile, ship_contact_position)
     attached = ship if ship.current_hp > 0 else None
     destroy_projectile(
         projectile,
@@ -808,6 +818,10 @@ def planet_is_laser_target(laser, planet, explicit=False):
     return _laser_target_is_active(laser, planet, require_targetable=True)
 
 
+def area_is_laser_target(laser, area, explicit=False):
+    return _laser_target_is_active(laser, area, require_targetable=True)
+
+
 def _laser_target_is_active(laser, target, *, require_targetable):
     if not getattr(target, "currently_alive", True):
         return False
@@ -855,6 +869,10 @@ def apply_asteroid_laser_impact(asteroid, effects, normal, damage, contact):
 
 def apply_planet_laser_impact(planet, effects, normal, damage, contact):
     return None
+
+
+def apply_area_laser_impact(area, effects, normal, damage, contact):
+    area.set_hp(area.current_hp - damage)
 
 
 def resolve_laser_hit(

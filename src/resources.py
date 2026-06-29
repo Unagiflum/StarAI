@@ -238,7 +238,42 @@ class AssetManager:
 
         if definition.has_sprites:
             try:
-                if definition.omnidirectional and definition.frames > 1:
+                if not definition.omnidirectional and definition.frames > 1:
+                    directional_sprites = []
+                    directional_masks = []
+                    for frame in range(definition.frames):
+                        base_sprites = []
+                        for index in range(const.ASSET_SPRITE_DIRECTIONS):
+                            path = resource_dir / (
+                                f"{ability_name}_{frame + 1}{index:02d}.png"
+                            )
+                            sprite = pygame.transform.smoothscale_by(
+                                self._image(path), scale
+                            )
+                            sprite = _scale_directional_sprite(
+                                sprite,
+                                index,
+                                definition.sprite_scale_x,
+                                definition.sprite_scale_y,
+                            )
+                            if definition.excluded_radius is not None:
+                                parent_scale = SHIP_DEFINITIONS[
+                                    definition.ship_name
+                                ].sprite_scale
+                                sprite = _exclude_center_circle(
+                                    sprite,
+                                    round(definition.excluded_radius * parent_scale),
+                                )
+                            base_sprites.append(sprite)
+                        frame_sprites, frame_masks = _expand_directional_sprites(
+                            base_sprites
+                        )
+                        directional_sprites.append(frame_sprites)
+                        directional_masks.append(frame_masks)
+                        sizes.append(base_sprites[0].get_size())
+                    sprites = directional_sprites
+                    masks = directional_masks
+                elif definition.omnidirectional and definition.frames > 1:
                     frames = []
                     for frame in range(definition.frames):
                         path = resource_dir / f"{ability_name}00_{frame:02d}.png"
@@ -295,8 +330,18 @@ class AssetManager:
                 sizes = [(diameter, diameter)]
                 used_placeholder = True
 
+                if not definition.omnidirectional and definition.frames > 1:
+                    frame_sprites, frame_masks = _expand_directional_sprites(sprites)
+                    sprites = [frame_sprites for _ in range(definition.frames)]
+                    masks = [frame_masks for _ in range(definition.frames)]
+                    sizes = [(diameter, diameter) for _ in range(definition.frames)]
+
             if not definition.omnidirectional:
-                sprite_assets, mask_assets = _expand_directional_sprites(sprites)
+                if definition.frames > 1:
+                    sprite_assets = tuple(sprites)
+                    mask_assets = tuple(masks)
+                else:
+                    sprite_assets, mask_assets = _expand_directional_sprites(sprites)
                 interpolated_sprites = None
             else:
                 sprite_assets = tuple(sprites)
@@ -837,6 +882,18 @@ def _expand_directional_sprites(base_sprites, base_masks=None):
         masks.append(pygame.mask.from_surface(sprite))
 
     return tuple(sprites), tuple(masks)
+
+
+def _exclude_center_circle(sprite, radius):
+    """Return a sprite with a transparent circular center exclusion."""
+    excluded = sprite.copy()
+    pygame.draw.circle(
+        excluded,
+        (0, 0, 0, 0),
+        excluded.get_rect().center,
+        max(0, radius),
+    )
+    return excluded
 
 
 def _scale_directional_sprite(sprite, heading, scale_x, scale_y):

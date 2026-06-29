@@ -86,6 +86,7 @@ class Ability(PlayerObject):
                 "projectile": CollisionRole.PROJECTILE,
                 "special_object": CollisionRole.SPECIAL_OBJECT,
                 "laser": CollisionRole.LASER,
+                "area": CollisionRole.AREA,
             }.get(self.type, CollisionRole.NONE)
         )
         
@@ -402,7 +403,11 @@ class Ability(PlayerObject):
             return self.sprites[0]
 
         if self.frames > 1:
-            return self.sprites[0][self.current_frame]
+            from src.Battle.interpolation import interpolated_sprite_index
+
+            return self.sprites[self.current_frame][
+                interpolated_sprite_index(self, interp_t)
+            ]
         from src.Battle.interpolation import interpolated_sprite_index
 
         return self.sprites[interpolated_sprite_index(self, interp_t)]
@@ -445,7 +450,9 @@ class Ability(PlayerObject):
         if self.omnidirectional:
             return self.masks[self.current_frame if self.frames > 1 else 0]
         if self.frames > 1:
-            return self.masks[self.current_frame]
+            return self.masks[self.current_frame][
+                const.heading_to_sprite_index(self.heading)
+            ]
         return self.masks[const.heading_to_sprite_index(self.heading)]
 
     @staticmethod

@@ -10,6 +10,7 @@ class CollisionRole(Enum):
     PROJECTILE = auto()
     SPECIAL_OBJECT = auto()
     LASER = auto()
+    AREA = auto()
     ASTEROID = auto()
     PLANET = auto()
 

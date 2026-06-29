@@ -103,6 +103,10 @@ class World:
         return self.abilities_of_kind("laser")
 
     @property
+    def area_abilities(self) -> list[Ability]:
+        return self.abilities_of_kind("area")
+
+    @property
     def asteroids(self) -> list[Asteroid]:
         return self.objects_of_type(Asteroid)
 

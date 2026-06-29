@@ -1038,6 +1038,49 @@
             180.0
         ]
     },
+    "UmgahA1": {
+        "ship_name": "Umgah",
+        "type": "area",
+        "action": "A1",
+        "start_hp": [
+            100
+        ],
+        "damage": [
+            1
+        ],
+        "parent_vel": 1.0,
+        "life_time": 1,
+        "frames": 3,
+        "file_path": "Objects/Ships/Umgah/A1/",
+        "has_sprites": true,
+        "collide_friendly_ships": true,
+        "gun_locations": [
+            [
+                48,
+                48
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ],
+        "EXCLUDED_RADIUS": 29
+    },
+    "UmgahA2": {
+        "ship_name": "Umgah",
+        "type": "other",
+        "action": "A2",
+        "start_hp": [
+            1
+        ],
+        "damage": [
+            0
+        ],
+        "parent_vel": 1.0,
+        "life_time": 1,
+        "inertia": true,
+        "file_path": "Objects/Ships/Umgah/A2/",
+        "has_sprites": false
+    },
     "UtwigA1": {
         "ship_name": "Utwig",
         "type": "projectile",

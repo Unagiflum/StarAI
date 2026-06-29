@@ -224,6 +224,11 @@ def _create_laser_target_registry():
         is_eligible=responses.planet_is_laser_target,
         apply_impact=responses.apply_planet_laser_impact,
     )
+    registry.register(
+        CollisionRole.AREA,
+        is_eligible=responses.area_is_laser_target,
+        apply_impact=responses.apply_area_laser_impact,
+    )
     return registry
 
 
@@ -321,6 +326,7 @@ def handle_collisions(
     projectiles = world.colliding_projectiles
     special_objects = world.colliding_special_objects
     lasers = world.colliding_lasers
+    area_abilities = world.area_abilities
     asteroids = world.live_asteroids
     planets = world.planets
 
@@ -333,6 +339,7 @@ def handle_collisions(
         planets,
         effects,
         excluded_ids,
+        area_abilities=area_abilities,
     )
     _run_collision_phases(
         {
@@ -355,6 +362,10 @@ def handle_collisions(
 
     world.add_all(effects)
     world.remove_dead_collision_objects()
+    for obj in world.snapshot():
+        finalize = getattr(obj, "finalize_collision_frame", None)
+        if finalize is not None:
+            finalize()
 
 
 def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):
@@ -430,6 +441,7 @@ def _handle_laser_collisions(
     planets,
     effects,
     excluded_ids=frozenset(),
+    area_abilities=(),
 ):
     for laser in lasers:
         if not responses.is_live_laser(laser):
@@ -449,6 +461,7 @@ def _handle_laser_collisions(
             ships,
             projectiles,
             special_objects,
+            area_abilities,
             asteroids,
             planets,
             excluded_ids,
@@ -497,6 +510,7 @@ def _laser_targets(
     ships,
     projectiles,
     special_objects,
+    area_abilities,
     asteroids,
     planets,
     excluded_ids=frozenset(),
@@ -512,18 +526,25 @@ def _laser_targets(
             else []
         )
         targets.extend(
-            special_object
-            for special_object in special_objects
+            blocker
+            for blocker in (*special_objects, *area_abilities)
             if (
-                special_object is not explicit_target
-                and _laser_target_is_eligible(laser, special_object)
+                blocker is not explicit_target
+                and _laser_target_is_eligible(laser, blocker)
             )
         )
         return targets
 
     targets = [
         target
-        for target in (*ships, *projectiles, *special_objects, *asteroids, *planets)
+        for target in (
+            *ships,
+            *projectiles,
+            *special_objects,
+            *area_abilities,
+            *asteroids,
+            *planets,
+        )
         if (id(target) not in excluded_ids and _laser_target_is_eligible(laser, target))
     ]
     return targets
