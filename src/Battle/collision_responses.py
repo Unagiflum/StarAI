@@ -127,6 +127,64 @@ def generic_area_damage_target_is_eligible(source, target):
     return False
 
 
+def resolve_mobile_solid_collision(
+    first,
+    second,
+    context_or_effects,
+    environment=None,
+):
+    """Resolve contact between two movable solid bodies."""
+    context = collision_context(context_or_effects, environment)
+    effects = context.effects
+
+    phys_first = getattr(first, "physical_collision_capabilities", None)
+    phys_second = getattr(second, "physical_collision_capabilities", None)
+    if (
+        not phys_first
+        or not phys_second
+        or not phys_first.is_solid
+        or not phys_second.is_solid
+        or phys_first.is_immovable
+        or phys_second.is_immovable
+    ):
+        return CollisionOutcome.IGNORED
+
+    if not getattr(first, "currently_alive", True) or not getattr(
+        second, "currently_alive", True
+    ):
+        return CollisionOutcome.IGNORED
+
+    if not solid_sweep_overlap(first, second):
+        return CollisionOutcome.IGNORED
+
+    normal, distance, overlap = collision_info(first, second)
+
+    elastic_bounce(first, second, normal, distance, overlap)
+    for obj, other in ((first, second), (second, first)):
+        on_elastic_bounce = getattr(obj, "on_elastic_bounce", None)
+        if on_elastic_bounce is not None:
+            on_elastic_bounce(other)
+
+    first_impact = getattr(first, "impact_capabilities", None)
+    second_impact = getattr(second, "impact_capabilities", None)
+
+    if first_impact and first_impact.ramming_damage > 0:
+        if hasattr(second, "player"):
+            damage_ship(second, first_impact.ramming_damage)
+        else:
+            destroy_asteroid(second, effects)
+        BattleEffect.play_boom(first_impact.ramming_damage)
+
+    if second_impact and second_impact.ramming_damage > 0:
+        if hasattr(first, "player"):
+            damage_ship(first, second_impact.ramming_damage)
+        else:
+            destroy_asteroid(first, effects)
+        BattleEffect.play_boom(second_impact.ramming_damage)
+
+    return CollisionOutcome.RESOLVED
+
+
 
 
 
@@ -390,38 +448,7 @@ def resolve_generic_collision(
     is_second_solid = phys_second.is_solid and not phys_second.is_immovable
 
     if is_first_solid and is_second_solid:
-        if not getattr(first, "currently_alive", True) or not getattr(second, "currently_alive", True):
-            return CollisionOutcome.IGNORED
-
-        if not solid_sweep_overlap(first, second):
-            return CollisionOutcome.IGNORED
-            
-        normal, distance, overlap = collision_info(first, second)
-
-        elastic_bounce(first, second, normal, distance, overlap)
-        for obj, other in ((first, second), (second, first)):
-            on_elastic_bounce = getattr(obj, "on_elastic_bounce", None)
-            if on_elastic_bounce is not None:
-                on_elastic_bounce(other)
-
-        first_impact = getattr(first, "impact_capabilities", None)
-        second_impact = getattr(second, "impact_capabilities", None)
-
-        if first_impact and first_impact.ramming_damage > 0:
-            if hasattr(second, "player"):
-                damage_ship(second, first_impact.ramming_damage)
-            else:
-                destroy_asteroid(second, effects)
-            BattleEffect.play_boom(first_impact.ramming_damage)
-
-        if second_impact and second_impact.ramming_damage > 0:
-            if hasattr(first, "player"):
-                damage_ship(first, second_impact.ramming_damage)
-            else:
-                destroy_asteroid(first, effects)
-            BattleEffect.play_boom(second_impact.ramming_damage)
-
-        return CollisionOutcome.RESOLVED
+        return resolve_mobile_solid_collision(first, second, context)
 
     return CollisionOutcome.IGNORED
 

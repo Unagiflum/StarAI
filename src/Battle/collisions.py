@@ -97,8 +97,12 @@ def _resolve_generic_collision(first, second, context_or_effects, environment=No
 
 def _create_collision_pair_registry():
     registry = CollisionPairRegistry()
+    registry.register(
+        CollisionRole.SHIP,
+        CollisionRole.SHIP,
+        responses.resolve_mobile_solid_collision,
+    )
     generic_pairs = (
-        (CollisionRole.SHIP, CollisionRole.SHIP),
         (CollisionRole.SHIP, CollisionRole.ASTEROID),
         (CollisionRole.ASTEROID, CollisionRole.ASTEROID),
         (CollisionRole.SHIP, CollisionRole.PLANET),

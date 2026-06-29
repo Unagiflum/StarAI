@@ -71,6 +71,23 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertEqual(fighter.current_hp, 0)
         self.assertNotIn(fighter, game_objects)
 
+    def test_ships_collide_elastically_without_damage(self):
+        first = self.make_ship()
+        second = self.make_ship()
+        first.position = [100, 100]
+        second.position = [118, 100]
+        first.previous_position = first.position.copy()
+        second.previous_position = second.position.copy()
+        first.velocity = [1.0, 0.0]
+        second.velocity = [-1.0, 0.0]
+
+        collisions.handle_collisions([first, second])
+
+        self.assertEqual(first.velocity, [-1.0, 0.0])
+        self.assertEqual(second.velocity, [1.0, 0.0])
+        self.assertEqual(first.current_hp, 10)
+        self.assertEqual(second.current_hp, 10)
+
     def test_asteroids_collide_elastically_without_damage(self):
         first = self.make_asteroid([100, 100])
         second = self.make_asteroid([118, 100])

@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from src.Battle import collisions
+from src.Battle import collision_responses, collisions
 from src.Battle.collision_contract import CollisionContext, CollisionOutcome
 from src.Battle.collision_dispatch import CollisionPairRegistry
 from src.collision_capabilities import CollisionCapabilities, CollisionRole
@@ -16,6 +16,14 @@ def collision_object(role):
 
 
 class CollisionPairRegistryTests(unittest.TestCase):
+    def test_ship_pair_uses_dedicated_mobile_solid_handler(self):
+        handler = collisions.COLLISION_PAIR_REGISTRY.handler_for(
+            CollisionRole.SHIP,
+            CollisionRole.SHIP,
+        )
+
+        self.assertIs(handler, collision_responses.resolve_mobile_solid_collision)
+
     def test_bidirectional_registration_preserves_incoming_object_order(self):
         registry = CollisionPairRegistry()
         handler = mock.Mock(return_value=CollisionOutcome.RESOLVED)
