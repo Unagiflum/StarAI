@@ -14,7 +14,8 @@ pygame.display.set_mode((1, 1))
 
 import src.const as const
 from src.Battle.battle import initialize_new_round_ships
-from src.Battle import collision_responses
+from src.Battle import collision_responses, collisions
+from src.Battle.collision_contract import CollisionContext, CollisionEnvironment
 from src.Battle.status_bar import draw_boarded_marine_icons
 from src.audio import RecordingAudioService
 from src.Objects.object import ThrustMarker
@@ -27,10 +28,11 @@ from src.resources import AssetManager
 
 class OrzAbilityTests(unittest.TestCase):
     def resolve_collision(self, first, second, effects, ships=None):
-        from types import SimpleNamespace
-        import src.Battle.collision_responses as cr
-        env = SimpleNamespace(ships=ships or [], objects_on_screen=lambda x: True)
-        return cr.resolve_generic_collision(first, second, effects, env)
+        context = CollisionContext(
+            effects,
+            CollisionEnvironment(ships=tuple(ships or ())),
+        )
+        return collisions.COLLISION_PAIR_REGISTRY.dispatch(first, second, context)
 
     def setUp(self):
         self.sound_enabled = Ability.sound_enabled

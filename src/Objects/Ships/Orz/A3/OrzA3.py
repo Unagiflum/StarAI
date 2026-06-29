@@ -384,12 +384,6 @@ class OrzA3(Ability):
         self.spawned_objects = []
         return result
 
-    def on_collide(self, target):
-        target_name = getattr(target, "name", None)
-        if target_name in ("OrzA3", "KzerZaA2"):
-            return False
-        return super().on_collide(target)
-
     def should_collide_with_ship(self, ship):
         if self.mode in (self.OUTBOUND, self.LAUNCHING):
             return ship is self.opponent

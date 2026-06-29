@@ -162,7 +162,7 @@ class World:
         return self.colliding_abilities_of_kind("projectile")
 
     @property
-    def colliding_fighters(self) -> list[Ability]:
+    def colliding_special_objects(self) -> list[Ability]:
         return self.colliding_abilities_of_kind("special_object")
 
     @property

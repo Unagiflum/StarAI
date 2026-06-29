@@ -10,21 +10,17 @@ from src.Battle.collision_contract import (
 from src.Battle.collision_geometry import (
     collision_info,
     collision_size,
-    objects_overlap,
-    solid_sweep_overlap,
     projectile_impact,
     radius,
+    solid_sweep_overlap,
 )
 from src.Battle.collision_physics import (
     bounce_off_static_body,
-    dot,
     elastic_bounce,
-    separate_from_static_body,
     stop_at_static_body,
 )
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
-from src.collision_capabilities import ShipImpactContext
 from src.Objects.Ships.ability import Ability
 from src.toroidal import view_center_and_size, wrapped_delta
 
@@ -160,98 +156,11 @@ def apply_planet_area_damage(source, planet, effects, delta, distance, damage):
     return 0
 
 
-def apply_generic_area_damage(source_ability, target, effects, delta, distance, damage):
-    """Apply area damage and return the amount actually removed from the target."""
-    phys = getattr(target, "physical_collision_capabilities", None)
-    if not phys:
-        return 0
-
-    if phys.is_immovable:
-        # Planets take no damage, but the ability can spawn effects via on_area_damage_hit
-        return 0
-        
-    if phys.is_solid:
-        if hasattr(target, "player"):
-            shieldable = not getattr(source_ability, "ignores_shields", False)
-            non_lethal = getattr(source_ability, "is_psychic", False)
-            return damage_ship(
-                target, damage, shieldable=shieldable, non_lethal=non_lethal
-            )
-        else:
-            was_alive = getattr(target, "currently_alive", True)
-            destroy_asteroid(target, effects)
-            return damage if was_alive and not target.currently_alive else 0
-            
-    elif phys.is_projectile:
-        previous_hp = target.current_hp
-        remaining_hp = target.current_hp - damage
-        if remaining_hp <= 0:
-            direction = (
-                [delta[0] / distance, delta[1] / distance]
-                if distance > 0
-                else [0, -1]
-            )
-            destroy_projectile(target, effects, direction, damage)
-        else:
-            set_projectile_hp(target, remaining_hp)
-        return previous_hp - target.current_hp
-
-    return 0
-
-
-def generic_area_damage_target_is_eligible(source, target):
-    if target is source or not getattr(target, 'currently_alive', True):
-        return False
-        
-    # Must have vulnerability flag active
-    target_area_cap = getattr(target, "area_damage_capabilities", None)
-    if not target_area_cap or not target_area_cap.vulnerable:
-        return False
-        
-    phys = getattr(target, "physical_collision_capabilities", None)
-    if not phys:
-        return False
-        
-    if phys.is_intangible:
-        return False
-        
-    source_cap = getattr(source, "special_object_collision_capabilities", None)
-    if not source_cap:
-        # Fallback if source doesn't have collision properties initialized
-        return False
-        
-    if phys.is_immovable:
-        return source_cap.collides_with_planets
-        
-    if phys.is_solid:
-        if not hasattr(target, "player"):
-            return source_cap.collides_with_asteroids
-        else:
-            if getattr(source, "is_psychic", False):
-                durability = getattr(target, "durability_capabilities", None)
-                if durability and durability.immune_to_psychic:
-                    return False
-            if target.player != source.player:
-                return source_cap.collides_with_enemy_ships
-            else:
-                return source_cap.collides_with_friendly_ships
-                
-    if phys.is_projectile:
-        return source_cap.collides_with_projectiles
-        
-    return False
-
-
-def resolve_mobile_solid_collision(
+def _resolve_mobile_solid_contact(
     first,
     second,
-    context_or_effects,
-    environment=None,
 ):
-    """Resolve contact between two movable solid bodies."""
-    context = collision_context(context_or_effects, environment)
-    effects = context.effects
-
+    """Apply shared overlap and bounce behavior for movable solid bodies."""
     phys_first = getattr(first, "physical_collision_capabilities", None)
     phys_second = getattr(second, "physical_collision_capabilities", None)
     if (
@@ -262,15 +171,15 @@ def resolve_mobile_solid_collision(
         or phys_first.is_immovable
         or phys_second.is_immovable
     ):
-        return CollisionOutcome.IGNORED
+        return False
 
     if not getattr(first, "currently_alive", True) or not getattr(
         second, "currently_alive", True
     ):
-        return CollisionOutcome.IGNORED
+        return False
 
     if not solid_sweep_overlap(first, second):
-        return CollisionOutcome.IGNORED
+        return False
 
     normal, distance, overlap = collision_info(first, second)
 
@@ -280,23 +189,75 @@ def resolve_mobile_solid_collision(
         if on_elastic_bounce is not None:
             on_elastic_bounce(other)
 
-    first_impact = getattr(first, "impact_capabilities", None)
-    second_impact = getattr(second, "impact_capabilities", None)
+    return True
 
-    if first_impact and first_impact.ramming_damage > 0:
-        if hasattr(second, "player"):
-            damage_ship(second, first_impact.ramming_damage)
-        else:
-            destroy_asteroid(second, effects)
-        BattleEffect.play_boom(first_impact.ramming_damage)
 
-    if second_impact and second_impact.ramming_damage > 0:
-        if hasattr(first, "player"):
-            damage_ship(first, second_impact.ramming_damage)
-        else:
-            destroy_asteroid(first, effects)
-        BattleEffect.play_boom(second_impact.ramming_damage)
+def _apply_ramming_damage_to_ship(source, ship):
+    impact = getattr(source, "impact_capabilities", None)
+    if impact and impact.ramming_damage > 0:
+        damage_ship(ship, impact.ramming_damage)
+        BattleEffect.play_boom(impact.ramming_damage)
 
+
+def _apply_ramming_damage_to_asteroid(source, asteroid, effects):
+    impact = getattr(source, "impact_capabilities", None)
+    if impact and impact.ramming_damage > 0:
+        destroy_asteroid(asteroid, effects)
+        BattleEffect.play_boom(impact.ramming_damage)
+
+
+def resolve_ship_ship_collision(
+    first_ship,
+    second_ship,
+    context_or_effects,
+    environment=None,
+):
+    """Bounce two ships and exchange ship-specific ramming payloads."""
+    if not _resolve_mobile_solid_contact(first_ship, second_ship):
+        return CollisionOutcome.IGNORED
+
+    _apply_ramming_damage_to_ship(first_ship, second_ship)
+    _apply_ramming_damage_to_ship(second_ship, first_ship)
+    return CollisionOutcome.RESOLVED
+
+
+def resolve_asteroid_asteroid_collision(
+    first_asteroid,
+    second_asteroid,
+    context_or_effects,
+    environment=None,
+):
+    """Bounce two asteroids and exchange asteroid-specific ramming payloads."""
+    context = collision_context(context_or_effects, environment)
+    if not _resolve_mobile_solid_contact(first_asteroid, second_asteroid):
+        return CollisionOutcome.IGNORED
+
+    _apply_ramming_damage_to_asteroid(
+        first_asteroid,
+        second_asteroid,
+        context.effects,
+    )
+    _apply_ramming_damage_to_asteroid(
+        second_asteroid,
+        first_asteroid,
+        context.effects,
+    )
+    return CollisionOutcome.RESOLVED
+
+
+def resolve_ship_asteroid_collision(
+    ship,
+    asteroid,
+    context_or_effects,
+    environment=None,
+):
+    """Bounce a ship and asteroid and apply payloads to explicit target roles."""
+    context = collision_context(context_or_effects, environment)
+    if not _resolve_mobile_solid_contact(ship, asteroid):
+        return CollisionOutcome.IGNORED
+
+    _apply_ramming_damage_to_asteroid(ship, asteroid, context.effects)
+    _apply_ramming_damage_to_ship(asteroid, ship)
     return CollisionOutcome.RESOLVED
 
 
@@ -410,9 +371,9 @@ def resolve_projectile_projectile_collision(
     """Resolve contact between two projectile-like objects."""
     context = collision_context(context_or_effects, environment)
     effects = context.effects
-    if not is_live_projectile(first) or not is_live_projectile(second):
+    if not is_live_projectile_like(first) or not is_live_projectile_like(second):
         return CollisionOutcome.IGNORED
-    if not projectiles_can_hit_each_other(first, second):
+    if not projectile_like_objects_can_hit_each_other(first, second):
         return CollisionOutcome.IGNORED
 
     _, _, overlap = collision_info(first, second)
@@ -552,7 +513,7 @@ def resolve_projectile_planet_collision(
 ):
     """Resolve projectile contact with an immovable planet."""
     context = collision_context(context_or_effects, environment)
-    if not is_live_projectile(projectile):
+    if not is_live_projectile_like(projectile):
         return CollisionOutcome.IGNORED
 
     capabilities = getattr(
@@ -594,7 +555,7 @@ def resolve_projectile_ship_collision(
     """Resolve projectile contact with a ship."""
     context = collision_context(context_or_effects, environment)
     if (
-        not is_live_projectile(projectile)
+        not is_live_projectile_like(projectile)
         or not getattr(ship, "currently_alive", True)
         or getattr(ship, "current_hp", 1) <= 0
         or not projectile_can_hit_ship(projectile, ship)
@@ -659,7 +620,7 @@ def resolve_projectile_asteroid_collision(
     """Resolve projectile contact with an asteroid."""
     context = collision_context(context_or_effects, environment)
     if (
-        not is_live_projectile(projectile)
+        not is_live_projectile_like(projectile)
         or not getattr(asteroid, "currently_alive", True)
         or getattr(asteroid, "current_hp", 1) <= 0
     ):
@@ -719,128 +680,62 @@ def _consumption_outcome(first, second):
         return CollisionOutcome.CONSUMED_SECOND
     return CollisionOutcome.RESOLVED
 
-
-
-
-
-def resolve_generic_collision(
-    first,
-    second,
-    context_or_effects,
-    environment=None,
-    *,
-    object_on_screen_policy=None,
-):
-    context = collision_context(
-        context_or_effects,
-        environment,
-        object_on_screen_policy=object_on_screen_policy,
+def projectile_like_objects_can_hit_each_other(first, second):
+    first_is_special_object = is_live_special_object(first)
+    second_is_special_object = is_live_special_object(second)
+    first_capabilities = getattr(
+        first,
+        "special_object_collision_capabilities",
+        None,
     )
-    phys_first = getattr(first, "physical_collision_capabilities", None)
-    phys_second = getattr(second, "physical_collision_capabilities", None)
+    second_capabilities = getattr(
+        second,
+        "special_object_collision_capabilities",
+        None,
+    )
 
-    if not phys_first or not phys_second:
-        return CollisionOutcome.IGNORED
-
-    is_first_fragile = phys_first.fragile_to_immovable and phys_second.is_immovable
-    is_second_fragile = phys_second.fragile_to_immovable and phys_first.is_immovable
-
-    if is_first_fragile:
-        return resolve_asteroid_planet_collision(first, second, context)
-    if is_second_fragile:
-        return resolve_asteroid_planet_collision(second, first, context).reversed()
-
-    is_first_bouncing = phys_first.bounces_on_immovable and phys_second.is_immovable
-    is_second_bouncing = phys_second.bounces_on_immovable and phys_first.is_immovable
-
-    if is_first_bouncing:
-        return resolve_ship_planet_collision(first, second, context)
-    if is_second_bouncing:
-        return resolve_ship_planet_collision(second, first, context).reversed()
-
-    is_first_proj = phys_first.is_projectile
-    is_second_proj = phys_second.is_projectile
-
-    if is_first_proj and is_second_proj:
-        return resolve_projectile_projectile_collision(first, second, context)
-
-    elif is_first_proj or is_second_proj:
-        projectile = first if is_first_proj else second
-        other = second if is_first_proj else first
-        phys_other = phys_second if is_first_proj else phys_first
-        reverse_outcome = not is_first_proj
-
-        if phys_other.is_immovable:
-            outcome = resolve_projectile_planet_collision(
-                projectile,
-                other,
-                context,
-            )
-
-        elif phys_other.is_solid:
-            is_ship = hasattr(other, "player")
-            if is_ship:
-                outcome = resolve_projectile_ship_collision(
-                    projectile,
-                    other,
-                    context,
-                )
-            else:
-                outcome = resolve_projectile_asteroid_collision(
-                    projectile,
-                    other,
-                    context,
-                )
-        else:
-            outcome = CollisionOutcome.IGNORED
-
-        return outcome.reversed() if reverse_outcome else outcome
-
-    is_first_solid = phys_first.is_solid and not phys_first.is_immovable
-    is_second_solid = phys_second.is_solid and not phys_second.is_immovable
-
-    if is_first_solid and is_second_solid:
-        return resolve_mobile_solid_collision(first, second, context)
-
-    return CollisionOutcome.IGNORED
-
-
-
-def projectiles_can_hit_each_other(projectile, other):
-    is_fighter1 = is_live_fighter(projectile)
-    is_fighter2 = is_live_fighter(other)
-
-    if is_fighter1 and is_fighter2:
-        f1_hits = projectile.special_object_collision_capabilities.collides_with_fighters
-        f2_hits = other.special_object_collision_capabilities.collides_with_fighters
-        if not f1_hits and not f2_hits:
+    if first_is_special_object and second_is_special_object:
+        first_hits = first_capabilities.collides_with_fighters
+        second_hits = second_capabilities.collides_with_fighters
+        if not first_hits and not second_hits:
             return False
         return True
 
-    if is_fighter1 and not is_fighter2:
-        if not projectile.special_object_collision_capabilities.collides_with_projectiles:
+    if first_is_special_object and not second_is_special_object:
+        if not first_capabilities.collides_with_projectiles:
             return False
         return True
 
-    if not is_fighter1 and is_fighter2:
-        if not other.special_object_collision_capabilities.collides_with_projectiles:
+    if not first_is_special_object and second_is_special_object:
+        if not second_capabilities.collides_with_projectiles:
             return False
         return True
 
-    if projectile.player != other.player:
+    if first.player != second.player:
         return True
 
-    if projectile.projectile_name == other.projectile_name:
-        return getattr(projectile, "hit_self", False) and getattr(other, "hit_self", False)
+    if first.projectile_name == second.projectile_name:
+        return getattr(first, "hit_self", False) and getattr(
+            second,
+            "hit_self",
+            False,
+        )
 
-    return getattr(projectile, "hit_team", False) and getattr(other, "hit_team", False)
+    return getattr(first, "hit_team", False) and getattr(
+        second,
+        "hit_team",
+        False,
+    )
 
 
-def is_live_projectile(obj):
-    return World.is_colliding_ability_kind(obj, "projectile") or World.is_colliding_ability_kind(obj, "special_object")
+def is_live_projectile_like(obj):
+    return (
+        World.is_colliding_ability_kind(obj, "projectile")
+        or World.is_colliding_ability_kind(obj, "special_object")
+    )
 
 
-def is_live_fighter(obj):
+def is_live_special_object(obj):
     return World.is_colliding_ability_kind(obj, "special_object")
 
 
@@ -859,11 +754,15 @@ def projectile_can_hit_ship(projectile, ship):
             return True
         return projectile.hit_parent
 
-    fighter_caps = getattr(projectile, "special_object_collision_capabilities", None)
-    if fighter_caps:
+    special_object_capabilities = getattr(
+        projectile,
+        "special_object_collision_capabilities",
+        None,
+    )
+    if special_object_capabilities:
         if ship.player == projectile.player:
-            return fighter_caps.collides_with_friendly_ships
-        return fighter_caps.collides_with_enemy_ships
+            return special_object_capabilities.collides_with_friendly_ships
+        return special_object_capabilities.collides_with_enemy_ships
 
     if ship.player != projectile.player:
         return True
@@ -992,7 +891,7 @@ def resolve_laser_hit(
         blocks_laser
         and getattr(target, 'current_hp', 1) > 0
         and getattr(target, 'currently_alive', True)
-        and not is_live_projectile(target)
+        and not is_live_projectile_like(target)
     ) else None
     
     laser.attached_target = attached
@@ -1002,66 +901,6 @@ def resolve_laser_hit(
 
     effects.append(BattleEffect.from_blast(contact, normal, damage, attached_target=attached))
     BattleEffect.play_boom(damage)
-
-
-def apply_generic_laser_impact(target, effects, normal, damage, contact):
-    phys = getattr(target, "physical_collision_capabilities", None)
-    if not phys:
-        set_projectile_hp(target, target.current_hp - damage)
-        if target.current_hp <= 0:
-            destroy_projectile(target, effects, normal, damage, contact)
-        return
-        
-    if phys.is_projectile:
-        set_projectile_hp(target, target.current_hp - damage)
-        if target.current_hp <= 0:
-            destroy_projectile(target, effects, normal, damage, contact)
-    elif phys.is_immovable:
-        pass
-    elif phys.is_solid:
-        if hasattr(target, "player"):
-            damage_ship(target, damage)
-        else:
-            destroy_asteroid(target, effects)
-
-
-def generic_is_laser_target(laser, target, explicit):
-    if not getattr(target, "currently_alive", True):
-        return False
-    if target is laser.parent and not laser.hit_parent:
-        return False
-        
-    phys = getattr(target, "physical_collision_capabilities", None)
-    if not phys:
-        if not getattr(target, "can_collide", True) or getattr(target, "current_hp", 1) <= 0:
-            return False
-        if explicit:
-            return True
-        laser_target = getattr(target, "laser_target_capabilities", None)
-        if laser_target and laser_target.vulnerable:
-            return target is not laser.parent
-        return explicit
-
-    if phys.is_intangible:
-        return False
-        
-    if phys.is_projectile:
-        return getattr(target, "can_collide", True) and getattr(target, "current_hp", 1) > 0
-        
-    if phys.is_immovable:
-        return True
-        
-    if phys.is_solid:
-        if not hasattr(target, "player"):
-            return True
-        else:
-            if getattr(target, "current_hp", 1) <= 0:
-                return False
-            if explicit:
-                return True
-            return target.player != laser.player
-        
-    return explicit
 
 
 def destroy_projectile(projectile, effects, direction, damage, contact_position=None, attached_target=None):

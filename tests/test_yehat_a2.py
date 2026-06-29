@@ -1,6 +1,5 @@
 import os
 import unittest
-from types import SimpleNamespace
 from unittest import mock
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -12,8 +11,6 @@ pygame.init()
 if pygame.display.get_surface() is None:
     pygame.display.set_mode((1, 1))
 
-from src.Battle import collision_responses
-from src.collision_capabilities import SpecialObjectCollisionCapabilities
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ship
@@ -21,12 +18,6 @@ from src.Objects.Ships.Yehat.A2.YehatA2 import YehatA2
 
 
 class YehatA2Tests(unittest.TestCase):
-    def resolve_collision(self, first, second, effects, ships=None):
-        from types import SimpleNamespace
-        import src.Battle.collision_responses as cr
-        env = SimpleNamespace(ships=ships or [], objects_on_screen=lambda x: True)
-        return cr.resolve_generic_collision(first, second, effects, env)
-
     def setUp(self):
         self.sound_enabled = Ability.sound_enabled
         Ability.sound_enabled = False

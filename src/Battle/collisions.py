@@ -1,6 +1,8 @@
 """Ordered collision pipeline."""
 
 import math
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from src.Battle import collision_responses as responses
 from src.Battle.area_dispatch import AreaTargetRegistry
@@ -11,10 +13,7 @@ from src.Battle.collision_contract import (
     collision_context,
 )
 from src.Battle.collision_dispatch import CollisionPairRegistry
-from src.Battle.collision_geometry import (
-    distance_between,
-    laser_hit_info,
-)
+from src.Battle.collision_geometry import laser_hit_info
 from src.Battle.laser_dispatch import LaserTargetRegistry
 
 # BattleEffect remains exposed here for existing callers and test patches.
@@ -25,16 +24,6 @@ from src.Objects.Space.space_obj import Asteroid
 from src.toroidal import (
     wrapped_delta as _wrapped_delta,
 )
-
-
-def _object_on_screen(obj, ships):
-    return responses.object_on_screen(obj, ships)
-
-
-
-
-
-
 
 
 def _dispatch_collision_pairs(
@@ -87,32 +76,23 @@ def _dispatch_collision_pair(first, second, context_or_effects, environment=None
     return COLLISION_PAIR_REGISTRY.dispatch(first, second, context)
 
 
-def _resolve_generic_collision(first, second, context_or_effects, environment=None):
-    context = collision_context(context_or_effects, environment)
-    response_context = CollisionContext(
-        effects=context.effects,
-        environment=context.environment,
-        object_on_screen_policy=_object_on_screen,
-    )
-    return responses.resolve_generic_collision(first, second, response_context)
-
-
 def _create_collision_pair_registry():
     registry = CollisionPairRegistry()
     registry.register(
         CollisionRole.SHIP,
         CollisionRole.SHIP,
-        responses.resolve_mobile_solid_collision,
+        responses.resolve_ship_ship_collision,
     )
     registry.register(
         CollisionRole.ASTEROID,
         CollisionRole.ASTEROID,
-        responses.resolve_mobile_solid_collision,
+        responses.resolve_asteroid_asteroid_collision,
     )
     registry.register(
         CollisionRole.SHIP,
         CollisionRole.ASTEROID,
-        responses.resolve_mobile_solid_collision,
+        responses.resolve_ship_asteroid_collision,
+        canonical_order=True,
     )
     registry.register(
         CollisionRole.ASTEROID,
@@ -250,6 +230,68 @@ def _create_laser_target_registry():
 LASER_TARGET_REGISTRY = _create_laser_target_registry()
 
 
+@dataclass(frozen=True)
+class _CollisionPhase:
+    first_group: str
+    second_group: str | None = None
+    unique_pairs: bool = False
+    first_is_active: Callable[[object], bool] | None = None
+    stop_after_handled: bool = True
+    collects_effects: bool = True
+    includes_ship_environment: bool = False
+
+
+def _always_active(obj):
+    return True
+
+
+def _currently_alive(obj):
+    return obj.currently_alive
+
+
+COLLISION_PHASES = (
+    _CollisionPhase("ships", unique_pairs=True),
+    _CollisionPhase("ships", "asteroids", stop_after_handled=False),
+    _CollisionPhase(
+        "asteroids",
+        unique_pairs=True,
+        first_is_active=_currently_alive,
+    ),
+    _CollisionPhase(
+        "ships",
+        "planets",
+        stop_after_handled=False,
+        collects_effects=False,
+    ),
+    _CollisionPhase(
+        "asteroids",
+        "planets",
+        includes_ship_environment=True,
+    ),
+    _CollisionPhase(
+        "projectiles",
+        unique_pairs=True,
+        first_is_active=responses.is_live_projectile_like,
+    ),
+    _CollisionPhase("projectiles", "ships"),
+    _CollisionPhase("projectiles", "asteroids"),
+    _CollisionPhase("projectiles", "planets"),
+    _CollisionPhase(
+        "special_objects",
+        unique_pairs=True,
+        first_is_active=responses.is_live_special_object,
+    ),
+    _CollisionPhase("special_objects", "projectiles"),
+    _CollisionPhase("special_objects", "ships"),
+    _CollisionPhase("special_objects", "asteroids"),
+    _CollisionPhase(
+        "special_objects",
+        "planets",
+        collects_effects=False,
+    ),
+)
+
+
 def handle_collisions(
     game_objects,
     *,
@@ -265,7 +307,7 @@ def handle_collisions(
 
     ships = [ship for ship in world.live_ships if id(ship) not in excluded_ids]
     projectiles = world.colliding_projectiles
-    special_objects = world.colliding_fighters
+    special_objects = world.colliding_special_objects
     lasers = world.colliding_lasers
     asteroids = world.live_asteroids
     planets = world.planets
@@ -280,20 +322,16 @@ def handle_collisions(
         effects,
         excluded_ids,
     )
-    _handle_ship_ship_collisions(ships, effects)
-    _handle_ship_asteroid_collisions(ships, asteroids, effects)
-    _handle_asteroid_asteroid_collisions(asteroids, effects)
-    _handle_ship_planet_collisions(ships, planets)
-    _handle_asteroid_planet_collisions(asteroids, planets, ships, effects)
-    _handle_projectile_projectile_collisions(projectiles, effects)
-    _handle_projectile_ship_collisions(projectiles, ships, effects)
-    _handle_projectile_asteroid_collisions(projectiles, asteroids, effects)
-    _handle_projectile_planet_collisions(projectiles, planets, effects)
-    _handle_fighter_fighter_collisions(special_objects, effects)
-    _handle_fighter_projectile_collisions(special_objects, projectiles, effects)
-    _handle_fighter_ship_collisions(special_objects, ships, effects)
-    _handle_fighter_asteroid_collisions(special_objects, asteroids, effects)
-    _handle_fighter_planet_collisions(special_objects, planets)
+    _run_collision_phases(
+        {
+            "ships": ships,
+            "asteroids": asteroids,
+            "projectiles": projectiles,
+            "special_objects": special_objects,
+            "planets": planets,
+        },
+        effects,
+    )
     _spawn_replacement_asteroids(
         world,
         all_asteroids,
@@ -342,81 +380,33 @@ def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):
         )
 
 
-def _handle_ship_ship_collisions(ships, effects=None):
-    if effects is None:
-        effects = []
-    _dispatch_unique_collision_pairs(ships, effects, lambda ship: True)
+def _run_collision_phases(groups, effects):
+    """Run physical contact phases in their gameplay-significant order."""
+    for phase in COLLISION_PHASES:
+        phase_effects = effects if phase.collects_effects else []
+        environment = (
+            CollisionEnvironment(ships=tuple(groups["ships"]))
+            if phase.includes_ship_environment
+            else None
+        )
+        first_objects = groups[phase.first_group]
 
+        if phase.unique_pairs:
+            _dispatch_unique_collision_pairs(
+                first_objects,
+                phase_effects,
+                phase.first_is_active or _always_active,
+                environment,
+            )
+            continue
 
-def _handle_ship_asteroid_collisions(ships, asteroids, effects=None):
-    _dispatch_collision_pairs(
-        ships,
-        asteroids,
-        effects if effects is not None else [],
-        stop_after_handled=False,
-    )
-
-
-def _handle_asteroid_asteroid_collisions(asteroids, effects):
-    _dispatch_unique_collision_pairs(
-        asteroids,
-        effects,
-        lambda asteroid: asteroid.currently_alive,
-    )
-
-
-def _handle_ship_planet_collisions(ships, planets):
-    _dispatch_collision_pairs(
-        ships,
-        planets,
-        [],
-        stop_after_handled=False,
-    )
-
-
-def _handle_asteroid_planet_collisions(asteroids, planets, ships, effects):
-    _dispatch_collision_pairs(
-        asteroids,
-        planets,
-        effects,
-        environment=CollisionEnvironment(ships=tuple(ships)),
-    )
-
-
-def _handle_projectile_projectile_collisions(projectiles, effects):
-    _dispatch_unique_collision_pairs(projectiles, effects, responses.is_live_projectile)
-
-
-def _handle_projectile_ship_collisions(projectiles, ships, effects):
-    _dispatch_collision_pairs(projectiles, ships, effects)
-
-
-def _handle_projectile_asteroid_collisions(projectiles, asteroids, effects):
-    _dispatch_collision_pairs(projectiles, asteroids, effects)
-
-
-def _handle_projectile_planet_collisions(projectiles, planets, effects):
-    _dispatch_collision_pairs(projectiles, planets, effects)
-
-
-def _handle_fighter_fighter_collisions(special_objects, effects):
-    _dispatch_unique_collision_pairs(special_objects, effects, responses.is_live_fighter)
-
-
-def _handle_fighter_projectile_collisions(special_objects, projectiles, effects):
-    _dispatch_collision_pairs(special_objects, projectiles, effects)
-
-
-def _handle_fighter_ship_collisions(special_objects, ships, effects):
-    _dispatch_collision_pairs(special_objects, ships, effects)
-
-
-def _handle_fighter_asteroid_collisions(special_objects, asteroids, effects):
-    _dispatch_collision_pairs(special_objects, asteroids, effects)
-
-
-def _handle_fighter_planet_collisions(special_objects, planets):
-    _dispatch_collision_pairs(special_objects, planets, [])
+        _dispatch_collision_pairs(
+            first_objects,
+            groups[phase.second_group],
+            phase_effects,
+            stop_after_handled=phase.stop_after_handled,
+            environment=environment,
+        )
 
 
 def _handle_laser_collisions(

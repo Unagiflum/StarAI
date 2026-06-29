@@ -16,11 +16,23 @@ def collision_object(role):
 
 
 class CollisionPairRegistryTests(unittest.TestCase):
-    def test_migrated_pairs_use_dedicated_mobile_solid_handler(self):
-        for first_role, second_role in (
-            (CollisionRole.SHIP, CollisionRole.SHIP),
-            (CollisionRole.ASTEROID, CollisionRole.ASTEROID),
-            (CollisionRole.SHIP, CollisionRole.ASTEROID),
+    def test_mobile_solid_pairs_use_role_specific_handlers(self):
+        for first_role, second_role, expected_handler in (
+            (
+                CollisionRole.SHIP,
+                CollisionRole.SHIP,
+                collision_responses.resolve_ship_ship_collision,
+            ),
+            (
+                CollisionRole.ASTEROID,
+                CollisionRole.ASTEROID,
+                collision_responses.resolve_asteroid_asteroid_collision,
+            ),
+            (
+                CollisionRole.SHIP,
+                CollisionRole.ASTEROID,
+                collision_responses.resolve_ship_asteroid_collision,
+            ),
         ):
             with self.subTest(first_role=first_role, second_role=second_role):
                 handler = collisions.COLLISION_PAIR_REGISTRY.handler_for(
@@ -30,7 +42,7 @@ class CollisionPairRegistryTests(unittest.TestCase):
 
                 self.assertIs(
                     handler,
-                    collision_responses.resolve_mobile_solid_collision,
+                    expected_handler,
                 )
 
     def test_planet_pairs_use_dedicated_canonical_handlers(self):

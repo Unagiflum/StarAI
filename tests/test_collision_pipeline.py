@@ -1,13 +1,9 @@
 import unittest
-from types import SimpleNamespace
 from unittest import mock
-import src.const as const
 from collision_test_support import CollisionTestCase
 from src.Battle import collisions
 from src.Battle.world import World
 from src.collision_capabilities import (
-    AreaDamageCapabilities,
-    CollisionCapabilities,
     ImpactCapabilities,
     LaserTargetCapabilities,
 )
@@ -28,7 +24,7 @@ def run_collision_pipeline(game_objects, effects=None):
 class CollisionPipelineTests(CollisionTestCase):
 
     def make_orz_marine_projectile_contact(self, death_animation):
-        marine = self.make_fighter(fighter_class=OrzA3)
+        marine = self.make_special_object(special_object_class=OrzA3)
         marine.name = marine.projectile_name = "OrzA3"
         marine.mode = OrzA3.OUTBOUND
         marine.get_collision_mask = lambda: None
@@ -50,8 +46,8 @@ class CollisionPipelineTests(CollisionTestCase):
         parent.current_hp = 5
         parent.max_hp = 10
 
-        fighter = self.make_fighter(
-            fighter_class=KzerZaA2,
+        fighter = self.make_special_object(
+            special_object_class=KzerZaA2,
             collides_with_friendly_ships=True,
             collides_with_fighters=False,
         )
@@ -246,7 +242,16 @@ class CollisionPipelineTests(CollisionTestCase):
         ]
 
         with mock.patch.object(collisions, "_dispatch_collision_pair") as dispatch:
-            collisions._handle_asteroid_asteroid_collisions(asteroids, [])
+            collisions._run_collision_phases(
+                {
+                    "ships": [],
+                    "asteroids": asteroids,
+                    "projectiles": [],
+                    "special_objects": [],
+                    "planets": [],
+                },
+                [],
+            )
 
         self.assertEqual(dispatch.call_count, 3)
         dispatched_pairs = {
@@ -260,6 +265,30 @@ class CollisionPipelineTests(CollisionTestCase):
                 frozenset((id(asteroids[0]), id(asteroids[2]))),
                 frozenset((id(asteroids[1]), id(asteroids[2]))),
             },
+        )
+
+    def test_physical_collision_phase_order_is_explicit(self):
+        self.assertEqual(
+            [
+                (phase.first_group, phase.second_group)
+                for phase in collisions.COLLISION_PHASES
+            ],
+            [
+                ("ships", None),
+                ("ships", "asteroids"),
+                ("asteroids", None),
+                ("ships", "planets"),
+                ("asteroids", "planets"),
+                ("projectiles", None),
+                ("projectiles", "ships"),
+                ("projectiles", "asteroids"),
+                ("projectiles", "planets"),
+                ("special_objects", None),
+                ("special_objects", "projectiles"),
+                ("special_objects", "ships"),
+                ("special_objects", "asteroids"),
+                ("special_objects", "planets"),
+            ],
         )
 
     def test_excluded_ship_is_not_hit_as_an_explicit_laser_target(self):
@@ -325,7 +354,7 @@ class CollisionPipelineTests(CollisionTestCase):
         replacement_factory.assert_not_called()
 
     def test_fighter_ignores_dead_asteroid_and_hits_next_live_target(self):
-        special_object = self.make_fighter()
+        special_object = self.make_special_object()
         dead = self.make_asteroid([108, 100])
         live = self.make_asteroid([108, 100])
         dead.currently_alive = False
@@ -335,7 +364,7 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertFalse(live.currently_alive)
 
     def test_fighter_ignores_dead_projectile_and_hits_next_live_target(self):
-        special_object = self.make_fighter()
+        special_object = self.make_special_object()
         parent = self.make_ship()
         dead = self.make_projectile(parent)
         live = self.make_projectile(parent)
@@ -350,9 +379,14 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertFalse(live.currently_alive)
 
     def test_limpet_and_kzerza_fighter_die_to_zero_damage_projectiles(self):
-        for fighter_class, name in ((VuxA2, "VuxA2"), (KzerZaA2, "KzerZaA2")):
+        for special_object_class, name in (
+            (VuxA2, "VuxA2"),
+            (KzerZaA2, "KzerZaA2"),
+        ):
             with self.subTest(name=name):
-                fighter = self.make_fighter(fighter_class=fighter_class)
+                fighter = self.make_special_object(
+                    special_object_class=special_object_class
+                )
                 fighter.name = fighter.projectile_name = name
                 projectile = self.make_projectile(self.make_ship())
                 projectile.current_damage = 0
@@ -407,7 +441,7 @@ class CollisionPipelineTests(CollisionTestCase):
         )
 
     def test_kzerza_fighter_survives_planet_contact_and_begins_avoidance(self):
-        fighter = self.make_fighter(fighter_class=KzerZaA2)
+        fighter = self.make_special_object(special_object_class=KzerZaA2)
         fighter.name = fighter.projectile_name = "KzerZaA2"
         fighter.position = [100, 100]
         fighter.previous_position = fighter.position.copy()
@@ -419,7 +453,7 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertEqual(fighter.planet_avoidance, (planet, None))
 
     def test_fighter_skips_dead_ship_and_hits_next_live_target(self):
-        special_object = self.make_fighter()
+        special_object = self.make_special_object()
         parent = self.make_ship()
         parent.player = 1
         special_object.parent = parent
@@ -436,9 +470,9 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertFalse(special_object.currently_alive)
 
     def test_fighter_ignores_dead_fighter_and_hits_next_live_target(self):
-        first = self.make_fighter()
-        dead = self.make_fighter()
-        live = self.make_fighter()
+        first = self.make_special_object()
+        dead = self.make_special_object()
+        live = self.make_special_object()
         for special_object in (dead, live):
             special_object.position = [108, 100]
             special_object.previous_position = special_object.position.copy()
@@ -472,7 +506,7 @@ class CollisionPipelineTests(CollisionTestCase):
         parent.player = 1
         parent.position = [100, 100]
         laser = self.make_laser(parent)
-        fighter = self.make_fighter()
+        fighter = self.make_special_object()
         fighter.position = [170, 100]
         fighter.laser_target_capabilities = LaserTargetCapabilities(
             blocks_lasers=False
@@ -495,14 +529,14 @@ class CollisionPipelineTests(CollisionTestCase):
         parent = self.make_ship()
         parent.player = 1
         parent.position = [100, 100]
-        intended = self.make_fighter()
+        intended = self.make_special_object()
         intended.parent = parent
         intended.hit_parent = False
         intended.position = [170, 100]
         intended.laser_target_capabilities = LaserTargetCapabilities(
             blocks_lasers=False
         )
-        behind = self.make_fighter()
+        behind = self.make_special_object()
         behind.parent = parent
         behind.hit_parent = False
         behind.position = [220, 100]

@@ -295,19 +295,6 @@ class Ability(PlayerObject):
             return self.expiration_timer >= 0 and self.current_hp > 0
         return self.expiration_timer > 0 and self.current_hp > 0
 
-    def on_collide(self, target):
-        if not self.hit_parent and target == self.parent:
-            return False
-
-        if target.current_hp is not None:
-            take_damage = getattr(target, "take_damage", None)
-            if take_damage is not None:
-                take_damage(self.current_damage)
-            else:
-                target.current_hp = max(0, target.current_hp - self.current_damage)
-
-        return True
-
     def on_ship_impact(self, ship):
         """Apply projectile-specific behavior after damaging a ship."""
         return None

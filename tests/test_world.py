@@ -173,7 +173,7 @@ class WorldCharacterizationTests(unittest.TestCase):
 
         self.assertEqual(world.live_ships, [live_ship])
         self.assertEqual(world.colliding_projectiles, [live_projectile])
-        self.assertEqual(world.colliding_fighters, [])
+        self.assertEqual(world.colliding_special_objects, [])
         self.assertEqual(world.colliding_lasers, [live_laser])
         self.assertEqual(world.live_asteroids, [live_asteroid])
 

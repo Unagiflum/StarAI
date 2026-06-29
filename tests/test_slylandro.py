@@ -2,7 +2,6 @@ import math
 import os
 import random
 import unittest
-from types import SimpleNamespace
 from unittest import mock
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -206,11 +205,10 @@ class SlylandroTests(unittest.TestCase):
                 side_effect=bounce_side_effect,
             ),
         ):
-            collision_responses.resolve_generic_collision(
+            collision_responses.resolve_ship_asteroid_collision(
                 self.ship,
                 asteroid,
                 [],
-                SimpleNamespace(ships=(self.ship,)),
             )
 
         self.assertEqual(self.ship.heading, 4)

@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import src.const as const
 from src.Battle import collisions
 from src.Battle.collision_geometry import collision_info, objects_overlap
-from src.Battle.collision_responses import generic_area_damage_target_is_eligible
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ship
 from src.Objects.Ships.Syreen.A2.SyreenA2 import SyreenA2
@@ -107,7 +106,9 @@ class SyreenSongTests(unittest.TestCase):
         self.assertFalse(definition.collide_asteroids)
         self.assertFalse(definition.collide_projectiles)
         self.assertFalse(definition.collide_fighters)
-        self.assertFalse(generic_area_damage_target_is_eligible(song, projectile))
+        self.assertFalse(
+            collisions.AREA_TARGET_REGISTRY.is_eligible(song, projectile)
+        )
 
     def test_psychic_immunity_uses_durability_capability(self):
         song = SyreenA2(self.parent)
@@ -116,7 +117,7 @@ class SyreenSongTests(unittest.TestCase):
             immune_to_psychic=True
         )
 
-        self.assertFalse(generic_area_damage_target_is_eligible(song, target))
+        self.assertFalse(collisions.AREA_TARGET_REGISTRY.is_eligible(song, target))
         self.assertEqual(song.area_damage_for_target(target, 0), 0)
 
     def test_song_penetrates_yehat_and_utwig_shields(self):

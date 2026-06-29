@@ -29,7 +29,7 @@ class CollisionOutcomeTests(CollisionTestCase):
     def test_ignored_pair_returns_explicit_outcome(self):
         parent, projectile = self.make_parent_contact(hit_parent=False)
 
-        outcome = collision_responses.resolve_generic_collision(
+        outcome = collision_responses.resolve_projectile_ship_collision(
             projectile,
             parent,
             CollisionContext([]),
@@ -42,7 +42,7 @@ class CollisionOutcomeTests(CollisionTestCase):
         parent, projectile = self.make_parent_contact(hit_parent=True)
 
         with mock.patch.object(collision_responses.BattleEffect, "from_blast"):
-            outcome = collision_responses.resolve_generic_collision(
+            outcome = collision_responses.resolve_projectile_ship_collision(
                 projectile,
                 parent,
                 CollisionContext([]),

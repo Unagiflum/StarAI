@@ -12,8 +12,8 @@ from src.collision_capabilities import (
 from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
-from src.Battle import collision_responses
-from unittest import mock
+from src.Battle import collisions
+from src.Battle.collision_contract import CollisionContext, CollisionEnvironment
 
 
 class CollisionTestCase(unittest.TestCase):
@@ -107,7 +107,7 @@ class CollisionTestCase(unittest.TestCase):
         return first, second
 
     @staticmethod
-    def make_fighter(
+    def make_special_object(
         *,
         collides_with_planets=True,
         collides_with_asteroids=True,
@@ -118,11 +118,11 @@ class CollisionTestCase(unittest.TestCase):
         collides_with_friendly_ships=False,
         collides_with_fighters=True,
         laser_vulnerable=True,
-        fighter_class=Ability,
+        special_object_class=Ability,
     ):
-        special_object = fighter_class.__new__(fighter_class)
-        special_object.name = "TestFighter"
-        special_object.projectile_name = "TestFighter"
+        special_object = special_object_class.__new__(special_object_class)
+        special_object.name = "TestSpecialObject"
+        special_object.projectile_name = "TestSpecialObject"
         special_object.type = "special_object"
         special_object.player = 1
         special_object.position = [100, 100]
@@ -252,8 +252,8 @@ class CollisionTestCase(unittest.TestCase):
 
 
     def resolve_collision(self, first, second, effects, ships=None):
-        class MockEnvironment:
-            def __init__(self, ships):
-                self.ships = ships or []
-        env = MockEnvironment(ships)
-        return collision_responses.resolve_generic_collision(first, second, effects, env)
+        context = CollisionContext(
+            effects,
+            CollisionEnvironment(ships=tuple(ships or ())),
+        )
+        return collisions.COLLISION_PAIR_REGISTRY.dispatch(first, second, context)

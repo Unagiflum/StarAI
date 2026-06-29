@@ -4,6 +4,7 @@ import random
 import pygame
 
 import src.const as const
+from src.Battle.collision_physics import separate_from_static_body
 from src.Objects.Ships.ability import Ability, ABILITIES_DATA
 from src.Objects.Ships.KzerZa.A2.KzerZaA2Laser import KzerZaA2Laser
 from src.toroidal import wrapped_delta
@@ -211,8 +212,13 @@ class KzerZaA2(Ability):
         ) % const.ARENA_SIZE
 
     def handle_planet_contact(self, planet, outward_normal, overlap):
-        from src.Battle.collision_responses import separate_from_static_body
-        separate_from_static_body(self, planet, outward_normal, overlap, extra_clearance=1.0)
+        separate_from_static_body(
+            self,
+            planet,
+            outward_normal,
+            overlap,
+            extra_clearance=1.0,
+        )
         self.planet_avoidance = (planet, None)
         return True
 

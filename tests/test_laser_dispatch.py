@@ -118,7 +118,7 @@ class ProductionLaserPolicyTests(CollisionTestCase):
 
     def test_special_objects_preserve_legacy_targetable_exception(self):
         laser = self.make_laser(self.make_ship())
-        special_object = self.make_fighter()
+        special_object = self.make_special_object()
         special_object.laser_target_capabilities = LaserTargetCapabilities(
             targetable=False
         )
