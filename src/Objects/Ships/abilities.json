@@ -1075,6 +1075,7 @@
         "damage": [
             0
         ],
+        "speed": 160,
         "parent_vel": 1.0,
         "life_time": 1,
         "inertia": true,

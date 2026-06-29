@@ -5,6 +5,7 @@ from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Umgah.A1.UmgahA1 import UmgahA1
 from src.Objects.Ships.Umgah.A2.UmgahA2 import UmgahA2
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 
 
 class Umgah(SpaceShip):
@@ -66,9 +67,10 @@ class Umgah(SpaceShip):
 
     def _activate_reverse_burst(self):
         angle = math.radians(self.rotation)
+        speed = ABILITY_DEFINITIONS["UmgahA2"].speed
         self.velocity = [
-            -math.sin(angle) * const.SPEED_LIMIT,
-            math.cos(angle) * const.SPEED_LIMIT,
+            -math.sin(angle) * speed,
+            math.cos(angle) * speed,
         ]
         self.collision_velocity = [0.0, 0.0]
         self.accumulated_impulses = [0.0, 0.0]

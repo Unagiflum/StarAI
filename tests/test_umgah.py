@@ -303,10 +303,10 @@ class UmgahTests(CollisionTestCase):
         self.assertIsInstance(burst, UmgahA2)
         self.assertEqual(self.ship.current_energy, initial_energy - 1)
         self.assertEqual(self.ship.energy_timer, 0)
-        self.assertAlmostEqual(math.hypot(*self.ship.velocity), const.SPEED_LIMIT)
+        self.assertAlmostEqual(math.hypot(*self.ship.velocity), 160)
 
         self.ship.update()
-        self.assertEqual(self.ship.position, [500.0, 650.0])
+        self.assertEqual(self.ship.position, [500.0, 660.0])
         collisions.handle_collisions([self.ship])
         self.assertEqual(self.ship.velocity, [0.0, 0.0])
 
@@ -321,7 +321,7 @@ class UmgahTests(CollisionTestCase):
 
         self.assertEqual(self.ship.velocity, [0.0, 0.0])
         self.assertGreater(other.velocity[1], 0)
-        self.assertLess(self.ship.position[1], 650.0)
+        self.assertLess(self.ship.position[1], 660.0)
 
     def test_a2_stops_at_swept_projectile_contact_after_thrust_impulse(self):
         projectile = self.make_projectile(self.make_ship())
@@ -338,7 +338,7 @@ class UmgahTests(CollisionTestCase):
             collisions.handle_collisions([self.ship, projectile])
 
         self.assertEqual(self.ship.velocity, [0.0, 0.0])
-        self.assertLess(self.ship.position[1], 650.0)
+        self.assertLess(self.ship.position[1], 660.0)
 
 
 if __name__ == "__main__":
