@@ -1,9 +1,15 @@
 """Ordered collision pipeline."""
 
 import math
-from dataclasses import dataclass
 
 from src.Battle import collision_responses as responses
+from src.Battle.collision_contract import (
+    CollisionContext,
+    CollisionEnvironment,
+    CollisionOutcome,
+    collision_context,
+)
+from src.Battle.collision_dispatch import CollisionPairRegistry
 from src.Battle.collision_geometry import (
     distance_between,
     laser_hit_info,
@@ -17,11 +23,6 @@ from src.Objects.Space.space_obj import Asteroid
 from src.toroidal import (
     wrapped_delta as _wrapped_delta,
 )
-
-
-@dataclass(frozen=True)
-class CollisionEnvironment:
-    ships: tuple = ()
 
 
 def _object_on_screen(obj, ships):
@@ -45,10 +46,11 @@ def _dispatch_collision_pairs(
     """Dispatch ordered object pairs by their explicit collision roles."""
     if environment is None:
         environment = CollisionEnvironment()
+    context = CollisionContext(effects, environment)
     for first in first_objects:
         for second in second_objects:
-            handled = _dispatch_collision_pair(first, second, effects, environment)
-            if handled and stop_after_handled:
+            outcome = _dispatch_collision_pair(first, second, context)
+            if outcome.handled and stop_after_handled:
                 break
 
 
@@ -61,34 +63,62 @@ def _dispatch_unique_collision_pairs(
     """Dispatch each unordered pair while preserving outer-loop activity rules."""
     if environment is None:
         environment = CollisionEnvironment()
+    context = CollisionContext(effects, environment)
     for index, first in enumerate(objects):
         if not first_is_active(first):
             continue
         for second in objects[index + 1 :]:
-            _dispatch_collision_pair(first, second, effects, environment)
+            _dispatch_collision_pair(first, second, context)
 
 
-def _dispatch_collision_pair(first, second, effects, environment=None):
-    if environment is None:
-        environment = CollisionEnvironment()
+def _dispatch_collision_pair(first, second, context_or_effects, environment=None):
+    context = collision_context(context_or_effects, environment)
 
     phys_first = getattr(first, "physical_collision_capabilities", None)
     phys_second = getattr(second, "physical_collision_capabilities", None)
 
     if (phys_first and phys_first.is_intangible) or (phys_second and phys_second.is_intangible):
-        return True
+        # Preserve the existing stop-after-handled behavior until pair policies
+        # explicitly define how intangible objects affect candidate scanning.
+        return CollisionOutcome.RESOLVED
 
-    return _resolve_generic_collision(first, second, effects, environment)
+    return COLLISION_PAIR_REGISTRY.dispatch(first, second, context)
 
 
-def _resolve_generic_collision(first, second, effects, environment):
-    return responses.resolve_generic_collision(
-        first,
-        second,
-        effects,
-        environment,
+def _resolve_generic_collision(first, second, context_or_effects, environment=None):
+    context = collision_context(context_or_effects, environment)
+    response_context = CollisionContext(
+        effects=context.effects,
+        environment=context.environment,
         object_on_screen_policy=_object_on_screen,
     )
+    return responses.resolve_generic_collision(first, second, response_context)
+
+
+def _create_collision_pair_registry():
+    registry = CollisionPairRegistry()
+    generic_pairs = (
+        (CollisionRole.SHIP, CollisionRole.SHIP),
+        (CollisionRole.SHIP, CollisionRole.ASTEROID),
+        (CollisionRole.ASTEROID, CollisionRole.ASTEROID),
+        (CollisionRole.SHIP, CollisionRole.PLANET),
+        (CollisionRole.ASTEROID, CollisionRole.PLANET),
+        (CollisionRole.PROJECTILE, CollisionRole.PROJECTILE),
+        (CollisionRole.PROJECTILE, CollisionRole.SHIP),
+        (CollisionRole.PROJECTILE, CollisionRole.ASTEROID),
+        (CollisionRole.PROJECTILE, CollisionRole.PLANET),
+        (CollisionRole.SPECIAL_OBJECT, CollisionRole.SPECIAL_OBJECT),
+        (CollisionRole.SPECIAL_OBJECT, CollisionRole.PROJECTILE),
+        (CollisionRole.SPECIAL_OBJECT, CollisionRole.SHIP),
+        (CollisionRole.SPECIAL_OBJECT, CollisionRole.ASTEROID),
+        (CollisionRole.SPECIAL_OBJECT, CollisionRole.PLANET),
+    )
+    for first_role, second_role in generic_pairs:
+        registry.register(first_role, second_role, _resolve_generic_collision)
+    return registry
+
+
+COLLISION_PAIR_REGISTRY = _create_collision_pair_registry()
 
 
 def handle_collisions(

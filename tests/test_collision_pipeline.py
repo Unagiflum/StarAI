@@ -25,6 +25,52 @@ def run_collision_pipeline(game_objects, effects=None):
 
 class CollisionPipelineTests(CollisionTestCase):
 
+    def make_kzerza_parent_contact(self, mode):
+        parent = self.make_ship()
+        parent.player = 1
+        parent.position = [100, 100]
+        parent.previous_position = parent.position.copy()
+        parent.current_hp = 5
+        parent.max_hp = 10
+
+        fighter = self.make_fighter(
+            fighter_class=KzerZaA2,
+            collides_with_friendly_ships=True,
+            collides_with_fighters=False,
+        )
+        fighter.name = fighter.projectile_name = "KzerZaA2"
+        fighter.parent = parent
+        fighter.hit_parent = False
+        fighter.mode = mode
+        fighter.return_sound = None
+        fighter.position = parent.position.copy()
+        fighter.previous_position = fighter.position.copy()
+        return parent, fighter
+
+    def test_kzerza_fighter_ignores_parent_before_returning(self):
+        for mode in (KzerZaA2.LAUNCHING, KzerZaA2.ATTACKING):
+            with self.subTest(mode=mode):
+                parent, fighter = self.make_kzerza_parent_contact(mode)
+                game_objects = [parent, fighter]
+
+                collisions.handle_collisions(game_objects)
+
+                self.assertEqual(parent.current_hp, 5)
+                self.assertTrue(fighter.currently_alive)
+                self.assertEqual(fighter.current_hp, 1)
+                self.assertIn(fighter, game_objects)
+
+    def test_returning_kzerza_fighter_is_recovered_by_parent(self):
+        parent, fighter = self.make_kzerza_parent_contact(KzerZaA2.RETURNING)
+        game_objects = [parent, fighter]
+
+        collisions.handle_collisions(game_objects)
+
+        self.assertEqual(parent.current_hp, 6)
+        self.assertFalse(fighter.currently_alive)
+        self.assertEqual(fighter.current_hp, 0)
+        self.assertNotIn(fighter, game_objects)
+
     def test_asteroids_collide_elastically_without_damage(self):
         first = self.make_asteroid([100, 100])
         second = self.make_asteroid([118, 100])

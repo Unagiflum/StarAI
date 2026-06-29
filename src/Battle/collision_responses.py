@@ -3,6 +3,10 @@
 import math
 
 import src.const as const
+from src.Battle.collision_contract import (
+    CollisionOutcome,
+    collision_context,
+)
 from src.Battle.collision_geometry import (
     collision_info,
     collision_size,
@@ -129,16 +133,24 @@ def generic_area_damage_target_is_eligible(source, target):
 def resolve_generic_collision(
     first,
     second,
-    effects,
-    environment,
+    context_or_effects,
+    environment=None,
     *,
     object_on_screen_policy=None,
 ):
+    context = collision_context(
+        context_or_effects,
+        environment,
+        object_on_screen_policy=object_on_screen_policy,
+    )
+    effects = context.effects
+    environment = context.environment
+    object_on_screen_policy = context.object_on_screen_policy
     phys_first = getattr(first, "physical_collision_capabilities", None)
     phys_second = getattr(second, "physical_collision_capabilities", None)
 
     if not phys_first or not phys_second:
-        return False
+        return CollisionOutcome.IGNORED
 
     is_first_fragile = phys_first.fragile_to_immovable and phys_second.is_immovable
     is_second_fragile = phys_second.fragile_to_immovable and phys_first.is_immovable
@@ -148,10 +160,10 @@ def resolve_generic_collision(
         immovable_obj = second if is_first_fragile else first
 
         if not getattr(fragile_obj, "currently_alive", True):
-            return False
+            return CollisionOutcome.IGNORED
 
         if not solid_sweep_overlap(fragile_obj, immovable_obj):
-            return False
+            return CollisionOutcome.IGNORED
 
         on_screen = object_on_screen_policy or object_on_screen
         if on_screen(fragile_obj, environment.ships):
@@ -159,7 +171,7 @@ def resolve_generic_collision(
         
         # Currently, asteroids use destroy_asteroid.
         destroy_asteroid(fragile_obj, effects)
-        return True
+        return CollisionOutcome.RESOLVED
 
     is_first_bouncing = phys_first.bounces_on_immovable and phys_second.is_immovable
     is_second_bouncing = phys_second.bounces_on_immovable and phys_first.is_immovable
@@ -184,7 +196,7 @@ def resolve_generic_collision(
                 contacts_set.remove(contact_id)
 
         if not overlaps:
-            return False
+            return CollisionOutcome.IGNORED
 
         new_contact = contact_id not in contacts_set
         contacts_set.add(contact_id)
@@ -218,21 +230,21 @@ def resolve_generic_collision(
                 BattleEffect.play_boom(bounce_impact.ramming_damage)
                 # Invulnerable skips HP reduction, but we played the boom.
 
-        return True
+        return CollisionOutcome.RESOLVED
 
     is_first_proj = phys_first.is_projectile
     is_second_proj = phys_second.is_projectile
 
     if is_first_proj and is_second_proj:
         if not is_live_projectile(first) or not is_live_projectile(second):
-            return False
+            return CollisionOutcome.IGNORED
         if not projectiles_can_hit_each_other(first, second):
-            return False
+            return CollisionOutcome.IGNORED
             
         _, _, overlap = collision_info(first, second)
         contact, impact_normal = projectile_impact(first, second, overlap)
         if contact is None:
-            return False
+            return CollisionOutcome.IGNORED
 
         handled1 = False
         handled2 = False
@@ -247,7 +259,7 @@ def resolve_generic_collision(
                 destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
             if second.current_hp <= 0:
                 destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
-            return True
+            return CollisionOutcome.RESOLVED
 
         if first.projectile_name == second.projectile_name:
             f1_caps = getattr(first, "special_object_collision_capabilities", None)
@@ -255,12 +267,12 @@ def resolve_generic_collision(
             if f1_caps and f1_caps.bounces_off_same_type and f2_caps and f2_caps.bounces_off_same_type:
                 normal, distance, overlap_real = collision_info(first, second)
                 elastic_bounce(first, second, normal, distance, overlap_real)
-                return True
+                return CollisionOutcome.RESOLVED
 
             BattleEffect.play_boom(max(first.current_damage, second.current_damage))
             destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
             destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
-            return True
+            return CollisionOutcome.RESOLVED
 
         f1_caps = getattr(first, "special_object_collision_capabilities", None)
         f2_caps = getattr(second, "special_object_collision_capabilities", None)
@@ -284,7 +296,7 @@ def resolve_generic_collision(
         else:
             destroy_projectile(first, effects, impact_normal, first.current_damage, contact)
             destroy_projectile(second, effects, [-impact_normal[0], -impact_normal[1]], second.current_damage, contact)
-        return True
+        return CollisionOutcome.RESOLVED
 
     elif is_first_proj or is_second_proj:
         projectile = first if is_first_proj else second
@@ -293,44 +305,44 @@ def resolve_generic_collision(
 
         if phys_other.is_immovable:
             if not is_live_projectile(projectile):
-                return False
+                return CollisionOutcome.IGNORED
                 
             fighter_caps = getattr(projectile, "special_object_collision_capabilities", None)
             if fighter_caps and not fighter_caps.collides_with_planets:
-                return False
+                return CollisionOutcome.IGNORED
                 
             _, _, overlap = collision_info(projectile, other)
             contact, impact_normal = projectile_impact(projectile, other, overlap)
             if contact is None:
-                return False
+                return CollisionOutcome.IGNORED
 
             handler = getattr(projectile, "handle_planet_contact", None)
             if handler and handler(other, impact_normal, overlap):
-                return True
+                return CollisionOutcome.RESOLVED
 
             damage = projectile.current_damage
             BattleEffect.play_boom(damage)
             destroy_projectile(projectile, effects, impact_normal, damage, contact, other)
-            return True
+            return CollisionOutcome.RESOLVED
 
         elif phys_other.is_solid:
             if not is_live_projectile(projectile) or not getattr(other, "currently_alive", True) or getattr(other, "current_hp", 1) <= 0:
-                return False
+                return CollisionOutcome.IGNORED
                 
             is_ship = hasattr(other, "player")
             fighter_caps = getattr(projectile, "special_object_collision_capabilities", None)
             
             if is_ship:
                 if not projectile_can_hit_ship(projectile, other):
-                    return False
+                    return CollisionOutcome.IGNORED
             else:
                 if fighter_caps and not fighter_caps.collides_with_asteroids:
-                    return False
+                    return CollisionOutcome.IGNORED
 
             _, _, overlap = collision_info(projectile, other)
             contact, impact_normal = projectile_impact(projectile, other, overlap)
             if contact is None:
-                return False
+                return CollisionOutcome.IGNORED
 
             if is_ship:
                 incoming_handler = getattr(
@@ -339,7 +351,7 @@ def resolve_generic_collision(
                 if fighter_caps and incoming_handler and incoming_handler(
                     projectile, impact_normal
                 ):
-                    return True
+                    return CollisionOutcome.RESOLVED
 
                 if other is projectile.parent:
                     can_recover = getattr(projectile, "can_recover_with_parent", None)
@@ -347,15 +359,15 @@ def resolve_generic_collision(
                         recover_fn = getattr(projectile, "recover_with_parent", None)
                         if recover_fn:
                             recover_fn()
-                            return True
+                            return CollisionOutcome.RESOLVED
                             
                 handler = getattr(projectile, "handle_ship_contact", None)
                 if handler and handler(other, impact_normal):
-                    return True
+                    return CollisionOutcome.RESOLVED
             else:
                 handler = getattr(projectile, "handle_asteroid_contact", None)
                 if handler and handler(other, impact_normal):
-                    return True
+                    return CollisionOutcome.RESOLVED
 
             damage = projectile.current_damage
             BattleEffect.play_boom(damage)
@@ -370,19 +382,19 @@ def resolve_generic_collision(
                 destroy_projectile(projectile, effects, impact_normal, damage, contact, attached)
                 if not fighter_caps or fighter_caps.damages_asteroids:
                     destroy_asteroid(other, effects)
-            return True
-            
-        return False
+            return CollisionOutcome.RESOLVED
+
+        return CollisionOutcome.IGNORED
 
     is_first_solid = phys_first.is_solid and not phys_first.is_immovable
     is_second_solid = phys_second.is_solid and not phys_second.is_immovable
 
     if is_first_solid and is_second_solid:
         if not getattr(first, "currently_alive", True) or not getattr(second, "currently_alive", True):
-            return False
+            return CollisionOutcome.IGNORED
 
         if not solid_sweep_overlap(first, second):
-            return False
+            return CollisionOutcome.IGNORED
             
         normal, distance, overlap = collision_info(first, second)
 
@@ -409,7 +421,9 @@ def resolve_generic_collision(
                 destroy_asteroid(first, effects)
             BattleEffect.play_boom(second_impact.ramming_damage)
 
-        return True
+        return CollisionOutcome.RESOLVED
+
+    return CollisionOutcome.IGNORED
 
 
 
