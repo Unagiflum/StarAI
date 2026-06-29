@@ -9,7 +9,7 @@ class ShofixtiA2(Ability):
         super().__init__("ShofixtiA2", parent)
         ability_data = ABILITIES_DATA["ShofixtiA2"]
         self.range = ability_data["range"]
-        self.position = parent.position.copy()
+        self.position = self.configured_gun_position()
         self.previous_position = self.position.copy()
         self.velocity = [0.0, 0.0]
         self._first_update = True
@@ -32,7 +32,7 @@ class ShofixtiA2(Ability):
             return False
 
         self.previous_position = self.position.copy()
-        self.position = self.parent.position.copy()
+        self.position = self.configured_gun_position()
 
         # The ability is added before the frame update. Hold frame 00 for that
         # first update so every supplied animation frame is displayed once.

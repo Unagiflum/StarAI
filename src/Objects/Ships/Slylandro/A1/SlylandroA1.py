@@ -30,7 +30,7 @@ class SlylandroA1(Ability):
         self.color = self.bolt_colors[0]
         self.points = []
         self.frame_number = 0
-        self.position = list(parent.position)
+        self.position = self.configured_gun_position()
         self.previous_position = self.position.copy()
         self.start_position = self.position.copy()
         self.end_position = self.position.copy()
@@ -46,7 +46,7 @@ class SlylandroA1(Ability):
             return False
 
         self.previous_position = self.position.copy()
-        self.position = list(self.parent.position)
+        self.position = self.configured_gun_position()
         self.frame_number += 1
         if self.frame_number >= self.cooldown:
             self.points = []
@@ -66,10 +66,13 @@ class SlylandroA1(Ability):
         self.intercepted = False
         self.attached_target = None
         self.target_contact_offset = None
-        point = list(self.parent.position)
+        point = self.configured_gun_position()
         self.points = [point]
         target_available = self._target_is_available()
-        direction = self.parent.heading
+        relative_direction = self.configured_gun()[1] or 0
+        direction = (
+            self.parent.heading + round(relative_direction / const.TURN_ANGLE)
+        ) % const.SHIP_DIRECTIONS
 
         for segment_index in range(segment_count):
             if not target_available:
@@ -119,7 +122,7 @@ class SlylandroA1(Ability):
 
     def calculate_end_position(self):
         if len(self.points) < 2:
-            self.start_position = list(self.parent.position)
+            self.start_position = self.configured_gun_position()
             self.end_position = self.start_position.copy()
             return
         self.start_position = self.points[0]
@@ -145,11 +148,21 @@ class SlylandroA1(Ability):
         if len(self.points) < 2:
             return
 
-        from src.Battle.interpolation import interpolated_position
+        from src.Battle.interpolation import (
+            interpolated_position,
+            interpolated_sprite_index,
+        )
 
         parent_position = interpolated_position(self.parent, interp_t)
+        visual_idx = interpolated_sprite_index(self.parent, interp_t)
+        visual_rotation = (
+            visual_idx / const.VIDEO_FPS_MULTIPLIER * const.TURN_ANGLE
+        )
+        gun_position = self.configured_gun_position(
+            rotation=visual_rotation, position=parent_position
+        )
         segments = list(self.collision_segments())
-        segments[0] = (parent_position, segments[0][1])
+        segments[0] = (gun_position, segments[0][1])
         view_rect = pygame.Rect(0, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT)
 
         for start, end in segments:

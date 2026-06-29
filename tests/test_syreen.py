@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import src.const as const
 from src.Battle import collisions
+from src.Battle.collision_geometry import collision_info, objects_overlap
 from src.Battle.collision_responses import generic_area_damage_target_is_eligible
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ship
@@ -156,6 +157,25 @@ class SyreenSongTests(unittest.TestCase):
 
         self.assertEqual(song.position, self.parent.position)
         self.assertEqual(song.range, ABILITY_DEFINITIONS["SyreenA2"].effect_range)
+
+    def test_crew_spawn_outside_cloaked_ilwrath_hull_and_move_away(self):
+        target = create_ship("Ilwrath", 2)
+        target.position = [620.0, 500.0]
+        target.current_hp = 5
+        target.cloak()
+        target.fade_timer = target.FADE_DURATION
+        song = SyreenA2(self.parent)
+
+        collisions._handle_area_damage([song, target], [])
+        crews = song.drain_spawned_objects()
+
+        self.assertEqual(len(crews), 4)
+        for crew in crews:
+            _, _, overlap = collision_info(crew, target)
+            self.assertFalse(objects_overlap(crew, target, overlap))
+            crew.update_physics()
+            _, _, overlap = collision_info(crew, target)
+            self.assertFalse(objects_overlap(crew, target, overlap))
 
 
 if __name__ == "__main__":

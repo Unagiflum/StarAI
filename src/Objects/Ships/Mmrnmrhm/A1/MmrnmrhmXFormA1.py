@@ -5,6 +5,7 @@ import pygame
 import src.const as const
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships.launch_geometry import gun_world_position
 from src.toroidal import wrapped_delta
 
 
@@ -28,8 +29,6 @@ class MmrnmrhmXFormA1(Ability):
         self.LASER_COLOR = definition.laser_color
         self.LASER_WIDTH = definition.laser_width
         self.gun_location = gun_location or definition.gun_locations[0]
-        form_assets = parent.resources.ship_form("Mmrnmrhm", "XForm")
-        self.gun_canvas_size = form_assets.sprites[0].get_size()
         self.volley = volley or _LaserVolley()
         self.start_position = parent.position.copy()
         self.end_position = parent.position.copy()
@@ -41,26 +40,9 @@ class MmrnmrhmXFormA1(Ability):
         volley = _LaserVolley()
         return [cls(ship, location, volley) for location in locations]
 
-    @staticmethod
-    def _gun_position(parent_position, rotation, ship_size, gun_location):
-        angle = math.radians(rotation)
-        x_offset = gun_location[0] - ship_size[0] / 2
-        y_offset = ship_size[1] / 2 - gun_location[1]
-        return [
-            parent_position[0]
-            + math.cos(angle) * x_offset
-            + math.sin(angle) * y_offset,
-            parent_position[1]
-            + math.sin(angle) * x_offset
-            - math.cos(angle) * y_offset,
-        ]
-
     def calculate_end_position(self):
-        self.start_position = self._gun_position(
-            self.parent.position,
-            self.parent.rotation,
-            self.gun_canvas_size,
-            self.gun_location,
+        self.start_position = gun_world_position(
+            self.parent, self.gun_location
         )
         self.position = self.start_position.copy()
         angle = math.radians(self.parent.rotation)
@@ -74,6 +56,15 @@ class MmrnmrhmXFormA1(Ability):
     def should_damage_target(self, target):
         return self.volley.claim_damage(target)
 
+    def visual_end_position(self, start, parent_position, rotation):
+        angle = math.radians(rotation)
+        raw_end = [
+            parent_position[0] + math.sin(angle) * self.LASER_RANGE,
+            parent_position[1] - math.cos(angle) * self.LASER_RANGE,
+        ]
+        offset = wrapped_delta(start, raw_end)
+        return [start[0] + offset[0], start[1] + offset[1]]
+
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         from src.Battle.interpolation import (
             interpolated_position,
@@ -83,8 +74,11 @@ class MmrnmrhmXFormA1(Ability):
         parent_position = interpolated_position(self.parent, interp_t)
         visual_index = interpolated_sprite_index(self.parent, interp_t)
         rotation = visual_index / const.VIDEO_FPS_MULTIPLIER * const.TURN_ANGLE
-        start = self._gun_position(
-            parent_position, rotation, self.gun_canvas_size, self.gun_location
+        start = gun_world_position(
+            self.parent,
+            self.gun_location,
+            rotation=rotation,
+            position=parent_position,
         )
 
         if getattr(self, "intercepted", False):
@@ -101,11 +95,7 @@ class MmrnmrhmXFormA1(Ability):
                 offset = wrapped_delta(self.start_position, self.end_position)
             end = [start[0] + offset[0], start[1] + offset[1]]
         else:
-            angle = math.radians(rotation)
-            end = [
-                parent_position[0] + math.sin(angle) * self.LASER_RANGE,
-                parent_position[1] - math.cos(angle) * self.LASER_RANGE,
-            ]
+            end = self.visual_end_position(start, parent_position, rotation)
 
         screen_start = (
             int((start[0] + translation[0]) * scale_factor),

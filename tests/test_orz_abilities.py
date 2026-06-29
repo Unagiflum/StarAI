@@ -338,9 +338,10 @@ class OrzAbilityTests(unittest.TestCase):
 
         marine.handle_ship_contact(enemy)
         self.assertIs(marine.get_sprite(), marine.red_flight_sprite)
-        self.assertEqual(marine.get_sprite().get_size(), (12, 16))
+        self.assertEqual(marine.get_sprite().get_size(), (16, 16))
+        self.assertEqual(marine.get_collision_mask().get_size(), (16, 16))
         self.assertIs(marine.hud_sprite, marine.red_flight_sprite)
-        self.assertEqual(marine.hud_sprite.get_size(), (12, 16))
+        self.assertEqual(marine.hud_sprite.get_size(), (16, 16))
 
         enemy.current_hp = 0
         marine.update()

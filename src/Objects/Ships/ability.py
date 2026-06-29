@@ -15,6 +15,7 @@ from src.Objects.Ships.catalog import ABILITIES_DATA, ABILITY_DEFINITIONS
 from src.resources import default_assets
 from src.audio import compatibility_audio_service
 from src.toroidal import nearest_position, wrapped_delta
+from src.Objects.Ships.launch_geometry import gun_world_position, place_projectile_at_gun
 
 
 def wrapped_endpoint(start, end):
@@ -113,7 +114,6 @@ class Ability(PlayerObject):
         self.hit_parent = ability_definition.hit_parent
         self.hit_self = ability_definition.hit_self
         self.hit_team = getattr(ability_definition, 'hit_team', False)
-        self.has_left_parent = False
         self.omnidirectional = ability_definition.omnidirectional
         self.end_anim_count = ability_definition.end_anim
 
@@ -152,6 +152,51 @@ class Ability(PlayerObject):
         """Return area damage at a radial distance from this ability."""
         raise NotImplementedError(
             f"{type(self).__name__} does not define radial area damage"
+        )
+
+    def configured_gun(self, index=0):
+        definition = ABILITY_DEFINITIONS[self.name]
+        locations = definition.gun_locations or ()
+        if index >= len(locations):
+            raise ValueError(f"Ability '{self.name}' has no gun location {index}")
+        directions = definition.gun_directions or ()
+        direction = directions[index] if index < len(directions) else None
+        return locations[index], direction
+
+    def configured_gun_position(self, index=0, *, rotation=None, position=None):
+        location, _ = self.configured_gun(index)
+        return gun_world_position(
+            self.parent, location, rotation=rotation, position=position
+        )
+
+    def launch_from_gun(
+        self,
+        index=0,
+        *,
+        gun_location=None,
+        relative_direction=None,
+        gap_multiplier=None,
+        inherit_parent_velocity=True,
+        gun_rotation=None,
+        launch_direction=None,
+    ):
+        configured_location, configured_direction = self.configured_gun(index)
+        location = configured_location if gun_location is None else gun_location
+        direction = (
+            configured_direction
+            if relative_direction is None
+            else relative_direction
+        )
+        if direction is None:
+            raise ValueError(f"Ability '{self.name}' gun {index} has no direction")
+        return place_projectile_at_gun(
+            self,
+            location,
+            direction,
+            gap_multiplier=gap_multiplier,
+            inherit_parent_velocity=inherit_parent_velocity,
+            gun_rotation=gun_rotation,
+            launch_direction=launch_direction,
         )
 
     def area_damage_for_target(self, target, distance):

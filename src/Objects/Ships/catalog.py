@@ -761,6 +761,22 @@ def parse_ability_definition(name, data):
         )
     else:
         values["gun_directions"] = None
+    if values["gun_directions"] is not None:
+        if values["gun_locations"] is None:
+            raise CatalogValidationError(
+                f"Ability '{name}' defines gun_directions without gun_locations"
+            )
+        if len(values["gun_directions"]) != len(values["gun_locations"]):
+            raise CatalogValidationError(
+                f"Ability '{name}' gun_directions must match gun_locations"
+            )
+        if any(
+            direction < 0 or direction >= 360
+            for direction in values["gun_directions"]
+        ):
+            raise CatalogValidationError(
+                f"Ability '{name}' gun_directions must be in [0, 360)"
+            )
     if "BOLT_COLORS" in data:
         value = data["BOLT_COLORS"]
         if not isinstance(value, list) or not value:

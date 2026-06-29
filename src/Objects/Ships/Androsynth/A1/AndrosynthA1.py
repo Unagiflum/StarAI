@@ -13,16 +13,7 @@ class AndrosynthA1(Ability):
         self.place_self()
 
     def place_self(self):
-        angle = math.radians(self.parent.rotation)
-        spawn_distance = const.PROJ_GAP + (self.size[1] + self.parent.size[1]) / 2
-        self.position = [
-            self.parent.position[0] + math.sin(angle) * spawn_distance,
-            self.parent.position[1] - math.cos(angle) * spawn_distance,
-        ]
-        self.previous_position = self.position.copy()
-        self.rotation = self.parent.rotation
-        self.heading = 0
-        self._set_velocity(self.rotation)
+        self.launch_from_gun(inherit_parent_velocity=False)
 
     def update_heading(self):
         self.heading = 0

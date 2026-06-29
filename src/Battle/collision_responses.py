@@ -460,11 +460,14 @@ def projectile_can_hit_ship(projectile, ship):
     if collision_filter is not None:
         return collision_filter(ship)
 
+    if ship is projectile.parent:
+        can_recover = getattr(projectile, "can_recover_with_parent", None)
+        if can_recover is not None and can_recover():
+            return True
+        return projectile.hit_parent
+
     fighter_caps = getattr(projectile, "special_object_collision_capabilities", None)
     if fighter_caps:
-        if ship is projectile.parent:
-            recover_fn = getattr(projectile, "can_recover_with_parent", None)
-            return recover_fn is not None and recover_fn()
         if ship.player == projectile.player:
             return fighter_caps.collides_with_friendly_ships
         return fighter_caps.collides_with_enemy_ships
@@ -472,17 +475,6 @@ def projectile_can_hit_ship(projectile, ship):
     if ship.player != projectile.player:
         return True
 
-    if ship != projectile.parent or not projectile.hit_parent:
-        return False
-
-    if projectile.has_left_parent:
-        return True
-
-    _, _, overlap = collision_info(projectile, ship)
-    if objects_overlap(projectile, ship, overlap):
-        return False
-
-    projectile.has_left_parent = True
     return False
 
 
@@ -555,6 +547,8 @@ def apply_generic_laser_impact(target, effects, normal, damage, contact):
 
 def generic_is_laser_target(laser, target, explicit):
     if not getattr(target, "currently_alive", True):
+        return False
+    if target is laser.parent and not laser.hit_parent:
         return False
         
     phys = getattr(target, "physical_collision_capabilities", None)

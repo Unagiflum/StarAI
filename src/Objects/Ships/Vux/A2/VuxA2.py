@@ -23,13 +23,6 @@ class VuxA2(Ability):
         self.place_self()
 
     def place_self(self):
-        angle_rad = math.radians(self.parent.rotation)
-        spawn_distance = (self.parent.size[1]) / 2
-        self.position = [
-            self.parent.position[0] + math.sin(angle_rad) * spawn_distance,
-            self.parent.position[1] - math.cos(angle_rad) * spawn_distance,
-        ]
-
         opponent = getattr(self.parent, "opponent", None)
         has_valid_target = (
             opponent is not None
@@ -40,21 +33,16 @@ class VuxA2(Ability):
         if has_valid_target:
             from src.toroidal import wrapped_delta
 
-            dx, dy = wrapped_delta(self.position, opponent.position)
+            muzzle = self.configured_gun_position()
+            dx, dy = wrapped_delta(muzzle, opponent.position)
             target_angle = math.degrees(math.atan2(dx, -dy))
             if target_angle < 0:
                 target_angle += 360
             direction_step = 360 / const.SHIP_DIRECTIONS
-            self.heading = round(target_angle / direction_step) % const.SHIP_DIRECTIONS
-            self.rotation = self.heading * const.TURN_ANGLE
+            direction = round(target_angle / direction_step) * direction_step
+            self.launch_from_gun(launch_direction=direction)
         else:
-            self.heading = (self.parent.heading + const.SHIP_DIRECTIONS // 2) % const.SHIP_DIRECTIONS
-            self.rotation = (self.parent.rotation + 180) % 360
-            angle_rad = math.radians(self.rotation)
-            self.velocity = [
-                math.sin(angle_rad) * self.speed,
-                -math.cos(angle_rad) * self.speed,
-            ]
+            self.launch_from_gun(inherit_parent_velocity=False)
 
     def handle_ship_contact(self, ship, normal=None):
         if hasattr(ship, "attach_limpet"):

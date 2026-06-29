@@ -1,30 +1,25 @@
-from src.Objects.Ships.ability import Ability, ABILITIES_DATA
-import src.const as const
-import math
+from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 
 
 class YehatA1(Ability):
-    def __init__(self, parent, offset=0):
+    def __init__(self, parent, gun_location=None, relative_direction=None):
         super().__init__("YehatA1", parent)
-        ability_data = ABILITIES_DATA["YehatA1"]
-        self.place_self(offset)
+        definition = ABILITY_DEFINITIONS["YehatA1"]
+        location = gun_location or definition.gun_locations[0]
+        direction = (
+            definition.gun_directions[0]
+            if relative_direction is None
+            else relative_direction
+        )
+        self.launch_from_gun(gun_location=location, relative_direction=direction)
 
-    def place_self(self, offset):
-        angle_rad = math.radians(self.parent.rotation)
-        spawn_distance = const.PROJ_GAP + (self.size[1] + self.parent.size[1]) / 2
-        offset_x = math.cos(angle_rad) * offset
-        offset_y = math.sin(angle_rad) * offset
-
-        self.position = [
-            self.parent.position[0] + math.sin(angle_rad) * spawn_distance + offset_x,
-            self.parent.position[1] - math.cos(angle_rad) * spawn_distance + offset_y,
-        ]
-        self.heading = self.parent.heading
-        self.rotation = self.parent.rotation
-        angle_rad = math.radians(self.rotation)
-        self.velocity = [
-            math.sin(angle_rad) * self.speed
-            + self.parent.velocity[0] * self.parent_vel,
-            -math.cos(angle_rad) * self.speed
-            + self.parent.velocity[1] * self.parent_vel,
+    @classmethod
+    def create_projectiles(cls, ship):
+        definition = ABILITY_DEFINITIONS["YehatA1"]
+        return [
+            cls(ship, location, direction)
+            for location, direction in zip(
+                definition.gun_locations or (), definition.gun_directions or ()
+            )
         ]

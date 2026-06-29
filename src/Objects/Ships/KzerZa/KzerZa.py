@@ -2,6 +2,7 @@ from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.KzerZa.A1.KzerZaA1 import KzerZaA1
 from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 
 
 class KzerZa(SpaceShip):
@@ -17,9 +18,15 @@ class KzerZa(SpaceShip):
 
         fighter_count = min(2, self.current_hp - 1)
         first_index = self.fighter_launch_count
+        definition = ABILITY_DEFINITIONS["KzerZaA2"]
         special_objects = [
-            KzerZaA2(self, launch_angle, first_index + offset)
-            for offset, launch_angle in enumerate((135, 225)[:fighter_count])
+            KzerZaA2(self, direction, first_index + offset, location)
+            for offset, (location, direction) in enumerate(
+                zip(
+                    definition.gun_locations[:fighter_count],
+                    definition.gun_directions[:fighter_count],
+                )
+            )
         ]
 
         def commit_launch_indices():

@@ -4,6 +4,7 @@ from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.Pkunk.A1.PkunkA1 import PkunkA1
 from src.Objects.Ships.Pkunk.A2.PkunkA2 import PkunkA2
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 
 
 class Pkunk(SpaceShip):
@@ -51,9 +52,15 @@ class Pkunk(SpaceShip):
         )
 
     def plan_action1(self):
+        definition = ABILITY_DEFINITIONS["PkunkA1"]
         return self.validate_action(
             1,
-            lambda ship: [PkunkA1(ship, angle) for angle in (-90, 0, 90)],
+            lambda ship: [
+                PkunkA1(ship, location, direction)
+                for location, direction in zip(
+                    definition.gun_locations, definition.gun_directions
+                )
+            ],
         )
 
     def plan_action2(self):

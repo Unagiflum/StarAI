@@ -18,10 +18,10 @@ class ZoqFotA2(Ability):
         self.retracting_frames = definition.retracting_frames or 5
         self.area_width = definition.area_width or 12
         self.area_length = definition.area_length or 100
+        self.base_offset = definition.offset
         self._damaged_targets = set()
         self._age = 0
         self._duration = self.advancing_frames + self.retracting_frames
-        self.base_offset = definition.offset
         self.velocity = [0.0, 0.0]
         self.can_move = False
         self.can_die = False
@@ -66,8 +66,9 @@ class ZoqFotA2(Ability):
         return self._shape_cache[cache_key]
 
     def _sync_to_parent(self, age_frame):
-        self.heading = self.parent.heading % const.SHIP_DIRECTIONS
-        self.rotation = self.parent.rotation
+        relative_direction = self.configured_gun()[1] or 0
+        self.rotation = (self.parent.rotation + relative_direction) % 360
+        self.heading = round(self.rotation / const.TURN_ANGLE) % const.SHIP_DIRECTIONS
 
         if age_frame < self.advancing_frames:
             scale_factor = (age_frame + 1) / max(1, self.advancing_frames)
@@ -85,19 +86,23 @@ class ZoqFotA2(Ability):
         )
         self.size = list(self._current_sprite.get_size())
 
-        from src.resources import _projection_bounds
-
-        parent_mask = self.parent.get_collision_mask()
-        parent_forward = _projection_bounds(parent_mask, visual_idx)[1]
-
-        self.base_distance = (parent_forward + const.PROJ_GAP) * self.base_offset
         self.current_length = current_length
-        distance = self.base_distance + self.current_length / 2.0
+        self.position = self._mounted_position(
+            self.parent.position, self.parent.rotation
+        )
 
-        angle = math.radians(self.rotation)
-        self.position = [
-            (self.parent.position[0] + math.sin(angle) * distance) % const.ARENA_SIZE,
-            (self.parent.position[1] - math.cos(angle) * distance) % const.ARENA_SIZE,
+    def _mounted_position(self, parent_position, parent_rotation):
+        relative_direction = self.configured_gun()[1] or 0
+        rotation = (parent_rotation + relative_direction) % 360
+        base_position = self.configured_gun_position(
+            rotation=parent_rotation,
+            position=parent_position,
+        )
+        distance = self.current_length / 2.0
+        angle = math.radians(rotation)
+        return [
+            (base_position[0] + math.sin(angle) * distance) % const.ARENA_SIZE,
+            (base_position[1] - math.cos(angle) * distance) % const.ARENA_SIZE,
         ]
 
     def update(self):
@@ -148,16 +153,8 @@ class ZoqFotA2(Ability):
         parent_pos = interpolated_position(self.parent, interp_t)
         visual_idx = interpolated_sprite_index(self.parent, interp_t)
         visual_heading = visual_idx / const.VIDEO_FPS_MULTIPLIER
-        angle_rad = math.radians(visual_heading * const.TURN_ANGLE)
-
-        distance = (
-            getattr(self, "base_distance", 0) + getattr(self, "current_length", 0) / 2.0
-        )
-
-        visual_pos = [
-            (parent_pos[0] + math.sin(angle_rad) * distance) % const.ARENA_SIZE,
-            (parent_pos[1] - math.cos(angle_rad) * distance) % const.ARENA_SIZE,
-        ]
+        parent_rotation = visual_heading * const.TURN_ANGLE
+        visual_pos = self._mounted_position(parent_pos, parent_rotation)
 
         sprite = self.get_sprite(interp_t)
         scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)

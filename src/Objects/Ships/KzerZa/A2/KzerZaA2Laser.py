@@ -3,7 +3,7 @@ import math
 import pygame
 
 import src.const as const
-from src.Objects.Ships.ability import Ability, ABILITIES_DATA, wrapped_endpoint
+from src.Objects.Ships.ability import Ability, ABILITIES_DATA
 from src.toroidal import wrapped_delta
 
 
@@ -15,7 +15,6 @@ class KzerZaA2Laser(Ability):
         self.aim_target = target or parent
         self.LASER_COLOR = (255, 255, 0)
         self.LASER_WIDTH = 2
-        self.offset = data["offset"]
         self.LASER_RANGE = data["range"]
         self.track_directions = data["track_directions"]
         self.start_position = parent.position.copy()
@@ -23,26 +22,23 @@ class KzerZaA2Laser(Ability):
         self.calculate_end_position()
 
     def calculate_end_position(self):
-        dx, dy = wrapped_delta(self.parent.position, self.aim_target.position)
+        self.start_position = self.configured_gun_position()
+        dx, dy = wrapped_delta(self.start_position, self.aim_target.position)
         target_angle = math.degrees(math.atan2(dx, -dy)) % 360
         direction_step = 360 / self.track_directions
         shot_angle = round(target_angle / direction_step) * direction_step
         angle = math.radians(shot_angle)
         direction = [math.sin(angle), -math.cos(angle)]
-        self.start_position = [
-            (self.parent.position[0] + direction[0] * self.offset) % const.ARENA_SIZE,
-            (self.parent.position[1] + direction[1] * self.offset) % const.ARENA_SIZE,
-        ]
         self.position = self.start_position.copy()
         self.end_position = [
-            (self.parent.position[0] + direction[0] * self.LASER_RANGE)
+            (self.start_position[0] + direction[0] * self.LASER_RANGE)
             % const.ARENA_SIZE,
-            (self.parent.position[1] + direction[1] * self.LASER_RANGE)
+            (self.start_position[1] + direction[1] * self.LASER_RANGE)
             % const.ARENA_SIZE,
         ]
 
     def update_physics(self):
-        self.position = self.parent.position.copy()
+        self.position = self.configured_gun_position()
 
     def update(self):
         if not self.currently_alive:

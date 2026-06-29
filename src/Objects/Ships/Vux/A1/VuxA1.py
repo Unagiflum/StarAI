@@ -19,24 +19,17 @@ class VuxA1(Ability):
         self.calculate_end_position()
 
     def place_self(self):
-        # A1 is fired from the front, directly forward
-        angle_rad = math.radians(self.parent.rotation)
-        spawn_distance = (self.parent.size[1]) / 2
-        self.start_position = [
-            self.parent.position[0] + math.sin(angle_rad) * spawn_distance,
-            self.parent.position[1] - math.cos(angle_rad) * spawn_distance,
-        ]
+        self.start_position = self.configured_gun_position()
         self.position = self.start_position.copy()
-        self.heading = self.parent.heading
-        self.rotation = self.parent.rotation
+        relative_direction = self.configured_gun()[1] or 0
+        self.rotation = (self.parent.rotation + relative_direction) % 360
+        self.heading = (
+            round(self.rotation / const.TURN_ANGLE) % const.SHIP_DIRECTIONS
+        )
 
     def calculate_end_position(self):
         angle_rad = math.radians(self.rotation)
-        spawn_distance = (self.parent.size[1]) / 2
-        self.start_position = [
-            self.parent.position[0] + math.sin(angle_rad) * spawn_distance,
-            self.parent.position[1] - math.cos(angle_rad) * spawn_distance,
-        ]
+        self.start_position = self.configured_gun_position()
         self.position = self.start_position.copy()
         self.end_position[0] = self.start_position[0] + math.sin(angle_rad) * self.LASER_RANGE
         self.end_position[1] = self.start_position[1] - math.cos(angle_rad) * self.LASER_RANGE
@@ -57,13 +50,14 @@ class VuxA1(Ability):
         parent_pos = interpolated_position(self.parent, interp_t)
         visual_idx = interpolated_sprite_index(self.parent, interp_t)
         visual_heading = visual_idx / const.VIDEO_FPS_MULTIPLIER
-        angle_rad = math.radians(visual_heading * const.TURN_ANGLE)
+        relative_direction = self.configured_gun()[1] or 0
+        visual_rotation = visual_heading * const.TURN_ANGLE
+        angle_rad = math.radians(visual_rotation + relative_direction)
 
-        spawn_distance = (self.parent.size[1]) / 2
-        visual_pos = [
-            parent_pos[0] + math.sin(angle_rad) * spawn_distance,
-            parent_pos[1] - math.cos(angle_rad) * spawn_distance,
-        ]
+        visual_pos = self.configured_gun_position(
+            rotation=visual_rotation,
+            position=parent_pos,
+        )
 
         if getattr(self, "intercepted", False):
             if getattr(self, "attached_target", None) and getattr(self, "target_contact_offset", None):

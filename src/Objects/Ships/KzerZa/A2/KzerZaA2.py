@@ -14,7 +14,13 @@ class KzerZaA2(Ability):
     ATTACKING = "attacking"
     RETURNING = "returning"
 
-    def __init__(self, parent, launch_angle=0, formation_index=0):
+    def __init__(
+        self,
+        parent,
+        launch_angle=None,
+        formation_index=0,
+        gun_location=None,
+    ):
         super().__init__("KzerZaA2", parent)
         data = ABILITIES_DATA["KzerZaA2"]
         fighter_sounds = self._load_fighter_sounds(data["file_path"])
@@ -30,10 +36,14 @@ class KzerZaA2(Ability):
         self.laser_range = data["range"]
         self.track_directions = data["track_directions"]
 
-        self.position = parent.position.copy()
-        self.previous_position = self.position.copy()
-        self.rotation = (parent.rotation + launch_angle) % 360
-        self._set_velocity_for_angle(self.rotation, self.speed)
+        configured_location, configured_direction = self.configured_gun()
+        self.launch_from_gun(
+            gun_location=gun_location or configured_location,
+            relative_direction=(
+                configured_direction if launch_angle is None else launch_angle
+            ),
+            inherit_parent_velocity=False,
+        )
         self.mode = self.LAUNCHING
         self.launch_timer = self.launch_time
         self.attack_elapsed = 0

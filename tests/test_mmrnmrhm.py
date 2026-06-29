@@ -10,6 +10,7 @@ import pygame
 pygame.init()
 pygame.display.set_mode((1, 1))
 
+import src.const as const
 from src.Battle.collisions import handle_collisions
 from src.Battle.effects import BattleEffect
 from src.Objects.Ships.ability import Ability
@@ -52,6 +53,19 @@ class MmrnmrhmTests(unittest.TestCase):
         self.assertEqual(left.end_position, [1000.0, 436.0])
         self.assertEqual(right.end_position, [1000.0, 436.0])
 
+    def test_xform_beam_draw_geometry_uses_short_wrapped_segment(self):
+        self.ship.position = [1000.0, 10.0]
+        beam = self.ship.plan_action1().spawned_objects[0]
+
+        end = beam.visual_end_position(
+            beam.start_position, self.ship.position, self.ship.rotation
+        )
+
+        self.assertLessEqual(
+            abs(end[1] - beam.start_position[1]), const.ARENA_SIZE / 2
+        )
+        self.assertGreater(end[1], 0)
+
     def test_ywing_primary_fires_tracking_projectiles_at_configured_angles(self):
         self.assertTrue(self.ship._try_transform())
         self.ship.current_energy = self.ship.max_energy
@@ -61,8 +75,10 @@ class MmrnmrhmTests(unittest.TestCase):
         self.assertTrue(plan.valid)
         self.assertEqual(len(plan.spawned_objects), 2)
         left, right = plan.spawned_objects
-        self.assertEqual(left.position, [988.0, 983.0])
-        self.assertEqual(right.position, [1010.0, 983.0])
+        self.assertAlmostEqual(left.position[0], 980.0081557134283)
+        self.assertAlmostEqual(left.position[1], 963.7059811349848)
+        self.assertAlmostEqual(right.position[0], 1018.6989510677582)
+        self.assertAlmostEqual(right.position[1], 964.4130879161713)
         self.assertEqual(left.rotation, 337.5)
         self.assertEqual(right.rotation, 22.5)
         self.assertTrue(left.tracking)

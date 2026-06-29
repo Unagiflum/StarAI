@@ -1,4 +1,5 @@
 import math
+import pygame
 
 import src.const as const
 from src.collision_capabilities import AreaDamageCapabilities
@@ -82,6 +83,11 @@ class OrzA3(Ability):
             return self.green_flight_sprite
         return self.red_flight_sprite
 
+    def get_collision_mask(self):
+        if self.is_returning:
+            return self.green_flight_mask
+        return self.red_flight_mask
+
     def _load_marine_sounds(self):
         directory = const.source_path("Objects/Ships/Orz/A3")
         self.launch_sound = self.audio_service.load_effect(
@@ -103,21 +109,20 @@ class OrzA3(Ability):
         self.green_flight_sprite = self.resources.image(
             directory / "OrzA3Green.png"
         ).image
+        self.red_flight_mask = pygame.mask.from_surface(self.red_flight_sprite)
+        self.green_flight_mask = pygame.mask.from_surface(self.green_flight_sprite)
+        self.size = list(self.red_flight_sprite.get_size())
 
     def _place_at_parent_rear(self):
-        self.rotation = (self.parent.rotation + 180) % 360
-        angle = math.radians(self.rotation)
-        distance = const.PROJ_GAP + (self.size[1] + self.parent.size[1]) / 2
-        self.position = [
-            (self.parent.position[0] + math.sin(angle) * distance) % const.ARENA_SIZE,
-            (self.parent.position[1] - math.cos(angle) * distance) % const.ARENA_SIZE,
-        ]
-        self.previous_position = self.position.copy()
-        speed = self.max_thrust
-        self.velocity = [
-            math.sin(angle) * speed + self.parent.velocity[0] * self.parent_vel,
-            -math.cos(angle) * speed + self.parent.velocity[1] * self.parent_vel,
-        ]
+        self.launch_from_gun()
+        if self.speed:
+            scale = self.max_thrust / self.speed
+            inherited_x = self.parent.velocity[0] * self.parent_vel
+            inherited_y = self.parent.velocity[1] * self.parent_vel
+            self.velocity = [
+                (self.velocity[0] - inherited_x) * scale + inherited_x,
+                (self.velocity[1] - inherited_y) * scale + inherited_y,
+            ]
 
     def update(self):
         if not self.currently_alive:

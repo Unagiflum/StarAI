@@ -16,6 +16,7 @@ class ArilouA1(Ability):
         self.calculate_end_position()
 
     def calculate_end_position(self):
+        self.position = self.configured_gun_position()
         opponent = self._live_trackable_opponent()
         if opponent is not None:
             # Calculate direction to opponent
@@ -28,7 +29,11 @@ class ArilouA1(Ability):
                 % const.SHIP_DIRECTIONS
             )
         else:
-            direction = self.parent.heading
+            relative_direction = self.configured_gun()[1] or 0
+            direction = (
+                self.parent.heading
+                + round(relative_direction / const.TURN_ANGLE)
+            ) % const.SHIP_DIRECTIONS
 
         angle = direction * (2 * math.pi / const.SHIP_DIRECTIONS)
 
@@ -37,7 +42,7 @@ class ArilouA1(Ability):
         self.end_position[1] = self.position[1] - math.cos(angle) * self.LASER_RANGE
 
     def update_physics(self):
-        self.position = self.parent.position.copy()
+        self.position = self.configured_gun_position()
 
     def update(self):
         if not self.currently_alive:
@@ -54,7 +59,14 @@ class ArilouA1(Ability):
             interpolated_sprite_index,
         )
 
-        pos = interpolated_position(self.parent, interp_t)
+        parent_pos = interpolated_position(self.parent, interp_t)
+        visual_idx = interpolated_sprite_index(self.parent, interp_t)
+        visual_rotation = (
+            visual_idx / const.VIDEO_FPS_MULTIPLIER * const.TURN_ANGLE
+        )
+        pos = self.configured_gun_position(
+            rotation=visual_rotation, position=parent_pos
+        )
 
         if not getattr(self, "intercepted", False):
             opponent = self._live_trackable_opponent()
@@ -67,8 +79,11 @@ class ArilouA1(Ability):
                     % const.SHIP_DIRECTIONS
                 )
             else:
-                visual_idx = interpolated_sprite_index(self.parent, interp_t)
-                direction = visual_idx / const.VIDEO_FPS_MULTIPLIER
+                relative_direction = self.configured_gun()[1] or 0
+                direction = (
+                    visual_idx / const.VIDEO_FPS_MULTIPLIER
+                    + relative_direction / const.TURN_ANGLE
+                )
 
             angle = direction * (2 * math.pi / const.SHIP_DIRECTIONS)
             draw_end_position = [

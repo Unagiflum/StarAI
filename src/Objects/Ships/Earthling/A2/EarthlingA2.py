@@ -14,6 +14,8 @@ class EarthlingA2(Ability):
         self.LASER_WIDTH = ability_data.get("LASER_WIDTH", 4)
         self.target = target
         self.end_position = [0, 0]
+        self.position = self.configured_gun_position()
+        self.previous_position = self.position.copy()
         if self.target:
             self.calculate_end_position()
 
@@ -52,6 +54,7 @@ class EarthlingA2(Ability):
         return [EarthlingA2(self.parent, valid_targets[i]) for i in range(shots)]
 
     def calculate_end_position(self):
+        self.position = self.configured_gun_position()
         dx, dy = wrapped_delta(self.position, self.target.position)
 
         angle = math.atan2(dy, dx)
@@ -59,7 +62,7 @@ class EarthlingA2(Ability):
         self.end_position[1] = self.position[1] + math.sin(angle) * self.LASER_RANGE
 
     def update_physics(self):
-        self.position = self.parent.position.copy()
+        self.position = self.configured_gun_position()
 
     def update(self):
         if not self.currently_alive:
@@ -71,9 +74,19 @@ class EarthlingA2(Ability):
         return self.expiration_timer >= 0
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
-        from src.Battle.interpolation import interpolated_position
+        from src.Battle.interpolation import (
+            interpolated_position,
+            interpolated_sprite_index,
+        )
 
-        pos = interpolated_position(self.parent, interp_t)
+        parent_pos = interpolated_position(self.parent, interp_t)
+        visual_idx = interpolated_sprite_index(self.parent, interp_t)
+        visual_rotation = (
+            visual_idx / const.VIDEO_FPS_MULTIPLIER * const.TURN_ANGLE
+        )
+        pos = self.configured_gun_position(
+            rotation=visual_rotation, position=parent_pos
+        )
 
         if not getattr(self, "intercepted", False):
             target_pos = (

@@ -52,4 +52,8 @@ class ZoqFotA2Tests(CollisionTestCase):
         definition = ABILITY_DEFINITIONS["ZoqFotA2"]
         self.assertEqual(area.size, [12, 50])
         self.assertEqual(area.base_offset, definition.offset)
+        self.assertEqual(
+            area.position,
+            area._mounted_position(self.parent.position, self.parent.rotation),
+        )
 

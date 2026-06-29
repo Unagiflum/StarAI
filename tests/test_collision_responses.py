@@ -8,7 +8,12 @@ from collision_test_support import CollisionTestCase
 from src.Battle import collision_responses
 from src.Battle.collision_geometry import laser_hit_info
 from src.toroidal import wrapped_delta
-from src.collision_capabilities import CollisionRole, ShipImpactContext, ShipImpactResult
+from src.collision_capabilities import (
+    CollisionRole,
+    ShipImpactContext,
+    ShipImpactResult,
+    SpecialObjectCollisionCapabilities,
+)
 from src.Objects.Ships.Druuge.A1.DruugeA1 import DruugeA1
 from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
 
@@ -54,6 +59,65 @@ def body(position, velocity, *, size=(20, 20)):
     value = SimpleNamespace(position=list(position), velocity=list(velocity), size=list(size))
     value.get_collision_mask = lambda: None
     return value
+
+
+class ParentCollisionTests(CollisionTestCase):
+    def setUp(self):
+        self.parent = self.make_ship()
+        self.parent.player = 1
+        self.parent.position = [100, 100]
+        self.projectile = self.make_projectile(self.parent)
+        self.projectile.player = 1
+        self.projectile.hit_parent = True
+        self.projectile.special_object_collision_capabilities = (
+            SpecialObjectCollisionCapabilities()
+        )
+
+    def test_parent_hit_is_enabled_when_configured(self):
+        self.assertTrue(
+            collision_responses.projectile_can_hit_ship(
+                self.projectile, self.parent
+            )
+        )
+
+    def test_parent_hit_stays_disabled_when_not_configured(self):
+        self.projectile.hit_parent = False
+        self.assertFalse(
+            collision_responses.projectile_can_hit_ship(
+                self.projectile, self.parent
+            )
+        )
+
+    def test_parent_recovery_takes_precedence_over_parent_damage(self):
+        self.projectile.hit_parent = False
+        self.projectile.can_recover_with_parent = lambda: True
+        self.assertTrue(
+            collision_responses.projectile_can_hit_ship(
+                self.projectile, self.parent
+            )
+        )
+
+
+class LaserParentTargetTests(CollisionTestCase):
+    def test_fighter_laser_does_not_target_its_projectile_parent(self):
+        fighter = self.make_fighter()
+        laser = self.make_laser(fighter)
+
+        self.assertFalse(
+            collision_responses.generic_is_laser_target(
+                laser, fighter, explicit=False
+            )
+        )
+
+    def test_laser_can_target_parent_when_explicitly_enabled(self):
+        fighter = self.make_fighter()
+        laser = self.make_laser(fighter, hit_parent=True)
+
+        self.assertTrue(
+            collision_responses.generic_is_laser_target(
+                laser, fighter, explicit=False
+            )
+        )
 
 if __name__ == '__main__':
     unittest.main()

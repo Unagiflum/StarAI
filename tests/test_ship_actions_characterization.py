@@ -1,4 +1,5 @@
 import os
+import math
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -16,7 +17,7 @@ import src.const as const
 from src.Battle.battle import BattleSimulation
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, ActionResult
-from src.Objects.Ships.catalog import ABILITIES_DATA, SHIPS_DATA
+from src.Objects.Ships.catalog import ABILITIES_DATA, ABILITY_DEFINITIONS, SHIPS_DATA
 from src.Objects.Ships.registry import create_ability, create_ship
 
 
@@ -168,8 +169,8 @@ class ShipActionCharacterizationTests(unittest.TestCase):
 
     def test_fixed_multi_actions_spawn_in_order_and_play_one_sound(self):
         cases = (
-            ("Pkunk", 1, "src.Objects.Ships.Pkunk.Pkunk.PkunkA1", (-90, 0, 90)),
-            ("Yehat", 1, "src.Objects.Ships.Yehat.Yehat.YehatA1", "side_offsets"),
+            ("Pkunk", 1, "src.Objects.Ships.Pkunk.Pkunk.PkunkA1", "metadata_guns"),
+            ("Yehat", 1, "src.Objects.Ships.Yehat.Yehat.YehatA1", "metadata_guns"),
             ("KohrAh", 2, "src.Objects.Ships.KohrAh.KohrAh.KohrAhA2", "gas_ring"),
         )
         for ship_name, action_number, constructor_path, expected in cases:
@@ -177,7 +178,11 @@ class ShipActionCharacterizationTests(unittest.TestCase):
                 ship = create_ship(ship_name, 1)
                 initial_energy = ship.current_energy
                 cost, cooldown = self.action_values(ship, action_number)
-                count = 2 if expected == "side_offsets" else ship.GAS_COUNT if expected == "gas_ring" else 3
+                if expected == "metadata_guns":
+                    definition = ABILITY_DEFINITIONS[f"{ship_name}A1"]
+                    count = len(definition.gun_locations)
+                else:
+                    count = ship.GAS_COUNT if expected == "gas_ring" else 3
                 abilities = [SimpleNamespace(launch_sound=mock.Mock()) for _ in range(count)]
 
                 with mock.patch(constructor_path, side_effect=abilities) as constructor:
@@ -187,15 +192,23 @@ class ShipActionCharacterizationTests(unittest.TestCase):
                 self.assertEqual(ship.current_energy, initial_energy - cost)
                 self.assertEqual(getattr(ship, f"action{action_number}_timer"), cooldown)
                 self.assertEqual(sum(a.launch_sound.play.call_count for a in abilities), 1)
-                if expected == "side_offsets":
-                    offsets = (-ship.size[0] / 2, ship.size[0] / 2)
+                if expected == "metadata_guns":
+                    expected_calls = [
+                        mock.call(ship, location, direction)
+                        for location, direction in zip(
+                            definition.gun_locations,
+                            definition.gun_directions,
+                        )
+                    ]
                 elif expected == "gas_ring":
                     offsets = tuple(index * ship.angle_increment for index in range(ship.GAS_COUNT))
+                    expected_calls = [mock.call(ship, offset) for offset in offsets]
                 else:
                     offsets = expected
+                    expected_calls = [mock.call(ship, offset) for offset in offsets]
                 self.assertEqual(
                     constructor.call_args_list,
-                    [mock.call(ship, offset) for offset in offsets],
+                    expected_calls,
                 )
 
     def test_ordinary_action_energy_and_cooldown_are_stable_frame_by_frame(self):
@@ -279,23 +292,43 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(ship.action2_timer, const.cooldown_frames(ship.a2_wait))
         effect.launch_sound.play.assert_called_once_with()
 
+    def test_arilou_teleport_effect_clips_square_source_background(self):
+        ship = create_ship("Arilou", 1)
+        effect = create_ability("ArilouA2", ship)
+
+        sprite = effect.get_sprite()
+
+        self.assertEqual(sprite.get_at((3, 3)).a, 0)
+        self.assertGreater(
+            sprite.get_at((sprite.get_width() // 2, sprite.get_height() // 2)).a,
+            0,
+        )
+
     def test_arilou_laser_fires_forward_without_a_target(self):
         ship = create_ship("Arilou", 1)
         ship.position = [1000, 2000]
         ship.heading = 4
+        ship.rotation = ship.heading * const.TURN_ANGLE
 
         laser = create_ability("ArilouA1", ship)
         laser.position = ship.position.copy()
         laser.calculate_end_position()
 
-        self.assertAlmostEqual(laser.end_position[0], 1000 + laser.LASER_RANGE)
-        self.assertAlmostEqual(laser.end_position[1], 2000)
+        angle = math.radians(ship.rotation)
+        origin = laser.configured_gun_position()
+        self.assertAlmostEqual(
+            laser.end_position[0], origin[0] + math.sin(angle) * laser.LASER_RANGE
+        )
+        self.assertAlmostEqual(
+            laser.end_position[1], origin[1] - math.cos(angle) * laser.LASER_RANGE
+        )
 
     def test_arilou_laser_fires_forward_when_target_is_cloaked(self):
         ship = create_ship("Arilou", 1)
         target = create_ship("Ilwrath", 2)
         ship.position = [1000, 2000]
         ship.heading = 8
+        ship.rotation = ship.heading * const.TURN_ANGLE
         ship.opponent = target
         target.position = [1500, 2000]
         target.trackable = False
@@ -304,8 +337,14 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         laser.position = ship.position.copy()
         laser.calculate_end_position()
 
-        self.assertAlmostEqual(laser.end_position[0], 1000)
-        self.assertAlmostEqual(laser.end_position[1], 2000 + laser.LASER_RANGE)
+        angle = math.radians(ship.rotation)
+        origin = laser.configured_gun_position()
+        self.assertAlmostEqual(
+            laser.end_position[0], origin[0] + math.sin(angle) * laser.LASER_RANGE
+        )
+        self.assertAlmostEqual(
+            laser.end_position[1], origin[1] - math.cos(angle) * laser.LASER_RANGE
+        )
 
     def test_kohr_ah_primary_is_press_only_and_release_stops_live_saws(self):
         ship = create_ship("KohrAh", 1)
@@ -340,7 +379,16 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         ) as constructor:
             result = ship.perform_action2()
         self.assertEqual(result, special_objects)
-        self.assertEqual(constructor.call_args_list, [mock.call(ship, 135, 0), mock.call(ship, 225, 1)])
+        definition = ABILITY_DEFINITIONS["KzerZaA2"]
+        self.assertEqual(
+            constructor.call_args_list,
+            [
+                mock.call(ship, direction, index, location)
+                for index, (location, direction) in enumerate(
+                    zip(definition.gun_locations, definition.gun_directions)
+                )
+            ],
+        )
         self.assertEqual(ship.current_hp, 1)
         self.assertEqual(ship.fighter_launch_count, 2)
         special_objects[0].launch_sound.play.assert_called_once_with()

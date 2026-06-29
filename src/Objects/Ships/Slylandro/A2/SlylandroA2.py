@@ -8,7 +8,7 @@ class SlylandroA2(Ability):
         super().__init__("SlylandroA2", parent)
         definition = ABILITY_DEFINITIONS["SlylandroA2"]
         self.range = definition.effect_range
-        self.position = list(parent.position)
+        self.position = self.configured_gun_position()
         self.previous_position = self.position.copy()
         self.velocity = [0.0, 0.0]
         self._first_update = True
@@ -18,7 +18,7 @@ class SlylandroA2(Ability):
         if not self.currently_alive:
             return False
         self.previous_position = self.position.copy()
-        self.position = list(self.parent.position)
+        self.position = self.configured_gun_position()
         if self._first_update:
             self._first_update = False
             return True

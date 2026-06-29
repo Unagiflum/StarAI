@@ -3,6 +3,7 @@ import math
 import src.const as const
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships.launch_geometry import direction_vector, mask_projection_bounds
 from src.Objects.Ships.Syreen.A2.SyreenCrew import SyreenCrew
 
 
@@ -27,7 +28,7 @@ class SyreenA2(Ability):
         self.place_self()
 
     def place_self(self):
-        self.position = list(self.parent.position)
+        self.position = self.configured_gun_position()
         self.velocity = [0.0, 0.0]
         self.rotation = 0
         self.heading = 0
@@ -35,7 +36,7 @@ class SyreenA2(Ability):
 
     def update_physics(self):
         # The pulse is parent-mounted and collision processing runs after updates.
-        self.position = list(self.parent.position)
+        self.position = self.configured_gun_position()
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         pass
@@ -58,11 +59,12 @@ class SyreenA2(Ability):
         return min(raw_damage, max_allowed)
 
     def on_area_damage_hit(self, target, damage):
-        from src.Battle.collision_geometry import objects_overlap_at_positions
+        from src.Battle.collision_geometry import get_collision_mask, radius
         from src.toroidal import wrapped_delta
 
         syreen_dx, syreen_dy = wrapped_delta(target.position, self.parent.position)
-        base_angle = math.degrees(math.atan2(-syreen_dy, syreen_dx))
+        base_direction = math.degrees(math.atan2(syreen_dx, -syreen_dy)) % 360
+        target_mask = get_collision_mask(target)
 
         for i in range(damage):
             multiplier = (i + 1) // 2
@@ -70,29 +72,19 @@ class SyreenA2(Ability):
             if i == 0:
                 sign = 0
 
-            angle = math.radians(
-                (base_angle + sign * multiplier * self.spawn_angle_increment) % 360
-            )
-            dx = math.cos(angle)
-            dy = -math.sin(angle)
+            direction = (
+                base_direction + sign * multiplier * self.spawn_angle_increment
+            ) % 360
+            dx, dy = direction_vector(direction)
 
             crew = SyreenCrew(self.parent, list(target.position))
-            dist = 0
-
-            # Move radially outward until no longer overlapping
-            while objects_overlap_at_positions(
-                crew, target, crew.position, target.position
-            ):
-                dist += 2
-                crew.position = [
-                    target.position[0] + dx * dist,
-                    target.position[1] + dy * dist,
-                ]
-                if dist > 400:  # safety bailout
-                    break
-
-            # Add separation buffer amount
-            dist += self.separation_distance
+            crew_mask = get_collision_mask(crew)
+            if target_mask is not None and crew_mask is not None:
+                target_front = mask_projection_bounds(target_mask, direction)[1]
+                crew_rear = mask_projection_bounds(crew_mask, direction)[0]
+                dist = target_front - crew_rear + self.separation_distance
+            else:
+                dist = radius(target) + radius(crew) + self.separation_distance
             crew.position = [
                 (target.position[0] + dx * dist) % const.ARENA_SIZE,
                 (target.position[1] + dy * dist) % const.ARENA_SIZE,

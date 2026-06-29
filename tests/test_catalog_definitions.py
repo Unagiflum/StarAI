@@ -127,6 +127,26 @@ class CatalogDefinitionTests(unittest.TestCase):
         with self.assertRaisesRegex(CatalogValidationError, "references unknown ship"):
             build_catalogs(ship_entries, {"BrokenAbility": unknown_ship})
 
+    def test_invalid_gun_direction_contracts_are_rejected(self):
+        mismatched = dict(self.raw_abilities["EarthlingA1"])
+        mismatched["gun_directions"] = [0.0, 10.0]
+        with self.assertRaisesRegex(
+            CatalogValidationError, "gun_directions must match gun_locations"
+        ):
+            parse_ability_definition("BrokenAbility", mismatched)
+
+        out_of_range = dict(self.raw_abilities["EarthlingA1"])
+        out_of_range["gun_directions"] = [360.0]
+        with self.assertRaisesRegex(CatalogValidationError, r"must be in \[0, 360\)"):
+            parse_ability_definition("BrokenAbility", out_of_range)
+
+        without_locations = dict(self.raw_abilities["EarthlingA1"])
+        without_locations.pop("gun_locations")
+        with self.assertRaisesRegex(
+            CatalogValidationError, "gun_directions without gun_locations"
+        ):
+            parse_ability_definition("BrokenAbility", without_locations)
+
     def test_compatibility_aliases_are_the_typed_catalogs(self):
         self.assertIs(SHIPS_DATA, SHIP_DEFINITIONS)
         self.assertIs(ABILITIES_DATA, ABILITY_DEFINITIONS)
