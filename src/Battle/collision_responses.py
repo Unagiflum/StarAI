@@ -185,6 +185,107 @@ def resolve_mobile_solid_collision(
     return CollisionOutcome.RESOLVED
 
 
+def resolve_asteroid_planet_collision(
+    asteroid,
+    planet,
+    context_or_effects,
+    environment=None,
+):
+    """Destroy an asteroid that contacts a planet."""
+    context = collision_context(context_or_effects, environment)
+    asteroid_physics = getattr(asteroid, "physical_collision_capabilities", None)
+    planet_physics = getattr(planet, "physical_collision_capabilities", None)
+    if (
+        not asteroid_physics
+        or not planet_physics
+        or not asteroid_physics.fragile_to_immovable
+        or not planet_physics.is_immovable
+        or not getattr(asteroid, "currently_alive", True)
+    ):
+        return CollisionOutcome.IGNORED
+
+    if not solid_sweep_overlap(asteroid, planet):
+        return CollisionOutcome.IGNORED
+
+    on_screen = context.object_on_screen_policy or object_on_screen
+    if on_screen(asteroid, context.environment.ships):
+        BattleEffect.play_boom(1)
+
+    destroy_asteroid(asteroid, context.effects)
+    return CollisionOutcome.CONSUMED_FIRST
+
+
+def resolve_ship_planet_collision(
+    ship,
+    planet,
+    context_or_effects,
+    environment=None,
+):
+    """Bounce a ship from a planet and exchange configured impact payloads."""
+    context = collision_context(context_or_effects, environment)
+    ship_physics = getattr(ship, "physical_collision_capabilities", None)
+    planet_physics = getattr(planet, "physical_collision_capabilities", None)
+    if (
+        not ship_physics
+        or not planet_physics
+        or not ship_physics.bounces_on_immovable
+        or not planet_physics.is_immovable
+    ):
+        return CollisionOutcome.IGNORED
+
+    overlaps = solid_sweep_overlap(ship, planet)
+    normal, distance, overlap = collision_info(ship, planet)
+    contact_id = id(planet)
+
+    contacts_set = getattr(ship, "planet_contacts", None)
+    if contacts_set is None:
+        contacts_set = set()
+        setattr(ship, "planet_contacts", contacts_set)
+
+    if contact_id in contacts_set and not overlaps:
+        contact_distance = radius(ship) + radius(planet)
+        if distance > contact_distance + PLANET_CONTACT_EXIT_MARGIN:
+            contacts_set.remove(contact_id)
+
+    if not overlaps:
+        return CollisionOutcome.IGNORED
+
+    new_contact = contact_id not in contacts_set
+    contacts_set.add(contact_id)
+
+    if new_contact:
+        collided_while_approaching = bounce_off_static_body(
+            ship,
+            planet,
+            normal,
+            overlap,
+        )
+        if collided_while_approaching and not getattr(ship, "inertia", True):
+            ship.collision_velocity = ship.velocity.copy()
+    else:
+        collided_while_approaching = False
+        stop_at_static_body(ship, planet, normal, overlap)
+
+    if new_contact and collided_while_approaching:
+        planet_impact = getattr(planet, "impact_capabilities", None)
+        if planet_impact and planet_impact.impact_damage_percent > 0:
+            if getattr(ship, "current_hp", 0) > 0:
+                damage = max(
+                    1,
+                    math.ceil(
+                        ship.current_hp * planet_impact.impact_damage_percent
+                    ),
+                )
+                damage_ship(ship, damage)
+                BattleEffect.play_boom(damage)
+
+        ship_impact = getattr(ship, "impact_capabilities", None)
+        if ship_impact and ship_impact.ramming_damage > 0:
+            BattleEffect.play_boom(ship_impact.ramming_damage)
+
+    return CollisionOutcome.RESOLVED
+
+
 
 
 
@@ -202,8 +303,6 @@ def resolve_generic_collision(
         object_on_screen_policy=object_on_screen_policy,
     )
     effects = context.effects
-    environment = context.environment
-    object_on_screen_policy = context.object_on_screen_policy
     phys_first = getattr(first, "physical_collision_capabilities", None)
     phys_second = getattr(second, "physical_collision_capabilities", None)
 
@@ -213,82 +312,18 @@ def resolve_generic_collision(
     is_first_fragile = phys_first.fragile_to_immovable and phys_second.is_immovable
     is_second_fragile = phys_second.fragile_to_immovable and phys_first.is_immovable
 
-    if is_first_fragile or is_second_fragile:
-        fragile_obj = first if is_first_fragile else second
-        immovable_obj = second if is_first_fragile else first
-
-        if not getattr(fragile_obj, "currently_alive", True):
-            return CollisionOutcome.IGNORED
-
-        if not solid_sweep_overlap(fragile_obj, immovable_obj):
-            return CollisionOutcome.IGNORED
-
-        on_screen = object_on_screen_policy or object_on_screen
-        if on_screen(fragile_obj, environment.ships):
-            BattleEffect.play_boom(1)
-        
-        # Currently, asteroids use destroy_asteroid.
-        destroy_asteroid(fragile_obj, effects)
-        return CollisionOutcome.RESOLVED
+    if is_first_fragile:
+        return resolve_asteroid_planet_collision(first, second, context)
+    if is_second_fragile:
+        return resolve_asteroid_planet_collision(second, first, context).reversed()
 
     is_first_bouncing = phys_first.bounces_on_immovable and phys_second.is_immovable
     is_second_bouncing = phys_second.bounces_on_immovable and phys_first.is_immovable
 
-    if is_first_bouncing or is_second_bouncing:
-        bouncing_obj = first if is_first_bouncing else second
-        immovable_obj = second if is_first_bouncing else first
-
-        overlaps = solid_sweep_overlap(bouncing_obj, immovable_obj)
-        normal, distance, overlap = collision_info(bouncing_obj, immovable_obj)
-        contact_id = id(immovable_obj)
-
-        # Anti-stutter logic
-        contacts_set = getattr(bouncing_obj, "planet_contacts", None)
-        if contacts_set is None:
-            contacts_set = set()
-            setattr(bouncing_obj, "planet_contacts", contacts_set)
-
-        if contact_id in contacts_set and not overlaps:
-            contact_distance = radius(bouncing_obj) + radius(immovable_obj)
-            if distance > contact_distance + PLANET_CONTACT_EXIT_MARGIN:
-                contacts_set.remove(contact_id)
-
-        if not overlaps:
-            return CollisionOutcome.IGNORED
-
-        new_contact = contact_id not in contacts_set
-        contacts_set.add(contact_id)
-        
-        if new_contact:
-            collided_while_approaching = bounce_off_static_body(
-                bouncing_obj, immovable_obj, normal, overlap
-            )
-            if collided_while_approaching and not getattr(bouncing_obj, "inertia", True):
-                bouncing_obj.collision_velocity = bouncing_obj.velocity.copy()
-        else:
-            collided_while_approaching = False
-            stop_at_static_body(bouncing_obj, immovable_obj, normal, overlap)
-
-        # Payload Exchange
-        if new_contact and collided_while_approaching:
-            durability = getattr(immovable_obj, "durability_capabilities", None)
-            is_invulnerable = durability and durability.is_invulnerable
-            
-            # Immovable Payload -> Bouncing Obj
-            imm_impact = getattr(immovable_obj, "impact_capabilities", None)
-            if imm_impact and imm_impact.impact_damage_percent > 0:
-                if getattr(bouncing_obj, "current_hp", 0) > 0:
-                    damage = max(1, math.ceil(bouncing_obj.current_hp * imm_impact.impact_damage_percent))
-                    damage_ship(bouncing_obj, damage)
-                    BattleEffect.play_boom(damage)
-            
-            # Bouncing Payload -> Immovable Obj
-            bounce_impact = getattr(bouncing_obj, "impact_capabilities", None)
-            if bounce_impact and bounce_impact.ramming_damage > 0:
-                BattleEffect.play_boom(bounce_impact.ramming_damage)
-                # Invulnerable skips HP reduction, but we played the boom.
-
-        return CollisionOutcome.RESOLVED
+    if is_first_bouncing:
+        return resolve_ship_planet_collision(first, second, context)
+    if is_second_bouncing:
+        return resolve_ship_planet_collision(second, first, context).reversed()
 
     is_first_proj = phys_first.is_projectile
     is_second_proj = phys_second.is_projectile

@@ -33,6 +33,25 @@ class CollisionPairRegistryTests(unittest.TestCase):
                     collision_responses.resolve_mobile_solid_collision,
                 )
 
+    def test_planet_pairs_use_dedicated_canonical_handlers(self):
+        for first_role, handler in (
+            (
+                CollisionRole.ASTEROID,
+                collision_responses.resolve_asteroid_planet_collision,
+            ),
+            (
+                CollisionRole.SHIP,
+                collision_responses.resolve_ship_planet_collision,
+            ),
+        ):
+            with self.subTest(first_role=first_role):
+                registered = collisions.COLLISION_PAIR_REGISTRY.handler_for(
+                    first_role,
+                    CollisionRole.PLANET,
+                )
+
+                self.assertIs(registered, handler)
+
     def test_bidirectional_registration_preserves_incoming_object_order(self):
         registry = CollisionPairRegistry()
         handler = mock.Mock(return_value=CollisionOutcome.RESOLVED)
@@ -45,6 +64,24 @@ class CollisionPairRegistryTests(unittest.TestCase):
 
         self.assertIs(outcome, CollisionOutcome.RESOLVED)
         handler.assert_called_once_with(asteroid, ship, context)
+
+    def test_canonical_registration_reorders_reverse_dispatch_and_outcome(self):
+        registry = CollisionPairRegistry()
+        handler = mock.Mock(return_value=CollisionOutcome.CONSUMED_FIRST)
+        registry.register(
+            CollisionRole.SHIP,
+            CollisionRole.ASTEROID,
+            handler,
+            canonical_order=True,
+        )
+        asteroid = collision_object(CollisionRole.ASTEROID)
+        ship = collision_object(CollisionRole.SHIP)
+        context = CollisionContext([])
+
+        outcome = registry.dispatch(asteroid, ship, context)
+
+        self.assertIs(outcome, CollisionOutcome.CONSUMED_SECOND)
+        handler.assert_called_once_with(ship, asteroid, context)
 
     def test_unregistered_pair_is_ignored(self):
         registry = CollisionPairRegistry()

@@ -29,21 +29,25 @@ class CollisionPairRegistry:
         handler: CollisionPairHandler,
         *,
         bidirectional: bool = True,
+        canonical_order: bool = False,
     ) -> None:
-        """Register a handler while preserving the pair's incoming object order."""
-        keys = [(first_role, second_role)]
+        """Register a handler with optional canonical ordering for reverse calls."""
+        entries = [((first_role, second_role), handler)]
         if bidirectional and first_role is not second_role:
-            keys.append((second_role, first_role))
+            reverse_handler = (
+                _canonical_reverse_handler(handler) if canonical_order else handler
+            )
+            entries.append(((second_role, first_role), reverse_handler))
 
-        for registered_first, registered_second in keys:
+        for (registered_first, registered_second), _ in entries:
             if (registered_first, registered_second) in self._handlers:
                 raise ValueError(
                     f"collision handler already registered for "
                     f"{registered_first.name} x {registered_second.name}"
                 )
 
-        for key in keys:
-            self._handlers[key] = handler
+        for key, registered_handler in entries:
+            self._handlers[key] = registered_handler
 
     def handler_for(
         self,
@@ -64,3 +68,10 @@ class CollisionPairRegistry:
 def _collision_role(obj) -> CollisionRole:
     capabilities = getattr(obj, "collision_capabilities", None)
     return getattr(capabilities, "role", CollisionRole.NONE)
+
+
+def _canonical_reverse_handler(handler: CollisionPairHandler) -> CollisionPairHandler:
+    def dispatch_reversed(first, second, context):
+        return handler(second, first, context).reversed()
+
+    return dispatch_reversed

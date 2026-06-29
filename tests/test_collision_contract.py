@@ -66,3 +66,11 @@ class CollisionOutcomeTests(CollisionTestCase):
         self.assertFalse(CollisionOutcome.CONSUMED_FIRST.second_consumed)
         self.assertTrue(CollisionOutcome.CONSUMED_BOTH.first_consumed)
         self.assertTrue(CollisionOutcome.CONSUMED_BOTH.second_consumed)
+        self.assertIs(
+            CollisionOutcome.CONSUMED_FIRST.reversed(),
+            CollisionOutcome.CONSUMED_SECOND,
+        )
+        self.assertIs(
+            CollisionOutcome.CONSUMED_BOTH.reversed(),
+            CollisionOutcome.CONSUMED_BOTH,
+        )

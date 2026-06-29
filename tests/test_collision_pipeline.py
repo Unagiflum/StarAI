@@ -8,6 +8,7 @@ from src.Battle.world import World
 from src.collision_capabilities import (
     AreaDamageCapabilities,
     CollisionCapabilities,
+    ImpactCapabilities,
     LaserTargetCapabilities,
 )
 from src.Objects.Space.space_obj import Asteroid
@@ -116,6 +117,42 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertEqual(asteroid.velocity, [1.0, 0.0])
         self.assertEqual(ship.current_hp, 10)
         self.assertTrue(asteroid.currently_alive)
+
+    def test_asteroid_is_consumed_by_planet_contact(self):
+        asteroid = self.make_asteroid([100, 100])
+        planet = self.make_planet([100, 100])
+        game_objects = [asteroid, planet]
+
+        with (
+            mock.patch.object(collisions, "_spawn_replacement_asteroids"),
+            mock.patch.object(collisions.BattleEffect, "play_boom") as play_boom,
+        ):
+            collisions.handle_collisions(game_objects)
+
+        self.assertFalse(asteroid.currently_alive)
+        self.assertNotIn(asteroid, game_objects)
+        play_boom.assert_called_once_with(1)
+
+    def test_ship_bounces_from_planet_and_tracks_contact(self):
+        ship = self.make_ship()
+        ship.position = [100, 100]
+        ship.previous_position = ship.position.copy()
+        ship.velocity = [3.0, 2.0]
+        planet = self.make_planet([118, 100])
+        planet.impact_capabilities = ImpactCapabilities(
+            impact_damage_percent=0.15
+        )
+
+        with mock.patch.object(
+            collisions.BattleEffect,
+            "play_boom",
+        ) as play_boom:
+            collisions.handle_collisions([ship, planet])
+
+        self.assertEqual(ship.velocity, [-3.0, 2.0])
+        self.assertIn(id(planet), ship.planet_contacts)
+        self.assertEqual(ship.current_hp, 8)
+        play_boom.assert_called_once_with(2)
 
     def test_each_asteroid_pair_is_dispatched_once(self):
         asteroids = [

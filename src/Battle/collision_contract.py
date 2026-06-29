@@ -37,6 +37,14 @@ class CollisionOutcome(Enum):
         """Preserve truth checks while callers migrate from boolean results."""
         return self.handled
 
+    def reversed(self) -> "CollisionOutcome":
+        """Express this result after reversing the ordered collision pair."""
+        if self is CollisionOutcome.CONSUMED_FIRST:
+            return CollisionOutcome.CONSUMED_SECOND
+        if self is CollisionOutcome.CONSUMED_SECOND:
+            return CollisionOutcome.CONSUMED_FIRST
+        return self
+
 
 @dataclass(frozen=True)
 class CollisionEnvironment:
