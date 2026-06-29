@@ -77,7 +77,9 @@ class SyreenA2(Ability):
             ) % 360
             dx, dy = direction_vector(direction)
 
-            crew = SyreenCrew(self.parent, list(target.position))
+            crew = SyreenCrew(
+                self.parent, list(target.position), origin_ship=target
+            )
             crew_mask = get_collision_mask(crew)
             if target_mask is not None and crew_mask is not None:
                 target_front = mask_projection_bounds(target_mask, direction)[1]

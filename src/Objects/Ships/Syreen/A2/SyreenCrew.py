@@ -7,9 +7,10 @@ from src.toroidal import wrapped_delta
 
 
 class SyreenCrew(Ability):
-    def __init__(self, parent, position=None):
+    def __init__(self, parent, position=None, origin_ship=None):
         super().__init__("SyreenCrew", parent)
         self.position = list(parent.position if position is None else position)
+        self.origin_ship = origin_ship
         definition = ABILITIES_DATA["SyreenCrew"]
         self.expiration_timer = definition.life_time
         self.speed = definition.speed
@@ -72,11 +73,25 @@ class SyreenCrew(Ability):
         self.currently_alive = False
         return True
 
-    def _homing_velocity(self, position, parent_position, parent_alive):
-        if not parent_alive or parent_position is None:
+    def _tracking_ship(self):
+        if self.parent and self.parent.currently_alive and self.parent.current_hp > 0:
+            return self.parent
+
+        if (
+            self.origin_ship
+            and self.origin_ship.currently_alive
+            and self.origin_ship.current_hp > 0
+            and not getattr(self.origin_ship, "cloaked", False)
+        ):
+            return self.origin_ship
+
+        return None
+
+    def _homing_velocity(self, position, target_position):
+        if target_position is None:
             return [0.0, 0.0]
 
-        dx, dy = wrapped_delta(position, parent_position)
+        dx, dy = wrapped_delta(position, target_position)
         target_angle = math.degrees(math.atan2(dx, -dy)) % 360
         target_angle = (round(target_angle / 45.0) * 45.0) % 360
         angle_rad = math.radians(target_angle)
@@ -112,8 +127,7 @@ class SyreenCrew(Ability):
         self,
         position,
         gravity_velocity,
-        parent_position,
-        parent_alive,
+        target_position,
         impulse=(0.0, 0.0),
     ):
         """Advance one unhindered frame without mutating the live object."""
@@ -122,9 +136,7 @@ class SyreenCrew(Ability):
             gravity_velocity[0] + acceleration[0],
             gravity_velocity[1] + acceleration[1],
         ]
-        homing_velocity = self._homing_velocity(
-            position, parent_position, parent_alive
-        )
+        homing_velocity = self._homing_velocity(position, target_position)
 
         base_velocity = self._limited_velocity(
             [
@@ -147,13 +159,12 @@ class SyreenCrew(Ability):
         return next_position, velocity, next_gravity_velocity
 
     def update_physics(self):
-        parent_alive = bool(self.parent and self.parent.currently_alive)
-        parent_position = self.parent.position if parent_alive else None
+        tracking_ship = self._tracking_ship()
+        target_position = tracking_ship.position if tracking_ship else None
         self.position, self.velocity, self.gravity_velocity = self._advance_motion(
             self.position,
             self.gravity_velocity,
-            parent_position,
-            parent_alive,
+            target_position,
             self.accumulated_impulses,
         )
         self.accumulated_impulses = [0.0, 0.0]
@@ -161,9 +172,11 @@ class SyreenCrew(Ability):
     def predict_unhindered_trajectory(self, frames=60):
         position = list(self.position)
         gravity_velocity = list(self.gravity_velocity)
-        parent_alive = bool(self.parent and self.parent.currently_alive)
-        parent_trajectory = (
-            self.parent.predict_unhindered_trajectory(frames) if parent_alive else []
+        tracking_ship = self._tracking_ship()
+        target_trajectory = (
+            tracking_ship.predict_unhindered_trajectory(frames)
+            if tracking_ship
+            else []
         )
         expiration = self.expiration_timer if self.can_expire else float("inf")
         impulse = list(self.accumulated_impulses)
@@ -172,16 +185,15 @@ class SyreenCrew(Ability):
         for frame in range(frames):
             if frame >= expiration:
                 break
-            parent_position = (
-                parent_trajectory[frame]
-                if frame < len(parent_trajectory)
-                else (self.parent.position if parent_alive else None)
+            target_position = (
+                target_trajectory[frame]
+                if frame < len(target_trajectory)
+                else (tracking_ship.position if tracking_ship else None)
             )
             position, _, gravity_velocity = self._advance_motion(
                 position,
                 gravity_velocity,
-                parent_position,
-                parent_alive,
+                target_position,
                 impulse if frame == 0 else (0.0, 0.0),
             )
             trajectory.append(list(position))

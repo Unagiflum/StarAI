@@ -67,6 +67,54 @@ class SyreenCrewMotionTests(unittest.TestCase):
         self.assertEqual(crew.velocity, first_velocity)
         self.assertEqual(crew.velocity, crew.gravity_velocity)
 
+    def test_tracks_origin_ship_after_calling_syreen_dies(self):
+        origin = create_ship("Earthling", 2)
+        origin.position = [700.0, 500.0]
+        origin.velocity = [0.0, 0.0]
+        crew = SyreenCrew(
+            self.parent, [500.0, 500.0], origin_ship=origin
+        )
+        crew.planet = None
+
+        crew.update_physics()
+        self.assertLess(crew.velocity[1], 0.0)
+        self.assertAlmostEqual(crew.velocity[0], 0.0)
+
+        self.parent.currently_alive = False
+        crew.update_physics()
+
+        self.assertGreater(crew.velocity[0], 0.0)
+        self.assertAlmostEqual(crew.velocity[1], 0.0)
+
+    def test_dead_origin_ship_leaves_crew_moving_only_by_gravity(self):
+        origin = create_ship("Earthling", 2)
+        origin.position = [700.0, 500.0]
+        origin.currently_alive = False
+        self.parent.currently_alive = False
+        crew = SyreenCrew(
+            self.parent, [500.0, 500.0], origin_ship=origin
+        )
+        crew.planet = None
+        crew.gravity_velocity = [3.0, -2.0]
+
+        crew.update_physics()
+
+        self.assertEqual(crew.velocity, [3.0, -2.0])
+
+    def test_cloaked_origin_ship_leaves_crew_moving_only_by_gravity(self):
+        origin = create_ship("Ilwrath", 2)
+        origin.position = [700.0, 500.0]
+        origin.cloaked = True
+        self.parent.currently_alive = False
+        crew = SyreenCrew(
+            self.parent, [500.0, 500.0], origin_ship=origin
+        )
+        crew.planet = None
+
+        crew.update_physics()
+
+        self.assertEqual(crew.velocity, [0.0, 0.0])
+
     def test_persistent_gravity_component_respects_speed_limit(self):
         crew = self.make_crew()
         crew.planet = None
@@ -148,7 +196,9 @@ class SyreenSongTests(unittest.TestCase):
         collisions._handle_area_damage([song, target], [])
 
         self.assertEqual(target.current_hp, 1)
-        self.assertEqual(len(song.drain_spawned_objects()), 4)
+        crews = song.drain_spawned_objects()
+        self.assertEqual(len(crews), 4)
+        self.assertTrue(all(crew.origin_ship is target for crew in crews))
 
     def test_song_tracks_parent_before_area_collision_processing(self):
         song = SyreenA2(self.parent)
