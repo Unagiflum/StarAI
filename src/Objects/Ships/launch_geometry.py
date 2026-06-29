@@ -38,6 +38,35 @@ def direction_vector(direction):
     return math.sin(angle), -math.cos(angle)
 
 
+def anchored_sprite_position(
+    parent,
+    gun_location,
+    relative_direction,
+    anchor_offset,
+    *,
+    rotation=None,
+    position=None,
+):
+    """Place a sprite center so its heading-00 anchor lands on a gun point."""
+    gun_rotation = parent.rotation if rotation is None else rotation
+    muzzle = gun_world_position(
+        parent,
+        gun_location,
+        rotation=gun_rotation,
+        position=position,
+    )
+    direction = (gun_rotation + relative_direction) % 360
+    angle = math.radians(direction)
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    anchor_x = cosine * anchor_offset[0] - sine * anchor_offset[1]
+    anchor_y = sine * anchor_offset[0] + cosine * anchor_offset[1]
+    return [
+        (muzzle[0] - anchor_x) % const.ARENA_SIZE,
+        (muzzle[1] - anchor_y) % const.ARENA_SIZE,
+    ]
+
+
 def mask_projection_bounds(mask, direction):
     """Project opaque pixel centers onto a world-space firing direction."""
     width, height = mask.get_size()

@@ -6,6 +6,10 @@ from src.Battle.effects import BattleEffect
 from src.Battle.interpolation import interpolated_sprite_index
 from src.collision_capabilities import AreaDamageCapabilities, LaserTargetCapabilities
 from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.launch_geometry import (
+    absolute_direction,
+    anchored_sprite_position,
+)
 
 
 class UmgahA1(Ability):
@@ -16,11 +20,13 @@ class UmgahA1(Ability):
     def __init__(self, parent):
         super().__init__("UmgahA1", parent)
         self.current_frame = parent.take_a1_animation_frame()
-        self.position = self.configured_gun_position()
+        self.position, self.rotation, self.heading = self._mount_transform()
         self.previous_position = self.position.copy()
-        self.heading = parent.heading
-        self.previous_heading = parent.previous_heading
-        self.rotation = parent.rotation
+        _, relative_direction = self.configured_gun()
+        heading_offset = round(relative_direction / const.TURN_ANGLE)
+        self.previous_heading = (
+            parent.previous_heading + heading_offset
+        ) % const.SHIP_DIRECTIONS
         self.velocity = [0.0, 0.0]
         self.can_move = False
         self.can_die = False
@@ -45,12 +51,22 @@ class UmgahA1(Ability):
 
         self.previous_position = self.position.copy()
         self.previous_heading = self.heading
-        self.position = self.configured_gun_position()
-        self.heading = self.parent.heading
-        self.rotation = self.parent.rotation
+        self.position, self.rotation, self.heading = self._mount_transform()
         self.area_damage_pending = self.parent.in_battle
         self._age += 1
         return True
+
+    def _mount_transform(self):
+        gun_location, relative_direction = self.configured_gun()
+        direction = absolute_direction(self.parent, relative_direction)
+        position = anchored_sprite_position(
+            self.parent,
+            gun_location,
+            relative_direction,
+            self.anchor_offsets[self.current_frame],
+        )
+        heading = round(direction / const.TURN_ANGLE) % const.SHIP_DIRECTIONS
+        return position, direction, heading
 
     def area_damage_for_target(self, target, distance):
         _, _, overlap = collision_info(self, target)
@@ -74,7 +90,7 @@ class UmgahA1(Ability):
 
     def get_sprite(self, interp_t=0.0):
         return self.sprites[self.current_frame][
-            interpolated_sprite_index(self.parent, interp_t)
+            interpolated_sprite_index(self, interp_t)
         ]
 
     def get_collision_mask(self):
@@ -86,11 +102,11 @@ class UmgahA1(Ability):
         sprite = self.get_sprite(interp_t)
         from src.Battle.interpolation import interpolated_position
 
-        parent_position = interpolated_position(self.parent, interp_t)
+        position = interpolated_position(self, interp_t)
         scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
         scaled_rect = scaled_sprite.get_rect()
-        screen_x = int((parent_position[0] + translation[0]) * scale_factor)
-        screen_y = int((parent_position[1] + translation[1]) * scale_factor)
+        screen_x = int((position[0] + translation[0]) * scale_factor)
+        screen_y = int((position[1] + translation[1]) * scale_factor)
 
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):

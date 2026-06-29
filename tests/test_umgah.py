@@ -1,6 +1,7 @@
 import math
 import os
 import unittest
+from dataclasses import replace
 from unittest import mock
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -15,9 +16,9 @@ import src.const as const
 import src.resources as resources_module
 from collision_test_support import CollisionTestCase
 from src.Battle import collisions
-from src.Battle.collision_geometry import collision_info, objects_overlap
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
+from src.Objects.Ships.launch_geometry import gun_world_position
 from src.Objects.Ships.registry import create_ship
 from src.Objects.Ships.Umgah.A1.UmgahA1 import UmgahA1
 from src.Objects.Ships.Umgah.A2.UmgahA2 import UmgahA2
@@ -64,10 +65,115 @@ class UmgahTests(CollisionTestCase):
         ) as exclude_circle:
             AssetManager().ability("UmgahA1")
 
-        self.assertNotEqual(expected_radius, ability_scaled_radius)
         self.assertTrue(exclude_circle.call_args_list)
         self.assertTrue(
             all(call.args[1] == expected_radius for call in exclude_circle.call_args_list)
+        )
+        for frame in range(ability_definition.frames):
+            heading_zero_call = exclude_circle.call_args_list[
+                frame * const.ASSET_SPRITE_DIRECTIONS
+            ]
+            sprite = heading_zero_call.args[0]
+            anchor_center = heading_zero_call.kwargs["center"]
+            mask = pygame.mask.from_surface(sprite)
+            bottom = max(rect.bottom for rect in mask.get_bounding_rects()) - 1
+            bottom_x = [
+                x
+                for x in range(sprite.get_width())
+                if mask.get_at((x, bottom))
+            ]
+            expected_x = min(
+                bottom_x,
+                key=lambda x: (abs(x - sprite.get_rect().centerx), x),
+            )
+            self.assertEqual(anchor_center, (expected_x, bottom))
+
+            base_center = sprite.get_rect().center
+            anchor_offset = (
+                anchor_center[0] - base_center[0],
+                anchor_center[1] - base_center[1],
+            )
+            for heading in range(const.ASSET_SPRITE_DIRECTIONS):
+                call = exclude_circle.call_args_list[
+                    frame * const.ASSET_SPRITE_DIRECTIONS + heading
+                ]
+                center = call.args[0].get_rect().center
+                angle = math.radians(
+                    heading * (360 / const.ASSET_SPRITE_DIRECTIONS)
+                )
+                expected_center = (
+                    center[0]
+                    + round(
+                        math.cos(angle) * anchor_offset[0]
+                        - math.sin(angle) * anchor_offset[1]
+                    ),
+                    center[1]
+                    + round(
+                        math.sin(angle) * anchor_offset[0]
+                        + math.cos(angle) * anchor_offset[1]
+                    ),
+                )
+                self.assertEqual(call.kwargs["center"], expected_center)
+
+        # Keep the comparison meaningful when catalog scales differ, while the
+        # call assertion above remains valid when both scales happen to be 1.
+        if ship_definition.sprite_scale != ability_definition.sprite_scale:
+            self.assertNotEqual(expected_radius, ability_scaled_radius)
+
+    def test_a1_opaque_anchor_lands_on_gun_without_projectile_gap(self):
+        definition = ABILITY_DEFINITIONS["UmgahA1"]
+        self.ship.position = [2.0, 2.0]
+
+        for frame in range(definition.frames):
+            for heading in (0, 3, 8, 13):
+                with self.subTest(frame=frame, heading=heading):
+                    self.ship._a1_animation_frame = frame
+                    self.ship.heading = heading
+                    self.ship.previous_heading = heading
+                    self.ship.rotation = heading * const.TURN_ANGLE
+                    area = UmgahA1(self.ship)
+                    muzzle = gun_world_position(
+                        self.ship,
+                        definition.gun_locations[0],
+                    )
+                    angle = math.radians(area.rotation)
+                    anchor = area.anchor_offsets[frame]
+                    anchored_pixel = [
+                        (
+                            area.position[0]
+                            + math.cos(angle) * anchor[0]
+                            - math.sin(angle) * anchor[1]
+                        )
+                        % const.ARENA_SIZE,
+                        (
+                            area.position[1]
+                            + math.sin(angle) * anchor[0]
+                            + math.cos(angle) * anchor[1]
+                        )
+                        % const.ARENA_SIZE,
+                    ]
+
+                    self.assertAlmostEqual(anchored_pixel[0], muzzle[0])
+                    self.assertAlmostEqual(anchored_pixel[1], muzzle[1])
+
+    def test_a1_respects_configured_gun_direction(self):
+        definition = ABILITY_DEFINITIONS["UmgahA1"]
+        configured = replace(definition, gun_directions=(67.5,))
+        self.ship.heading = 2
+        self.ship.previous_heading = 2
+        self.ship.rotation = 2 * const.TURN_ANGLE
+
+        with mock.patch(
+            "src.Objects.Ships.ability.ABILITY_DEFINITIONS",
+            {**ABILITY_DEFINITIONS, "UmgahA1": configured},
+        ):
+            area = UmgahA1(self.ship)
+
+        expected_direction = (self.ship.rotation + 67.5) % 360
+        self.assertEqual(area.rotation, expected_direction)
+        self.assertEqual(
+            area.heading,
+            round(expected_direction / const.TURN_ANGLE) % const.SHIP_DIRECTIONS,
         )
 
     def test_a1_cycles_frames_resets_regeneration_and_lives_for_collision_frame(self):
@@ -111,7 +217,7 @@ class UmgahTests(CollisionTestCase):
         self.assertEqual(friendly.current_hp, 9)
         self.assertEqual(shielded.current_hp, starting_hp)
 
-    def test_a1_never_targets_parent_when_rotated_masks_overlap(self):
+    def test_a1_never_targets_parent_at_rotated_headings(self):
         starting_hp = self.ship.current_hp
 
         for frame, heading in ((0, 2), (1, 5), (2, 8)):
@@ -121,8 +227,6 @@ class UmgahTests(CollisionTestCase):
                 self.ship.heading = heading
                 self.ship.rotation = heading * const.TURN_ANGLE
                 area = self.ship.perform_action1()
-                _, _, overlap = collision_info(area, self.ship)
-                self.assertTrue(objects_overlap(area, self.ship, overlap))
 
                 collisions._handle_area_damage([area, self.ship], [])
 

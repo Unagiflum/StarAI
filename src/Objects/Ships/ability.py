@@ -63,6 +63,7 @@ class Ability(PlayerObject):
 
         self.sprites = assets.sprites
         self.masks = assets.masks
+        self.anchor_offsets = assets.anchor_offsets
         self.death_animation = assets.end_animation
         ability_definition = ABILITY_DEFINITIONS[ability_name]
         self.launch_sound = None

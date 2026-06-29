@@ -1057,13 +1057,13 @@
         "gun_locations": [
             [
                 48,
-                48
+                28
             ]
         ],
         "gun_directions": [
             0.0
         ],
-        "EXCLUDED_RADIUS": 29
+        "EXCLUDED_RADIUS": 9
     },
     "UmgahA2": {
         "ship_name": "Umgah",

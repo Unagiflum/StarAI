@@ -41,6 +41,8 @@ class AbilityAssets:
     end_animation: tuple
     sizes: tuple
     interpolated_sprites: object = None
+    # Frame-specific offset from the heading-00 sprite center to its mount point.
+    anchor_offsets: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -234,6 +236,7 @@ class AssetManager:
         sprites = []
         masks = []
         sizes = []
+        anchor_offsets = []
         used_placeholder = False
 
         if definition.has_sprites:
@@ -243,6 +246,7 @@ class AssetManager:
                     directional_masks = []
                     for frame in range(definition.frames):
                         base_sprites = []
+                        frame_anchor_offset = None
                         for index in range(const.ASSET_SPRITE_DIRECTIONS):
                             path = resource_dir / (
                                 f"{ability_name}_{frame + 1}{index:02d}.png"
@@ -257,12 +261,29 @@ class AssetManager:
                                 definition.sprite_scale_y,
                             )
                             if definition.excluded_radius is not None:
+                                if frame_anchor_offset is None:
+                                    anchor = _bottom_opaque_anchor(sprite)
+                                    center = sprite.get_rect().center
+                                    frame_anchor_offset = (
+                                        anchor[0] - center[0],
+                                        anchor[1] - center[1],
+                                    )
                                 parent_scale = SHIP_DEFINITIONS[
                                     definition.ship_name
                                 ].sprite_scale
+                                rotated_offset = _rotate_screen_offset(
+                                    frame_anchor_offset,
+                                    index
+                                    * (360 / const.ASSET_SPRITE_DIRECTIONS),
+                                )
+                                center = sprite.get_rect().center
                                 sprite = _exclude_center_circle(
                                     sprite,
                                     round(definition.excluded_radius * parent_scale),
+                                    center=(
+                                        center[0] + round(rotated_offset[0]),
+                                        center[1] + round(rotated_offset[1]),
+                                    ),
                                 )
                             base_sprites.append(sprite)
                         frame_sprites, frame_masks = _expand_directional_sprites(
@@ -271,6 +292,8 @@ class AssetManager:
                         directional_sprites.append(frame_sprites)
                         directional_masks.append(frame_masks)
                         sizes.append(base_sprites[0].get_size())
+                        if frame_anchor_offset is not None:
+                            anchor_offsets.append(frame_anchor_offset)
                     sprites = directional_sprites
                     masks = directional_masks
                 elif definition.omnidirectional and definition.frames > 1:
@@ -386,6 +409,7 @@ class AssetManager:
             end_animation=end_animation,
             sizes=tuple(sizes),
             interpolated_sprites=interpolated_sprites,
+            anchor_offsets=tuple(anchor_offsets),
         )
         self._abilities[ability_name] = assets
         return assets
@@ -884,13 +908,39 @@ def _expand_directional_sprites(base_sprites, base_masks=None):
     return tuple(sprites), tuple(masks)
 
 
-def _exclude_center_circle(sprite, radius):
-    """Return a sprite with a transparent circular center exclusion."""
+def _bottom_opaque_anchor(sprite):
+    """Return the bottommost opaque pixel nearest the horizontal center."""
+    mask = pygame.mask.from_surface(sprite)
+    bounds = mask.get_bounding_rects()
+    if not bounds:
+        return sprite.get_rect().center
+
+    bottom = max(rect.bottom for rect in bounds) - 1
+    opaque_x = [
+        x for x in range(sprite.get_width()) if mask.get_at((x, bottom))
+    ]
+    center_x = sprite.get_rect().centerx
+    return min(opaque_x, key=lambda x: (abs(x - center_x), x)), bottom
+
+
+def _rotate_screen_offset(offset, angle):
+    """Rotate a screen-space vector clockwise by ``angle`` degrees."""
+    radians = math.radians(angle)
+    cosine = math.cos(radians)
+    sine = math.sin(radians)
+    return (
+        cosine * offset[0] - sine * offset[1],
+        sine * offset[0] + cosine * offset[1],
+    )
+
+
+def _exclude_center_circle(sprite, radius, *, center=None):
+    """Return a sprite with a transparent circular exclusion."""
     excluded = sprite.copy()
     pygame.draw.circle(
         excluded,
         (0, 0, 0, 0),
-        excluded.get_rect().center,
+        excluded.get_rect().center if center is None else center,
         max(0, radius),
     )
     return excluded
