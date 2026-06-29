@@ -756,6 +756,93 @@ def projectile_can_hit_ship(projectile, ship):
     return False
 
 
+def ship_is_laser_target(laser, ship, explicit=False):
+    if not _laser_target_is_active(laser, ship, require_targetable=True):
+        return False
+    if getattr(ship, "current_hp", 1) <= 0:
+        return False
+    return explicit or ship.player != laser.player
+
+
+def projectile_is_laser_target(laser, projectile, explicit=False):
+    if not _laser_target_is_active(laser, projectile, require_targetable=True):
+        return False
+    return (
+        getattr(projectile, "can_collide", True)
+        and getattr(projectile, "current_hp", 1) > 0
+    )
+
+
+def special_object_is_laser_target(laser, special_object, explicit=False):
+    if not _laser_target_is_active(
+        laser,
+        special_object,
+        require_targetable=False,
+    ):
+        return False
+    return (
+        getattr(special_object, "can_collide", True)
+        and getattr(special_object, "current_hp", 1) > 0
+    )
+
+
+def asteroid_is_laser_target(laser, asteroid, explicit=False):
+    return _laser_target_is_active(laser, asteroid, require_targetable=True)
+
+
+def planet_is_laser_target(laser, planet, explicit=False):
+    return _laser_target_is_active(laser, planet, require_targetable=True)
+
+
+def _laser_target_is_active(laser, target, *, require_targetable):
+    if not getattr(target, "currently_alive", True):
+        return False
+    if target is laser.parent and not laser.hit_parent:
+        return False
+    physics = getattr(target, "physical_collision_capabilities", None)
+    if physics is not None and physics.is_intangible:
+        return False
+    if require_targetable:
+        capabilities = getattr(target, "laser_target_capabilities", None)
+        if capabilities is None or not capabilities.targetable:
+            return False
+    return True
+
+
+def apply_ship_laser_impact(ship, effects, normal, damage, contact):
+    damage_ship(ship, damage)
+
+
+def apply_projectile_laser_impact(projectile, effects, normal, damage, contact):
+    set_projectile_hp(projectile, projectile.current_hp - damage)
+    if projectile.current_hp <= 0:
+        destroy_projectile(projectile, effects, normal, damage, contact)
+
+
+def apply_special_object_laser_impact(
+    special_object,
+    effects,
+    normal,
+    damage,
+    contact,
+):
+    apply_projectile_laser_impact(
+        special_object,
+        effects,
+        normal,
+        damage,
+        contact,
+    )
+
+
+def apply_asteroid_laser_impact(asteroid, effects, normal, damage, contact):
+    destroy_asteroid(asteroid, effects)
+
+
+def apply_planet_laser_impact(planet, effects, normal, damage, contact):
+    return None
+
+
 def resolve_laser_hit(
     laser,
     target,

@@ -14,6 +14,7 @@ from src.Battle.collision_geometry import (
     distance_between,
     laser_hit_info,
 )
+from src.Battle.laser_dispatch import LaserTargetRegistry
 
 # BattleEffect remains exposed here for existing callers and test patches.
 from src.Battle.effects import BattleEffect
@@ -180,6 +181,39 @@ def _create_collision_pair_registry():
 
 
 COLLISION_PAIR_REGISTRY = _create_collision_pair_registry()
+
+
+def _create_laser_target_registry():
+    registry = LaserTargetRegistry()
+    registry.register(
+        CollisionRole.SHIP,
+        is_eligible=responses.ship_is_laser_target,
+        apply_impact=responses.apply_ship_laser_impact,
+    )
+    registry.register(
+        CollisionRole.PROJECTILE,
+        is_eligible=responses.projectile_is_laser_target,
+        apply_impact=responses.apply_projectile_laser_impact,
+    )
+    registry.register(
+        CollisionRole.SPECIAL_OBJECT,
+        is_eligible=responses.special_object_is_laser_target,
+        apply_impact=responses.apply_special_object_laser_impact,
+    )
+    registry.register(
+        CollisionRole.ASTEROID,
+        is_eligible=responses.asteroid_is_laser_target,
+        apply_impact=responses.apply_asteroid_laser_impact,
+    )
+    registry.register(
+        CollisionRole.PLANET,
+        is_eligible=responses.planet_is_laser_target,
+        apply_impact=responses.apply_planet_laser_impact,
+    )
+    return registry
+
+
+LASER_TARGET_REGISTRY = _create_laser_target_registry()
 
 
 def handle_collisions(
@@ -410,7 +444,13 @@ def _handle_laser_collisions(
 
 
 def _apply_laser_impact(target, effects, normal, damage, contact):
-    responses.apply_generic_laser_impact(target, effects, normal, damage, contact)
+    LASER_TARGET_REGISTRY.apply_impact(
+        target,
+        effects,
+        normal,
+        damage,
+        contact,
+    )
 
 
 def _laser_targets(
@@ -454,10 +494,11 @@ def _laser_target_is_eligible(laser, target, explicit=False):
     target_filter = getattr(laser, "should_consider_laser_target", None)
     if target_filter is not None and not target_filter(target):
         return False
-    if not getattr(target.collision_capabilities, "role", None) == CollisionRole.SPECIAL_OBJECT:
-        if not target.laser_target_capabilities.targetable:
-            return False
-    return responses.generic_is_laser_target(laser, target, explicit)
+    return LASER_TARGET_REGISTRY.is_eligible(
+        laser,
+        target,
+        explicit=explicit,
+    )
 
 
 def _spawn_replacement_asteroids(
