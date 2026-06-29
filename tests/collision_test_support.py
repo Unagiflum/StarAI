@@ -246,7 +246,6 @@ class CollisionTestCase(unittest.TestCase):
         ability.collision_capabilities = CollisionCapabilities(
             CollisionRole.NONE
         )
-        from src.Objects.Ships.special_object_properties import SpecialObjectCollisionCapabilities
         ability.special_object_collision_capabilities = SpecialObjectCollisionCapabilities(collides_with_friendly_ships=True, collides_with_enemy_ships=True)
         ability.physical_collision_capabilities = PhysicalCollisionCapabilities(is_intangible=True)
         return ability

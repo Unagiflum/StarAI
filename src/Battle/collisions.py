@@ -3,6 +3,7 @@
 import math
 
 from src.Battle import collision_responses as responses
+from src.Battle.area_dispatch import AreaTargetRegistry
 from src.Battle.collision_contract import (
     CollisionContext,
     CollisionEnvironment,
@@ -183,6 +184,39 @@ def _create_collision_pair_registry():
 COLLISION_PAIR_REGISTRY = _create_collision_pair_registry()
 
 
+def _create_area_target_registry():
+    registry = AreaTargetRegistry()
+    registry.register(
+        CollisionRole.SHIP,
+        is_eligible=responses.ship_is_area_target,
+        apply_damage=responses.apply_ship_area_damage,
+    )
+    registry.register(
+        CollisionRole.PROJECTILE,
+        is_eligible=responses.projectile_is_area_target,
+        apply_damage=responses.apply_projectile_area_damage,
+    )
+    registry.register(
+        CollisionRole.SPECIAL_OBJECT,
+        is_eligible=responses.special_object_is_area_target,
+        apply_damage=responses.apply_special_object_area_damage,
+    )
+    registry.register(
+        CollisionRole.ASTEROID,
+        is_eligible=responses.asteroid_is_area_target,
+        apply_damage=responses.apply_asteroid_area_damage,
+    )
+    registry.register(
+        CollisionRole.PLANET,
+        is_eligible=responses.planet_is_area_target,
+        apply_damage=responses.apply_planet_area_damage,
+    )
+    return registry
+
+
+AREA_TARGET_REGISTRY = _create_area_target_registry()
+
+
 def _create_laser_target_registry():
     registry = LaserTargetRegistry()
     registry.register(
@@ -282,9 +316,7 @@ def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):
         for target in world:
             if id(target) in excluded_ids:
                 continue
-            if not responses.generic_area_damage_target_is_eligible(
-                ability, target
-            ):
+            if not AREA_TARGET_REGISTRY.is_eligible(ability, target):
                 continue
 
             delta = _wrapped_delta(ability.position, target.position)
@@ -293,8 +325,13 @@ def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):
             if damage <= 0:
                 continue
 
-            applied_damage = responses.apply_generic_area_damage(
-                ability, target, effects, delta, distance, damage
+            applied_damage = AREA_TARGET_REGISTRY.apply_damage(
+                ability,
+                target,
+                effects,
+                delta,
+                distance,
+                damage,
             )
             if ability.area_damage_capabilities.plays_impact_sound:
                 BattleEffect.play_boom(damage)

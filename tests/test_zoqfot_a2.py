@@ -57,3 +57,29 @@ class ZoqFotA2Tests(CollisionTestCase):
             area._mounted_position(self.parent.position, self.parent.rotation),
         )
 
+    def test_shape_hits_inside_target_once_and_misses_nearby_outside_target(self):
+        area = self.parent.perform_action2()
+        inside = self.make_ship()
+        inside.player = 2
+        inside.position = area.position.copy()
+        outside = self.make_ship()
+        outside.player = 2
+        outside.position = [area.position[0] + 20, area.position[1]]
+        full_mask = pygame.mask.Mask((20, 20), fill=True)
+        inside.get_collision_mask = lambda: full_mask
+        outside.get_collision_mask = lambda: full_mask
+        inside_starting_hp = inside.current_hp
+        outside_starting_hp = outside.current_hp
+
+        with mock.patch.object(collisions.BattleEffect, "play_boom"):
+            collisions._handle_area_damage([area, inside, outside], [])
+
+        self.assertLess(inside.current_hp, inside_starting_hp)
+        self.assertEqual(outside.current_hp, outside_starting_hp)
+        hp_after_first_hit = inside.current_hp
+
+        with mock.patch.object(collisions.BattleEffect, "play_boom"):
+            collisions._handle_area_damage([area, inside, outside], [])
+
+        self.assertEqual(inside.current_hp, hp_after_first_hit)
+

@@ -45,6 +45,121 @@ def damage_ship(ship, damage, *, shieldable=True, non_lethal=False):
     return previous_hp - ship.current_hp
 
 
+def ship_is_area_target(source, ship):
+    if not _area_target_is_active(source, ship):
+        return False
+    if getattr(source, "is_psychic", False):
+        durability = getattr(ship, "durability_capabilities", None)
+        if durability and durability.immune_to_psychic:
+            return False
+    capabilities = source.special_object_collision_capabilities
+    if ship.player == source.player:
+        return capabilities.collides_with_friendly_ships
+    return capabilities.collides_with_enemy_ships
+
+
+def projectile_is_area_target(source, projectile):
+    if not _area_target_is_active(source, projectile):
+        return False
+    return source.special_object_collision_capabilities.collides_with_projectiles
+
+
+def special_object_is_area_target(source, special_object):
+    return projectile_is_area_target(source, special_object)
+
+
+def asteroid_is_area_target(source, asteroid):
+    if not _area_target_is_active(source, asteroid):
+        return False
+    return source.special_object_collision_capabilities.collides_with_asteroids
+
+
+def planet_is_area_target(source, planet):
+    if not _area_target_is_active(source, planet):
+        return False
+    return source.special_object_collision_capabilities.collides_with_planets
+
+
+def _area_target_is_active(source, target):
+    if target is source or not getattr(target, "currently_alive", True):
+        return False
+    target_capabilities = getattr(target, "area_damage_capabilities", None)
+    if not target_capabilities or not target_capabilities.vulnerable:
+        return False
+    physics = getattr(target, "physical_collision_capabilities", None)
+    if physics is None or physics.is_intangible:
+        return False
+    return getattr(source, "special_object_collision_capabilities", None) is not None
+
+
+def apply_ship_area_damage(source, ship, effects, delta, distance, damage):
+    shieldable = not getattr(source, "ignores_shields", False)
+    non_lethal = getattr(source, "is_psychic", False)
+    return damage_ship(
+        ship,
+        damage,
+        shieldable=shieldable,
+        non_lethal=non_lethal,
+    )
+
+
+def apply_projectile_area_damage(
+    source,
+    projectile,
+    effects,
+    delta,
+    distance,
+    damage,
+):
+    previous_hp = projectile.current_hp
+    remaining_hp = projectile.current_hp - damage
+    if remaining_hp <= 0:
+        direction = (
+            [delta[0] / distance, delta[1] / distance]
+            if distance > 0
+            else [0, -1]
+        )
+        destroy_projectile(projectile, effects, direction, damage)
+    else:
+        set_projectile_hp(projectile, remaining_hp)
+    return previous_hp - projectile.current_hp
+
+
+def apply_special_object_area_damage(
+    source,
+    special_object,
+    effects,
+    delta,
+    distance,
+    damage,
+):
+    return apply_projectile_area_damage(
+        source,
+        special_object,
+        effects,
+        delta,
+        distance,
+        damage,
+    )
+
+
+def apply_asteroid_area_damage(
+    source,
+    asteroid,
+    effects,
+    delta,
+    distance,
+    damage,
+):
+    was_alive = getattr(asteroid, "currently_alive", True)
+    destroy_asteroid(asteroid, effects)
+    return damage if was_alive and not asteroid.currently_alive else 0
+
+
+def apply_planet_area_damage(source, planet, effects, delta, distance, damage):
+    return 0
+
+
 def apply_generic_area_damage(source_ability, target, effects, delta, distance, damage):
     """Apply area damage and return the amount actually removed from the target."""
     phys = getattr(target, "physical_collision_capabilities", None)
