@@ -52,8 +52,6 @@ SLIDER_LINE = (100, 100, 100)
 
 HANDLE_COLOR = (255, 0, 0)
 BG_COLOR = (0, 0, 20)
-TOOLTIP_OFFSET = 4
-TOOLTIP_PADDING = (8, 5)
 
 
 def load_background(path, screen_width, screen_height, resources=None):
@@ -75,9 +73,10 @@ def draw_title(screen, text, font_size=40, y_pos=50):
     screen.blit(title_surf, title_rect)
 
 
-def format_ship_tooltip(name, ship_type, cost):
-    """Return the shared fleet/catalog tooltip label."""
-    return f"{name} {ship_type}: {cost}" if ship_type else f"{name}: {cost}"
+def format_ship_tooltip(name, ship_type, cost=None, *, include_cost=True):
+    """Return the shared ship tooltip label."""
+    label = f"{name} {ship_type}" if ship_type else name
+    return f"{label}: {cost}" if include_cost and cost is not None else label
 
 
 def tooltip_rect(
@@ -85,36 +84,60 @@ def tooltip_rect(
     mouse_pos,
     anchor_rect,
     screen_rect,
-    padding=TOOLTIP_PADDING,
-    offset=TOOLTIP_OFFSET,
+    padding=Const.SHIP_TOOLTIP_PADDING,
+    offset=Const.SHIP_TOOLTIP_VERTICAL_OFFSET,
 ):
-    """Position a tooltip below its hovered cell and keep it on-screen."""
+    """Position a tooltip at a fixed distance below the cursor."""
+    _ = anchor_rect  # Retained for compatibility with existing callers.
     rect = pygame.Rect(
         0,
         0,
         text_surface.get_width() + 2 * padding[0],
         text_surface.get_height() + 2 * padding[1],
     )
-    rect.midtop = (
-        mouse_pos[0],
-        max(mouse_pos[1] + offset, anchor_rect.bottom + offset),
-    )
+    rect.midtop = (mouse_pos[0], mouse_pos[1] + offset)
     rect.clamp_ip(screen_rect)
     return rect
 
 
+def centered_text_rect(text_surface, container_rect):
+    """Center the visible glyphs instead of the font surface's line box."""
+    bounds = text_surface.get_bounding_rect()
+    return text_surface.get_rect(
+        x=container_rect.centerx - bounds.centerx,
+        y=container_rect.centery - bounds.centery,
+    )
+
+
 def draw_ship_tooltip(screen, font, label, mouse_pos, anchor_rect):
-    """Draw a catalog-style ship tooltip and return its rectangle."""
-    text_surface = font.render(label, True, WHITE)
+    """Draw a consistently styled ship tooltip and return its rectangle."""
+    text_surface = font.render(label, True, Const.SHIP_TOOLTIP_TEXT_COLOR)
     rect = tooltip_rect(
         text_surface,
         mouse_pos,
         anchor_rect,
         screen.get_rect(),
     )
-    pygame.draw.rect(screen, Const.SHIP_BOX_BACKGROUND_COLOR, rect)
-    pygame.draw.rect(screen, WHITE, rect, 1)
-    screen.blit(text_surface, text_surface.get_rect(center=rect.center))
+    tooltip_surface = pygame.Surface(rect.size, pygame.SRCALPHA)
+    surface_rect = tooltip_surface.get_rect()
+    pygame.draw.rect(
+        tooltip_surface,
+        (*Const.SHIP_TOOLTIP_BACKGROUND_COLOR, Const.SHIP_TOOLTIP_ALPHA),
+        surface_rect,
+        border_radius=Const.SHIP_TOOLTIP_BORDER_RADIUS,
+    )
+    pygame.draw.rect(
+        tooltip_surface,
+        Const.SHIP_TOOLTIP_BORDER_COLOR,
+        surface_rect,
+        Const.SHIP_TOOLTIP_BORDER_WIDTH,
+        border_radius=Const.SHIP_TOOLTIP_BORDER_RADIUS,
+    )
+    tooltip_surface.blit(
+        text_surface,
+        centered_text_rect(text_surface, surface_rect),
+    )
+    screen.blit(tooltip_surface, rect)
     return rect
 
 

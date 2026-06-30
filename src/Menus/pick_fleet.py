@@ -27,9 +27,7 @@ PICKER_CELL_COLOR = const.SHIP_PANEL_BACKGROUND_COLOR
 PICKER_BOX_COLOR = const.SHIP_BOX_BACKGROUND_COLOR
 PICKER_CELL_GAP = 3
 PICKER_BORDER_WIDTH = 5
-TOOLTIP_OFFSET = 4
-TOOLTIP_PADDING = (8, 5)
-PICKER_TOOLTIP_FONT_SIZE = int(const.SCREEN_HEIGHT * 0.042)
+PICKER_TOOLTIP_FONT_SIZE = const.SHIP_TOOLTIP_FONT_SIZE
 
 
 class ShipPickerModal:
@@ -120,6 +118,7 @@ class ShipPickerModal:
             )
             for name, definition in ships_data.items()
         ]
+        self.cost_font = pygame.font.SysFont(None, const.SHIP_CATALOG_COST_FONT_SIZE)
 
     def ship_at_pos(self, pos):
         for index, ship in enumerate(self.ships):
@@ -139,8 +138,6 @@ class ShipPickerModal:
             mouse_pos,
             cell_rect,
             screen_rect,
-            padding=TOOLTIP_PADDING,
-            offset=TOOLTIP_OFFSET,
         )
 
     def draw(self, screen, title_font, tooltip_font):
@@ -160,28 +157,32 @@ class ShipPickerModal:
         )
         pygame.draw.rect(screen, cancel_color, self.cancel_rect, border_radius=5)
         cancel_text = title_font.render("Cancel", True, ui.WHITE)
-        screen.blit(cancel_text, cancel_text.get_rect(center=self.cancel_rect.center))
+        screen.blit(cancel_text, ui.centered_text_rect(cancel_text, self.cancel_rect))
 
         for index, cell_rect in enumerate(self.cell_rects):
             pygame.draw.rect(screen, PICKER_CELL_COLOR, cell_rect)
 
             if index >= len(self.ships):
                 continue
-            _, _, _, sprite = self.ships[index]
+            _, _, cost, sprite = self.ships[index]
             screen.blit(sprite, sprite.get_rect(center=cell_rect.center))
+            cost_surface = self.cost_font.render(
+                str(cost), True, const.SHIP_CATALOG_COST_COLOR
+            )
+            screen.blit(cost_surface, (cell_rect.left + 2, cell_rect.top + 2))
 
         hovered = self._hovered_ship(mouse_pos)
         if hovered is not None:
-            (name, ship_type, cost, _), cell_rect = hovered
+            (name, ship_type, _, _), cell_rect = hovered
             pygame.draw.rect(screen, ui.WHITE, cell_rect, 1)
-            label = ui.format_ship_tooltip(name, ship_type, cost)
-            text_surface = tooltip_font.render(label, True, ui.WHITE)
-            tooltip_rect = self._tooltip_rect(
-                text_surface, mouse_pos, cell_rect, screen.get_rect()
+            label = ui.format_ship_tooltip(name, ship_type, include_cost=False)
+            ui.draw_ship_tooltip(
+                screen,
+                tooltip_font,
+                label,
+                mouse_pos,
+                cell_rect,
             )
-            pygame.draw.rect(screen, ui.BLACK, tooltip_rect)
-            pygame.draw.rect(screen, ui.WHITE, tooltip_rect, 1)
-            screen.blit(text_surface, text_surface.get_rect(center=tooltip_rect.center))
 
 
 def load_ships():

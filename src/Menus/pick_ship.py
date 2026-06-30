@@ -159,6 +159,7 @@ def run(
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.03))
     state_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.025))
+    tooltip_font = pygame.font.SysFont(None, Const.SHIP_TOOLTIP_FONT_SIZE)
     background = ui.load_background(
         Const.MENU_BG_PATH, Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT
     )
@@ -503,7 +504,7 @@ def run(
             )
             ui.draw_ship_tooltip(
                 screen,
-                state_font,
+                tooltip_font,
                 label,
                 mouse_pos,
                 panel.slot_rect(slot_index),

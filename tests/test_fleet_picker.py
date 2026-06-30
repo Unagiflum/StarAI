@@ -92,6 +92,60 @@ class FleetSlotTests(unittest.TestCase):
             ui.format_ship_tooltip("Shofixti", "Scout", 5),
             "Shofixti Scout: 5",
         )
+        self.assertEqual(
+            ui.format_ship_tooltip(
+                "Shofixti", "Scout", 5, include_cost=False
+            ),
+            "Shofixti Scout",
+        )
+
+    def test_shared_ship_tooltip_style_and_cursor_offset(self):
+        screen = pygame.Surface((400, 300))
+        screen_color = (20, 40, 60)
+        screen.fill(screen_color)
+        font = pygame.font.SysFont(None, Const.SHIP_TOOLTIP_FONT_SIZE)
+        mouse_pos = (200, 100)
+        anchor_rect = pygame.Rect(150, 75, 100, 100)
+
+        tooltip_rect = ui.draw_ship_tooltip(
+            screen, font, "Shofixti Scout: 5", mouse_pos, anchor_rect
+        )
+
+        self.assertEqual(tooltip_rect.centerx, mouse_pos[0])
+        self.assertEqual(
+            tooltip_rect.top,
+            mouse_pos[1] + Const.SHIP_TOOLTIP_VERTICAL_OFFSET,
+        )
+        self.assertEqual(
+            screen.get_at(tooltip_rect.topleft)[:3],
+            screen_color,
+        )
+        self.assertEqual(
+            screen.get_at((tooltip_rect.centerx, tooltip_rect.top))[:3],
+            Const.SHIP_TOOLTIP_BORDER_COLOR,
+        )
+        background_pixel = screen.get_at(
+            (
+                tooltip_rect.left + Const.SHIP_TOOLTIP_BORDER_RADIUS + 1,
+                tooltip_rect.top + 2,
+            )
+        )[:3]
+        self.assertNotEqual(background_pixel, screen_color)
+        self.assertNotEqual(background_pixel, Const.SHIP_TOOLTIP_BACKGROUND_COLOR)
+        self.assertEqual(Const.SHIP_TOOLTIP_ALPHA, 200)
+
+    def test_visible_text_is_vertically_centered(self):
+        font = pygame.font.SysFont(None, 40)
+        text = font.render("Cancel", True, ui.WHITE)
+        container = pygame.Rect(20, 30, 160, 50)
+
+        text_rect = ui.centered_text_rect(text, container)
+        visible_rect = text.get_bounding_rect().move(text_rect.topleft)
+
+        self.assertEqual(visible_rect.centery, container.centery)
+
+    def test_catalog_cost_font_is_three_times_original_size(self):
+        self.assertEqual(Const.SHIP_CATALOG_COST_FONT_SIZE, 30)
 
     def test_slots_use_requested_background_and_gap(self):
         self.assertEqual(self.fleet.spacing, FLEET_SLOT_SPACING)
@@ -250,7 +304,7 @@ class ShipPickerModalTests(unittest.TestCase):
             screen.get_at(picker.title_rect.topleft)[:3], PICKER_BOX_COLOR
         )
 
-    def test_tooltip_is_below_hovered_ship(self):
+    def test_tooltip_uses_constant_cursor_offset_and_can_overlap_ship(self):
         catalog = {"Shofixti": SimpleNamespace(cost=5, ship_type="Scout")}
         sprites = {"Shofixti": pygame.Surface((20, 10), pygame.SRCALPHA)}
         picker = ShipPickerModal(1, 0, catalog, sprites)
@@ -263,7 +317,39 @@ class ShipPickerModalTests(unittest.TestCase):
             text, cell_rect.center, cell_rect, pygame.Rect(0, 0, 1920, 1080)
         )
 
-        self.assertGreaterEqual(tooltip_rect.top, cell_rect.bottom)
+        self.assertEqual(tooltip_rect.centerx, cell_rect.centerx)
+        self.assertEqual(
+            tooltip_rect.top,
+            cell_rect.centery + Const.SHIP_TOOLTIP_VERTICAL_OFFSET,
+        )
+        self.assertLess(tooltip_rect.top, cell_rect.bottom)
+
+    def test_catalog_draws_cost_in_cell_top_left(self):
+        catalog = {"Shofixti": SimpleNamespace(cost=5, ship_type="Scout")}
+        sprites = {"Shofixti": pygame.Surface((20, 10), pygame.SRCALPHA)}
+        picker = ShipPickerModal(1, 0, catalog, sprites)
+        screen = pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT))
+
+        old_mouse_pos = pygame.mouse.get_pos
+        pygame.mouse.get_pos = lambda: (-1, -1)
+        try:
+            picker.draw(
+                screen,
+                pygame.font.SysFont(None, 40),
+                pygame.font.SysFont(None, Const.SHIP_TOOLTIP_FONT_SIZE),
+            )
+        finally:
+            pygame.mouse.get_pos = old_mouse_pos
+
+        cell_rect = picker.cell_rects[0]
+        cost_area = pygame.Rect(cell_rect.left, cell_rect.top, 15, 15)
+        self.assertTrue(
+            any(
+                screen.get_at((x, y))[:3] == Const.SHIP_CATALOG_COST_COLOR
+                for x in range(cost_area.left, cost_area.right)
+                for y in range(cost_area.top, cost_area.bottom)
+            )
+        )
 
     def test_catalog_larger_than_grid_is_rejected(self):
         catalog = {
