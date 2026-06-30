@@ -697,6 +697,13 @@ def _consumption_outcome(first, second):
     return CollisionOutcome.RESOLVED
 
 def projectile_like_objects_can_hit_each_other(first, second):
+    first_filter = getattr(first, "should_collide_with_projectile_like", None)
+    second_filter = getattr(second, "should_collide_with_projectile_like", None)
+    if first_filter is not None and not first_filter(second):
+        return False
+    if second_filter is not None and not second_filter(first):
+        return False
+
     first_is_special_object = is_live_special_object(first)
     second_is_special_object = is_live_special_object(second)
     first_capabilities = getattr(
@@ -836,8 +843,14 @@ def _laser_target_is_active(laser, target, *, require_targetable):
     physics = getattr(target, "physical_collision_capabilities", None)
     if physics is not None and physics.is_intangible:
         return False
+    capabilities = getattr(target, "laser_target_capabilities", None)
+    if (
+        capabilities is not None
+        and not capabilities.vulnerable
+        and not capabilities.blocks_lasers
+    ):
+        return False
     if require_targetable:
-        capabilities = getattr(target, "laser_target_capabilities", None)
         if capabilities is None or not capabilities.targetable:
             return False
     return True
@@ -907,8 +920,9 @@ def resolve_laser_hit(
     if on_laser_hit is not None:
         on_laser_hit(target, contact, segment_index)
     
+    vulnerable = target_capabilities is None or target_capabilities.vulnerable
     should_damage = getattr(laser, "should_damage_target", None)
-    if should_damage is None or should_damage(target):
+    if vulnerable and (should_damage is None or should_damage(target)):
         apply_impact(target, effects, normal, damage, contact)
 
     attached = target if (

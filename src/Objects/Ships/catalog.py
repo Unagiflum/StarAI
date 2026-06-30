@@ -238,6 +238,11 @@ class AbilityDefinition(_DefinitionMapping):
     battery_gain: int | None = None
     excluded_radius: int | None = None
     recharge_on_planet: bool = True
+    gun_levels: int | None = None
+    gun_level_mult: int | None = None
+    gun_level_timer: int | None = None
+    effect_frames: int | None = None
+    effect_duration: int | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -322,6 +327,11 @@ class AbilityDefinition(_DefinitionMapping):
         "BATTERY_GAIN": "battery_gain",
         "EXCLUDED_RADIUS": "excluded_radius",
         "RECHARGE_ON_PLANET": "recharge_on_planet",
+        "GUN_LEVELS": "gun_levels",
+        "GUN_LEVEL_MULT": "gun_level_mult",
+        "GUN_LEVEL_TIMER": "gun_level_timer",
+        "EFFECT_FRAMES": "effect_frames",
+        "EFFECT_DURATION": "effect_duration",
     }
 
 
@@ -660,6 +670,11 @@ def parse_ability_definition(name, data):
         "BATTERY_GAIN",
         "EXCLUDED_RADIUS",
         "RECHARGE_ON_PLANET",
+        "GUN_LEVELS",
+        "GUN_LEVEL_MULT",
+        "GUN_LEVEL_TIMER",
+        "EFFECT_FRAMES",
+        "EFFECT_DURATION",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -752,6 +767,11 @@ def parse_ability_definition(name, data):
         "SEGMENT_LENGTH_MAX": ("segment_length_max", int),
         "BATTERY_GAIN": ("battery_gain", int),
         "EXCLUDED_RADIUS": ("excluded_radius", int),
+        "GUN_LEVELS": ("gun_levels", int),
+        "GUN_LEVEL_MULT": ("gun_level_mult", int),
+        "GUN_LEVEL_TIMER": ("gun_level_timer", int),
+        "EFFECT_FRAMES": ("effect_frames", int),
+        "EFFECT_DURATION": ("effect_duration", int),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(
@@ -830,6 +850,17 @@ def parse_ability_definition(name, data):
         raise CatalogValidationError(f"Ability '{name}' has unsupported action")
     if values["frames"] <= 0:
         raise CatalogValidationError(f"Ability '{name}' frames must be positive")
+    for field_name in (
+        "gun_levels",
+        "gun_level_mult",
+        "gun_level_timer",
+        "effect_frames",
+        "effect_duration",
+    ):
+        if values[field_name] is not None and values[field_name] <= 0:
+            raise CatalogValidationError(
+                f"Ability '{name}' {field_name} must be positive"
+            )
     if values["sprite_scale"] <= 0:
         raise CatalogValidationError(f"Ability '{name}' sprite_scale must be positive")
     if values["sprite_scale_x"] <= 0 or values["sprite_scale_y"] <= 0:

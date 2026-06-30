@@ -494,6 +494,75 @@
             22.5
         ]
     },
+    "MelnormeA1": {
+        "ship_name": "Melnorme",
+        "type": "projectile",
+        "action": "A1",
+        "start_hp": [
+            2
+        ],
+        "damage": [
+            2
+        ],
+        "parent_vel": 0.0,
+        "speed": 180,
+        "life_time": 10,
+        "file_path": "Objects/Ships/Melnorme/A1/",
+        "has_sprites": true,
+        "omnidirectional": true,
+        "end_anim": 6,
+        "gun_locations": [
+            [
+                67,
+                0
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ],
+        "frames": 5,
+        "GUN_LEVELS": 4,
+        "GUN_LEVEL_MULT": 2,
+        "GUN_LEVEL_TIMER": 72
+    },
+    "MelnormeA2": {
+        "ship_name": "Melnorme",
+        "type": "special_object",
+        "action": "A2",
+        "start_hp": [
+            200
+        ],
+        "damage": [
+            0
+        ],
+        "parent_vel": 1.0,
+        "frames": 8,
+        "frame_delay": 2,
+        "speed": 120,
+        "life_time": 20,
+        "inertia": true,
+        "file_path": "Objects/Ships/Melnorme/A2/",
+        "has_sprites": true,
+        "omnidirectional": true,
+        "laser_vulnerable": false,
+        "blocks_lasers": false,
+        "collide_planets": false,
+        "collide_asteroids": false,
+        "damage_asteroids": false,
+        "collide_friendly_ships": false,
+        "collide_fighters": false,
+        "gun_locations": [
+            [
+                67,
+                0
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ],
+        "EFFECT_FRAMES": 8,
+        "EFFECT_DURATION": 480
+    },
     "MyconA1": {
         "ship_name": "Mycon",
         "type": "projectile",

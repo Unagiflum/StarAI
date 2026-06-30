@@ -254,6 +254,30 @@
             }
         }
     },
+    "Melnorme": {
+        "ship_type": "Trader",
+        "cost": 18,
+        "max_hp": 20,
+        "start_hp": 20,
+        "max_energy": 42,
+        "start_energy": 42,
+        "energy_regen": 1,
+        "energy_wait": 4,
+        "max_thrust": 36,
+        "thrust_increment": 6,
+        "thrust_wait": 4,
+        "turn_wait": 4,
+        "a1_cost": 5,
+        "a2_cost": 20,
+        "a3_cost": 0,
+        "a1_wait": 1,
+        "a2_wait": 20,
+        "a3_wait": 0,
+        "mass": 7,
+        "inertia": true,
+        "sprite_path": "Objects/Ships/Melnorme/",
+        "sprite_scale": 1.0
+    },
     "Mycon": {
         "ship_type": "Podship",
         "cost": 21,

@@ -331,6 +331,10 @@ class Ability(PlayerObject):
         """Handle damage from a projectile without the default special_object removal."""
         return False
 
+    def should_collide_with_projectile_like(self, other):
+        """Allow a specialized ability to veto projectile-like contacts."""
+        return True
+
     def on_destroyed(self):
         """React once when collision handling destroys this ability."""
         return None

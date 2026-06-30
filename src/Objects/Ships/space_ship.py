@@ -113,6 +113,9 @@ class SpaceShip(PlayerObject):
         self.battles_fought = 0
         self.limpets_attached = 0
         self.base_sprites = self.sprites
+        self.confused_timer = 0
+        self.confused_frames = ()
+        self.confused_frame = 0
 
     def initialize_in_battle(self, position, heading):
         self.position = list(position)
@@ -130,6 +133,7 @@ class SpaceShip(PlayerObject):
         self.action2_timer = 0
         self.action3_timer = 0
         self.boarded_marines.clear()
+        self.clear_confused()
         self.reset_controls()
         self.in_battle = True
         self.battles_fought += 1
@@ -269,7 +273,9 @@ class SpaceShip(PlayerObject):
         thrust_ready = self.control_ready("thrust", frame_id)
         action1_ready = self.control_ready("action1", frame_id)
         action2_ready = self.control_ready("action2", frame_id)
-        action2_active = self.action2_active or "action2" in self.newly_pressed_controls
+        action2_active = (
+            self.action2_active or "action2" in self.newly_pressed_controls
+        ) and not self.is_confused
 
         if (
             self.action2_cancels_other_commands()
@@ -282,10 +288,13 @@ class SpaceShip(PlayerObject):
                 self.released_controls.clear()
                 return list(result.spawned_objects)
 
-        if self.turn_left_active and turn_left_ready and self.turn_input_enabled():
-            self.turn_left()
-        if self.turn_right_active and turn_right_ready and self.turn_input_enabled():
+        if self.is_confused:
             self.turn_right()
+        else:
+            if self.turn_left_active and turn_left_ready and self.turn_input_enabled():
+                self.turn_left()
+            if self.turn_right_active and turn_right_ready and self.turn_input_enabled():
+                self.turn_right()
         thrust_angles = self.get_active_thrust_angles(
             thrust_ready, turn_left_ready, turn_right_ready
         )
@@ -417,6 +426,7 @@ class SpaceShip(PlayerObject):
     def update(self):
         self.previous_position = self.position.copy()
         self.update_physics()
+        self._update_confused()
         return True
 
     def update_physics(self):
@@ -444,7 +454,11 @@ class SpaceShip(PlayerObject):
         return self.action1_timer == 0 and self.current_energy >= self.a1_cost
 
     def can_action2(self):
-        return self.action2_timer == 0 and self.current_energy >= self.a2_cost
+        return (
+            not self.is_confused
+            and self.action2_timer == 0
+            and self.current_energy >= self.a2_cost
+        )
 
     def can_action3(self):
         return self.action3_timer == 0 and self.current_energy >= self.a3_cost
@@ -471,14 +485,44 @@ class SpaceShip(PlayerObject):
         if not self.inertia and self.thrust_timer == 0 and not self.thrust_active:
             self.velocity = [0.0, 0.0]
 
-        self.energy_timer += 1
-        if self.energy_timer > self.energy_wait:
+        regeneration_enabled = self.energy_regeneration_enabled()
+        if regeneration_enabled:
+            self.energy_timer += 1
+        if regeneration_enabled and self.energy_timer > self.energy_wait:
 
             self.energy_timer = 0
             if self.current_energy < self.max_energy:
                 self.current_energy = min(
                     self.max_energy, self.current_energy + self.energy_regen
                 )
+
+    def energy_regeneration_enabled(self):
+        return True
+
+    @property
+    def is_confused(self):
+        return getattr(self, "confused_timer", 0) > 0
+
+    def apply_confused(self, frames, duration):
+        self.confused_frames = tuple(frames)
+        self.confused_timer = max(0, int(duration))
+        self.confused_frame = 0
+
+    def clear_confused(self):
+        self.confused_timer = 0
+        self.confused_frames = ()
+        self.confused_frame = 0
+
+    def _update_confused(self):
+        if not self.is_confused:
+            return
+        self.confused_timer -= 1
+        if self.confused_frames:
+            self.confused_frame = (self.confused_frame + 1) % len(
+                self.confused_frames
+            )
+        if self.confused_timer <= 0:
+            self.clear_confused()
 
     def turn_left(self):
         if self.can_turn():
@@ -666,5 +710,30 @@ class SpaceShip(PlayerObject):
                         (
                             const.SCREEN_LEFT + pos_x - scaled_rect.width // 2,
                             pos_y - scaled_rect.height // 2,
+                        ),
+                    )
+
+        if self.is_confused and self.confused_frames:
+            self._draw_confused(screen, pos, scale_factor, translation)
+
+    def _draw_confused(self, screen, pos, scale_factor, translation):
+        sprite = self.confused_frames[self.confused_frame]
+        scaled_sprite = pygame.transform.smoothscale_by(sprite, scale_factor)
+        rect = scaled_sprite.get_rect()
+        screen_x = int((pos[0] + translation[0]) * scale_factor)
+        screen_y = int((pos[1] + translation[1]) * scale_factor)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
+                pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
+                if (
+                    -rect.width <= pos_x <= const.SCREEN_HEIGHT + rect.width
+                    and -rect.height <= pos_y <= const.SCREEN_HEIGHT + rect.height
+                ):
+                    screen.blit(
+                        scaled_sprite,
+                        (
+                            const.SCREEN_LEFT + pos_x - rect.width // 2,
+                            pos_y - rect.height // 2,
                         ),
                     )
