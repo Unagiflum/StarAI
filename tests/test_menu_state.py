@@ -110,6 +110,28 @@ class ShipSelectionStateTests(unittest.TestCase):
         self.assertTrue(state.select_index(1, 1))
         self.assertEqual(state.selected_ships(), (player1[1], player2[1]))
 
+    def test_forced_order_skips_first_player_when_their_ship_survives(self):
+        shofixti_replacement = Ship("Shofixti Replacement")
+        reborn_pkunk = Ship("Reborn Pkunk")
+        state = self.state(
+            [shofixti_replacement],
+            [reborn_pkunk],
+            preselected={1: None, 2: reborn_pkunk},
+            choose_second_player=1,
+        )
+
+        self.assertEqual(state.first_player, 2)
+        self.assertTrue(state.first_locked)
+        self.assertEqual(state.active_player, 1)
+        self.assertFalse(state.selection_allowed(2))
+        self.assertTrue(state.selection_allowed(1))
+
+        self.assertTrue(state.select_index(1, 0))
+        self.assertEqual(
+            state.selected_ships(),
+            (shofixti_replacement, reborn_pkunk),
+        )
+
     def test_dead_ships_are_excluded_from_manual_and_random_candidates(self):
         dead = Ship("Dead", currently_alive=False, current_hp=0)
         alive = Ship("Alive")

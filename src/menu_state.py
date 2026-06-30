@@ -136,6 +136,16 @@ class ShipSelectionState(Generic[ShipT]):
         for player in self.PLAYERS:
             self._set_preselection(player, preselected.get(player))
 
+        # A surviving ship is already locked in for the next round.  If that
+        # player would otherwise choose first, advance the forced order so the
+        # player who still needs a ship can select instead of deadlocking.
+        if (
+            self.choose_second_player is not None
+            and self.first_player in self.survivor_locked_players
+        ):
+            self.first_locked = True
+            self.active_player = self.choose_second_player
+
     @staticmethod
     def _is_alive(ship: ShipT | None) -> bool:
         return bool(ship is not None and ship.currently_alive)
