@@ -47,6 +47,13 @@ class FleetModel:
     def remove_ship(self, index: int) -> FleetShip:
         return self._ships.pop(index)
 
+    def replace_ship(self, index: int, name: str, cost: int) -> FleetShip:
+        """Replace one occupied fleet position without changing its order."""
+        replacement = FleetShip(name, cost)
+        previous = self._ships[index]
+        self._ships[index] = replacement
+        return previous
+
     def clear(self) -> None:
         self._ships.clear()
 

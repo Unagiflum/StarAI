@@ -18,7 +18,132 @@ SELECTION_ICON_SIZE = const.SELECTION_ICON_SIZE
 FLEET_ICON_SIZE = const.FLEET_ICON_SIZE
 cost_FONT_SIZE = int(const.SCREEN_HEIGHT * 0.03)
 TITLE_FONT_SIZE = int(const.SCREEN_HEIGHT * 0.08)
-PLAYER_FONT_SIZE = int(const.SCREEN_HEIGHT * 0.03)
+PICKER_COLS = 5
+PICKER_ROWS = 5
+PICKER_CAPACITY = PICKER_COLS * PICKER_ROWS
+PICKER_ICON_SIZE = int(const.SCREEN_HEIGHT * 0.075)
+MODAL_SHADE_ALPHA = 165
+
+
+class ShipPickerModal:
+    """Centered, fixed 5x5 catalog used to fill one fleet slot."""
+
+    def __init__(self, player, slot_index, ships_data, sprites):
+        self.player = player
+        self.slot_index = slot_index
+        self.color = const.P1_COLOR if player == 1 else const.P2_COLOR
+        self.ships = [
+            (name, definition.cost, sprites[name])
+            for name, definition in ships_data.items()
+        ]
+        if len(self.ships) > PICKER_CAPACITY:
+            raise ValueError(
+                f"The ship picker supports {PICKER_CAPACITY} ships; "
+                f"the catalog contains {len(self.ships)}"
+            )
+
+        modal_size = min(
+            int(const.SCREEN_WIDTH * 0.70), int(const.SCREEN_HEIGHT * 0.82)
+        )
+        self.rect = pygame.Rect(0, 0, modal_size, modal_size)
+        self.rect.center = (const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT // 2)
+
+        padding = int(const.SCREEN_HEIGHT * 0.02)
+        title_height = int(const.SCREEN_HEIGHT * 0.055)
+        footer_height = int(const.SCREEN_HEIGHT * 0.05)
+        footer_gap = int(const.SCREEN_HEIGHT * 0.0125)
+        self.cancel_rect = pygame.Rect(
+            0,
+            self.rect.bottom - padding - footer_height,
+            int(self.rect.width * 0.28),
+            footer_height,
+        )
+        self.cancel_rect.centerx = self.rect.centerx
+
+        grid_rect = pygame.Rect(
+            self.rect.left + padding,
+            self.rect.top + padding + title_height,
+            self.rect.width - 2 * padding,
+            self.cancel_rect.top
+            - footer_gap
+            - (self.rect.top + padding + title_height),
+        )
+        cell_width = grid_rect.width // PICKER_COLS
+        cell_height = grid_rect.height // PICKER_ROWS
+        self.cell_rects = []
+        for index in range(PICKER_CAPACITY):
+            row, col = divmod(index, PICKER_COLS)
+            self.cell_rects.append(
+                pygame.Rect(
+                    grid_rect.left + col * cell_width,
+                    grid_rect.top + row * cell_height,
+                    cell_width,
+                    cell_height,
+                ).inflate(-6, -6)
+            )
+
+    def ship_at_pos(self, pos):
+        for index, ship in enumerate(self.ships):
+            if self.cell_rects[index].collidepoint(pos):
+                return ship
+        return None
+
+    def draw(self, screen, title_font, name_font, cost_font):
+        pygame.draw.rect(screen, ui.BLACK, self.rect)
+        pygame.draw.rect(screen, self.color, self.rect, 4)
+
+        title = title_font.render(
+            f"Player {self.player}: Select a Ship", True, ui.WHITE
+        )
+        screen.blit(
+            title,
+            title.get_rect(
+                centerx=self.rect.centerx,
+                top=self.rect.top + int(const.SCREEN_HEIGHT * 0.018),
+            ),
+        )
+
+        mouse_pos = pygame.mouse.get_pos()
+        quiet_color = tuple(max(20, int(channel * 0.42)) for channel in self.color)
+        for index, cell_rect in enumerate(self.cell_rects):
+            if index < len(self.ships) and cell_rect.collidepoint(mouse_pos):
+                hover_surface = pygame.Surface(cell_rect.size, pygame.SRCALPHA)
+                hover_surface.fill((*self.color, 65))
+                screen.blit(hover_surface, cell_rect)
+            pygame.draw.rect(screen, quiet_color, cell_rect, 1)
+
+            if index >= len(self.ships):
+                continue
+            name, cost, sprite = self.ships[index]
+            sprite_area_center = (
+                cell_rect.centerx,
+                cell_rect.top + PICKER_ICON_SIZE // 2 + 5,
+            )
+            screen.blit(sprite, sprite.get_rect(center=sprite_area_center))
+
+            name_surface = name_font.render(name, True, ui.WHITE)
+            cost_surface = cost_font.render(f"Cost: {cost}", True, ui.WHITE)
+            screen.blit(
+                name_surface,
+                name_surface.get_rect(
+                    centerx=cell_rect.centerx, bottom=cell_rect.bottom - 20
+                ),
+            )
+            screen.blit(
+                cost_surface,
+                cost_surface.get_rect(
+                    centerx=cell_rect.centerx, bottom=cell_rect.bottom - 3
+                ),
+            )
+
+        cancel_color = (
+            ui.CAN_RED_HI
+            if self.cancel_rect.collidepoint(mouse_pos)
+            else ui.CAN_RED
+        )
+        pygame.draw.rect(screen, cancel_color, self.cancel_rect, border_radius=5)
+        cancel_text = cost_font.render("Cancel", True, ui.WHITE)
+        screen.blit(cancel_text, cancel_text.get_rect(center=self.cancel_rect.center))
 
 
 def load_ships():
@@ -36,10 +161,10 @@ def load_ship_sprites(ships_data, resources=None):
 
 
 def create_sprite_sets(ships_data):
-    """Create selection and fleet sprites from a single load."""
+    """Create picker and fleet sprites using one scale factor per view."""
     original_sprites = load_ship_sprites(ships_data)
     selection_sprites = scale_ship_sprites(
-        original_sprites, SELECTION_ICON_SIZE[0], ships_data
+        original_sprites, PICKER_ICON_SIZE, ships_data
     )
 
     # Calculate fleet icon size first
@@ -90,7 +215,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     clock = pygame.time.Clock()
     font = pygame.font.SysFont(None, cost_FONT_SIZE)
     title_font = pygame.font.SysFont(None, TITLE_FONT_SIZE)
-    player_font = pygame.font.SysFont(None, PLAYER_FONT_SIZE)
+    picker_title_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.042))
+    picker_name_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.021))
+    picker_cost_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.019))
     background = ui.load_background(
         const.MENU_BG_PATH, const.SCREEN_WIDTH, const.SCREEN_HEIGHT
     )
@@ -113,12 +240,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     right_column_start = int(const.SCREEN_WIDTH // 2 + (0.016 * const.SCREEN_WIDTH))
     columns = {1: left_column_start, 2: right_column_start}
-    fleet_top = (
-        top_button_start
-        + top_button_height
-        + ui.SELECTION_HEIGHT
-        + 2 * ui.button_spaceV
-    )
+    fleet_top = top_button_start + top_button_height + 2 * ui.button_spaceV
     fleets = ui_box.create_player_fleet_panels(
         columns,
         fleet_top,
@@ -126,18 +248,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ui.FLEET_HEIGHT,
         FLEET_ICON_SIZE,
     )
-    ship_lists = {
-        player: ui_box.ShipList(
-            columns[player],
-            top_button_start + top_button_height + ui.button_spaceV,
-            ui.SELECTION_WIDTH,
-            ui.SELECTION_HEIGHT,
-            f"Player {player}: Pick your fleet",
-            SELECTION_ICON_SIZE,
-            color=const.P1_COLOR if player == 1 else const.P2_COLOR,
-        )
-        for player in (1, 2)
-    }
     ai_toggles = {
         player: ui_button.ToggleButton(
             columns[player],
@@ -192,10 +302,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         for player in (1, 2)
     }
 
-    for ship_name, definition in ships_data.items():
-        for ship_list in ship_lists.values():
-            ship_list.add_ship(selection_sprites[ship_name], ship_name, definition.cost)
-
     loaded_ai = load_fleets(fleets[1], fleets[2], fleet_sprites, ships_data)
     for player, ai in zip((1, 2), loaded_ai):
         ai_toggles[player].is_on = ai
@@ -218,6 +324,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
 
     running = True
+    ship_picker = None
 
     def cancel_callback():
         nonlocal running
@@ -250,21 +357,43 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     while running:
         clock.tick(const.FPS)
-        mouse_pos = pygame.mouse.get_pos()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
 
-            if event.type in [
-                pygame.MOUSEBUTTONDOWN,
-                pygame.MOUSEBUTTONUP,
-                pygame.MOUSEMOTION,
-            ]:
-                for ship_list in ship_lists.values():
-                    if ship_list.rect.collidepoint(event.pos):
-                        ship_list.handle_event(event)
+            if ship_picker is not None:
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    ship_picker = None
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if (
+                        not ship_picker.rect.collidepoint(event.pos)
+                        or ship_picker.cancel_rect.collidepoint(event.pos)
+                    ):
+                        ship_picker = None
+                    else:
+                        selected = ship_picker.ship_at_pos(event.pos)
+                        if selected is not None:
+                            name, cost, _ = selected
+                            fleet = fleets[ship_picker.player]
+                            replacing = ship_picker.slot_index < len(fleet.ships)
+                            if fleet.set_ship_at_slot(
+                                ship_picker.slot_index,
+                                fleet_sprites[name],
+                                name,
+                                cost,
+                            ):
+                                action = (
+                                    "Replaced fleet slot with"
+                                    if replacing
+                                    else "Added"
+                                )
+                                print(f"{action} {name} in {fleet.title}")
+                                if menu_sound_manager:
+                                    menu_sound_manager.play_sound("menu")
+                            ship_picker = None
+                continue
 
             for controls in (ai_toggles, one_of_each_buttons, clear_buttons):
                 for control in controls.values():
@@ -274,36 +403,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             cancel_button.handle_event(event, menu_sound_manager)
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                added = False
-                for player in (1, 2):
-                    ships_list = ship_lists[player]
-                    fleet = fleets[player]
-                    if ships_list.rect.collidepoint(mouse_pos):
-                        for sprite, name, cost, rect in ships_list.ships:
-                            if rect and rect.collidepoint(mouse_pos):
-                                success = fleet.add_ship(
-                                    fleet_sprites[name], name, cost
-                                )
-                                if success:
-                                    print(f"Added {name} to {fleet.title}")
-                                    if menu_sound_manager:
-                                        menu_sound_manager.play_sound("menu")
-                                else:
-                                    print(f"{fleet.title} is full. Cannot add {name}.")
-                                added = True
-                                break
-                        if added:
-                            break
-
-                if not added:
-                    for player, fleet in fleets.items():
-                        if fleet.rect.collidepoint(
-                            mouse_pos
-                        ) and fleet.remove_ship_at_pos(mouse_pos):
-                            print(f"Removed a ship from Player {player} Fleet")
-                            if menu_sound_manager:
-                                menu_sound_manager.play_sound("menu")
-                            break
+                for player, fleet in fleets.items():
+                    slot_index = fleet.slot_index_at_pos(event.pos)
+                    if slot_index is not None:
+                        ship_picker = ShipPickerModal(
+                            player, slot_index, ships_data, selection_sprites
+                        )
+                        if menu_sound_manager:
+                            menu_sound_manager.play_sound("menu")
+                        break
 
         # Update confirm button state
         if all(not fleet.model.is_empty for fleet in fleets.values()):
@@ -329,11 +437,21 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         for controls in (ai_toggles, one_of_each_buttons, clear_buttons):
             for control in controls.values():
                 control.draw(screen, font)
-        for ship_list in ship_lists.values():
-            ship_list.draw(screen, font, player_font)
         for fleet in fleets.values():
             fleet.draw(screen, font)
         confirm_button.draw(screen, font)
         cancel_button.draw(screen, font)
+
+        if ship_picker is not None:
+            shade = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+            shade.fill((0, 0, 0, MODAL_SHADE_ALPHA))
+            screen.blit(shade, (0, 0))
+            for player, fleet in fleets.items():
+                color = const.P1_COLOR if player == 1 else const.P2_COLOR
+                dark_border = tuple(int(channel * 0.35) for channel in color)
+                pygame.draw.rect(screen, dark_border, fleet.rect, 3)
+            ship_picker.draw(
+                screen, picker_title_font, picker_name_font, picker_cost_font
+            )
 
         pygame.display.flip()

@@ -305,6 +305,41 @@ class Fleet(ShipContainer):
             return True
         return False
 
+    def set_ship_at_slot(self, index, sprite, name, cost):
+        """Replace an occupied slot, or append at the fleet's first empty slot."""
+        if not 0 <= index < self.max_fleet_size:
+            return False
+        if index >= len(self.ships):
+            return self.add_ship(sprite, name, cost)
+
+        self.model.replace_ship(index, name, cost)
+        slot_rect = self.slot_rect(index)
+        sprite_rect = sprite.get_rect(center=slot_rect.center)
+        self.ships[index] = (sprite, name, cost, sprite_rect)
+        return True
+
+    def slot_rect(self, index):
+        """Return the full clickable rectangle for a fleet grid position."""
+        if not 0 <= index < self.max_fleet_size:
+            raise IndexError("Fleet slot index out of range")
+        row = index // self.icons_per_row
+        col = index % self.icons_per_row
+        return pygame.Rect(
+            self.rect.x
+            + self.left_offset
+            + col * (self.icon_size[0] + self.spacing),
+            self.rect.y + 40 + row * self.icon_total_height,
+            self.icon_size[0],
+            self.icon_size[1],
+        )
+
+    def slot_index_at_pos(self, pos):
+        """Return the grid position at ``pos``, including empty positions."""
+        for index in range(self.max_fleet_size):
+            if self.slot_rect(index).collidepoint(pos):
+                return index
+        return None
+
     def clear(self):
         self.model.clear()
         self.ships.clear()
@@ -348,6 +383,10 @@ class Fleet(ShipContainer):
             f"{self.title} - cost: {self.get_total_cost()}", True, ui.WHITE
         )
         screen.blit(title_text, (self.rect.x + 10, self.rect.y + 10))
+
+        slot_color = tuple(max(18, int(channel * 0.38)) for channel in self.color)
+        for index in range(self.max_fleet_size):
+            pygame.draw.rect(screen, slot_color, self.slot_rect(index), 1)
 
         for sprite, _, _, rect in self.ships:
             screen.blit(sprite, rect)

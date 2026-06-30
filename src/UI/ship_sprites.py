@@ -33,13 +33,14 @@ def scale_ship_sprites(
     target_size: int,
     catalog: Mapping[str, ShipDefinition],
 ) -> dict[str, pygame.Surface]:
-    """Normalize a catalog's sprites by its largest scaled dimension."""
+    """Scale every sprite equally, preserving relative source-art dimensions."""
+    _ = catalog  # Retained for API compatibility with existing menu callers.
     max_dimension = max(
         1,
         max(
             (
-                dimension * catalog[name].sprite_scale
-                for name, sprite in original_sprites.items()
+                dimension
+                for sprite in original_sprites.values()
                 for dimension in sprite.get_size()
             ),
             default=1,
@@ -50,7 +51,7 @@ def scale_ship_sprites(
         name: pygame.transform.scale(
             sprite,
             tuple(
-                int(dimension * catalog[name].sprite_scale * scale_factor)
+                max(1, int(dimension * scale_factor))
                 for dimension in sprite.get_size()
             ),
         )
