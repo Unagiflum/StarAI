@@ -46,6 +46,10 @@ class FleetSlotTests(unittest.TestCase):
 
         self.assertEqual(screen.get_at(self.fleet.slot_rect(0).center)[:3], FLEET_SLOT_COLOR)
 
+    def test_fleet_grid_is_six_by_six(self):
+        self.assertEqual(self.fleet.icons_per_row, 6)
+        self.assertEqual(self.fleet.max_fleet_size, 36)
+
     def test_occupied_slot_is_replaced_and_empty_slot_appends(self):
         self.assertTrue(self.fleet.add_ship(self.sprite, "First", 1))
         self.assertTrue(self.fleet.set_ship_at_slot(0, self.sprite, "Replacement", 3))

@@ -133,6 +133,32 @@ class ShipSelectionStateTests(unittest.TestCase):
         self.assertFalse(state.confirmation_ready)
         self.assertIsNone(state.selected_ships())
 
+    def test_selected_ship_toggles_off_and_blank_click_can_deselect(self):
+        player1 = Ship("P1")
+        player2 = Ship("P2")
+        state = self.state([player1], [player2])
+
+        self.assertTrue(state.toggle_index(1, 0))
+        self.assertEqual(state.selection(1).ship, player1)
+        self.assertTrue(state.toggle_index(1, 0))
+        self.assertIsNone(state.selection(1))
+
+        state.select_index(1, 0)
+        self.assertTrue(state.deselect(1))
+        self.assertIsNone(state.selection(1))
+
+    def test_locked_selection_cannot_be_toggled_or_deselected(self):
+        survivor = Ship("Survivor")
+        state = self.state(
+            [survivor],
+            [Ship("Opponent")],
+            preselected={1: survivor},
+        )
+
+        self.assertFalse(state.toggle_index(1, 0))
+        self.assertFalse(state.deselect(1))
+        self.assertEqual(state.selection(1).ship, survivor)
+
 
 if __name__ == "__main__":
     unittest.main()

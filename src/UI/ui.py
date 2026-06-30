@@ -16,7 +16,7 @@ ok_button_top = Const.SCREEN_HEIGHT - ok_button_height - button_spaceV * 4
 
 SELECTION_WIDTH = int(0.45 * Const.SCREEN_WIDTH)
 SELECTION_HEIGHT = int(0.35 * Const.SCREEN_HEIGHT)
-FLEET_HEIGHT = int(0.40 * Const.SCREEN_HEIGHT)
+FLEET_HEIGHT = int(0.65 * Const.SCREEN_HEIGHT)
 
 # Colors
 WHITE = (255, 255, 255)
@@ -52,6 +52,7 @@ SLIDER_LINE = (100, 100, 100)
 
 HANDLE_COLOR = (255, 0, 0)
 BG_COLOR = (0, 0, 20)
+SHIP_PANEL_COLOR = (20, 20, 20)
 
 
 def load_background(path, screen_width, screen_height, resources=None):

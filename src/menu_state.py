@@ -182,6 +182,20 @@ class ShipSelectionState(Generic[ShipT]):
         self._advance_order(player)
         return True
 
+    def deselect(self, player: int) -> bool:
+        """Clear an editable selection, leaving locked selections unchanged."""
+        if not self.selection_allowed(player) or self._selections[player] is None:
+            return False
+        self._selections[player] = None
+        return True
+
+    def toggle_index(self, player: int, index: int) -> bool:
+        """Select an alive ship, or deselect it when it is already selected."""
+        selection = self._selections[player]
+        if selection is not None and selection.index == index:
+            return self.deselect(player)
+        return self.select_index(player, index)
+
     def _advance_order(self, player: int) -> None:
         if self.active_player != player or self.choose_second_player is None:
             return

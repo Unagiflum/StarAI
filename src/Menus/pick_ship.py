@@ -1,7 +1,6 @@
 import pygame
 import sys
 import random
-import math
 
 from src.UI import ui, ui_button, ui_box
 from src.UI.ship_sprites import (
@@ -18,9 +17,6 @@ from src.Objects.Ships.catalog import SHIP_DEFINITIONS
 from src.Objects.Ships.registry import create_ship, preload_ship_ability_resources
 
 TITLE_FONT_SIZE = int(Const.SCREEN_HEIGHT * 0.08)
-HIGHLIGHT_COLOR = (50, 50, 75)
-ACTIVE_SELECTION_COLOR = (255, 196, 64)
-SELECTED_COLOR = (0, 175, 175)
 LOCKED_COLOR = (120, 120, 120)
 BANNER_ALPHA = 175
 FLEET_ICON_SIZE = Const.FLEET_ICON_SIZE
@@ -151,11 +147,14 @@ def run(
 
     FLEET_TOP = int(0.15 * Const.SCREEN_HEIGHT)
 
-    SELECTION_BOX_SIZE = int(Const.SCREEN_WIDTH * 0.165)
-    SELECTION_TOP = FLEET_TOP + ui.FLEET_HEIGHT + int(0.025 * Const.SCREEN_HEIGHT)
-    SELECTION_L_LEFT = LEFT_COLUMN_START + ui.SELECTION_WIDTH - SELECTION_BOX_SIZE
-    SELECTION_R_LEFT = RIGHT_COLUMN_START
-    RAND_TOP = SELECTION_TOP + SELECTION_BOX_SIZE + int(0.01 * Const.SCREEN_HEIGHT)
+    RANDOM_BUTTON_WIDTH = int(Const.SCREEN_WIDTH * 0.165)
+    RANDOM_BUTTON_TOP = (
+        FLEET_TOP + ui.FLEET_HEIGHT + int(0.025 * Const.SCREEN_HEIGHT)
+    )
+    RANDOM_BUTTON_LEFTS = {
+        1: LEFT_COLUMN_START + ui.SELECTION_WIDTH - RANDOM_BUTTON_WIDTH,
+        2: RIGHT_COLUMN_START,
+    }
 
     columns = {1: LEFT_COLUMN_START, 2: RIGHT_COLUMN_START}
     panels = ui_box.create_player_fleet_panels(
@@ -166,9 +165,6 @@ def run(
         FLEET_ICON_SIZE,
     )
     fleet_sprites = scale_ship_sprites(original_sprites, fleet_size, SHIP_DEFINITIONS)
-    selection_sprites = scale_ship_sprites(
-        original_sprites, SELECTION_BOX_SIZE, SHIP_DEFINITIONS
-    )
     player_ships = {1: player1_ships, 2: player2_ships}
     fleet_names = {
         player: tuple(ship.name for ship in player_ships[player])
@@ -189,20 +185,6 @@ def run(
         for player in (1, 2)
     }
 
-    selection_rects = {
-        1: pygame.Rect(
-            SELECTION_L_LEFT,
-            SELECTION_TOP,
-            SELECTION_BOX_SIZE,
-            SELECTION_BOX_SIZE,
-        ),
-        2: pygame.Rect(
-            SELECTION_R_LEFT,
-            SELECTION_TOP,
-            SELECTION_BOX_SIZE,
-            SELECTION_BOX_SIZE,
-        ),
-    }
     selection_state = ShipSelectionState(
         player_ships,
         fleet_names,
@@ -233,38 +215,6 @@ def run(
         pygame.draw.rect(screen, LOCKED_COLOR, panel.rect, 4)
         draw_panel_badge(panel, "LOCKED", LOCKED_COLOR)
 
-    def draw_selection_label(selection_rect, text, color, show_lock=False):
-        label_surface = state_font.render(text, True, ui.WHITE)
-        label_height = label_surface.get_height() + 12
-        label_rect = pygame.Rect(
-            selection_rect.left + 3,
-            selection_rect.bottom - label_height - 3,
-            selection_rect.width - 6,
-            label_height,
-        )
-        label_surface_bg = pygame.Surface(label_rect.size, pygame.SRCALPHA)
-        label_surface_bg.fill((*color, BANNER_ALPHA))
-        screen.blit(label_surface_bg, label_rect)
-        text_rect = label_surface.get_rect(center=label_rect.center)
-        if show_lock:
-            text_rect.x += 7
-            lock_center_x = text_rect.left - 14
-            pygame.draw.arc(
-                screen,
-                ui.WHITE,
-                pygame.Rect(lock_center_x - 5, label_rect.centery - 7, 10, 12),
-                0,
-                math.pi,
-                2,
-            )
-            pygame.draw.rect(
-                screen,
-                ui.WHITE,
-                pygame.Rect(lock_center_x - 7, label_rect.centery - 1, 14, 12),
-                border_radius=2,
-            )
-        screen.blit(label_surface, text_rect)
-
     def pick_random(player):
         if not selection_state.selection_allowed(player):
             return
@@ -274,9 +224,9 @@ def run(
 
     random_buttons = {
         player: ui_button.Button(
-            selection_rects[player].left - 1,
-            RAND_TOP,
-            SELECTION_BOX_SIZE + 2,
+            RANDOM_BUTTON_LEFTS[player],
+            RANDOM_BUTTON_TOP,
+            RANDOM_BUTTON_WIDTH,
             int(0.05 * Const.SCREEN_HEIGHT),
             "Pick Random",
             lambda player=player: pick_random(player),
@@ -313,7 +263,7 @@ def run(
         ui.ok_button_top,
         ui.ok_button_width,
         ui.ok_button_height,
-        "Confirm",
+        "Continue",
         confirm_callback,
         bg_color=ui.DISABLED_BUTTON,
         hover_color=ui.DISABLED_BUTTON,
@@ -350,14 +300,27 @@ def run(
                     if panel.rect.collidepoint(
                         mouse_pos
                     ) and selection_state.selection_allowed(player):
-                        for index, (_, (_, _, _, rect)) in enumerate(
-                            selectable_panel_slots[player]
-                        ):
-                            if rect and rect.collidepoint(mouse_pos):
-                                if selection_state.select_index(player, index):
-                                    if menu_sound_manager:
-                                        menu_sound_manager.play_sound("menu")
-                                break
+                        slot_index = panel.slot_index_at_pos(mouse_pos)
+                        selectable_index = next(
+                            (
+                                index
+                                for index, (candidate_slot, _) in enumerate(
+                                    selectable_panel_slots[player]
+                                )
+                                if candidate_slot == slot_index
+                            ),
+                            None,
+                        )
+                        if slot_index is None:
+                            changed = False
+                        elif selectable_index is None:
+                            changed = selection_state.deselect(player)
+                        else:
+                            changed = selection_state.toggle_index(
+                                player, selectable_index
+                            )
+                        if changed and menu_sound_manager:
+                            menu_sound_manager.play_sound("menu")
                         break
 
             for button in random_buttons.values():
@@ -427,16 +390,7 @@ def run(
         for panel in panels.values():
             panel.draw(screen, font)
 
-        # Draw highlight boxes under selected ships and X's over dead ships
-
-        for player, panel in panels.items():
-            selection = selection_state.selection(player)
-            if selection is not None:
-                slot_index, _ = selectable_panel_slots[player][selection.index]
-                highlight_rect = panel.slot_rect(slot_index)
-                pygame.draw.rect(screen, HIGHLIGHT_COLOR, highlight_rect)
-
-        # Redraw ships to appear above highlights
+        # Redraw ships so dead-ship overlays stay above the fleet grid.
         for player, panel in panels.items():
             for index, (_, (sprite, _, _, rect)) in enumerate(
                 selectable_panel_slots[player]
@@ -467,35 +421,12 @@ def run(
                 pygame.draw.rect(screen, player_color, panels[player].rect, 4)
                 draw_panel_badge(panels[player], "SELECT SHIP", player_color)
 
-        # Draw selection boxes
-        for player, selection_rect in selection_rects.items():
-            pygame.draw.rect(screen, ui.BLACK, selection_rect)
+        # A selected ship is indicated directly in its fleet square.
+        for player, panel in panels.items():
             selection = selection_state.selection(player)
             if selection is not None:
-                sprite = selection_sprites[selection.name]
-                sprite_rect = sprite.get_rect(center=selection_rect.center)
-                screen.blit(sprite, sprite_rect)
-            border_color = Const.P1_COLOR if player == 1 else Const.P2_COLOR
-            pygame.draw.rect(screen, border_color, selection_rect, 3)
-
-        visually_locked_players = set(survivor_locked_players)
-        if choose_second_player in (1, 2) and selection_state.first_locked:
-            visually_locked_players.add(selection_state.first_player)
-        for player, selection_rect in selection_rects.items():
-            if selection_state.selection(player) is None:
-                continue
-            if player in visually_locked_players:
-                label = (
-                    "SURVIVOR LOCKED"
-                    if player in survivor_locked_players
-                    else "SELECTION LOCKED"
-                )
-                draw_selection_label(
-                    selection_rect, label, LOCKED_COLOR, show_lock=True
-                )
-            else:
-                player_color = Const.P1_COLOR if player == 1 else Const.P2_COLOR
-                draw_selection_label(selection_rect, "SELECTED", player_color)
+                slot_index, _ = selectable_panel_slots[player][selection.index]
+                pygame.draw.rect(screen, ui.WHITE, panel.slot_rect(slot_index), 3)
 
         for button in random_buttons.values():
             button.draw(screen, font)

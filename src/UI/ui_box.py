@@ -9,7 +9,7 @@ SCROLL_BUTTON_HEIGHT = int(0.01 * Const.SCREEN_HEIGHT)
 SCROLL_SPEED = 20
 SPACING = int(0.005 * Const.SCREEN_WIDTH)
 FLEET_SLOT_SPACING = 3
-FLEET_SLOT_COLOR = (25, 25, 25)
+FLEET_SLOT_COLOR = ui.SHIP_PANEL_COLOR
 
 
 def create_player_fleet_panels(column_lefts, top, width, height, icon_size):
