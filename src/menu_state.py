@@ -125,6 +125,7 @@ class ShipSelectionState(Generic[ShipT]):
         self._selections: dict[int, ShipSelection[ShipT] | None] = {
             player: None for player in self.PLAYERS
         }
+        self._random_locked_players: set[int] = set()
 
         preselected = preselected or {}
         self.survivor_locked_players = frozenset(
@@ -157,9 +158,16 @@ class ShipSelectionState(Generic[ShipT]):
         return self._selections[player]
 
     def selection_allowed(self, player: int) -> bool:
-        if player in self.survivor_locked_players:
+        if (
+            player in self.survivor_locked_players
+            or player in self._random_locked_players
+        ):
             return False
         return self.active_player is None or self.active_player == player
+
+    @property
+    def random_locked_players(self) -> frozenset[int]:
+        return frozenset(self._random_locked_players)
 
     def alive_indices(self, player: int) -> tuple[int, ...]:
         return tuple(
@@ -180,6 +188,13 @@ class ShipSelectionState(Generic[ShipT]):
             self.ship_names[player][index], ship, index
         )
         self._advance_order(player)
+        return True
+
+    def select_random_index(self, player: int, index: int) -> bool:
+        """Select and permanently lock a hidden random choice for this round."""
+        if not self.select_index(player, index):
+            return False
+        self._random_locked_players.add(player)
         return True
 
     def deselect(self, player: int) -> bool:

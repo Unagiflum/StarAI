@@ -147,15 +147,6 @@ def run(
 
     FLEET_TOP = int(0.15 * Const.SCREEN_HEIGHT)
 
-    RANDOM_BUTTON_WIDTH = int(Const.SCREEN_WIDTH * 0.165)
-    RANDOM_BUTTON_TOP = (
-        FLEET_TOP + ui.FLEET_HEIGHT + int(0.025 * Const.SCREEN_HEIGHT)
-    )
-    RANDOM_BUTTON_LEFTS = {
-        1: LEFT_COLUMN_START + ui.SELECTION_WIDTH - RANDOM_BUTTON_WIDTH,
-        2: RIGHT_COLUMN_START,
-    }
-
     columns = {1: LEFT_COLUMN_START, 2: RIGHT_COLUMN_START}
     panels = ui_box.create_player_fleet_panels(
         columns,
@@ -215,19 +206,28 @@ def run(
         pygame.draw.rect(screen, LOCKED_COLOR, panel.rect, 4)
         draw_panel_badge(panel, "LOCKED", LOCKED_COLOR)
 
+    def draw_random_locked_panel(panel, color):
+        overlay = pygame.Surface(panel.rect.size, pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 145))
+        screen.blit(overlay, panel.rect)
+        pygame.draw.rect(screen, color, panel.rect, 4)
+        draw_panel_badge(panel, "RANDOM SELECTED", color)
+
     def pick_random(player):
         if not selection_state.selection_allowed(player):
             return
         alive_indices = selection_state.alive_indices(player)
         if alive_indices:
-            selection_state.select_index(player, random.choice(alive_indices))
+            selection_state.select_random_index(
+                player, random.choice(alive_indices)
+            )
 
     random_buttons = {
         player: ui_button.Button(
-            RANDOM_BUTTON_LEFTS[player],
-            RANDOM_BUTTON_TOP,
-            RANDOM_BUTTON_WIDTH,
-            int(0.05 * Const.SCREEN_HEIGHT),
+            columns[player],
+            int(0.10 * Const.SCREEN_HEIGHT),
+            ui.SELECTION_WIDTH,
+            int(0.04 * Const.SCREEN_HEIGHT),
             "Pick Random",
             lambda player=player: pick_random(player),
             bg_color=(*Const.P1_COLOR, 75) if player == 1 else (*Const.P2_COLOR, 75),
@@ -243,7 +243,10 @@ def run(
         if selected is not None:
             left_selection = selection_state.selection(1)
             right_selection = selection_state.selection(2)
-            print("Ships selected:", left_selection.name, "vs", right_selection.name)
+            if selection_state.random_locked_players:
+                print("Ships selected; random selection remains hidden.")
+            else:
+                print("Ships selected:", left_selection.name, "vs", right_selection.name)
             if start_battle:
                 battle.run(
                     screen,
@@ -359,6 +362,7 @@ def run(
         active_player = selection_state.active_player
         both_selected = selection_state.both_selected
         survivor_locked_players = selection_state.survivor_locked_players
+        random_locked_players = selection_state.random_locked_players
         title_size = TITLE_FONT_SIZE
         if choose_second_player in (1, 2):
             if not selection_state.first_locked:
@@ -401,19 +405,28 @@ def run(
 
         for player in survivor_locked_players:
             draw_locked_panel(panels[player])
+        for player in random_locked_players:
+            player_color = Const.P1_COLOR if player == 1 else Const.P2_COLOR
+            draw_random_locked_panel(panels[player], player_color)
         if choose_second_player in (1, 2):
-            if selection_state.first_locked:
+            if (
+                selection_state.first_locked
+                and selection_state.first_player not in random_locked_players
+            ):
                 draw_locked_panel(panels[selection_state.first_player])
-            else:
+            elif not selection_state.first_locked:
                 draw_locked_panel(panels[choose_second_player])
-            active_panel = panels[active_player]
-            active_color = Const.P1_COLOR if active_player == 1 else Const.P2_COLOR
-            pygame.draw.rect(screen, active_color, active_panel.rect, 4)
-            active_badge = (
-                "SELECT FIRST" if not selection_state.first_locked else "SELECT SECOND"
-            )
-            draw_panel_badge(active_panel, active_badge, active_color)
-        elif survivor_locked_players:
+            if not both_selected:
+                active_panel = panels[active_player]
+                active_color = Const.P1_COLOR if active_player == 1 else Const.P2_COLOR
+                pygame.draw.rect(screen, active_color, active_panel.rect, 4)
+                active_badge = (
+                    "SELECT FIRST"
+                    if not selection_state.first_locked
+                    else "SELECT SECOND"
+                )
+                draw_panel_badge(active_panel, active_badge, active_color)
+        elif survivor_locked_players and not both_selected:
             for player in (1, 2):
                 if player in survivor_locked_players:
                     continue
@@ -424,7 +437,7 @@ def run(
         # A selected ship is indicated directly in its fleet square.
         for player, panel in panels.items():
             selection = selection_state.selection(player)
-            if selection is not None:
+            if selection is not None and player not in random_locked_players:
                 slot_index, _ = selectable_panel_slots[player][selection.index]
                 pygame.draw.rect(screen, ui.WHITE, panel.slot_rect(slot_index), 3)
 
@@ -432,6 +445,29 @@ def run(
             button.draw(screen, font)
         confirm_button.draw(screen, font)
         cancel_button.draw(screen, font)
+
+        mouse_pos = pygame.mouse.get_pos()
+        for player, panel in panels.items():
+            if not selection_state.selection_allowed(player):
+                continue
+            hovered = panel.occupied_slot_at_pos(mouse_pos)
+            if hovered is None:
+                continue
+            slot_index, (_, name, cost, _) = hovered
+            definition = ships_data[name]
+            label = ui.format_ship_tooltip(
+                name,
+                getattr(definition, "ship_type", ""),
+                cost,
+            )
+            ui.draw_ship_tooltip(
+                screen,
+                state_font,
+                label,
+                mouse_pos,
+                panel.slot_rect(slot_index),
+            )
+            break
 
         pygame.display.flip()
 

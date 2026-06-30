@@ -14,9 +14,9 @@ ok_button_left = (
 can_button_left = Const.SCREEN_WIDTH // 2 + int(0.0167 * Const.SCREEN_WIDTH)
 ok_button_top = Const.SCREEN_HEIGHT - ok_button_height - button_spaceV * 4
 
-SELECTION_WIDTH = int(0.45 * Const.SCREEN_WIDTH)
+SELECTION_WIDTH = int(0.448 * Const.SCREEN_WIDTH)
 SELECTION_HEIGHT = int(0.35 * Const.SCREEN_HEIGHT)
-FLEET_HEIGHT = int(0.65 * Const.SCREEN_HEIGHT)
+FLEET_HEIGHT = int(0.753 * Const.SCREEN_HEIGHT)
 
 # Colors
 WHITE = (255, 255, 255)
@@ -52,7 +52,8 @@ SLIDER_LINE = (100, 100, 100)
 
 HANDLE_COLOR = (255, 0, 0)
 BG_COLOR = (0, 0, 20)
-SHIP_PANEL_COLOR = (20, 20, 20)
+TOOLTIP_OFFSET = 4
+TOOLTIP_PADDING = (8, 5)
 
 
 def load_background(path, screen_width, screen_height, resources=None):
@@ -72,6 +73,49 @@ def draw_title(screen, text, font_size=40, y_pos=50):
     title_surf = font.render(text, True, WHITE)
     title_rect = title_surf.get_rect(center=(screen.get_width() // 2, y_pos))
     screen.blit(title_surf, title_rect)
+
+
+def format_ship_tooltip(name, ship_type, cost):
+    """Return the shared fleet/catalog tooltip label."""
+    return f"{name} {ship_type}: {cost}" if ship_type else f"{name}: {cost}"
+
+
+def tooltip_rect(
+    text_surface,
+    mouse_pos,
+    anchor_rect,
+    screen_rect,
+    padding=TOOLTIP_PADDING,
+    offset=TOOLTIP_OFFSET,
+):
+    """Position a tooltip below its hovered cell and keep it on-screen."""
+    rect = pygame.Rect(
+        0,
+        0,
+        text_surface.get_width() + 2 * padding[0],
+        text_surface.get_height() + 2 * padding[1],
+    )
+    rect.midtop = (
+        mouse_pos[0],
+        max(mouse_pos[1] + offset, anchor_rect.bottom + offset),
+    )
+    rect.clamp_ip(screen_rect)
+    return rect
+
+
+def draw_ship_tooltip(screen, font, label, mouse_pos, anchor_rect):
+    """Draw a catalog-style ship tooltip and return its rectangle."""
+    text_surface = font.render(label, True, WHITE)
+    rect = tooltip_rect(
+        text_surface,
+        mouse_pos,
+        anchor_rect,
+        screen.get_rect(),
+    )
+    pygame.draw.rect(screen, Const.SHIP_BOX_BACKGROUND_COLOR, rect)
+    pygame.draw.rect(screen, WHITE, rect, 1)
+    screen.blit(text_surface, text_surface.get_rect(center=rect.center))
+    return rect
 
 
 class SoundManager:

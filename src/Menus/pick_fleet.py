@@ -23,7 +23,8 @@ PICKER_COLS = 5
 PICKER_ROWS = 5
 PICKER_CAPACITY = PICKER_COLS * PICKER_ROWS
 MODAL_SHADE_ALPHA = 165
-PICKER_CELL_COLOR = ui.SHIP_PANEL_COLOR
+PICKER_CELL_COLOR = const.SHIP_PANEL_BACKGROUND_COLOR
+PICKER_BOX_COLOR = const.SHIP_BOX_BACKGROUND_COLOR
 PICKER_CELL_GAP = 3
 PICKER_BORDER_WIDTH = 5
 TOOLTIP_OFFSET = 4
@@ -133,19 +134,18 @@ class ShipPickerModal:
         return None
 
     def _tooltip_rect(self, text_surface, mouse_pos, cell_rect, screen_rect):
-        width = text_surface.get_width() + 2 * TOOLTIP_PADDING[0]
-        height = text_surface.get_height() + 2 * TOOLTIP_PADDING[1]
-        tooltip_rect = pygame.Rect(0, 0, width, height)
-        tooltip_rect.midtop = (
-            mouse_pos[0],
-            max(mouse_pos[1] + TOOLTIP_OFFSET, cell_rect.bottom + TOOLTIP_OFFSET),
+        return ui.tooltip_rect(
+            text_surface,
+            mouse_pos,
+            cell_rect,
+            screen_rect,
+            padding=TOOLTIP_PADDING,
+            offset=TOOLTIP_OFFSET,
         )
-        tooltip_rect.clamp_ip(screen_rect)
-        return tooltip_rect
 
     def draw(self, screen, title_font, tooltip_font):
         pygame.draw.rect(screen, self.color, self.rect)
-        pygame.draw.rect(screen, ui.BLACK, self.content_rect)
+        pygame.draw.rect(screen, PICKER_BOX_COLOR, self.content_rect)
 
         title = title_font.render(
             f"Player {self.player}: Select a Ship", True, ui.WHITE
@@ -174,7 +174,7 @@ class ShipPickerModal:
         if hovered is not None:
             (name, ship_type, cost, _), cell_rect = hovered
             pygame.draw.rect(screen, ui.WHITE, cell_rect, 1)
-            label = f"{name} {ship_type}: {cost}" if ship_type else f"{name}: {cost}"
+            label = ui.format_ship_tooltip(name, ship_type, cost)
             text_surface = tooltip_font.render(label, True, ui.WHITE)
             tooltip_rect = self._tooltip_rect(
                 text_surface, mouse_pos, cell_rect, screen.get_rect()
@@ -485,6 +485,28 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             fleet.draw(screen, font)
         confirm_button.draw(screen, font)
         cancel_button.draw(screen, font)
+
+        if controls_enabled:
+            mouse_pos = pygame.mouse.get_pos()
+            for fleet in fleets.values():
+                hovered = fleet.occupied_slot_at_pos(mouse_pos)
+                if hovered is None:
+                    continue
+                slot_index, (_, name, cost, _) = hovered
+                definition = ships_data[name]
+                label = ui.format_ship_tooltip(
+                    name,
+                    getattr(definition, "ship_type", ""),
+                    cost,
+                )
+                ui.draw_ship_tooltip(
+                    screen,
+                    picker_tooltip_font,
+                    label,
+                    mouse_pos,
+                    fleet.slot_rect(slot_index),
+                )
+                break
 
         if ship_picker is not None:
             shade = pygame.Surface(screen.get_size(), pygame.SRCALPHA)

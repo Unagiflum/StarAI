@@ -9,7 +9,12 @@ SCROLL_BUTTON_HEIGHT = int(0.01 * Const.SCREEN_HEIGHT)
 SCROLL_SPEED = 20
 SPACING = int(0.005 * Const.SCREEN_WIDTH)
 FLEET_SLOT_SPACING = 3
-FLEET_SLOT_COLOR = ui.SHIP_PANEL_COLOR
+FLEET_SLOT_COLOR = Const.SHIP_PANEL_BACKGROUND_COLOR
+FLEET_BOX_COLOR = Const.SHIP_BOX_BACKGROUND_COLOR
+FLEET_BORDER_WIDTH = 3
+FLEET_EDGE_LINE_WIDTH = 3
+FLEET_CONTENT_INSET = FLEET_BORDER_WIDTH + FLEET_EDGE_LINE_WIDTH
+FLEET_TITLE_HEIGHT = 40
 
 
 def create_player_fleet_panels(column_lefts, top, width, height, icon_size):
@@ -259,31 +264,31 @@ class Fleet(ShipContainer):
         self.ships = [None] * self.max_fleet_size
 
     def calculate_tiling(self):
-        # Subtract margins from available space
-        available_width = self.rect.width - (2 * SPACING)
+        available_width = self.rect.width - 2 * FLEET_CONTENT_INSET
         available_height = (
-            self.rect.height - 40 - (3 * SPACING)
-        )  # 40 for title, extra SPACING for bottom margin
-
-        # Calculate maximum space we can use for each icon including spacing
-        total_vertical_space = available_height // Const.SHIP_ROWS
-        total_horizontal_space = available_width // Const.SHIP_COLS
-
-        # Subtract spacing to get actual icon size, ensuring square icons
-        icon_size = min(
-            total_horizontal_space - FLEET_SLOT_SPACING,
-            total_vertical_space - FLEET_SLOT_SPACING,
+            self.rect.height - FLEET_TITLE_HEIGHT - FLEET_CONTENT_INSET
+        )
+        horizontal_gaps = (Const.SHIP_COLS - 1) * FLEET_SLOT_SPACING
+        vertical_gaps = (Const.SHIP_ROWS - 1) * FLEET_SLOT_SPACING
+        icon_size = max(
+            1,
+            min(
+                (available_width - horizontal_gaps) // Const.SHIP_COLS,
+                (available_height - vertical_gaps) // Const.SHIP_ROWS,
+            ),
         )
 
         self.icon_size = (icon_size, icon_size)
 
-        # Calculate grid dimensions
         grid_width = (Const.SHIP_COLS * icon_size) + (
             (Const.SHIP_COLS - 1) * FLEET_SLOT_SPACING
         )
+        grid_height = (Const.SHIP_ROWS * icon_size) + vertical_gaps
 
-        # Center the grid horizontally
-        self.left_offset = (available_width - grid_width) // 2 + SPACING
+        self.left_offset = FLEET_CONTENT_INSET + (available_width - grid_width) // 2
+        self.top_offset = FLEET_TITLE_HEIGHT + (
+            available_height - grid_height
+        ) // 2
 
         self.spacing = FLEET_SLOT_SPACING
         self.icons_per_row = Const.SHIP_COLS
@@ -317,7 +322,7 @@ class Fleet(ShipContainer):
             self.rect.x
             + self.left_offset
             + col * (self.icon_size[0] + self.spacing),
-            self.rect.y + 40 + row * self.icon_total_height,
+            self.rect.y + self.top_offset + row * self.icon_total_height,
             self.icon_size[0],
             self.icon_size[1],
         )
@@ -336,6 +341,13 @@ class Fleet(ShipContainer):
             for index, ship in enumerate(self.ships)
             if ship is not None
         )
+
+    def occupied_slot_at_pos(self, pos):
+        """Return an occupied grid slot at ``pos``, using the full square."""
+        index = self.slot_index_at_pos(pos)
+        if index is None or self.ships[index] is None:
+            return None
+        return index, self.ships[index]
 
     def clear(self):
         self.model.clear()
@@ -367,8 +379,8 @@ class Fleet(ShipContainer):
         return self.model.total_cost
 
     def draw(self, screen, font, player_font=None):
-        pygame.draw.rect(screen, ui.BLACK, self.rect)
-        pygame.draw.rect(screen, self.color, self.rect, 3)
+        pygame.draw.rect(screen, FLEET_BOX_COLOR, self.rect)
+        pygame.draw.rect(screen, self.color, self.rect, FLEET_BORDER_WIDTH)
 
         title_text = font.render(
             f"{self.title} - cost: {self.get_total_cost()}", True, ui.WHITE
@@ -378,7 +390,6 @@ class Fleet(ShipContainer):
         for index in range(self.max_fleet_size):
             slot = self.slot_rect(index)
             pygame.draw.rect(screen, FLEET_SLOT_COLOR, slot)
-            pygame.draw.rect(screen, ui.BLACK, slot, 1)
 
         for ship in self.ships:
             if ship is not None:

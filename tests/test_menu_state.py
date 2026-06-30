@@ -159,6 +159,30 @@ class ShipSelectionStateTests(unittest.TestCase):
         self.assertFalse(state.deselect(1))
         self.assertEqual(state.selection(1).ship, survivor)
 
+    def test_random_selection_is_locked_and_hidden_by_state(self):
+        player1 = [Ship("P1-A"), Ship("P1-B")]
+        state = self.state(player1, [Ship("P2")])
+
+        self.assertTrue(state.select_random_index(1, 1))
+        self.assertEqual(state.random_locked_players, frozenset({1}))
+        self.assertEqual(state.selection(1).ship, player1[1])
+        self.assertFalse(state.selection_allowed(1))
+        self.assertFalse(state.toggle_index(1, 1))
+        self.assertFalse(state.deselect(1))
+        self.assertFalse(state.select_index(1, 0))
+
+    def test_random_selection_advances_forced_order_before_locking(self):
+        state = self.state(
+            [Ship("P1")],
+            [Ship("P2")],
+            choose_second_player=1,
+        )
+
+        self.assertTrue(state.select_random_index(2, 0))
+        self.assertTrue(state.first_locked)
+        self.assertEqual(state.active_player, 1)
+        self.assertTrue(state.selection_allowed(1))
+
 
 if __name__ == "__main__":
     unittest.main()

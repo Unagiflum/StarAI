@@ -7,12 +7,14 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame
+import src.const as Const
 
 pygame.init()
 pygame.display.set_mode((1, 1))
 
 from src.Menus.pick_fleet import (
     PICKER_BORDER_WIDTH,
+    PICKER_BOX_COLOR,
     PICKER_CAPACITY,
     PICKER_CELL_COLOR,
     PICKER_CELL_GAP,
@@ -21,7 +23,17 @@ from src.Menus.pick_fleet import (
 from src.Menus.pick_ship import fleet_slot_indices_for_ships, fleet_slots_for_ships
 from src.UI.ship_sprites import fit_ship_sprites, scale_ship_sprites
 from src.UI.ship_sprites import populate_fleet_panel
-from src.UI.ui_box import FLEET_SLOT_COLOR, FLEET_SLOT_SPACING, Fleet
+from src.UI import ui
+from src.UI.ui_box import (
+    FLEET_BORDER_WIDTH,
+    FLEET_BOX_COLOR,
+    FLEET_CONTENT_INSET,
+    FLEET_EDGE_LINE_WIDTH,
+    FLEET_SLOT_COLOR,
+    FLEET_SLOT_SPACING,
+    FLEET_TITLE_HEIGHT,
+    Fleet,
+)
 
 
 class FleetSlotTests(unittest.TestCase):
@@ -36,6 +48,22 @@ class FleetSlotTests(unittest.TestCase):
             empty_slot,
         )
 
+    def test_occupied_slot_hover_uses_full_square(self):
+        self.fleet.set_ship_at_slot(0, self.sprite, "Shofixti", 5)
+        hovered = self.fleet.occupied_slot_at_pos(self.fleet.slot_rect(0).topleft)
+
+        self.assertEqual(hovered[0], 0)
+        self.assertEqual(hovered[1][1:3], ("Shofixti", 5))
+        self.assertIsNone(
+            self.fleet.occupied_slot_at_pos(self.fleet.slot_rect(1).center)
+        )
+
+    def test_shared_ship_tooltip_format(self):
+        self.assertEqual(
+            ui.format_ship_tooltip("Shofixti", "Scout", 5),
+            "Shofixti Scout: 5",
+        )
+
     def test_slots_use_requested_background_and_gap(self):
         self.assertEqual(self.fleet.spacing, FLEET_SLOT_SPACING)
         self.assertEqual(FLEET_SLOT_SPACING, 3)
@@ -45,10 +73,51 @@ class FleetSlotTests(unittest.TestCase):
         self.fleet.draw(screen, font)
 
         self.assertEqual(screen.get_at(self.fleet.slot_rect(0).center)[:3], FLEET_SLOT_COLOR)
+        self.assertEqual(FLEET_SLOT_COLOR, Const.SHIP_PANEL_BACKGROUND_COLOR)
+        self.assertEqual(FLEET_BOX_COLOR, Const.SHIP_BOX_BACKGROUND_COLOR)
 
-    def test_fleet_grid_is_six_by_six(self):
-        self.assertEqual(self.fleet.icons_per_row, 6)
-        self.assertEqual(self.fleet.max_fleet_size, 36)
+    def test_fleet_grid_is_seven_by_seven(self):
+        self.assertEqual(self.fleet.icons_per_row, 7)
+        self.assertEqual(self.fleet.max_fleet_size, 49)
+
+    def test_grid_meets_edge_separator_without_outer_padding(self):
+        icon_size = 50
+        grid_size = 7 * icon_size + 6 * FLEET_SLOT_SPACING
+        fleet = Fleet(
+            0,
+            0,
+            grid_size + 2 * FLEET_CONTENT_INSET,
+            FLEET_TITLE_HEIGHT + grid_size + FLEET_CONTENT_INSET,
+            "Fleet",
+            (0, 0),
+        )
+        first_slot = fleet.slot_rect(0)
+        last_slot = fleet.slot_rect(fleet.max_fleet_size - 1)
+
+        self.assertEqual(first_slot.left, FLEET_CONTENT_INSET)
+        self.assertEqual(first_slot.top, FLEET_TITLE_HEIGHT)
+        self.assertEqual(fleet.rect.right - fleet.slot_rect(6).right, FLEET_CONTENT_INSET)
+        self.assertEqual(fleet.rect.bottom - last_slot.bottom, FLEET_CONTENT_INSET)
+        self.assertEqual(first_slot.size, (icon_size, icon_size))
+        self.assertEqual(first_slot.left - FLEET_BORDER_WIDTH, 3)
+        self.assertEqual(
+            fleet.slot_rect(1).left - first_slot.right,
+            FLEET_SLOT_SPACING,
+        )
+        self.assertEqual(FLEET_EDGE_LINE_WIDTH, FLEET_SLOT_SPACING)
+
+        screen = pygame.Surface(fleet.rect.size)
+        fleet.draw(screen, pygame.font.SysFont(None, 20))
+        for x in range(FLEET_BORDER_WIDTH, first_slot.left):
+            self.assertEqual(
+                screen.get_at((x, first_slot.centery))[:3],
+                FLEET_BOX_COLOR,
+            )
+        for x in range(first_slot.right, fleet.slot_rect(1).left):
+            self.assertEqual(
+                screen.get_at((x, first_slot.centery))[:3],
+                FLEET_BOX_COLOR,
+            )
 
     def test_occupied_slot_is_replaced_and_empty_slot_appends(self):
         self.assertTrue(self.fleet.add_ship(self.sprite, "First", 1))
@@ -145,6 +214,11 @@ class ShipPickerModalTests(unittest.TestCase):
         self.assertLess(picker.cancel_rect.bottom, picker.cell_rects[0].top)
         self.assertEqual(
             screen.get_at(picker.cell_rects[0].center)[:3], PICKER_CELL_COLOR
+        )
+        self.assertEqual(PICKER_CELL_COLOR, Const.SHIP_PANEL_BACKGROUND_COLOR)
+        self.assertEqual(PICKER_BOX_COLOR, Const.SHIP_BOX_BACKGROUND_COLOR)
+        self.assertEqual(
+            screen.get_at(picker.title_rect.topleft)[:3], PICKER_BOX_COLOR
         )
 
     def test_tooltip_is_below_hovered_ship(self):
