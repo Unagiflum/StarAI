@@ -1,11 +1,11 @@
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.action_transaction import ActionPlan
-from src.Objects.Ships.ZoqFot.A1.ZoqFotA1 import ZoqFotA1
-from src.Objects.Ships.ZoqFot.A2.ZoqFotA2 import ZoqFotA2
+from src.Objects.Ships.ZoqFotPik.A1.ZoqFotPikA1 import ZoqFotPikA1
+from src.Objects.Ships.ZoqFotPik.A2.ZoqFotPikA2 import ZoqFotPikA2
 
 
-class ZoqFot(SpaceShip):
-    action_factories = {1: ZoqFotA1, 2: ZoqFotA2}
+class ZoqFotPik(SpaceShip):
+    action_factories = {1: ZoqFotPikA1, 2: ZoqFotPikA2}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

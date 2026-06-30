@@ -570,7 +570,7 @@
         "sprite_path": "Objects/Ships/Yehat/",
         "sprite_scale": 1.0
     },
-    "ZoqFot": {
+    "ZoqFotPik": {
         "ship_type": "Stinger",
         "cost": 6,
         "max_hp": 10,
@@ -591,7 +591,7 @@
         "a3_wait": 0,
         "mass": 5,
         "inertia": true,
-        "sprite_path": "Objects/Ships/ZoqFot/",
+        "sprite_path": "Objects/Ships/ZoqFotPik/",
         "sprite_scale": 1.0
     }
 }

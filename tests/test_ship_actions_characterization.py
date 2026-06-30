@@ -32,8 +32,8 @@ ORDINARY_SINGLE_ACTIONS = (
     ("Spathi", 2, "src.Objects.Ships.Spathi.Spathi.SpathiA2"),
     ("Supox", 1, "src.Objects.Ships.Supox.Supox.SupoxA1"),
     ("Thraddash", 1, "src.Objects.Ships.Thraddash.Thraddash.ThraddashA1"),
-    ("ZoqFot", 1, "src.Objects.Ships.ZoqFot.ZoqFot.ZoqFotA1"),
-    ("ZoqFot", 2, "src.Objects.Ships.ZoqFot.ZoqFot.ZoqFotA2"),
+    ("ZoqFotPik", 1, "src.Objects.Ships.ZoqFotPik.ZoqFotPik.ZoqFotPikA1"),
+    ("ZoqFotPik", 2, "src.Objects.Ships.ZoqFotPik.ZoqFotPik.ZoqFotPikA2"),
 )
 
 

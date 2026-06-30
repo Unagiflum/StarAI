@@ -17,14 +17,14 @@ from src.Battle import collisions
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ship
-from src.Objects.Ships.ZoqFot.A2.ZoqFotA2 import ZoqFotA2
+from src.Objects.Ships.ZoqFotPik.A2.ZoqFotPikA2 import ZoqFotPikA2
 
 
-class ZoqFotA2Tests(CollisionTestCase):
+class ZoqFotPikA2Tests(CollisionTestCase):
     def setUp(self):
         self.sound_enabled = Ability.sound_enabled
         Ability.sound_enabled = False
-        self.parent = create_ship("ZoqFot", 1)
+        self.parent = create_ship("ZoqFotPik", 1)
         self.parent.initialize_in_battle([500, 500], 0)
 
     def tearDown(self):
@@ -35,7 +35,7 @@ class ZoqFotA2Tests(CollisionTestCase):
 
         area = self.parent.perform_action2()
 
-        self.assertIsInstance(area, ZoqFotA2)
+        self.assertIsInstance(area, ZoqFotPikA2)
         self.assertEqual(
             self.parent.current_energy,
             initial_energy - self.parent.a2_cost,
@@ -49,7 +49,7 @@ class ZoqFotA2Tests(CollisionTestCase):
         self.assertFalse(area.area_damage_capabilities.vulnerable)
         self.assertTrue(area.area_damage_capabilities.persistent)
         self.assertTrue(area.area_damage_capabilities.plays_impact_sound)
-        definition = ABILITY_DEFINITIONS["ZoqFotA2"]
+        definition = ABILITY_DEFINITIONS["ZoqFotPikA2"]
         self.assertEqual(area.size, [12, 50])
         self.assertEqual(area.base_offset, definition.offset)
         self.assertEqual(

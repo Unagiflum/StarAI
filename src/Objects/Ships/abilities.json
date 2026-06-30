@@ -1247,8 +1247,8 @@
         "life_time": 10,
         "file_path": "Objects/Ships/Yehat/A2/"
     },
-    "ZoqFotA1": {
-        "ship_name": "ZoqFot",
+    "ZoqFotPikA1": {
+        "ship_name": "ZoqFotPik",
         "type": "projectile",
         "action": "A1",
         "start_hp": [
@@ -1262,7 +1262,7 @@
         "turn_wait": 1,
         "inertia": true,
         "omnidirectional": true,
-        "file_path": "Objects/Ships/ZoqFot/A1/",
+        "file_path": "Objects/Ships/ZoqFotPik/A1/",
         "SPREAD_ANGLE": 5,
         "gun_locations": [
             [
@@ -1274,8 +1274,8 @@
             0.0
         ]
     },
-    "ZoqFotA2": {
-        "ship_name": "ZoqFot",
+    "ZoqFotPikA2": {
+        "ship_name": "ZoqFotPik",
         "type": "area",
         "action": "A2",
         "start_hp": [
@@ -1286,7 +1286,7 @@
         ],
         "parent_vel": 1.0,
         "life_time": 10,
-        "file_path": "Objects/Ships/ZoqFot/A2/",
+        "file_path": "Objects/Ships/ZoqFotPik/A2/",
         "offset": 0.5,
         "has_sprites": false,
         "advancing_frames": 2,

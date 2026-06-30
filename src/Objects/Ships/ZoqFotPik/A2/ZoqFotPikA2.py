@@ -8,14 +8,14 @@ from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 
 
-class ZoqFotA2(Ability):
+class ZoqFotPikA2(Ability):
     """A parent-mounted, sprite-shaped area attack that retracts toward the ship."""
 
     render_priority = 1
 
     def __init__(self, parent):
-        super().__init__("ZoqFotA2", parent)
-        definition = ABILITY_DEFINITIONS["ZoqFotA2"]
+        super().__init__("ZoqFotPikA2", parent)
+        definition = ABILITY_DEFINITIONS["ZoqFotPikA2"]
         self.advancing_frames = definition.advancing_frames or 5
         self.retracting_frames = definition.retracting_frames or 5
         self.area_width = definition.area_width or 12
