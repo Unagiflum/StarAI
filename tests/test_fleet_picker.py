@@ -33,6 +33,9 @@ from src.UI.ui_box import (
     FLEET_SLOT_SPACING,
     FLEET_TITLE_HEIGHT,
     Fleet,
+    SHIP_SELECTION_HOVER_FADE_MS,
+    ShipSelectionFleet,
+    ship_selection_hover_alpha,
 )
 
 
@@ -273,6 +276,25 @@ class UniformScalingTests(unittest.TestCase):
 
 
 class ShipSelectionFleetLayoutTests(unittest.TestCase):
+    def test_ship_selection_fleet_is_black_without_slot_panels(self):
+        fleet = ShipSelectionFleet(0, 0, 640, 360, "Fleet", (0, 0))
+        first_slot = fleet.slot_rect(0)
+        second_slot = fleet.slot_rect(1)
+        screen = pygame.Surface(fleet.rect.size)
+
+        fleet.draw(screen, pygame.font.SysFont(None, 20))
+
+        self.assertEqual(screen.get_at(first_slot.center)[:3], ui.BLACK)
+        self.assertEqual(screen.get_at(second_slot.center)[:3], ui.BLACK)
+        self.assertEqual(screen.get_at(fleet.slot_rect(2).center)[:3], ui.BLACK)
+
+    def test_hover_outline_fades_to_zero_and_back(self):
+        half_period = SHIP_SELECTION_HOVER_FADE_MS // 2
+
+        self.assertEqual(ship_selection_hover_alpha(0), 0)
+        self.assertEqual(ship_selection_hover_alpha(half_period), 255)
+        self.assertEqual(ship_selection_hover_alpha(SHIP_SELECTION_HOVER_FADE_MS), 0)
+
     def test_runtime_order_maps_back_to_sparse_display_slots(self):
         ships = [
             SimpleNamespace(name="First", fleet_slot_index=7),

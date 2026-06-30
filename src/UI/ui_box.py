@@ -15,12 +15,21 @@ FLEET_BORDER_WIDTH = 3
 FLEET_EDGE_LINE_WIDTH = 3
 FLEET_CONTENT_INSET = FLEET_BORDER_WIDTH + FLEET_EDGE_LINE_WIDTH
 FLEET_TITLE_HEIGHT = 40
+SHIP_SELECTION_HOVER_FADE_MS = 1200
 
 
-def create_player_fleet_panels(column_lefts, top, width, height, icon_size):
+def create_player_fleet_panels(
+    column_lefts,
+    top,
+    width,
+    height,
+    icon_size,
+    fleet_factory=None,
+):
     """Create the two existing player fleet panels from shared layout data."""
+    fleet_factory = fleet_factory or Fleet
     return {
-        player: Fleet(
+        player: fleet_factory(
             column_lefts[player],
             top,
             width,
@@ -395,3 +404,37 @@ class Fleet(ShipContainer):
             if ship is not None:
                 sprite, _, _, rect = ship
                 screen.blit(sprite, rect)
+
+
+class ShipSelectionFleet(Fleet):
+    """Fleet presentation used while choosing the next combatants."""
+
+    def draw(self, screen, font, player_font=None):
+        pygame.draw.rect(screen, ui.BLACK, self.rect)
+
+        title_text = font.render(
+            f"{self.title} - cost: {self.get_total_cost()}", True, ui.WHITE
+        )
+        screen.blit(title_text, (self.rect.x + 10, self.rect.y + 10))
+
+        for ship in self.ships:
+            if ship is not None:
+                sprite, _, _, rect = ship
+                screen.blit(sprite, rect)
+
+        pygame.draw.rect(screen, self.color, self.rect, FLEET_BORDER_WIDTH)
+
+
+def ship_selection_hover_alpha(ticks):
+    """Return a zero-to-opaque triangular pulse for hover outlines."""
+    phase = (ticks % SHIP_SELECTION_HOVER_FADE_MS) / SHIP_SELECTION_HOVER_FADE_MS
+    return round(255 * (1 - abs(2 * phase - 1)))
+
+
+def draw_alpha_rect_outline(screen, rect, color, alpha, width):
+    """Draw an alpha-blended rectangle outline on an opaque destination."""
+    if alpha <= 0:
+        return
+    surface = pygame.Surface(rect.size, pygame.SRCALPHA)
+    pygame.draw.rect(surface, (*color, alpha), surface.get_rect(), width)
+    screen.blit(surface, rect)

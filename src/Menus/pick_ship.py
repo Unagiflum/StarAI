@@ -154,6 +154,7 @@ def run(
         ui.SELECTION_WIDTH,
         ui.FLEET_HEIGHT,
         FLEET_ICON_SIZE,
+        fleet_factory=ui_box.ShipSelectionFleet,
     )
     fleet_sprites = scale_ship_sprites(original_sprites, fleet_size, SHIP_DEFINITIONS)
     player_ships = {1: player1_ships, 2: player2_ships}
@@ -391,6 +392,23 @@ def run(
             title = "Players: Select Your Ships"
         ui.draw_title(screen, title, title_size, int(0.05 * Const.SCREEN_HEIGHT))
 
+        mouse_pos = pygame.mouse.get_pos()
+        hovered_slots = {}
+        for player, panel in panels.items():
+            if not selection_state.selection_allowed(player):
+                continue
+            hovered = panel.occupied_slot_at_pos(mouse_pos)
+            if hovered is not None:
+                hovered_slots[player] = hovered[0]
+
+        selected_slots = {}
+        for player in (1, 2):
+            selection = selection_state.selection(player)
+            if selection is not None and player not in random_locked_players:
+                selected_slots[player] = selectable_panel_slots[player][
+                    selection.index
+                ][0]
+
         for panel in panels.values():
             panel.draw(screen, font)
 
@@ -435,18 +453,26 @@ def run(
                 draw_panel_badge(panels[player], "SELECT SHIP", player_color)
 
         # A selected ship is indicated directly in its fleet square.
-        for player, panel in panels.items():
-            selection = selection_state.selection(player)
-            if selection is not None and player not in random_locked_players:
-                slot_index, _ = selectable_panel_slots[player][selection.index]
-                pygame.draw.rect(screen, ui.WHITE, panel.slot_rect(slot_index), 3)
+        for player, slot_index in selected_slots.items():
+            pygame.draw.rect(screen, ui.WHITE, panels[player].slot_rect(slot_index), 3)
+
+        hover_alpha = ui_box.ship_selection_hover_alpha(pygame.time.get_ticks())
+        for player, slot_index in hovered_slots.items():
+            if selected_slots.get(player) == slot_index:
+                continue
+            ui_box.draw_alpha_rect_outline(
+                screen,
+                panels[player].slot_rect(slot_index),
+                ui.WHITE,
+                hover_alpha,
+                3,
+            )
 
         for button in random_buttons.values():
             button.draw(screen, font)
         confirm_button.draw(screen, font)
         cancel_button.draw(screen, font)
 
-        mouse_pos = pygame.mouse.get_pos()
         for player, panel in panels.items():
             if not selection_state.selection_allowed(player):
                 continue
