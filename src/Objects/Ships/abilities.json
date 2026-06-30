@@ -99,6 +99,69 @@
         "frame_delay": 4,
         "file_path": "Objects/Ships/Arilou/A2/"
     },
+    "ChenjesuA1": {
+        "ship_name": "Chenjesu",
+        "type": "projectile",
+        "action": "A1",
+        "start_hp": [
+            10
+        ],
+        "damage": [
+            6
+        ],
+        "parent_vel": 0.0,
+        "speed": 64,
+        "life_time": 100,
+        "file_path": "Objects/Ships/Chenjesu/A1/",
+        "has_sprites": true,
+        "omnidirectional": true,
+        "end_anim": 9,
+        "gun_locations": [
+            [
+                74,
+                36
+            ]
+        ],
+        "gun_directions": [
+            0.0
+        ],
+        "FRAGMENT_COUNT": 8,
+        "FRAGMENT_LIFE_TIME": 10,
+        "FRAGMENT_SPEED": 64,
+        "FRAGMENT_DAMAGE": 2,
+        "FRAGMENT_HP": 1
+    },
+    "ChenjesuA2": {
+        "ship_name": "Chenjesu",
+        "type": "special_object",
+        "action": "A2",
+        "start_hp": [
+            3
+        ],
+        "damage": [
+            0
+        ],
+        "speed": 32,
+        "inertia": true,
+        "omnidirectional": true,
+        "file_path": "Objects/Ships/Chenjesu/A2/",
+        "has_sound": true,
+        "end_anim": 6,
+        "gun_locations": [
+            [
+                74,
+                144
+            ]
+        ],
+        "gun_directions": [
+            180.0
+        ],
+        "MAX_COUNT": 4,
+        "JITTER": 16,
+        "DRAIN": 10,
+        "AVOID_ANGLE": 22.5,
+        "MASS": 4
+    },
     "DruugeA1": {
         "ship_name": "Druuge",
         "type": "projectile",

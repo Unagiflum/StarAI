@@ -444,6 +444,8 @@ class OrzA3(Ability):
         return True
 
     def handle_projectile_contact(self, projectile):
+        if getattr(projectile, "name", None) == "ChenjesuA2":
+            return True
         self.current_hp = max(0, self.current_hp - projectile.current_damage)
         if hasattr(projectile, "set_hp"):
             projectile.set_hp(0)

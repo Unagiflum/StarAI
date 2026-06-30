@@ -64,7 +64,11 @@ def projectile_is_area_target(source, projectile):
 
 
 def special_object_is_area_target(source, special_object):
-    return projectile_is_area_target(source, special_object)
+    accepts_source = getattr(special_object, "should_take_area_damage_from", None)
+    return (
+        (accepts_source is None or accepts_source(source))
+        and projectile_is_area_target(source, special_object)
+    )
 
 
 def asteroid_is_area_target(source, asteroid):

@@ -243,6 +243,15 @@ class AbilityDefinition(_DefinitionMapping):
     gun_level_timer: int | None = None
     effect_frames: int | None = None
     effect_duration: int | None = None
+    fragment_count: int | None = None
+    fragment_life_time: int | None = None
+    fragment_speed: float | None = None
+    fragment_damage: int | None = None
+    fragment_hp: int | None = None
+    max_count: int | None = None
+    jitter: float | None = None
+    drain: int | None = None
+    avoid_angle: float | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -332,6 +341,16 @@ class AbilityDefinition(_DefinitionMapping):
         "GUN_LEVEL_TIMER": "gun_level_timer",
         "EFFECT_FRAMES": "effect_frames",
         "EFFECT_DURATION": "effect_duration",
+        "FRAGMENT_COUNT": "fragment_count",
+        "FRAGMENT_LIFE_TIME": "fragment_life_time",
+        "FRAGMENT_SPEED": "fragment_speed",
+        "FRAGMENT_DAMAGE": "fragment_damage",
+        "FRAGMENT_HP": "fragment_hp",
+        "MAX_COUNT": "max_count",
+        "JITTER": "jitter",
+        "DRAIN": "drain",
+        "AVOID_ANGLE": "avoid_angle",
+        "MASS": "mass",
     }
 
 
@@ -675,6 +694,16 @@ def parse_ability_definition(name, data):
         "GUN_LEVEL_TIMER",
         "EFFECT_FRAMES",
         "EFFECT_DURATION",
+        "FRAGMENT_COUNT",
+        "FRAGMENT_LIFE_TIME",
+        "FRAGMENT_SPEED",
+        "FRAGMENT_DAMAGE",
+        "FRAGMENT_HP",
+        "MAX_COUNT",
+        "JITTER",
+        "DRAIN",
+        "AVOID_ANGLE",
+        "MASS",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -772,11 +801,26 @@ def parse_ability_definition(name, data):
         "GUN_LEVEL_TIMER": ("gun_level_timer", int),
         "EFFECT_FRAMES": ("effect_frames", int),
         "EFFECT_DURATION": ("effect_duration", int),
+        "FRAGMENT_COUNT": ("fragment_count", int),
+        "FRAGMENT_LIFE_TIME": ("fragment_life_time", int),
+        "FRAGMENT_SPEED": ("fragment_speed", float),
+        "FRAGMENT_DAMAGE": ("fragment_damage", int),
+        "FRAGMENT_HP": ("fragment_hp", int),
+        "MAX_COUNT": ("max_count", int),
+        "JITTER": ("jitter", float),
+        "DRAIN": ("drain", int),
+        "AVOID_ANGLE": ("avoid_angle", float),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(
             kind, name, data, json_key, expected_type, None
         )
+    if "MASS" in data:
+        if "mass" in data:
+            raise CatalogValidationError(
+                f"Ability '{name}' cannot define both 'mass' and 'MASS'"
+            )
+        values["mass"] = _typed(kind, name, "MASS", data["MASS"], float)
     if "LASER_COLOR" in data:
         values["laser_color"] = _int_tuple(kind, name, data, "LASER_COLOR", length=3)
         if any(channel < 0 or channel > 255 for channel in values["laser_color"]):
@@ -856,6 +900,15 @@ def parse_ability_definition(name, data):
         "gun_level_timer",
         "effect_frames",
         "effect_duration",
+        "fragment_count",
+        "fragment_life_time",
+        "fragment_speed",
+        "fragment_damage",
+        "fragment_hp",
+        "max_count",
+        "jitter",
+        "drain",
+        "avoid_angle",
     ):
         if values[field_name] is not None and values[field_name] <= 0:
             raise CatalogValidationError(
