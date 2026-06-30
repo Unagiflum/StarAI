@@ -208,6 +208,7 @@ class AbilityDefinition(_DefinitionMapping):
     hp_gain: int | None = None
     is_psychic: bool = False
     ignores_shields: bool = False
+    backup_speed: float | None = None
     track_speed: float | None = None
     track_range: float | None = None
     damage_to_projectiles: int | None = None
@@ -291,6 +292,7 @@ class AbilityDefinition(_DefinitionMapping):
         "HP_GAIN": "hp_gain",
         "is_psychic": "is_psychic",
         "ignores_shields": "ignores_shields",
+        "BACKUP_SPEED": "backup_speed",
         "TRACK_SPEED": "track_speed",
         "TRACK_RANGE": "track_range",
         "DMG_TO_PROJ": "damage_to_projectiles",
@@ -628,6 +630,7 @@ def parse_ability_definition(name, data):
         "is_psychic",
         "ignores_shields",
         "HP_GAIN",
+        "BACKUP_SPEED",
         "radius",
         "separation_distance",
         "spawn_angle_increment",
@@ -723,6 +726,7 @@ def parse_ability_definition(name, data):
         "RECOIL_INCREMENT": ("recoil_increment", float),
         "ENERGY_GAIN": ("energy_gain", int),
         "HP_GAIN": ("hp_gain", int),
+        "BACKUP_SPEED": ("backup_speed", float),
         "TRACK_SPEED": ("track_speed", float),
         "TRACK_RANGE": ("track_range", float),
         "DMG_TO_PROJ": ("damage_to_projectiles", int),

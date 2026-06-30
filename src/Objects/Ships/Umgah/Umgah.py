@@ -67,7 +67,7 @@ class Umgah(SpaceShip):
 
     def _activate_reverse_burst(self):
         angle = math.radians(self.rotation)
-        speed = ABILITY_DEFINITIONS["UmgahA2"].speed
+        speed = ABILITY_DEFINITIONS["UmgahA2"].backup_speed
         self.velocity = [
             -math.sin(angle) * speed,
             math.cos(angle) * speed,
