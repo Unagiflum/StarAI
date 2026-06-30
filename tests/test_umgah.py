@@ -298,7 +298,7 @@ class UmgahTests(CollisionTestCase):
 
     def test_a2_moves_backward_once_and_stops_after_collision_processing(self):
         initial_energy = self.ship.current_energy
-        configured_speed = ABILITY_DEFINITIONS["UmgahA2"].speed
+        configured_speed = ABILITY_DEFINITIONS["UmgahA2"].backup_speed
         expected_position = [
             self.ship.position[0],
             (
@@ -325,7 +325,7 @@ class UmgahTests(CollisionTestCase):
         other.previous_position = other.position.copy()
         unimpeded_y = (
             self.ship.position[1]
-            + ABILITY_DEFINITIONS["UmgahA2"].speed * const.SPEED_SCALE
+            + ABILITY_DEFINITIONS["UmgahA2"].backup_speed * const.SPEED_SCALE
         ) % const.ARENA_SIZE
         self.ship.perform_action2()
         self.ship.update()
@@ -346,7 +346,7 @@ class UmgahTests(CollisionTestCase):
         projectile.on_ship_impact = lambda ship: ship.apply_thrust(96, 24, 180, False)
         unimpeded_y = (
             self.ship.position[1]
-            + ABILITY_DEFINITIONS["UmgahA2"].speed * const.SPEED_SCALE
+            + ABILITY_DEFINITIONS["UmgahA2"].backup_speed * const.SPEED_SCALE
         ) % const.ARENA_SIZE
         self.ship.perform_action2()
         self.ship.update()
