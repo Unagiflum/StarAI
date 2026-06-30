@@ -101,6 +101,46 @@ def load_ship_sprite(ship_name, resources=None):
 scale_sprites = scale_ship_sprites
 
 
+def selection_prompt(selection_state):
+    """Return the title and active-panel badge for the current selection step."""
+    if selection_state.both_selected:
+        return "Both Players Ready", None
+
+    survivor_locked_players = selection_state.survivor_locked_players
+    if selection_state.choose_second_player is not None:
+        if selection_state.first_player in survivor_locked_players:
+            return (
+                f"Player {selection_state.first_player} Survives - "
+                f"Player {selection_state.active_player}: Select Ship",
+                "SELECT SHIP",
+            )
+        if not selection_state.first_locked:
+            return (
+                f"Player {selection_state.active_player}: Select First",
+                "SELECT FIRST",
+            )
+        return (
+            f"Player {selection_state.first_player} Locked - "
+            f"Player {selection_state.choose_second_player}: Select Second",
+            "SELECT SECOND",
+        )
+
+    if survivor_locked_players:
+        selecting_players = [
+            player for player in (1, 2) if player not in survivor_locked_players
+        ]
+        if selecting_players:
+            survivor = next(iter(survivor_locked_players))
+            return (
+                f"Player {survivor} Survives - "
+                f"Player {selecting_players[0]}: Select Ship",
+                "SELECT SHIP",
+            )
+        return "Both Players Ready", None
+
+    return "Players: Select Your Ships", None
+
+
 def load_ships_data(ships_data):
     return ships_data, load_menu_ship_sprites(ships_data)
 
@@ -364,32 +404,12 @@ def run(
         both_selected = selection_state.both_selected
         survivor_locked_players = selection_state.survivor_locked_players
         random_locked_players = selection_state.random_locked_players
-        title_size = TITLE_FONT_SIZE
-        if choose_second_player in (1, 2):
-            if not selection_state.first_locked:
-                title = f"Player {active_player}: Select First"
-            elif both_selected:
-                title = "Both Players Ready"
-            else:
-                title = (
-                    f"Player {selection_state.first_player} Locked - "
-                    f"Player {choose_second_player}: Select Second"
-                )
-                title_size = int(Const.SCREEN_HEIGHT * 0.055)
-        elif survivor_locked_players:
-            selecting_players = [
-                player for player in (1, 2) if player not in survivor_locked_players
-            ]
-            if both_selected:
-                title = "Both Players Ready"
-            elif selecting_players:
-                survivor = next(iter(survivor_locked_players))
-                title = f"Player {survivor} Survives - Player {selecting_players[0]}: Select Ship"
-                title_size = int(Const.SCREEN_HEIGHT * 0.055)
-            else:
-                title = "Both Players Ready"
-        else:
-            title = "Players: Select Your Ships"
+        title, active_badge = selection_prompt(selection_state)
+        title_size = (
+            int(Const.SCREEN_HEIGHT * 0.055)
+            if " - " in title
+            else TITLE_FONT_SIZE
+        )
         ui.draw_title(screen, title, title_size, int(0.05 * Const.SCREEN_HEIGHT))
 
         mouse_pos = pygame.mouse.get_pos()
@@ -438,11 +458,6 @@ def run(
                 active_panel = panels[active_player]
                 active_color = Const.P1_COLOR if active_player == 1 else Const.P2_COLOR
                 pygame.draw.rect(screen, active_color, active_panel.rect, 4)
-                active_badge = (
-                    "SELECT FIRST"
-                    if not selection_state.first_locked
-                    else "SELECT SECOND"
-                )
                 draw_panel_badge(active_panel, active_badge, active_color)
         elif survivor_locked_players and not both_selected:
             for player in (1, 2):
@@ -450,7 +465,7 @@ def run(
                     continue
                 player_color = Const.P1_COLOR if player == 1 else Const.P2_COLOR
                 pygame.draw.rect(screen, player_color, panels[player].rect, 4)
-                draw_panel_badge(panels[player], "SELECT SHIP", player_color)
+                draw_panel_badge(panels[player], active_badge, player_color)
 
         # A selected ship is indicated directly in its fleet square.
         for player, slot_index in selected_slots.items():

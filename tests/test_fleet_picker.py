@@ -20,7 +20,12 @@ from src.Menus.pick_fleet import (
     PICKER_CELL_GAP,
     ShipPickerModal,
 )
-from src.Menus.pick_ship import fleet_slot_indices_for_ships, fleet_slots_for_ships
+from src.Menus.pick_ship import (
+    fleet_slot_indices_for_ships,
+    fleet_slots_for_ships,
+    selection_prompt,
+)
+from src.menu_state import ShipSelectionState
 from src.UI.ship_sprites import fit_ship_sprites, scale_ship_sprites
 from src.UI.ship_sprites import populate_fleet_panel
 from src.UI import ui
@@ -37,6 +42,27 @@ from src.UI.ui_box import (
     ShipSelectionFleet,
     ship_selection_hover_alpha,
 )
+
+
+class SelectionPromptTests(unittest.TestCase):
+    def test_reincarnated_first_chooser_leaves_other_player_selecting_alone(self):
+        shofixti_replacement = SimpleNamespace(
+            name="Shofixti", currently_alive=True, current_hp=10
+        )
+        reborn_pkunk = SimpleNamespace(
+            name="Pkunk", currently_alive=True, current_hp=1
+        )
+        state = ShipSelectionState(
+            {1: [shofixti_replacement], 2: [reborn_pkunk]},
+            {1: ["Shofixti"], 2: ["Pkunk"]},
+            preselected={1: None, 2: reborn_pkunk},
+            choose_second_player=1,
+        )
+
+        self.assertEqual(
+            selection_prompt(state),
+            ("Player 2 Survives - Player 1: Select Ship", "SELECT SHIP"),
+        )
 
 
 class FleetSlotTests(unittest.TestCase):
