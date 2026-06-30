@@ -141,7 +141,7 @@ class FleetPersistenceTests(unittest.TestCase):
 
     def test_round_trip_preserves_shape_order_and_ai_flags(self):
         fleets = Fleets(
-            PlayerFleet(("Spathi", "Earthling", "Spathi"), True),
+            PlayerFleet(("Spathi", None, "Earthling", "Spathi"), True),
             PlayerFleet(("Arilou",), False),
         )
         with tempfile.TemporaryDirectory() as directory:

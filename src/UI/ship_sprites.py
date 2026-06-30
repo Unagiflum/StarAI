@@ -59,7 +59,32 @@ def scale_ship_sprites(
     }
 
 
+def fit_ship_sprites(
+    original_sprites: Mapping[str, pygame.Surface], max_size: int
+) -> dict[str, pygame.Surface]:
+    """Fit each sprite independently without enlarging its source art."""
+    fitted = {}
+    for name, sprite in original_sprites.items():
+        scale_factor = min(1.0, max_size / max(1, *sprite.get_size()))
+        if scale_factor == 1.0:
+            fitted[name] = sprite
+            continue
+        fitted[name] = pygame.transform.scale(
+            sprite,
+            tuple(
+                max(1, int(dimension * scale_factor))
+                for dimension in sprite.get_size()
+            ),
+        )
+    return fitted
+
+
 def populate_fleet_panel(panel, ship_names, sprites, catalog) -> None:
-    """Populate a fleet view in persisted order from typed catalog metadata."""
-    for name in ship_names:
-        panel.add_ship(sprites[name], name, catalog[name].cost)
+    """Populate a fleet view while preserving persisted empty positions."""
+    for index, name in enumerate(ship_names):
+        if name is None:
+            continue
+        if hasattr(panel, "set_ship_at_slot"):
+            panel.set_ship_at_slot(index, sprites[name], name, catalog[name].cost)
+        else:
+            panel.add_ship(sprites[name], name, catalog[name].cost)

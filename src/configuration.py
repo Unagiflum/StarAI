@@ -173,7 +173,7 @@ class TrainingSettingsRepository:
 
 @dataclass(frozen=True)
 class PlayerFleet:
-    ships: tuple[str, ...] = ()
+    ships: tuple[str | None, ...] = ()
     ai: bool = False
 
 
@@ -202,7 +202,7 @@ class FleetsCodec:
         ships = tuple(
             name
             for name in raw_ships
-            if isinstance(name, str) and name in self.ship_names
+            if name is None or (isinstance(name, str) and name in self.ship_names)
         )
         ai = value.get("ai", False)
         if not isinstance(ai, bool):
@@ -221,7 +221,9 @@ class FleetsCodec:
             if not isinstance(player.ai, bool):
                 raise PersistenceValidationError("Fleet AI flags must be booleans")
             for ship_name in player.ships:
-                if not isinstance(ship_name, str) or ship_name not in self.ship_names:
+                if ship_name is not None and (
+                    not isinstance(ship_name, str) or ship_name not in self.ship_names
+                ):
                     raise PersistenceValidationError(
                         f"Fleet contains unknown ship {ship_name!r}"
                     )

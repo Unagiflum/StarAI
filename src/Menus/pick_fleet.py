@@ -3,6 +3,7 @@ import sys
 
 from src.UI import ui, ui_button, ui_box
 from src.UI.ship_sprites import (
+    fit_ship_sprites,
     load_menu_ship_sprites,
     populate_fleet_panel,
     scale_ship_sprites,
@@ -21,8 +22,13 @@ TITLE_FONT_SIZE = int(const.SCREEN_HEIGHT * 0.08)
 PICKER_COLS = 5
 PICKER_ROWS = 5
 PICKER_CAPACITY = PICKER_COLS * PICKER_ROWS
-PICKER_ICON_SIZE = int(const.SCREEN_HEIGHT * 0.075)
 MODAL_SHADE_ALPHA = 165
+PICKER_CELL_COLOR = (20, 20, 20)
+PICKER_CELL_GAP = 3
+PICKER_BORDER_WIDTH = 5
+TOOLTIP_OFFSET = 4
+TOOLTIP_PADDING = (8, 5)
+PICKER_TOOLTIP_FONT_SIZE = int(const.SCREEN_HEIGHT * 0.042)
 
 
 class ShipPickerModal:
@@ -32,57 +38,87 @@ class ShipPickerModal:
         self.player = player
         self.slot_index = slot_index
         self.color = const.P1_COLOR if player == 1 else const.P2_COLOR
-        self.ships = [
-            (name, definition.cost, sprites[name])
-            for name, definition in ships_data.items()
-        ]
-        if len(self.ships) > PICKER_CAPACITY:
+        if len(ships_data) > PICKER_CAPACITY:
             raise ValueError(
                 f"The ship picker supports {PICKER_CAPACITY} ships; "
-                f"the catalog contains {len(self.ships)}"
+                f"the catalog contains {len(ships_data)}"
             )
 
-        modal_size = min(
+        max_modal_height = min(
             int(const.SCREEN_WIDTH * 0.70), int(const.SCREEN_HEIGHT * 0.82)
         )
-        self.rect = pygame.Rect(0, 0, modal_size, modal_size)
-        self.rect.center = (const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT // 2)
-
-        padding = int(const.SCREEN_HEIGHT * 0.02)
         title_height = int(const.SCREEN_HEIGHT * 0.055)
-        footer_height = int(const.SCREEN_HEIGHT * 0.05)
-        footer_gap = int(const.SCREEN_HEIGHT * 0.0125)
-        button_width = int(self.rect.width * 0.32)
-        button_gap = int(const.SCREEN_WIDTH * 0.012)
-        button_top = self.rect.bottom - padding - footer_height
+        max_grid_side = min(
+            int(const.SCREEN_WIDTH * 0.70) - 2 * PICKER_CELL_GAP,
+            max_modal_height - title_height - 3 * PICKER_CELL_GAP,
+        )
+        cell_size = (
+            max_grid_side - PICKER_CELL_GAP * (PICKER_COLS - 1)
+        ) // PICKER_COLS
+        grid_side = (
+            cell_size * PICKER_COLS
+            + PICKER_CELL_GAP * (PICKER_COLS - 1)
+        )
+        modal_width = grid_side + 2 * PICKER_CELL_GAP
+        modal_height = grid_side + title_height + 3 * PICKER_CELL_GAP
+        self.rect = pygame.Rect(
+            0,
+            0,
+            modal_width + 2 * PICKER_BORDER_WIDTH,
+            modal_height + 2 * PICKER_BORDER_WIDTH,
+        )
+        self.rect.center = (const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT // 2)
+        self.content_rect = self.rect.inflate(
+            -2 * PICKER_BORDER_WIDTH, -2 * PICKER_BORDER_WIDTH
+        )
+
+        self.title_rect = pygame.Rect(
+            self.content_rect.left + PICKER_CELL_GAP,
+            self.content_rect.top + PICKER_CELL_GAP,
+            grid_side,
+            title_height,
+        )
+        button_width = int(grid_side * 0.20)
+        button_height = int(const.SCREEN_HEIGHT * 0.045)
         self.cancel_rect = pygame.Rect(
-            self.rect.centerx - button_width // 2,
-            button_top,
+            self.title_rect.right - button_width,
+            self.title_rect.centery - button_height // 2,
             button_width,
-            footer_height,
+            button_height,
+        )
+        self.title_text_rect = self.title_rect.copy()
+        self.title_text_rect.width = (
+            self.cancel_rect.left - PICKER_CELL_GAP - self.title_text_rect.left
         )
 
         grid_rect = pygame.Rect(
-            self.rect.left + padding,
-            self.rect.top + padding + title_height,
-            self.rect.width - 2 * padding,
-            self.cancel_rect.top
-            - footer_gap
-            - (self.rect.top + padding + title_height),
+            self.content_rect.left + PICKER_CELL_GAP,
+            self.title_rect.bottom + PICKER_CELL_GAP,
+            grid_side,
+            grid_side,
         )
-        cell_width = grid_rect.width // PICKER_COLS
-        cell_height = grid_rect.height // PICKER_ROWS
         self.cell_rects = []
         for index in range(PICKER_CAPACITY):
             row, col = divmod(index, PICKER_COLS)
             self.cell_rects.append(
                 pygame.Rect(
-                    grid_rect.left + col * cell_width,
-                    grid_rect.top + row * cell_height,
-                    cell_width,
-                    cell_height,
-                ).inflate(-6, -6)
+                    grid_rect.left + col * (cell_size + PICKER_CELL_GAP),
+                    grid_rect.top + row * (cell_size + PICKER_CELL_GAP),
+                    cell_size,
+                    cell_size,
+                )
             )
+
+        picker_sprites = fit_ship_sprites(sprites, cell_size)
+        self.ships = [
+            (
+                name,
+                getattr(definition, "ship_type", ""),
+                definition.cost,
+                picker_sprites[name],
+            )
+            for name, definition in ships_data.items()
+        ]
 
     def ship_at_pos(self, pos):
         for index, ship in enumerate(self.ships):
@@ -90,62 +126,62 @@ class ShipPickerModal:
                 return ship
         return None
 
-    def draw(self, screen, title_font, name_font, cost_font):
-        pygame.draw.rect(screen, ui.BLACK, self.rect)
-        pygame.draw.rect(screen, self.color, self.rect, 4)
+    def _hovered_ship(self, pos):
+        for index, ship in enumerate(self.ships):
+            if self.cell_rects[index].collidepoint(pos):
+                return ship, self.cell_rects[index]
+        return None
+
+    def _tooltip_rect(self, text_surface, mouse_pos, cell_rect, screen_rect):
+        width = text_surface.get_width() + 2 * TOOLTIP_PADDING[0]
+        height = text_surface.get_height() + 2 * TOOLTIP_PADDING[1]
+        tooltip_rect = pygame.Rect(0, 0, width, height)
+        tooltip_rect.midtop = (
+            mouse_pos[0],
+            max(mouse_pos[1] + TOOLTIP_OFFSET, cell_rect.bottom + TOOLTIP_OFFSET),
+        )
+        tooltip_rect.clamp_ip(screen_rect)
+        return tooltip_rect
+
+    def draw(self, screen, title_font, tooltip_font):
+        pygame.draw.rect(screen, self.color, self.rect)
+        pygame.draw.rect(screen, ui.BLACK, self.content_rect)
 
         title = title_font.render(
             f"Player {self.player}: Select a Ship", True, ui.WHITE
         )
-        screen.blit(
-            title,
-            title.get_rect(
-                centerx=self.rect.centerx,
-                top=self.rect.top + int(const.SCREEN_HEIGHT * 0.018),
-            ),
-        )
+        screen.blit(title, title.get_rect(center=self.title_text_rect.center))
 
         mouse_pos = pygame.mouse.get_pos()
-        quiet_color = tuple(max(20, int(channel * 0.42)) for channel in self.color)
-        for index, cell_rect in enumerate(self.cell_rects):
-            if index < len(self.ships) and cell_rect.collidepoint(mouse_pos):
-                hover_surface = pygame.Surface(cell_rect.size, pygame.SRCALPHA)
-                hover_surface.fill((*self.color, 65))
-                screen.blit(hover_surface, cell_rect)
-            pygame.draw.rect(screen, quiet_color, cell_rect, 1)
-
-            if index >= len(self.ships):
-                continue
-            name, cost, sprite = self.ships[index]
-            sprite_area_center = (
-                cell_rect.centerx,
-                cell_rect.top + PICKER_ICON_SIZE // 2 + 5,
-            )
-            screen.blit(sprite, sprite.get_rect(center=sprite_area_center))
-
-            name_surface = name_font.render(name, True, ui.WHITE)
-            cost_surface = cost_font.render(f"Cost: {cost}", True, ui.WHITE)
-            screen.blit(
-                name_surface,
-                name_surface.get_rect(
-                    centerx=cell_rect.centerx, bottom=cell_rect.bottom - 20
-                ),
-            )
-            screen.blit(
-                cost_surface,
-                cost_surface.get_rect(
-                    centerx=cell_rect.centerx, bottom=cell_rect.bottom - 3
-                ),
-            )
-
         cancel_color = (
             ui.CAN_RED_HI
             if self.cancel_rect.collidepoint(mouse_pos)
             else ui.CAN_RED
         )
         pygame.draw.rect(screen, cancel_color, self.cancel_rect, border_radius=5)
-        cancel_text = cost_font.render("Cancel", True, ui.WHITE)
+        cancel_text = title_font.render("Cancel", True, ui.WHITE)
         screen.blit(cancel_text, cancel_text.get_rect(center=self.cancel_rect.center))
+
+        for index, cell_rect in enumerate(self.cell_rects):
+            pygame.draw.rect(screen, PICKER_CELL_COLOR, cell_rect)
+
+            if index >= len(self.ships):
+                continue
+            _, _, _, sprite = self.ships[index]
+            screen.blit(sprite, sprite.get_rect(center=cell_rect.center))
+
+        hovered = self._hovered_ship(mouse_pos)
+        if hovered is not None:
+            (name, ship_type, cost, _), cell_rect = hovered
+            pygame.draw.rect(screen, ui.WHITE, cell_rect, 1)
+            label = f"{name} {ship_type}: {cost}" if ship_type else f"{name}: {cost}"
+            text_surface = tooltip_font.render(label, True, ui.WHITE)
+            tooltip_rect = self._tooltip_rect(
+                text_surface, mouse_pos, cell_rect, screen.get_rect()
+            )
+            pygame.draw.rect(screen, ui.BLACK, tooltip_rect)
+            pygame.draw.rect(screen, ui.WHITE, tooltip_rect, 1)
+            screen.blit(text_surface, text_surface.get_rect(center=tooltip_rect.center))
 
 
 def load_ships():
@@ -163,18 +199,15 @@ def load_ship_sprites(ships_data, resources=None):
 
 
 def create_sprite_sets(ships_data):
-    """Create picker and fleet sprites using one scale factor per view."""
+    """Load picker source art and create fleet sprites at the fleet scale."""
     original_sprites = load_ship_sprites(ships_data)
-    selection_sprites = scale_ship_sprites(
-        original_sprites, PICKER_ICON_SIZE, ships_data
-    )
 
     # Calculate fleet icon size first
     fleet = ui_box.Fleet(0, 0, ui.SELECTION_WIDTH, ui.FLEET_HEIGHT, "", (0, 0))
     fleet_size = fleet.icon_size[0]
     fleet_sprites = scale_ship_sprites(original_sprites, fleet_size, ships_data)
 
-    return selection_sprites, fleet_sprites
+    return original_sprites, fleet_sprites
 
 
 scale_sprites = scale_ship_sprites
@@ -185,8 +218,8 @@ def save_fleets(
 ):
     """Save the current fleets and AI settings to fleets.json."""
     fleets = Fleets(
-        PlayerFleet(left_fleet.model.ship_names, left_ai),
-        PlayerFleet(right_fleet.model.ship_names, right_ai),
+        PlayerFleet(left_fleet.model.ship_slots, left_ai),
+        PlayerFleet(right_fleet.model.ship_slots, right_ai),
     )
     try:
         FleetsRepository(const.FLEETS_JSON_PATH, SHIP_DEFINITIONS).save(fleets)
@@ -218,8 +251,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     font = pygame.font.SysFont(None, cost_FONT_SIZE)
     title_font = pygame.font.SysFont(None, TITLE_FONT_SIZE)
     picker_title_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.042))
-    picker_name_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.021))
-    picker_cost_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.019))
+    picker_tooltip_font = pygame.font.SysFont(None, PICKER_TOOLTIP_FONT_SIZE)
     background = ui.load_background(
         const.MENU_BG_PATH, const.SCREEN_WIDTH, const.SCREEN_HEIGHT
     )
@@ -377,7 +409,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     else:
                         selected = ship_picker.ship_at_pos(event.pos)
                         if selected is not None:
-                            name, cost, _ = selected
+                            name, _, cost, _ = selected
                             fleet = fleets[ship_picker.player]
                             if fleet.set_ship_at_slot(
                                 ship_picker.slot_index,
@@ -426,6 +458,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             confirm_button.bg_color = ui.DISABLED_BUTTON
             confirm_button.hover_color = ui.DISABLED_BUTTON
 
+        controls_enabled = ship_picker is None
+        for controls in (ai_toggles, one_of_each_buttons, clear_buttons):
+            for control in controls.values():
+                control.enabled = controls_enabled
+        confirm_button.enabled = controls_enabled
+        cancel_button.enabled = controls_enabled
+
         # Draw everything
         if background:
             screen.blit(background, (0, 0))
@@ -455,8 +494,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 color = const.P1_COLOR if player == 1 else const.P2_COLOR
                 dark_border = tuple(int(channel * 0.35) for channel in color)
                 pygame.draw.rect(screen, dark_border, fleet.rect, 3)
-            ship_picker.draw(
-                screen, picker_title_font, picker_name_font, picker_cost_font
-            )
+            ship_picker.draw(screen, picker_title_font, picker_tooltip_font)
 
         pygame.display.flip()

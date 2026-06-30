@@ -329,6 +329,14 @@ class Fleet(ShipContainer):
                 return index
         return None
 
+    def occupied_slots(self):
+        """Return ``(slot_index, ship_view)`` pairs without compacting gaps."""
+        return tuple(
+            (index, ship)
+            for index, ship in enumerate(self.ships)
+            if ship is not None
+        )
+
     def clear(self):
         self.model.clear()
         self.ships = [None] * self.max_fleet_size

@@ -22,11 +22,13 @@ class FleetModelTests(unittest.TestCase):
         self.assertEqual(
             fleet.ship_names, ("Spathi", "Earthling", "Spathi")
         )
+        self.assertEqual(fleet.ship_slots, ("Spathi", "Earthling", "Spathi"))
         self.assertEqual(fleet.total_cost, 47)
 
         removed = fleet.remove_ship(1)
         self.assertEqual(removed, FleetShip("Earthling", 11))
         self.assertEqual(fleet.ship_names, ("Spathi", "Spathi"))
+        self.assertEqual(fleet.ship_slots, ("Spathi", None, "Spathi"))
         self.assertEqual(fleet.total_cost, 36)
 
         replaced = fleet.replace_ship(1, "Arilou", 16)

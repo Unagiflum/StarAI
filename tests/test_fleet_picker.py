@@ -11,8 +11,16 @@ import pygame
 pygame.init()
 pygame.display.set_mode((1, 1))
 
-from src.Menus.pick_fleet import PICKER_CAPACITY, ShipPickerModal
-from src.UI.ship_sprites import scale_ship_sprites
+from src.Menus.pick_fleet import (
+    PICKER_BORDER_WIDTH,
+    PICKER_CAPACITY,
+    PICKER_CELL_COLOR,
+    PICKER_CELL_GAP,
+    ShipPickerModal,
+)
+from src.Menus.pick_ship import fleet_slot_indices_for_ships, fleet_slots_for_ships
+from src.UI.ship_sprites import fit_ship_sprites, scale_ship_sprites
+from src.UI.ship_sprites import populate_fleet_panel
 from src.UI.ui_box import FLEET_SLOT_COLOR, FLEET_SLOT_SPACING, Fleet
 
 
@@ -58,11 +66,32 @@ class FleetSlotTests(unittest.TestCase):
         self.assertIsNone(self.fleet.ships[1])
         self.assertEqual(self.fleet.ships[2][3].center, old_third_center)
 
+    def test_population_preserves_persisted_empty_slots(self):
+        sprites = {
+            "First": self.sprite,
+            "Second": self.sprite,
+        }
+        catalog = {
+            "First": SimpleNamespace(cost=1),
+            "Second": SimpleNamespace(cost=2),
+        }
+
+        populate_fleet_panel(
+            self.fleet, ("First", None, "Second"), sprites, catalog
+        )
+
+        self.assertIsNotNone(self.fleet.ships[0])
+        self.assertIsNone(self.fleet.ships[1])
+        self.assertIsNotNone(self.fleet.ships[2])
+        self.assertEqual(
+            tuple(index for index, _ in self.fleet.occupied_slots()), (0, 2)
+        )
+
 
 class ShipPickerModalTests(unittest.TestCase):
     def test_fixed_grid_has_25_cells_and_maps_catalog_entries(self):
         catalog = {
-            f"Ship {index}": SimpleNamespace(cost=index)
+            f"Ship {index}": SimpleNamespace(cost=index, ship_type="Scout")
             for index in range(PICKER_CAPACITY - 3)
         }
         sprites = {
@@ -74,9 +103,64 @@ class ShipPickerModalTests(unittest.TestCase):
         self.assertEqual(picker.ship_at_pos(picker.cell_rects[4].center)[0], "Ship 4")
         self.assertIsNone(picker.ship_at_pos(picker.cell_rects[-1].center))
 
+    def test_cells_have_three_pixel_gaps_and_requested_background(self):
+        catalog = {"Shofixti": SimpleNamespace(cost=5, ship_type="Scout")}
+        sprites = {"Shofixti": pygame.Surface((20, 10), pygame.SRCALPHA)}
+        picker = ShipPickerModal(1, 0, catalog, sprites)
+        screen = pygame.Surface((1920, 1080))
+        title_font = pygame.font.SysFont(None, 40)
+        tooltip_font = pygame.font.SysFont(None, 24)
+
+        old_mouse_pos = pygame.mouse.get_pos
+        pygame.mouse.get_pos = lambda: (-1, -1)
+        try:
+            picker.draw(screen, title_font, tooltip_font)
+        finally:
+            pygame.mouse.get_pos = old_mouse_pos
+
+        self.assertEqual(
+            picker.cell_rects[1].left - picker.cell_rects[0].right,
+            PICKER_CELL_GAP,
+        )
+        self.assertTrue(all(rect.width == rect.height for rect in picker.cell_rects))
+        self.assertEqual(
+            picker.cell_rects[0].left - picker.content_rect.left,
+            PICKER_CELL_GAP,
+        )
+        self.assertEqual(
+            picker.content_rect.right - picker.cell_rects[4].right,
+            PICKER_CELL_GAP,
+        )
+        self.assertEqual(
+            picker.content_rect.bottom - picker.cell_rects[-1].bottom,
+            PICKER_CELL_GAP,
+        )
+        self.assertEqual(picker.content_rect.left - picker.rect.left, 5)
+        self.assertEqual(PICKER_BORDER_WIDTH, 5)
+        self.assertEqual(screen.get_at(picker.rect.topleft)[:3], picker.color)
+        self.assertLess(picker.cancel_rect.bottom, picker.cell_rects[0].top)
+        self.assertEqual(
+            screen.get_at(picker.cell_rects[0].center)[:3], PICKER_CELL_COLOR
+        )
+
+    def test_tooltip_is_below_hovered_ship(self):
+        catalog = {"Shofixti": SimpleNamespace(cost=5, ship_type="Scout")}
+        sprites = {"Shofixti": pygame.Surface((20, 10), pygame.SRCALPHA)}
+        picker = ShipPickerModal(1, 0, catalog, sprites)
+        cell_rect = picker.cell_rects[0]
+        text = pygame.font.SysFont(None, 24).render(
+            "Shofixti Scout: 5", True, (255, 255, 255)
+        )
+
+        tooltip_rect = picker._tooltip_rect(
+            text, cell_rect.center, cell_rect, pygame.Rect(0, 0, 1920, 1080)
+        )
+
+        self.assertGreaterEqual(tooltip_rect.top, cell_rect.bottom)
+
     def test_catalog_larger_than_grid_is_rejected(self):
         catalog = {
-            f"Ship {index}": SimpleNamespace(cost=index)
+            f"Ship {index}": SimpleNamespace(cost=index, ship_type="Scout")
             for index in range(PICKER_CAPACITY + 1)
         }
         sprites = {
@@ -97,6 +181,31 @@ class UniformScalingTests(unittest.TestCase):
 
         self.assertEqual(scaled["Small"].get_size(), (20, 40))
         self.assertEqual(scaled["Large"].get_size(), (40, 80))
+
+    def test_panel_fitting_never_upscales_source_art(self):
+        originals = {
+            "Small": pygame.Surface((10, 20), pygame.SRCALPHA),
+            "Large": pygame.Surface((100, 200), pygame.SRCALPHA),
+        }
+
+        fitted = fit_ship_sprites(originals, 80)
+
+        self.assertEqual(fitted["Small"].get_size(), (10, 20))
+        self.assertEqual(fitted["Large"].get_size(), (40, 80))
+
+
+class ShipSelectionFleetLayoutTests(unittest.TestCase):
+    def test_runtime_order_maps_back_to_sparse_display_slots(self):
+        ships = [
+            SimpleNamespace(name="First", fleet_slot_index=7),
+            SimpleNamespace(name="Second", fleet_slot_index=2),
+        ]
+
+        self.assertEqual(fleet_slot_indices_for_ships(ships), (7, 2))
+        slots = fleet_slots_for_ships(ships)
+        self.assertEqual(slots[2], "Second")
+        self.assertEqual(slots[7], "First")
+        self.assertIsNone(slots[0])
 
 
 if __name__ == "__main__":

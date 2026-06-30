@@ -42,19 +42,59 @@ def draw_x(surface, rect):
 
 def load_fleet_data(audio_service=None):
     fleets = FleetsRepository(Const.FLEETS_JSON_PATH, SHIP_DEFINITIONS).load()
-    ship_names = set(fleets.player1.ships + fleets.player2.ships)
+    ship_names = {
+        name
+        for name in fleets.player1.ships + fleets.player2.ships
+        if name is not None
+    }
     for ship_name in ship_names:
         preload_ship_ability_resources(ship_name)
 
-    player1_ships = [
-        create_ship(ship_name, 1, audio_service=audio_service)
-        for ship_name in fleets.player1.ships
-    ]
-    player2_ships = [
-        create_ship(ship_name, 2, audio_service=audio_service)
-        for ship_name in fleets.player2.ships
-    ]
+    def create_player_ships(player, slots):
+        ships = []
+        for slot_index, ship_name in enumerate(slots):
+            if ship_name is None:
+                continue
+            ship = create_ship(ship_name, player, audio_service=audio_service)
+            ship.fleet_slot_index = slot_index
+            ships.append(ship)
+        return ships
+
+    player1_ships = create_player_ships(1, fleets.player1.ships)
+    player2_ships = create_player_ships(2, fleets.player2.ships)
     return fleets.to_json_dict(), player1_ships, player2_ships
+
+
+def fleet_slot_indices_for_ships(ships):
+    """Map compact runtime ship order back to unique fleet positions."""
+    capacity = Const.SHIP_COLS * Const.SHIP_ROWS
+    occupied = set()
+    slot_indices = []
+    next_open_slot = 0
+    for ship in ships:
+        slot_index = getattr(ship, "fleet_slot_index", None)
+        if (
+            not isinstance(slot_index, int)
+            or not 0 <= slot_index < capacity
+            or slot_index in occupied
+        ):
+            while next_open_slot < capacity and next_open_slot in occupied:
+                next_open_slot += 1
+            if next_open_slot >= capacity:
+                break
+            slot_index = next_open_slot
+        occupied.add(slot_index)
+        slot_indices.append(slot_index)
+    return tuple(slot_indices)
+
+
+def fleet_slots_for_ships(ships):
+    """Rebuild sparse display slots from compact runtime ship sequences."""
+    capacity = Const.SHIP_COLS * Const.SHIP_ROWS
+    slots = [None] * capacity
+    for ship, slot_index in zip(ships, fleet_slot_indices_for_ships(ships)):
+        slots[slot_index] = ship.name
+    return tuple(slots)
 
 
 def load_ship_sprite(ship_name, resources=None):
@@ -91,8 +131,8 @@ def run(
         fleet_data, player1_ships, player2_ships = load_fleet_data(audio_service)
     else:
         fleet_data = {
-            "Player1": {"ships": [ship.name for ship in player1_ships]},
-            "Player2": {"ships": [ship.name for ship in player2_ships]},
+            "Player1": {"ships": list(fleet_slots_for_ships(player1_ships))},
+            "Player2": {"ships": list(fleet_slots_for_ships(player2_ships))},
         }
     ships_data, original_sprites = load_ships_data(SHIP_DEFINITIONS)
     if not fleet_data or not ships_data or not original_sprites:
@@ -131,22 +171,21 @@ def run(
     )
     player_ships = {1: player1_ships, 2: player2_ships}
     fleet_names = {
-        player: tuple(
-            name
-            for _, name in zip(
-                player_ships[player], fleet_data[f"Player{player}"]["ships"]
-            )
-        )
+        player: tuple(ship.name for ship in player_ships[player])
         for player in (1, 2)
     }
     for player in (1, 2):
         populate_fleet_panel(
-            panels[player], fleet_names[player], fleet_sprites, ships_data
+            panels[player],
+            fleet_data[f"Player{player}"]["ships"],
+            fleet_sprites,
+            ships_data,
         )
-    # Fleet panels preserve empty grid slots. Ship selection uses the compact,
-    # persisted fleet order, so expose only occupied slots in that same order.
-    selectable_panel_ships = {
-        player: tuple(ship for ship in panels[player].ships if ship is not None)
+    selectable_panel_slots = {
+        player: tuple(
+            (slot_index, panels[player].ships[slot_index])
+            for slot_index in fleet_slot_indices_for_ships(player_ships[player])
+        )
         for player in (1, 2)
     }
 
@@ -311,8 +350,8 @@ def run(
                     if panel.rect.collidepoint(
                         mouse_pos
                     ) and selection_state.selection_allowed(player):
-                        for index, (_, _, _, rect) in enumerate(
-                            selectable_panel_ships[player]
+                        for index, (_, (_, _, _, rect)) in enumerate(
+                            selectable_panel_slots[player]
                         ):
                             if rect and rect.collidepoint(mouse_pos):
                                 if selection_state.select_index(player, index):
@@ -393,19 +432,14 @@ def run(
         for player, panel in panels.items():
             selection = selection_state.selection(player)
             if selection is not None:
-                rect = selectable_panel_ships[player][selection.index][3]
-                highlight_rect = pygame.Rect(
-                    rect.centerx - FLEET_ICON_SIZE[0] // 2,
-                    rect.centery - FLEET_ICON_SIZE[1] // 2,
-                    FLEET_ICON_SIZE[0],
-                    FLEET_ICON_SIZE[1],
-                )
+                slot_index, _ = selectable_panel_slots[player][selection.index]
+                highlight_rect = panel.slot_rect(slot_index)
                 pygame.draw.rect(screen, HIGHLIGHT_COLOR, highlight_rect)
 
         # Redraw ships to appear above highlights
         for player, panel in panels.items():
-            for index, (sprite, _, _, rect) in enumerate(
-                selectable_panel_ships[player]
+            for index, (_, (sprite, _, _, rect)) in enumerate(
+                selectable_panel_slots[player]
             ):
                 screen.blit(sprite, rect)
                 if not player_ships[player][index].currently_alive:

@@ -31,6 +31,11 @@ class FleetModel:
         return tuple(ship.name for ship in self._ships if ship is not None)
 
     @property
+    def ship_slots(self) -> tuple[str | None, ...]:
+        """Return every fleet position, including intentional empty slots."""
+        return tuple(ship.name if ship is not None else None for ship in self._ships)
+
+    @property
     def total_cost(self) -> int:
         return sum(ship.cost for ship in self._ships if ship is not None)
 
