@@ -13,7 +13,7 @@ pygame.display.set_mode((1, 1))
 
 from src.Menus.pick_fleet import PICKER_CAPACITY, ShipPickerModal
 from src.UI.ship_sprites import scale_ship_sprites
-from src.UI.ui_box import Fleet
+from src.UI.ui_box import FLEET_SLOT_COLOR, FLEET_SLOT_SPACING, Fleet
 
 
 class FleetSlotTests(unittest.TestCase):
@@ -28,6 +28,16 @@ class FleetSlotTests(unittest.TestCase):
             empty_slot,
         )
 
+    def test_slots_use_requested_background_and_gap(self):
+        self.assertEqual(self.fleet.spacing, FLEET_SLOT_SPACING)
+        self.assertEqual(FLEET_SLOT_SPACING, 3)
+
+        screen = pygame.Surface((640, 360))
+        font = pygame.font.SysFont(None, 20)
+        self.fleet.draw(screen, font)
+
+        self.assertEqual(screen.get_at(self.fleet.slot_rect(0).center)[:3], FLEET_SLOT_COLOR)
+
     def test_occupied_slot_is_replaced_and_empty_slot_appends(self):
         self.assertTrue(self.fleet.add_ship(self.sprite, "First", 1))
         self.assertTrue(self.fleet.set_ship_at_slot(0, self.sprite, "Replacement", 3))
@@ -37,7 +47,7 @@ class FleetSlotTests(unittest.TestCase):
         self.assertTrue(self.fleet.set_ship_at_slot(10, self.sprite, "Second", 2))
         self.assertEqual(self.fleet.model.ship_names, ("Replacement", "Second"))
 
-    def test_removing_ship_compacts_subsequent_slots(self):
+    def test_removing_ship_preserves_empty_slot(self):
         for name in ("First", "Second", "Third"):
             self.fleet.add_ship(self.sprite, name, 1)
         old_third_center = self.fleet.ships[2][3].center
@@ -45,8 +55,8 @@ class FleetSlotTests(unittest.TestCase):
         self.assertTrue(self.fleet.remove_ship_at_index(1))
 
         self.assertEqual(self.fleet.model.ship_names, ("First", "Third"))
-        self.assertEqual(self.fleet.ships[1][3].center, self.fleet.slot_rect(1).center)
-        self.assertNotEqual(self.fleet.ships[1][3].center, old_third_center)
+        self.assertIsNone(self.fleet.ships[1])
+        self.assertEqual(self.fleet.ships[2][3].center, old_third_center)
 
 
 class ShipPickerModalTests(unittest.TestCase):
@@ -58,11 +68,9 @@ class ShipPickerModalTests(unittest.TestCase):
         sprites = {
             name: pygame.Surface((20, 10), pygame.SRCALPHA) for name in catalog
         }
-        picker = ShipPickerModal(2, 7, catalog, sprites, can_remove=True)
+        picker = ShipPickerModal(2, 7, catalog, sprites)
 
         self.assertEqual(len(picker.cell_rects), PICKER_CAPACITY)
-        self.assertTrue(picker.can_remove)
-        self.assertLess(picker.remove_rect.left, picker.cancel_rect.left)
         self.assertEqual(picker.ship_at_pos(picker.cell_rects[4].center)[0], "Ship 4")
         self.assertIsNone(picker.ship_at_pos(picker.cell_rects[-1].center))
 
@@ -75,7 +83,7 @@ class ShipPickerModalTests(unittest.TestCase):
             name: pygame.Surface((20, 10), pygame.SRCALPHA) for name in catalog
         }
         with self.assertRaisesRegex(ValueError, "supports 25 ships"):
-            ShipPickerModal(1, 0, catalog, sprites, can_remove=False)
+            ShipPickerModal(1, 0, catalog, sprites)
 
 
 class UniformScalingTests(unittest.TestCase):

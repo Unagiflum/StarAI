@@ -20,42 +20,48 @@ class FleetModel:
         if capacity < 0:
             raise ValueError("Fleet capacity cannot be negative")
         self.capacity = capacity
-        self._ships: list[FleetShip] = []
+        self._ships: list[FleetShip | None] = [None] * capacity
 
     @property
     def ships(self) -> tuple[FleetShip, ...]:
-        return tuple(self._ships)
+        return tuple(ship for ship in self._ships if ship is not None)
 
     @property
     def ship_names(self) -> tuple[str, ...]:
-        return tuple(ship.name for ship in self._ships)
+        return tuple(ship.name for ship in self._ships if ship is not None)
 
     @property
     def total_cost(self) -> int:
-        return sum(ship.cost for ship in self._ships)
+        return sum(ship.cost for ship in self._ships if ship is not None)
 
     @property
     def is_empty(self) -> bool:
-        return not self._ships
+        return all(ship is None for ship in self._ships)
 
     def add_ship(self, name: str, cost: int) -> bool:
-        if len(self._ships) >= self.capacity:
-            return False
-        self._ships.append(FleetShip(name, cost))
-        return True
+        for i in range(self.capacity):
+            if self._ships[i] is None:
+                self._ships[i] = FleetShip(name, cost)
+                return True
+        return False
 
-    def remove_ship(self, index: int) -> FleetShip:
-        return self._ships.pop(index)
+    def remove_ship(self, index: int) -> FleetShip | None:
+        if 0 <= index < self.capacity:
+            ship = self._ships[index]
+            self._ships[index] = None
+            return ship
+        return None
 
-    def replace_ship(self, index: int, name: str, cost: int) -> FleetShip:
+    def replace_ship(self, index: int, name: str, cost: int) -> FleetShip | None:
         """Replace one occupied fleet position without changing its order."""
-        replacement = FleetShip(name, cost)
-        previous = self._ships[index]
-        self._ships[index] = replacement
-        return previous
+        if 0 <= index < self.capacity:
+            previous = self._ships[index]
+            self._ships[index] = FleetShip(name, cost)
+            return previous
+        return None
 
     def clear(self) -> None:
-        self._ships.clear()
+        self._ships = [None] * self.capacity
 
     def replace(self, ships: Sequence[FleetShip]) -> None:
         self.clear()
@@ -64,7 +70,7 @@ class FleetModel:
                 break
 
     def __len__(self) -> int:
-        return len(self._ships)
+        return sum(1 for ship in self._ships if ship is not None)
 
 
 class SelectableShip(Protocol):

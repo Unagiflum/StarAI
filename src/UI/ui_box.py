@@ -8,6 +8,8 @@ SCROLLBAR_WIDTH = int(0.01 * Const.SCREEN_WIDTH)
 SCROLL_BUTTON_HEIGHT = int(0.01 * Const.SCREEN_HEIGHT)
 SCROLL_SPEED = 20
 SPACING = int(0.005 * Const.SCREEN_WIDTH)
+FLEET_SLOT_SPACING = 3
+FLEET_SLOT_COLOR = (25, 25, 25)
 
 
 def create_player_fleet_panels(column_lefts, top, width, height, icon_size):
@@ -254,6 +256,7 @@ class Fleet(ShipContainer):
         self.model = model if model is not None else FleetModel(self.max_fleet_size)
         if self.model.capacity != self.max_fleet_size:
             raise ValueError("Fleet model capacity must match the panel layout")
+        self.ships = [None] * self.max_fleet_size
 
     def calculate_tiling(self):
         # Subtract margins from available space
@@ -268,49 +271,35 @@ class Fleet(ShipContainer):
 
         # Subtract spacing to get actual icon size, ensuring square icons
         icon_size = min(
-            total_horizontal_space - SPACING, total_vertical_space - SPACING
+            total_horizontal_space - FLEET_SLOT_SPACING,
+            total_vertical_space - FLEET_SLOT_SPACING,
         )
 
         self.icon_size = (icon_size, icon_size)
 
         # Calculate grid dimensions
-        grid_width = (Const.SHIP_COLS * icon_size) + ((Const.SHIP_COLS - 1) * SPACING)
+        grid_width = (Const.SHIP_COLS * icon_size) + (
+            (Const.SHIP_COLS - 1) * FLEET_SLOT_SPACING
+        )
 
         # Center the grid horizontally
         self.left_offset = (available_width - grid_width) // 2 + SPACING
 
-        self.spacing = SPACING
+        self.spacing = FLEET_SLOT_SPACING
         self.icons_per_row = Const.SHIP_COLS
-        self.icon_total_height = self.icon_size[1] + SPACING
+        self.icon_total_height = self.icon_size[1] + FLEET_SLOT_SPACING
         self.max_fleet_size = Const.SHIP_COLS * Const.SHIP_ROWS
 
     def add_ship(self, sprite, name, cost):
-        if self.model.add_ship(name, cost):
-            row = len(self.ships) // self.icons_per_row
-            col = len(self.ships) % self.icons_per_row
-
-            slot_x = (
-                self.rect.x
-                + self.left_offset
-                + col * (self.icon_size[0] + self.spacing)
-            )
-            slot_y = self.rect.y + 40 + row * self.icon_total_height
-
-            ship_rect = pygame.Rect(
-                slot_x, slot_y, self.icon_size[0], self.icon_size[1]
-            )
-            sprite_rect = sprite.get_rect(center=ship_rect.center)
-
-            self.ships.append((sprite, name, cost, sprite_rect))
-            return True
+        for index in range(self.max_fleet_size):
+            if self.ships[index] is None:
+                return self.set_ship_at_slot(index, sprite, name, cost)
         return False
 
     def set_ship_at_slot(self, index, sprite, name, cost):
         """Replace an occupied slot, or append at the fleet's first empty slot."""
         if not 0 <= index < self.max_fleet_size:
             return False
-        if index >= len(self.ships):
-            return self.add_ship(sprite, name, cost)
 
         self.model.replace_ship(index, name, cost)
         slot_rect = self.slot_rect(index)
@@ -342,41 +331,29 @@ class Fleet(ShipContainer):
 
     def clear(self):
         self.model.clear()
-        self.ships.clear()
+        self.ships = [None] * self.max_fleet_size
 
     def remove_ship_at_pos(self, pos):
-        for i, (_, _, _, rect) in enumerate(self.ships):
-            if rect.collidepoint(pos):
-                return self.remove_ship_at_index(i)
+        for index in range(self.max_fleet_size):
+            ship = self.ships[index]
+            if ship is not None:
+                _, _, _, rect = ship
+                if rect.collidepoint(pos):
+                    return self.remove_ship_at_index(index)
         return False
 
     def remove_ship_at_index(self, index):
-        """Remove one ship and compact all subsequent fleet positions."""
-        if not 0 <= index < len(self.ships):
+        """Remove one ship without compacting fleet positions."""
+        if not 0 <= index < self.max_fleet_size:
             return False
-        self.ships.pop(index)
-        self.model.remove_ship(index)
-        self._update_ship_positions()
-        return True
+        if self.ships[index] is not None:
+            self.ships[index] = None
+            self.model.remove_ship(index)
+            return True
+        return False
 
     def _update_ship_positions(self):
-        for i, (sprite, name, cost, _) in enumerate(self.ships):
-            row = i // self.icons_per_row
-            col = i % self.icons_per_row
-
-            slot_x = (
-                self.rect.x
-                + self.left_offset
-                + col * (self.icon_size[0] + self.spacing)
-            )
-            slot_y = self.rect.y + 40 + row * self.icon_total_height
-
-            slot_rect = pygame.Rect(
-                slot_x, slot_y, self.icon_size[0], self.icon_size[1]
-            )
-            sprite_rect = sprite.get_rect(center=slot_rect.center)
-
-            self.ships[i] = (sprite, name, cost, sprite_rect)
+        pass
 
     def get_total_cost(self):
         return self.model.total_cost
@@ -390,9 +367,12 @@ class Fleet(ShipContainer):
         )
         screen.blit(title_text, (self.rect.x + 10, self.rect.y + 10))
 
-        slot_color = tuple(max(18, int(channel * 0.38)) for channel in self.color)
         for index in range(self.max_fleet_size):
-            pygame.draw.rect(screen, slot_color, self.slot_rect(index), 1)
+            slot = self.slot_rect(index)
+            pygame.draw.rect(screen, FLEET_SLOT_COLOR, slot)
+            pygame.draw.rect(screen, ui.BLACK, slot, 1)
 
-        for sprite, _, _, rect in self.ships:
-            screen.blit(sprite, rect)
+        for ship in self.ships:
+            if ship is not None:
+                sprite, _, _, rect = ship
+                screen.blit(sprite, rect)

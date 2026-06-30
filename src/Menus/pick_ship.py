@@ -143,6 +143,12 @@ def run(
         populate_fleet_panel(
             panels[player], fleet_names[player], fleet_sprites, ships_data
         )
+    # Fleet panels preserve empty grid slots. Ship selection uses the compact,
+    # persisted fleet order, so expose only occupied slots in that same order.
+    selectable_panel_ships = {
+        player: tuple(ship for ship in panels[player].ships if ship is not None)
+        for player in (1, 2)
+    }
 
     selection_rects = {
         1: pygame.Rect(
@@ -305,7 +311,9 @@ def run(
                     if panel.rect.collidepoint(
                         mouse_pos
                     ) and selection_state.selection_allowed(player):
-                        for index, (_, _, _, rect) in enumerate(panel.ships):
+                        for index, (_, _, _, rect) in enumerate(
+                            selectable_panel_ships[player]
+                        ):
                             if rect and rect.collidepoint(mouse_pos):
                                 if selection_state.select_index(player, index):
                                     if menu_sound_manager:
@@ -385,7 +393,7 @@ def run(
         for player, panel in panels.items():
             selection = selection_state.selection(player)
             if selection is not None:
-                rect = panel.ships[selection.index][3]
+                rect = selectable_panel_ships[player][selection.index][3]
                 highlight_rect = pygame.Rect(
                     rect.centerx - FLEET_ICON_SIZE[0] // 2,
                     rect.centery - FLEET_ICON_SIZE[1] // 2,
@@ -396,7 +404,9 @@ def run(
 
         # Redraw ships to appear above highlights
         for player, panel in panels.items():
-            for index, (sprite, _, _, rect) in enumerate(panel.ships):
+            for index, (sprite, _, _, rect) in enumerate(
+                selectable_panel_ships[player]
+            ):
                 screen.blit(sprite, rect)
                 if not player_ships[player][index].currently_alive:
                     draw_x(screen, rect)

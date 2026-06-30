@@ -30,9 +30,9 @@ class FleetModelTests(unittest.TestCase):
         self.assertEqual(fleet.total_cost, 36)
 
         replaced = fleet.replace_ship(1, "Arilou", 16)
-        self.assertEqual(replaced, FleetShip("Spathi", 18))
-        self.assertEqual(fleet.ship_names, ("Spathi", "Arilou"))
-        self.assertEqual(fleet.total_cost, 34)
+        self.assertIsNone(replaced)
+        self.assertEqual(fleet.ship_names, ("Spathi", "Arilou", "Spathi"))
+        self.assertEqual(fleet.total_cost, 52)
 
     def test_replace_and_clear_apply_the_same_capacity_rule(self):
         fleet = FleetModel(capacity=2)

@@ -28,10 +28,9 @@ MODAL_SHADE_ALPHA = 165
 class ShipPickerModal:
     """Centered, fixed 5x5 catalog used to fill one fleet slot."""
 
-    def __init__(self, player, slot_index, ships_data, sprites, *, can_remove):
+    def __init__(self, player, slot_index, ships_data, sprites):
         self.player = player
         self.slot_index = slot_index
-        self.can_remove = can_remove
         self.color = const.P1_COLOR if player == 1 else const.P2_COLOR
         self.ships = [
             (name, definition.cost, sprites[name])
@@ -56,14 +55,8 @@ class ShipPickerModal:
         button_width = int(self.rect.width * 0.32)
         button_gap = int(const.SCREEN_WIDTH * 0.012)
         button_top = self.rect.bottom - padding - footer_height
-        self.remove_rect = pygame.Rect(
-            self.rect.centerx - button_gap // 2 - button_width,
-            button_top,
-            button_width,
-            footer_height,
-        )
         self.cancel_rect = pygame.Rect(
-            self.rect.centerx + button_gap // 2,
+            self.rect.centerx - button_width // 2,
             button_top,
             button_width,
             footer_height,
@@ -144,16 +137,6 @@ class ShipPickerModal:
                     centerx=cell_rect.centerx, bottom=cell_rect.bottom - 3
                 ),
             )
-
-        if not self.can_remove:
-            remove_color = ui.DISABLED_BUTTON
-        elif self.remove_rect.collidepoint(mouse_pos):
-            remove_color = ui.CAN_RED_HI
-        else:
-            remove_color = ui.CAN_RED
-        pygame.draw.rect(screen, remove_color, self.remove_rect, border_radius=5)
-        remove_text = cost_font.render("Remove Selected Ship", True, ui.WHITE)
-        screen.blit(remove_text, remove_text.get_rect(center=self.remove_rect.center))
 
         cancel_color = (
             ui.CAN_RED_HI
@@ -391,32 +374,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         or ship_picker.cancel_rect.collidepoint(event.pos)
                     ):
                         ship_picker = None
-                    elif ship_picker.remove_rect.collidepoint(event.pos):
-                        if ship_picker.can_remove:
-                            fleet = fleets[ship_picker.player]
-                            fleet.remove_ship_at_index(ship_picker.slot_index)
-                            print(f"Removed a ship from {fleet.title}")
-                            if menu_sound_manager:
-                                menu_sound_manager.play_sound("menu")
-                            ship_picker = None
                     else:
                         selected = ship_picker.ship_at_pos(event.pos)
                         if selected is not None:
                             name, cost, _ = selected
                             fleet = fleets[ship_picker.player]
-                            replacing = ship_picker.slot_index < len(fleet.ships)
                             if fleet.set_ship_at_slot(
                                 ship_picker.slot_index,
                                 fleet_sprites[name],
                                 name,
                                 cost,
                             ):
-                                action = (
-                                    "Replaced fleet slot with"
-                                    if replacing
-                                    else "Added"
-                                )
-                                print(f"{action} {name} in {fleet.title}")
+                                print(f"Added {name} in {fleet.title}")
                                 if menu_sound_manager:
                                     menu_sound_manager.play_sound("menu")
                             ship_picker = None
@@ -433,15 +402,20 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 for player, fleet in fleets.items():
                     slot_index = fleet.slot_index_at_pos(event.pos)
                     if slot_index is not None:
-                        ship_picker = ShipPickerModal(
-                            player,
-                            slot_index,
-                            ships_data,
-                            selection_sprites,
-                            can_remove=slot_index < len(fleet.ships),
-                        )
-                        if menu_sound_manager:
-                            menu_sound_manager.play_sound("menu")
+                        if fleet.ships[slot_index] is not None:
+                            fleet.remove_ship_at_index(slot_index)
+                            print(f"Removed a ship from {fleet.title}")
+                            if menu_sound_manager:
+                                menu_sound_manager.play_sound("menu")
+                        else:
+                            ship_picker = ShipPickerModal(
+                                player,
+                                slot_index,
+                                ships_data,
+                                selection_sprites,
+                            )
+                            if menu_sound_manager:
+                                menu_sound_manager.play_sound("menu")
                         break
 
         # Update confirm button state
