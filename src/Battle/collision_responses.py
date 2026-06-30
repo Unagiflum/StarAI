@@ -358,7 +358,13 @@ def resolve_ship_planet_collision(
                         ship.current_hp * planet_impact.impact_damage_percent
                     ),
                 )
-                damage_ship(ship, damage)
+                take_planet_damage = getattr(
+                    ship, "take_planet_impact_damage", None
+                )
+                if take_planet_damage is None:
+                    damage_ship(ship, damage)
+                else:
+                    take_planet_damage(damage)
                 BattleEffect.play_boom(damage)
 
         ship_impact = getattr(ship, "impact_capabilities", None)

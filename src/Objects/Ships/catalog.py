@@ -236,6 +236,7 @@ class AbilityDefinition(_DefinitionMapping):
     bolt_colors: tuple[tuple[int, int, int], ...] | None = None
     battery_gain: int | None = None
     excluded_radius: int | None = None
+    recharge_on_planet: bool = True
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -318,6 +319,7 @@ class AbilityDefinition(_DefinitionMapping):
         "BOLT_COLORS": "bolt_colors",
         "BATTERY_GAIN": "battery_gain",
         "EXCLUDED_RADIUS": "excluded_radius",
+        "RECHARGE_ON_PLANET": "recharge_on_planet",
     }
 
 
@@ -654,6 +656,7 @@ def parse_ability_definition(name, data):
         "BOLT_COLORS",
         "BATTERY_GAIN",
         "EXCLUDED_RADIUS",
+        "RECHARGE_ON_PLANET",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -701,6 +704,9 @@ def parse_ability_definition(name, data):
     }
     for key, (expected_type, default) in defaults.items():
         values[key] = _optional_typed(kind, name, data, key, expected_type, default)
+    values["recharge_on_planet"] = _optional_typed(
+        kind, name, data, "RECHARGE_ON_PLANET", bool, True
+    )
 
     optional_fields = {
         "range": ("effect_range", float),

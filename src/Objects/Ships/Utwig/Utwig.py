@@ -43,6 +43,17 @@ class Utwig(SpaceShip):
 
         return super().take_damage(damage, shieldable=shieldable, non_lethal=non_lethal)
 
+    def take_planet_impact_damage(self, damage):
+        """Block planet damage without charging when the shield disables it."""
+        shield = getattr(self, "_active_damage_shield", None)
+        if (
+            self.damage_shield_is_active()
+            and shield is not None
+            and not getattr(shield, "recharge_on_planet", True)
+        ):
+            return super().take_damage(damage)
+        return self.take_damage(damage)
+
     def set_sprite(self, interp_t=0.0):
         sprite = super().set_sprite(interp_t)
         if self.damage_shield_is_active():

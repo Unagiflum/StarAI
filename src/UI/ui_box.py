@@ -347,11 +347,17 @@ class Fleet(ShipContainer):
     def remove_ship_at_pos(self, pos):
         for i, (_, _, _, rect) in enumerate(self.ships):
             if rect.collidepoint(pos):
-                self.ships.pop(i)
-                self.model.remove_ship(i)
-                self._update_ship_positions()
-                return True
+                return self.remove_ship_at_index(i)
         return False
+
+    def remove_ship_at_index(self, index):
+        """Remove one ship and compact all subsequent fleet positions."""
+        if not 0 <= index < len(self.ships):
+            return False
+        self.ships.pop(index)
+        self.model.remove_ship(index)
+        self._update_ship_positions()
+        return True
 
     def _update_ship_positions(self):
         for i, (sprite, name, cost, _) in enumerate(self.ships):

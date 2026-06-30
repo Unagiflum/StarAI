@@ -1,4 +1,5 @@
 from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 import src.const as const
 
 
@@ -14,6 +15,7 @@ class UtwigA2(Ability):
         self.can_expire = True
         self.can_collide = False
         self._active = False
+        self.recharge_on_planet = ABILITY_DEFINITIONS["UtwigA2"].recharge_on_planet
 
         self.gain_sound = None
         if self.audio_service:

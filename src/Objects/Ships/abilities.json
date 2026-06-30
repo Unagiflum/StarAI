@@ -1144,7 +1144,8 @@
         "life_time": 14,
         "inertia": true,
         "file_path": "Objects/Ships/Utwig/A2/",
-        "has_sprites": false
+        "has_sprites": false,
+        "RECHARGE_ON_PLANET": false
     },
     "VuxA1": {
         "ship_name": "Vux",
