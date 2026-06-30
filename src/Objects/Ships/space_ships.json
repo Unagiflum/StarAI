@@ -491,7 +491,7 @@
         "a2_cost": 1,
         "a3_cost": 0,
         "a1_wait": 0,
-        "a2_wait": 2,
+        "a2_wait": 1,
         "a3_wait": 0,
         "mass": 1,
         "inertia": true,
