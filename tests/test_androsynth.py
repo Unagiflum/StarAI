@@ -13,6 +13,7 @@ pygame.init()
 pygame.display.set_mode((1, 1))
 
 from src.Battle.collisions import handle_collisions
+from src.Battle.effects import BattleEffect
 from src.Objects.Space.space_obj import Asteroid
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
@@ -158,6 +159,7 @@ class AndrosynthTests(unittest.TestCase):
 
         orz = create_ship("Orz", 2, resources=self.resources)
         orz.position = [2000.0, 2000.0]
+        orz.previous_position = orz.position.copy()
         orz.opponent = self.ship
         marine = create_ability("OrzA3", orz)
         marine.mode = marine.OUTBOUND
@@ -166,6 +168,24 @@ class AndrosynthTests(unittest.TestCase):
         handle_collisions([self.ship, orz, marine])
         self.assertFalse(marine.currently_alive)
         self.assertEqual(self.ship.boarded_marines, [])
+
+    def test_blazer_marine_kill_plays_impact_and_marine_death_sounds(self):
+        self.assertTrue(self.ship._try_transform())
+        orz = create_ship("Orz", 2, resources=self.resources)
+        orz.position = [2000.0, 2000.0]
+        orz.previous_position = orz.position.copy()
+        orz.opponent = self.ship
+        marine = create_ability("OrzA3", orz)
+        marine.mode = marine.OUTBOUND
+        marine.position = self.ship.position.copy()
+        marine.previous_position = marine.position.copy()
+        marine.die_sound = mock.Mock()
+
+        with mock.patch.object(BattleEffect, "play_boom") as play_boom:
+            handle_collisions([self.ship, orz, marine])
+
+        play_boom.assert_called_once_with(3)
+        marine.die_sound.play.assert_called_once_with()
 
     def test_surviving_marine_bounces_as_if_it_hit_a_shield(self):
         self.assertTrue(self.ship._try_transform())

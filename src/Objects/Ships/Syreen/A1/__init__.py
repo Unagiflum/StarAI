@@ -1,0 +1,1 @@
+"""Syreen primary weapon package."""

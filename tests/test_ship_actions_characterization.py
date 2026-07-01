@@ -1,5 +1,6 @@
-import os
+import importlib
 import math
+import os
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -379,6 +380,24 @@ class ShipActionCharacterizationTests(unittest.TestCase):
                 for control in ("thrust", "turn_left", "action1", "action2")
             },
         )
+
+    def test_every_cataloged_ship_is_a_regular_package(self):
+        for ship_name in SHIPS_DATA:
+            with self.subTest(ship=ship_name):
+                package = importlib.import_module(f"src.Objects.Ships.{ship_name}")
+                self.assertIsNotNone(
+                    package.__file__,
+                    f"{ship_name} can be omitted by packaged dynamic-module discovery",
+                )
+
+    def test_syreen_and_utwig_action_directories_are_regular_packages(self):
+        for ship_name in ("Syreen", "Utwig"):
+            for action_name in ("A1", "A2"):
+                with self.subTest(ship=ship_name, action=action_name):
+                    package = importlib.import_module(
+                        f"src.Objects.Ships.{ship_name}.{action_name}"
+                    )
+                    self.assertIsNotNone(package.__file__)
 
     def test_arilou_teleport_resumes_all_held_controls_when_ready(self):
         ship = create_ship("Arilou", 1)

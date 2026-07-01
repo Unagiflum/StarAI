@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import math
 
+from src.Battle.effects import BattleEffect
 from src.Battle.collision_geometry import ship_shape_change_blocked
 from src.collision_capabilities import ImpactCapabilities
 from src.Objects.Ships.action_transaction import ActionPlan
@@ -170,8 +171,12 @@ class Androsynth(SpaceShip):
             return False
 
         damage = self.impact_capabilities.ramming_damage
+        BattleEffect.play_boom(damage)
         special_object.set_hp(special_object.current_hp - damage)
         if not special_object.currently_alive:
+            on_destroyed = getattr(special_object, "on_destroyed", None)
+            if on_destroyed is not None:
+                on_destroyed()
             return True
 
         dot = (

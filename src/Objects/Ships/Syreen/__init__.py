@@ -1,0 +1,1 @@
+"""Syreen Penetrator ship package."""
