@@ -22,10 +22,20 @@ from src.Battle.collision_physics import (
 )
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
+from src.collision_capabilities import (
+    ProjectileContactPolicy,
+    SameTypeContactPolicy,
+    SpecialObjectPairOutcome,
+)
 from src.Objects.Ships.ability import Ability
 from src.toroidal import view_center_and_size, wrapped_delta
 
 PLANET_CONTACT_EXIT_MARGIN = 4.0
+
+ONE_SIDED_SPECIAL_OBJECT_BOUNCES = {
+    ("OrzA3", "ChenjesuA2"): SpecialObjectPairOutcome.BOUNCE_FIRST,
+    ("ChenjesuA2", "OrzA3"): SpecialObjectPairOutcome.BOUNCE_SECOND,
+}
 
 
 def damage_ship(ship, damage, *, shieldable=True, non_lethal=False):
@@ -65,8 +75,17 @@ def projectile_is_area_target(source, projectile):
 
 def special_object_is_area_target(source, special_object):
     accepts_source = getattr(special_object, "should_take_area_damage_from", None)
+    target_capabilities = getattr(
+        special_object, "area_damage_capabilities", None
+    )
+    immune_sources = (
+        target_capabilities.immune_to_sources
+        if target_capabilities is not None
+        else frozenset()
+    )
     return (
-        (accepts_source is None or accepts_source(source))
+        getattr(source, "name", None) not in immune_sources
+        and (accepts_source is None or accepts_source(source))
         and projectile_is_area_target(source, special_object)
     )
 
@@ -378,6 +397,185 @@ def resolve_ship_planet_collision(
     return CollisionOutcome.RESOLVED
 
 
+def _special_object_name(obj):
+    return getattr(obj, "name", getattr(obj, "projectile_name", None))
+
+
+def special_object_pair_outcome(first, second):
+    """Return the configured response for one ordered special-object pair."""
+    if not is_live_special_object(first) or not is_live_special_object(second):
+        return SpecialObjectPairOutcome.DEFAULT
+
+    first_capabilities = getattr(
+        first, "special_object_collision_capabilities", None
+    )
+    second_capabilities = getattr(
+        second, "special_object_collision_capabilities", None
+    )
+    if first_capabilities is None or second_capabilities is None:
+        return SpecialObjectPairOutcome.DEFAULT
+
+    first_name = _special_object_name(first)
+    second_name = _special_object_name(second)
+    if first_name == second_name:
+        first_policy = first_capabilities.same_type_contact_policy
+        second_policy = second_capabilities.same_type_contact_policy
+        if (
+            first_policy is SameTypeContactPolicy.IGNORE
+            or second_policy is SameTypeContactPolicy.IGNORE
+        ):
+            return SpecialObjectPairOutcome.IGNORE
+        if (
+            first_policy is SameTypeContactPolicy.BOUNCE
+            and second_policy is SameTypeContactPolicy.BOUNCE
+        ):
+            return SpecialObjectPairOutcome.BOUNCE_BOTH
+
+    explicit_outcome = ONE_SIDED_SPECIAL_OBJECT_BOUNCES.get(
+        (first_name, second_name)
+    )
+    if explicit_outcome is not None:
+        return explicit_outcome
+
+    first_physics = getattr(first, "physical_collision_capabilities", None)
+    second_physics = getattr(second, "physical_collision_capabilities", None)
+    if (
+        first_capabilities.destroys_fragile
+        and second_physics
+        and second_physics.is_fragile
+    ):
+        return SpecialObjectPairOutcome.DESTROY_SECOND
+    if (
+        second_capabilities.destroys_fragile
+        and first_physics
+        and first_physics.is_fragile
+    ):
+        return SpecialObjectPairOutcome.DESTROY_FIRST
+    return SpecialObjectPairOutcome.DEFAULT
+
+
+def _finalize_dead_projectile_like(
+    projectile,
+    effects,
+    direction,
+    damage,
+    contact,
+):
+    if projectile.current_hp <= 0:
+        destroy_projectile(projectile, effects, direction, damage, contact)
+
+
+def _resolve_configured_special_object_pair(
+    first,
+    second,
+    outcome,
+    effects,
+    impact_normal,
+    contact,
+):
+    if outcome is SpecialObjectPairOutcome.DEFAULT:
+        return None
+    if outcome is SpecialObjectPairOutcome.IGNORE:
+        return CollisionOutcome.IGNORED
+
+    if outcome is SpecialObjectPairOutcome.BOUNCE_BOTH:
+        normal, distance, overlap = collision_info(first, second)
+        elastic_bounce(first, second, normal, distance, overlap)
+        return CollisionOutcome.RESOLVED
+    if outcome in (
+        SpecialObjectPairOutcome.BOUNCE_FIRST,
+        SpecialObjectPairOutcome.BOUNCE_SECOND,
+    ):
+        moving, stationary = (
+            (first, second)
+            if outcome is SpecialObjectPairOutcome.BOUNCE_FIRST
+            else (second, first)
+        )
+        normal, _, overlap = collision_info(moving, stationary)
+        bounce_off_static_body(moving, stationary, normal, overlap)
+        return CollisionOutcome.RESOLVED
+
+    if outcome is SpecialObjectPairOutcome.DESTROY_FIRST:
+        set_projectile_hp(first, 0)
+    elif outcome is SpecialObjectPairOutcome.DESTROY_SECOND:
+        set_projectile_hp(second, 0)
+
+    damage = max(first.current_damage, second.current_damage)
+    BattleEffect.play_boom(damage)
+    _finalize_dead_projectile_like(
+        first,
+        effects,
+        impact_normal,
+        damage,
+        contact,
+    )
+    _finalize_dead_projectile_like(
+        second,
+        effects,
+        [-impact_normal[0], -impact_normal[1]],
+        damage,
+        contact,
+    )
+    return _consumption_outcome(first, second)
+
+
+def _resolve_configured_projectile_contact(
+    first,
+    second,
+    effects,
+    impact_normal,
+    contact,
+):
+    first_is_special = is_live_special_object(first)
+    second_is_special = is_live_special_object(second)
+    if first_is_special == second_is_special:
+        return None
+
+    special_object, projectile = (
+        (first, second) if first_is_special else (second, first)
+    )
+    capabilities = getattr(
+        special_object, "special_object_collision_capabilities", None
+    )
+    if capabilities is None:
+        return None
+
+    policy = capabilities.projectile_contact_policy
+    if policy is ProjectileContactPolicy.DEFAULT:
+        return None
+
+    projectile_capabilities = getattr(
+        projectile, "special_object_collision_capabilities", None
+    )
+    projectile_damage = (
+        projectile.current_damage
+        if (
+            projectile_capabilities is None
+            or projectile_capabilities.damages_projectiles
+        )
+        else 0
+    )
+
+    if policy is ProjectileContactPolicy.FRAGILE:
+        set_projectile_hp(special_object, 0)
+    else:
+        set_projectile_hp(
+            special_object,
+            special_object.current_hp - projectile_damage,
+        )
+        if policy is ProjectileContactPolicy.TAKE_DAMAGE_AND_DESTROY_PROJECTILE:
+            set_projectile_hp(projectile, 0)
+
+    damage = max(special_object.current_damage, projectile.current_damage)
+    BattleEffect.play_boom(damage)
+    for obj, direction in (
+        (first, impact_normal),
+        (second, [-impact_normal[0], -impact_normal[1]]),
+    ):
+        _finalize_dead_projectile_like(obj, effects, direction, damage, contact)
+    return _consumption_outcome(first, second)
+
+
 def resolve_projectile_projectile_collision(
     first,
     second,
@@ -396,6 +594,28 @@ def resolve_projectile_projectile_collision(
     contact, impact_normal = projectile_impact(first, second, overlap)
     if contact is None:
         return CollisionOutcome.IGNORED
+
+    pair_outcome = special_object_pair_outcome(first, second)
+    configured_outcome = _resolve_configured_special_object_pair(
+        first,
+        second,
+        pair_outcome,
+        effects,
+        impact_normal,
+        contact,
+    )
+    if configured_outcome is not None:
+        return configured_outcome
+
+    configured_outcome = _resolve_configured_projectile_contact(
+        first,
+        second,
+        effects,
+        impact_normal,
+        contact,
+    )
+    if configured_outcome is not None:
+        return configured_outcome
 
     first_handler = getattr(first, "handle_projectile_contact", None)
     second_handler = getattr(second, "handle_projectile_contact", None)
@@ -701,6 +921,12 @@ def _consumption_outcome(first, second):
     return CollisionOutcome.RESOLVED
 
 def projectile_like_objects_can_hit_each_other(first, second):
+    configured_outcome = special_object_pair_outcome(first, second)
+    if configured_outcome is SpecialObjectPairOutcome.IGNORE:
+        return False
+    if configured_outcome is not SpecialObjectPairOutcome.DEFAULT:
+        return True
+
     first_filter = getattr(first, "should_collide_with_projectile_like", None)
     second_filter = getattr(second, "should_collide_with_projectile_like", None)
     if first_filter is not None and not first_filter(second):

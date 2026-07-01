@@ -1,10 +1,15 @@
+from dataclasses import replace
 import math
+
 import pygame
 
 import src.const as const
-from src.collision_capabilities import AreaDamageCapabilities
+from src.collision_capabilities import (
+    ProjectileContactPolicy,
+    SameTypeContactPolicy,
+)
 from src.Objects.object import ThrustMarker
-from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.ability import Ability, SPECIAL_OBJECT_AREA_IMMUNITIES
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.toroidal import wrapped_delta
 
@@ -26,10 +31,29 @@ class OrzA3(Ability):
     DEATH_ROLL_LIMIT = 16
     KILL_ROLL_LIMIT = 144
     SHIELD_BOUNCE_FRAMES = 5
+    COLLIDING_SPECIAL_OBJECTS = {
+        "ChenjesuA2",
+        "KzerZaA2",
+        "SyreenCrew",
+        "VuxA2",
+    }
 
     def __init__(self, parent):
         super().__init__("OrzA3", parent)
         self.expiration_timer = float("inf")
+        self.area_damage_capabilities = replace(
+            self.area_damage_capabilities,
+            immune_to_sources=SPECIAL_OBJECT_AREA_IMMUNITIES,
+        )
+        self.special_object_collision_capabilities = replace(
+            self.special_object_collision_capabilities,
+            collides_with_fighters=True,
+            destroys_fragile=True,
+            projectile_contact_policy=(
+                ProjectileContactPolicy.TAKE_DAMAGE_AND_DESTROY_PROJECTILE
+            ),
+            same_type_contact_policy=SameTypeContactPolicy.IGNORE,
+        )
 
         ability_def = ABILITY_DEFINITIONS["OrzA3"]
         self.launch_time = (
@@ -393,6 +417,11 @@ class OrzA3(Ability):
             return ship is self.parent
         return False
 
+    def should_collide_with_projectile_like(self, other):
+        if getattr(other, "type", None) == "special_object":
+            return getattr(other, "name", None) in self.COLLIDING_SPECIAL_OBJECTS
+        return True
+
     def handle_ship_contact(self, ship, normal=None):
         if (
             self.mode not in (self.OUTBOUND, self.LAUNCHING)
@@ -424,7 +453,10 @@ class OrzA3(Ability):
         self.position = ship.position.copy()
         self.velocity = [0.0, 0.0]
         self.can_collide = False
-        self.area_damage_capabilities = AreaDamageCapabilities(targetable=False)
+        self.area_damage_capabilities = replace(
+            self.area_damage_capabilities,
+            targetable=False,
+        )
         if self not in ship.boarded_marines:
             ship.boarded_marines.append(self)
         if self.alarm_sound:
@@ -492,7 +524,10 @@ class OrzA3(Ability):
         self._detach_from_ship()
         self._begin_return()
         self.can_collide = True
-        self.area_damage_capabilities = AreaDamageCapabilities(targetable=True)
+        self.area_damage_capabilities = replace(
+            self.area_damage_capabilities,
+            targetable=True,
+        )
         self.current_hp = max(1, self.current_hp)
 
     def _begin_return(self):

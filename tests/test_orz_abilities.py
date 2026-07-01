@@ -216,6 +216,54 @@ class OrzAbilityTests(unittest.TestCase):
         self.assertFalse(marine.can_collide)
         self.assertEqual(enemy.boarded_marines, [marine])
 
+    def test_real_a3_destroys_each_fragile_special_object_without_damage(self):
+        for ship_name, ability_name in (
+            ("KzerZa", "KzerZaA2"),
+            ("Vux", "VuxA2"),
+            ("Syreen", "SyreenCrew"),
+        ):
+            with self.subTest(target=ability_name):
+                enemy = create_ship(ship_name, 2)
+                enemy.initialize_in_battle([900, 900], 0)
+                self.ship.opponent = enemy
+                enemy.opponent = self.ship
+                marine = create_ability("OrzA3", self.ship)
+                target = create_ability(ability_name, enemy)
+                marine.mode = OrzA3.OUTBOUND
+                marine.position = [700.0, 500.0]
+                target.position = marine.position.copy()
+                marine.previous_position = marine.position.copy()
+                target.previous_position = target.position.copy()
+                game_objects = [marine, target]
+
+                with mock.patch.object(
+                    collision_responses.BattleEffect, "play_boom"
+                ):
+                    collisions.handle_collisions(game_objects)
+
+                self.assertTrue(marine.currently_alive)
+                self.assertEqual(marine.current_hp, 3)
+                self.assertFalse(target.currently_alive)
+                self.assertNotIn(target, game_objects)
+
+    def test_real_a3_objects_ignore_one_another(self):
+        first = create_ability("OrzA3", self.ship)
+        second = create_ability("OrzA3", self.ship)
+        first.mode = second.mode = OrzA3.OUTBOUND
+        first.position = [700.0, 500.0]
+        second.position = [708.0, 500.0]
+        first.previous_position = first.position.copy()
+        second.previous_position = second.position.copy()
+        first.velocity = [1.0, 0.0]
+        second.velocity = [-1.0, 0.0]
+
+        collisions.handle_collisions([first, second])
+
+        self.assertTrue(first.currently_alive)
+        self.assertTrue(second.currently_alive)
+        self.assertEqual(first.velocity, [1.0, 0.0])
+        self.assertEqual(second.velocity, [-1.0, 0.0])
+
     def test_a3_only_collides_with_its_destination_ship(self):
         enemy = create_ship("Earthling", 2)
         enemy.initialize_in_battle([700, 500], 0)

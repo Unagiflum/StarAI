@@ -137,6 +137,26 @@ class ProductionAreaPolicyTests(CollisionTestCase):
             collisions.AREA_TARGET_REGISTRY.is_eligible(source, target)
         )
 
+    def test_special_object_area_immunity_is_source_specific(self):
+        target = self.make_special_object()
+        target.area_damage_capabilities = AreaDamageCapabilities(
+            targetable=True,
+            immune_to_sources=frozenset({"SlylandroA2", "SyreenA2"}),
+        )
+        source = self.make_area_damage([100, 100], lambda distance: 1)
+
+        for source_name, expected in (
+            ("SlylandroA2", False),
+            ("SyreenA2", False),
+            ("OtherArea", True),
+        ):
+            with self.subTest(source=source_name):
+                source.name = source_name
+                self.assertEqual(
+                    collisions.AREA_TARGET_REGISTRY.is_eligible(source, target),
+                    expected,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

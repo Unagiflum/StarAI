@@ -1,11 +1,30 @@
-from src.Objects.Ships.ability import Ability, ABILITIES_DATA
+from dataclasses import replace
 import math
+
 import src.const as const
+from src.Objects.Ships.ability import (
+    Ability,
+    ABILITIES_DATA,
+    SPECIAL_OBJECT_AREA_IMMUNITIES,
+)
+from src.collision_capabilities import ProjectileContactPolicy
 
 
 class VuxA2(Ability):
     def __init__(self, parent):
         super().__init__("VuxA2", parent)
+        self.area_damage_capabilities = replace(
+            self.area_damage_capabilities,
+            immune_to_sources=SPECIAL_OBJECT_AREA_IMMUNITIES,
+        )
+        self.special_object_collision_capabilities = replace(
+            self.special_object_collision_capabilities,
+            projectile_contact_policy=ProjectileContactPolicy.FRAGILE,
+        )
+        self.physical_collision_capabilities = replace(
+            self.physical_collision_capabilities,
+            is_fragile=True,
+        )
         ability_data = ABILITIES_DATA["VuxA2"]
 
         # Override default sound loading since filenames differ from standard

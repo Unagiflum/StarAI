@@ -15,6 +15,35 @@ class CollisionRole(Enum):
     PLANET = auto()
 
 
+class ProjectileContactPolicy(Enum):
+    """How a special object responds after an eligible projectile contact."""
+
+    DEFAULT = auto()
+    FRAGILE = auto()
+    TAKE_DAMAGE = auto()
+    TAKE_DAMAGE_AND_DESTROY_PROJECTILE = auto()
+
+
+class SameTypeContactPolicy(Enum):
+    """How special objects of the same gameplay type contact one another."""
+
+    DEFAULT = auto()
+    IGNORE = auto()
+    BOUNCE = auto()
+
+
+class SpecialObjectPairOutcome(Enum):
+    """Resolved response for one ordered pair of special objects."""
+
+    DEFAULT = auto()
+    IGNORE = auto()
+    DESTROY_FIRST = auto()
+    DESTROY_SECOND = auto()
+    BOUNCE_BOTH = auto()
+    BOUNCE_FIRST = auto()
+    BOUNCE_SECOND = auto()
+
+
 @dataclass(frozen=True)
 class CollisionCapabilities:
     role: CollisionRole = CollisionRole.NONE
@@ -34,6 +63,7 @@ class AreaDamageCapabilities:
     vulnerable: bool = True
     persistent: bool = False
     plays_impact_sound: bool = False
+    immune_to_sources: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -48,6 +78,11 @@ class SpecialObjectCollisionCapabilities:
     collides_with_fighters: bool = True
     bounces_off_same_type: bool = False
     bounces_off_ships_without_damage: bool = False
+    destroys_fragile: bool = False
+    projectile_contact_policy: ProjectileContactPolicy = (
+        ProjectileContactPolicy.DEFAULT
+    )
+    same_type_contact_policy: SameTypeContactPolicy = SameTypeContactPolicy.DEFAULT
 
 
 @dataclass(frozen=True)

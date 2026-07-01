@@ -1,3 +1,4 @@
+from dataclasses import replace
 import math
 import random
 
@@ -5,7 +6,12 @@ import pygame
 
 import src.const as const
 from src.Battle.collision_physics import separate_from_static_body
-from src.Objects.Ships.ability import Ability, ABILITIES_DATA
+from src.collision_capabilities import ProjectileContactPolicy
+from src.Objects.Ships.ability import (
+    Ability,
+    ABILITIES_DATA,
+    SPECIAL_OBJECT_AREA_IMMUNITIES,
+)
 from src.Objects.Ships.KzerZa.A2.KzerZaA2Laser import KzerZaA2Laser
 from src.toroidal import wrapped_delta
 
@@ -24,6 +30,18 @@ class KzerZaA2(Ability):
         gun_location=None,
     ):
         super().__init__("KzerZaA2", parent)
+        self.area_damage_capabilities = replace(
+            self.area_damage_capabilities,
+            immune_to_sources=SPECIAL_OBJECT_AREA_IMMUNITIES,
+        )
+        self.special_object_collision_capabilities = replace(
+            self.special_object_collision_capabilities,
+            projectile_contact_policy=ProjectileContactPolicy.FRAGILE,
+        )
+        self.physical_collision_capabilities = replace(
+            self.physical_collision_capabilities,
+            is_fragile=True,
+        )
         data = ABILITIES_DATA["KzerZaA2"]
         fighter_sounds = self._load_fighter_sounds(data["file_path"])
         self.launch_sound = fighter_sounds["launch"]

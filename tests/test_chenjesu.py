@@ -2,6 +2,7 @@ import math
 import os
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
@@ -11,11 +12,16 @@ import pygame
 pygame.init()
 pygame.display.set_mode((1, 1))
 
-from src.Battle import collision_responses
+from src.Battle import collision_responses, collisions
 from src.Objects.Ships.Chenjesu.A1.ChenjesuA1 import ChenjesuA1Shard
 from src.Objects.Ships.Chenjesu.A2.ChenjesuA2 import ChenjesuA2
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
-from src.Objects.Ships.registry import create_ship, get_ability_class, get_ship_class
+from src.Objects.Ships.registry import (
+    create_ability,
+    create_ship,
+    get_ability_class,
+    get_ship_class,
+)
 from src.audio import NullAudioService, RecordingAudioService
 
 
@@ -161,6 +167,57 @@ class ChenjesuTests(unittest.TestCase):
         self.assertTrue(cloud.handle_projectile_contact(projectile))
         self.assertEqual(cloud.current_hp, 1)
         self.assertFalse(projectile.currently_alive)
+
+    def test_real_a2_destroys_each_fragile_special_object_without_damage(self):
+        ship = self.make_ship()
+        for ship_name, ability_name in (
+            ("KzerZa", "KzerZaA2"),
+            ("Vux", "VuxA2"),
+            ("Syreen", "SyreenCrew"),
+        ):
+            with self.subTest(target=ability_name):
+                enemy = create_ship(ship_name, 2)
+                enemy.initialize_in_battle([900, 900], 0)
+                ship.opponent = enemy
+                enemy.opponent = ship
+                cloud = create_ability("ChenjesuA2", ship)
+                target = create_ability(ability_name, enemy)
+                cloud.position = [700.0, 500.0]
+                target.position = cloud.position.copy()
+                cloud.previous_position = cloud.position.copy()
+                target.previous_position = target.position.copy()
+                game_objects = [cloud, target]
+
+                with mock.patch.object(
+                    collision_responses.BattleEffect, "play_boom"
+                ):
+                    collisions.handle_collisions(game_objects)
+
+                self.assertTrue(cloud.currently_alive)
+                self.assertEqual(cloud.current_hp, 3)
+                self.assertFalse(target.currently_alive)
+                self.assertNotIn(target, game_objects)
+
+    def test_real_a2_bounces_from_same_type_regardless_of_team(self):
+        for other_player in (1, 2):
+            with self.subTest(other_player=other_player):
+                first_parent = self.make_ship(player=1)
+                second_parent = self.make_ship(player=other_player)
+                first = ChenjesuA2(first_parent)
+                second = ChenjesuA2(second_parent)
+                first.position = [700.0, 500.0]
+                second.position = [710.0, 500.0]
+                first.previous_position = first.position.copy()
+                second.previous_position = second.position.copy()
+                first.velocity = [1.0, 0.0]
+                second.velocity = [-1.0, 0.0]
+
+                collisions.handle_collisions([first, second])
+
+                self.assertTrue(first.currently_alive)
+                self.assertTrue(second.currently_alive)
+                self.assertLess(first.velocity[0], 0.0)
+                self.assertGreater(second.velocity[0], 0.0)
 
     def test_a2_ignores_only_the_two_specified_area_effects(self):
         cloud = ChenjesuA2(self.make_ship())

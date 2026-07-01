@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest import mock
 from collision_test_support import CollisionTestCase
@@ -7,6 +8,7 @@ from src.Battle.world import World
 from src.collision_capabilities import (
     ImpactCapabilities,
     LaserTargetCapabilities,
+    ProjectileContactPolicy,
 )
 from src.Objects.Space.space_obj import Asteroid
 from src.Objects.Ships.ability import Ability
@@ -46,6 +48,12 @@ class CollisionPipelineTests(CollisionTestCase):
     def make_orz_marine_projectile_contact(self, death_animation):
         marine = self.make_special_object(special_object_class=OrzA3)
         marine.name = marine.projectile_name = "OrzA3"
+        marine.special_object_collision_capabilities = replace(
+            marine.special_object_collision_capabilities,
+            projectile_contact_policy=(
+                ProjectileContactPolicy.TAKE_DAMAGE_AND_DESTROY_PROJECTILE
+            ),
+        )
         marine.mode = OrzA3.OUTBOUND
         marine.get_collision_mask = lambda: None
         marine.boarded_ship = None
@@ -415,18 +423,28 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertFalse(special_object.currently_alive)
         self.assertFalse(live.currently_alive)
 
-    def test_limpet_and_kzerza_fighter_die_to_zero_damage_projectiles(self):
+    def test_fragile_special_objects_die_to_projectiles_without_harming_them(self):
         for special_object_class, name in (
             (VuxA2, "VuxA2"),
             (KzerZaA2, "KzerZaA2"),
+            (SyreenCrew, "SyreenCrew"),
         ):
             with self.subTest(name=name):
                 fighter = self.make_special_object(
                     special_object_class=special_object_class
                 )
                 fighter.name = fighter.projectile_name = name
+                fighter.special_object_collision_capabilities = replace(
+                    fighter.special_object_collision_capabilities,
+                    projectile_contact_policy=ProjectileContactPolicy.FRAGILE,
+                )
+                fighter.physical_collision_capabilities = replace(
+                    fighter.physical_collision_capabilities,
+                    is_fragile=True,
+                )
                 projectile = self.make_projectile(self.make_ship())
                 projectile.current_damage = 0
+                projectile.current_hp = 3
                 projectile.position = fighter.position.copy()
                 projectile.previous_position = projectile.position.copy()
 
@@ -437,6 +455,7 @@ class CollisionPipelineTests(CollisionTestCase):
 
                 self.assertFalse(fighter.currently_alive)
                 self.assertTrue(projectile.currently_alive)
+                self.assertEqual(projectile.current_hp, 3)
 
     def test_chenjesu_a2_destroys_selected_special_objects_without_damage(self):
         for target_class, target_name in (
@@ -466,7 +485,7 @@ class CollisionPipelineTests(CollisionTestCase):
                 self.assertEqual(cloud.current_hp, 3)
                 self.assertFalse(target.currently_alive)
 
-    def test_chenjesu_a2_and_orz_marine_bounce_without_damage(self):
+    def test_orz_marine_bounces_from_chenjesu_without_deflecting_it(self):
         cloud = self.make_named_special_object(
             ChenjesuA2,
             "ChenjesuA2",
@@ -488,8 +507,37 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertTrue(marine.currently_alive)
         self.assertEqual(cloud.current_hp, 3)
         self.assertEqual(marine.current_hp, 3)
+        self.assertEqual(cloud.velocity, [1.0, 0.0])
+        self.assertEqual(cloud.position, [100, 100])
+        self.assertGreater(marine.velocity[0], 0.0)
+
+    def test_chenjesu_a2_bounces_from_asteroids_and_planets(self):
+        cloud = self.make_named_special_object(
+            ChenjesuA2,
+            "ChenjesuA2",
+            hp=3,
+        )
+        cloud.mass = 4
+        cloud.velocity = [1.0, 0.0]
+        asteroid = self.make_asteroid([108, 100])
+
+        collisions.handle_collisions([cloud, asteroid])
+
+        self.assertTrue(cloud.currently_alive)
+        self.assertTrue(asteroid.currently_alive)
         self.assertLess(cloud.velocity[0], 1.0)
-        self.assertGreater(marine.velocity[0], -1.0)
+        self.assertGreater(asteroid.velocity[0], 0.0)
+
+        cloud.position = [100, 100]
+        cloud.previous_position = cloud.position.copy()
+        cloud.velocity = [1.0, 0.0]
+        planet = self.make_planet([108, 100])
+
+        collisions.handle_collisions([cloud, planet])
+
+        self.assertTrue(cloud.currently_alive)
+        self.assertEqual(cloud.current_hp, 2)
+        self.assertLess(cloud.velocity[0], 0.0)
 
     def test_kzerza_fighter_contact_does_not_damage_enemy_ship(self):
         parent = self.make_ship()
@@ -638,10 +686,12 @@ class CollisionPipelineTests(CollisionTestCase):
         fighter.position = [100, 100]
         fighter.previous_position = fighter.position.copy()
         planet = self.make_planet([100, 100])
+        game_objects = [fighter, planet]
 
-        collisions.handle_collisions([fighter, planet])
+        collisions.handle_collisions(game_objects)
 
         self.assertTrue(fighter.currently_alive)
+        self.assertIn(fighter, game_objects)
         self.assertEqual(fighter.planet_avoidance, (planet, None))
 
     def test_fighter_skips_dead_ship_and_hits_next_live_target(self):

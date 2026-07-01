@@ -13,7 +13,7 @@ pygame.display.set_mode((1, 1))
 from src.Battle import collision_responses, collisions
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
-from src.Objects.Ships.registry import create_ship
+from src.Objects.Ships.registry import create_ability, create_ship
 from src.resources import AssetManager
 
 
@@ -163,6 +163,25 @@ class MelnormeTests(unittest.TestCase):
         pulse.handle_projectile_contact(enemy_projectile)
         self.assertEqual(pulse.current_hp, 188)
         self.assertEqual(enemy_projectile.current_hp, 3)
+
+    def test_a2_pipeline_takes_projectile_damage_without_destroying_projectile(self):
+        ship = self.make_ship()
+        enemy = create_ship("Earthling", 2, resources=self.resources)
+        enemy.initialize_in_battle([800, 800], 0)
+        ship.opponent = enemy
+        enemy.opponent = ship
+        pulse = ship.perform_action2()
+        projectile = create_ability("EarthlingA1", enemy)
+        pulse.position = [650.0, 500.0]
+        projectile.position = pulse.position.copy()
+        pulse.previous_position = pulse.position.copy()
+        projectile.previous_position = projectile.position.copy()
+        starting_hp = pulse.current_hp
+
+        collisions.handle_collisions([pulse, projectile])
+
+        self.assertEqual(pulse.current_hp, starting_hp - projectile.current_damage)
+        self.assertTrue(projectile.currently_alive)
 
     def test_a2_confuses_for_480_frames_forces_right_and_blocks_a2(self):
         pulse = self.make_ship().perform_action2()

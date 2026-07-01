@@ -1,4 +1,7 @@
+from dataclasses import replace
+
 import src.const as const
+from src.collision_capabilities import ProjectileContactPolicy
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 
@@ -23,6 +26,10 @@ class MelnormeA2(Ability):
         self.area_damage_capabilities = type(self.area_damage_capabilities)(
             targetable=True,
             vulnerable=False,
+        )
+        self.special_object_collision_capabilities = replace(
+            self.special_object_collision_capabilities,
+            projectile_contact_policy=ProjectileContactPolicy.TAKE_DAMAGE,
         )
         self.launch_from_gun()
 

@@ -1,3 +1,4 @@
+from dataclasses import replace
 import math
 
 import src.const as const
@@ -5,9 +6,11 @@ from src.Battle.collision_geometry import collision_info
 from src.Battle.collision_physics import bounce_off_static_body, elastic_bounce
 from src.collision_capabilities import (
     PhysicalCollisionCapabilities,
+    ProjectileContactPolicy,
+    SameTypeContactPolicy,
     SpecialObjectCollisionCapabilities,
 )
-from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.ability import Ability, SPECIAL_OBJECT_AREA_IMMUNITIES
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.toroidal import wrapped_delta
 
@@ -33,6 +36,10 @@ class ChenjesuA2(Ability):
             is_solid=True,
             is_projectile=True,
         )
+        self.area_damage_capabilities = replace(
+            self.area_damage_capabilities,
+            immune_to_sources=SPECIAL_OBJECT_AREA_IMMUNITIES,
+        )
         self.special_object_collision_capabilities = (
             SpecialObjectCollisionCapabilities(
                 collides_with_planets=True,
@@ -45,6 +52,11 @@ class ChenjesuA2(Ability):
                 collides_with_fighters=True,
                 bounces_off_same_type=True,
                 bounces_off_ships_without_damage=True,
+                destroys_fragile=True,
+                projectile_contact_policy=(
+                    ProjectileContactPolicy.TAKE_DAMAGE_AND_DESTROY_PROJECTILE
+                ),
+                same_type_contact_policy=SameTypeContactPolicy.BOUNCE,
             )
         )
         directory = const.source_path(definition.file_path)

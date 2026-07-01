@@ -1,14 +1,27 @@
+from dataclasses import replace
 import math
 
 import src.const as const
-from src.Objects.Ships.ability import Ability, ABILITIES_DATA
-from src.collision_capabilities import SpecialObjectCollisionCapabilities
+from src.Objects.Ships.ability import (
+    Ability,
+    ABILITIES_DATA,
+    SPECIAL_OBJECT_AREA_IMMUNITIES,
+)
+from src.collision_capabilities import (
+    ProjectileContactPolicy,
+    SameTypeContactPolicy,
+    SpecialObjectCollisionCapabilities,
+)
 from src.toroidal import wrapped_delta
 
 
 class SyreenCrew(Ability):
     def __init__(self, parent, position=None, origin_ship=None):
         super().__init__("SyreenCrew", parent)
+        self.area_damage_capabilities = replace(
+            self.area_damage_capabilities,
+            immune_to_sources=SPECIAL_OBJECT_AREA_IMMUNITIES,
+        )
         self.position = list(parent.position if position is None else position)
         self.origin_ship = origin_ship
         definition = ABILITIES_DATA["SyreenCrew"]
@@ -38,6 +51,12 @@ class SyreenCrew(Ability):
             collides_with_friendly_ships=True,
             collides_with_fighters=True,
             bounces_off_same_type=True,
+            projectile_contact_policy=ProjectileContactPolicy.FRAGILE,
+            same_type_contact_policy=SameTypeContactPolicy.BOUNCE,
+        )
+        self.physical_collision_capabilities = replace(
+            self.physical_collision_capabilities,
+            is_fragile=True,
         )
 
     def handle_ship_contact(self, ship, normal):
