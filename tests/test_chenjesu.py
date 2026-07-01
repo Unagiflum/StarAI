@@ -105,11 +105,11 @@ class ChenjesuTests(unittest.TestCase):
         cloud.rng = SimpleNamespace(uniform=lambda start, end: 0.0)
 
         cloud.update()
-        self.assertEqual(cloud.velocity, [0.0, -40.0])
+        self.assertEqual(cloud.velocity, [0.0, -(cloud.speed + cloud.jitter)])
 
         target.trackable = False
         cloud.update()
-        self.assertEqual(cloud.velocity, [0.0, -8.0])
+        self.assertEqual(cloud.velocity, [0.0, -cloud.jitter])
 
     def test_a2_leaves_enemy_front_arc_perpendicularly(self):
         ship = self.make_ship()

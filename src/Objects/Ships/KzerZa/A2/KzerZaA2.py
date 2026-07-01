@@ -14,6 +14,7 @@ class KzerZaA2(Ability):
     LAUNCHING = "launching"
     ATTACKING = "attacking"
     RETURNING = "returning"
+    COLLIDING_SPECIAL_OBJECTS = {"ChenjesuA2", "OrzA3"}
 
     def __init__(
         self,
@@ -220,6 +221,15 @@ class KzerZaA2(Ability):
             extra_clearance=1.0,
         )
         self.planet_avoidance = (planet, None)
+        return True
+
+    def should_collide_with_projectile_like(self, other):
+        if getattr(other, "type", None) == "special_object":
+            return getattr(other, "name", None) in self.COLLIDING_SPECIAL_OBJECTS
+        return True
+
+    def handle_ship_contact(self, ship, normal=None):
+        self.set_hp(0)
         return True
 
     def handle_projectile_contact(self, projectile):

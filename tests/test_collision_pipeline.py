@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 from collision_test_support import CollisionTestCase
 from src.Battle import collisions
@@ -9,8 +10,10 @@ from src.collision_capabilities import (
 )
 from src.Objects.Space.space_obj import Asteroid
 from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.Chenjesu.A2.ChenjesuA2 import ChenjesuA2
 from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
 from src.Objects.Ships.Orz.A3.OrzA3 import OrzA3
+from src.Objects.Ships.Syreen.A2.SyreenCrew import SyreenCrew
 from src.Objects.Ships.Vux.A2.VuxA2 import VuxA2
 
 
@@ -22,6 +25,23 @@ def run_collision_pipeline(game_objects, effects=None):
 
 
 class CollisionPipelineTests(CollisionTestCase):
+
+    def make_named_special_object(
+        self,
+        special_object_class,
+        name,
+        *,
+        hp=1,
+        collides_with_fighters=True,
+    ):
+        special_object = self.make_special_object(
+            special_object_class=special_object_class,
+            collides_with_fighters=collides_with_fighters,
+        )
+        special_object.name = special_object.projectile_name = name
+        special_object.current_hp = hp
+        special_object.hp_array = [hp]
+        return special_object
 
     def make_orz_marine_projectile_contact(self, death_animation):
         marine = self.make_special_object(special_object_class=OrzA3)
@@ -417,6 +437,161 @@ class CollisionPipelineTests(CollisionTestCase):
 
                 self.assertFalse(fighter.currently_alive)
                 self.assertTrue(projectile.currently_alive)
+
+    def test_chenjesu_a2_destroys_selected_special_objects_without_damage(self):
+        for target_class, target_name in (
+            (VuxA2, "VuxA2"),
+            (SyreenCrew, "SyreenCrew"),
+            (KzerZaA2, "KzerZaA2"),
+        ):
+            with self.subTest(target=target_name):
+                cloud = self.make_named_special_object(
+                    ChenjesuA2,
+                    "ChenjesuA2",
+                    hp=3,
+                )
+                cloud.mass = 4
+                target = self.make_named_special_object(
+                    target_class,
+                    target_name,
+                    collides_with_fighters=target_name != "KzerZaA2",
+                )
+                target.position = cloud.position.copy()
+                target.previous_position = target.position.copy()
+
+                with mock.patch.object(collisions.BattleEffect, "play_boom"):
+                    collisions.handle_collisions([cloud, target])
+
+                self.assertTrue(cloud.currently_alive)
+                self.assertEqual(cloud.current_hp, 3)
+                self.assertFalse(target.currently_alive)
+
+    def test_chenjesu_a2_and_orz_marine_bounce_without_damage(self):
+        cloud = self.make_named_special_object(
+            ChenjesuA2,
+            "ChenjesuA2",
+            hp=3,
+        )
+        cloud.mass = 4
+        cloud.velocity = [1.0, 0.0]
+        marine = self.make_named_special_object(OrzA3, "OrzA3", hp=3)
+        marine.mode = OrzA3.OUTBOUND
+        marine.get_collision_mask = lambda: None
+        marine.velocity = [-1.0, 0.0]
+        marine.position = [108, 100]
+        marine.previous_position = marine.position.copy()
+
+        with mock.patch.object(collisions.BattleEffect, "play_boom"):
+            collisions.handle_collisions([cloud, marine])
+
+        self.assertTrue(cloud.currently_alive)
+        self.assertTrue(marine.currently_alive)
+        self.assertEqual(cloud.current_hp, 3)
+        self.assertEqual(marine.current_hp, 3)
+        self.assertLess(cloud.velocity[0], 1.0)
+        self.assertGreater(marine.velocity[0], -1.0)
+
+    def test_kzerza_fighter_contact_does_not_damage_enemy_ship(self):
+        parent = self.make_ship()
+        parent.player = 1
+        fighter = self.make_named_special_object(
+            KzerZaA2,
+            "KzerZaA2",
+            collides_with_fighters=False,
+        )
+        fighter.parent = parent
+        fighter.hit_parent = False
+        target = self.make_ship()
+        target.player = 2
+        target.position = fighter.position.copy()
+        target.previous_position = target.position.copy()
+        starting_hp = target.current_hp
+
+        collisions.handle_collisions([fighter, target])
+
+        self.assertFalse(fighter.currently_alive)
+        self.assertEqual(target.current_hp, starting_hp)
+
+    def test_kzerza_fighter_contact_leaves_projectile_and_asteroid_intact(self):
+        fighter = self.make_named_special_object(
+            KzerZaA2,
+            "KzerZaA2",
+            collides_with_fighters=False,
+        )
+        fighter.special_object_collision_capabilities = type(
+            fighter.special_object_collision_capabilities
+        )(
+            collides_with_projectiles=True,
+            damages_projectiles=False,
+            collides_with_asteroids=True,
+            damages_asteroids=False,
+            collides_with_fighters=False,
+        )
+        projectile = self.make_projectile(self.make_ship())
+        projectile.current_damage = 2
+        projectile.position = fighter.position.copy()
+        projectile.previous_position = projectile.position.copy()
+
+        with mock.patch.object(collisions.BattleEffect, "play_boom"):
+            collisions.handle_collisions([fighter, projectile])
+
+        self.assertFalse(fighter.currently_alive)
+        self.assertTrue(projectile.currently_alive)
+        self.assertEqual(projectile.current_hp, 1)
+
+        fighter = self.make_named_special_object(
+            KzerZaA2,
+            "KzerZaA2",
+            collides_with_fighters=False,
+        )
+        fighter.special_object_collision_capabilities = type(
+            fighter.special_object_collision_capabilities
+        )(
+            collides_with_asteroids=True,
+            damages_asteroids=False,
+            collides_with_fighters=False,
+        )
+        asteroid = self.make_asteroid(fighter.position)
+
+        with mock.patch.object(collisions.BattleEffect, "play_boom"):
+            collisions.handle_collisions([fighter, asteroid])
+
+        self.assertFalse(fighter.currently_alive)
+        self.assertTrue(asteroid.currently_alive)
+
+    def test_orz_marine_destroys_kzerza_fighter_without_damage(self):
+        fighter = self.make_named_special_object(
+            KzerZaA2,
+            "KzerZaA2",
+            collides_with_fighters=False,
+        )
+        marine = self.make_named_special_object(OrzA3, "OrzA3", hp=3)
+        marine.mode = OrzA3.OUTBOUND
+        marine.get_collision_mask = lambda: None
+        marine.position = fighter.position.copy()
+        marine.previous_position = marine.position.copy()
+
+        with mock.patch.object(collisions.BattleEffect, "play_boom"):
+            collisions.handle_collisions([fighter, marine])
+
+        self.assertFalse(fighter.currently_alive)
+        self.assertTrue(marine.currently_alive)
+        self.assertEqual(marine.current_hp, 3)
+
+    def test_kzerza_fighter_only_collides_with_approved_special_objects(self):
+        fighter = self.make_named_special_object(KzerZaA2, "KzerZaA2")
+
+        for name in ("VuxA2", "SyreenCrew", "KzerZaA2", "OtherSpecial"):
+            with self.subTest(name=name):
+                other = SimpleNamespace(type="special_object", name=name)
+                self.assertFalse(
+                    fighter.should_collide_with_projectile_like(other)
+                )
+
+        for name in ("ChenjesuA2", "OrzA3"):
+            with self.subTest(name=name):
+                other = SimpleNamespace(type="special_object", name=name)
+                self.assertTrue(fighter.should_collide_with_projectile_like(other))
 
     def test_projectile_death_animation_is_emitted_when_killing_orz_marine(self):
         animation = [object()]

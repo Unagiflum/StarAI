@@ -14,6 +14,11 @@ from src.toroidal import wrapped_delta
 
 class ChenjesuA2(Ability):
     AREA_IMMUNITIES = {"SyreenA2", "SlylandroA2"}
+    DESTROYED_SPECIAL_OBJECTS = {"VuxA2", "SyreenCrew", "KzerZaA2"}
+    COLLIDING_SPECIAL_OBJECTS = DESTROYED_SPECIAL_OBJECTS | {
+        "ChenjesuA2",
+        "OrzA3",
+    }
 
     def __init__(self, parent):
         super().__init__("ChenjesuA2", parent)
@@ -114,7 +119,7 @@ class ChenjesuA2(Ability):
     def should_collide_with_projectile_like(self, other):
         if getattr(other, "type", None) != "special_object":
             return True
-        return getattr(other, "name", None) in {"ChenjesuA2", "OrzA3"}
+        return getattr(other, "name", None) in self.COLLIDING_SPECIAL_OBJECTS
 
     def should_take_area_damage_from(self, source):
         return getattr(source, "name", None) not in self.AREA_IMMUNITIES
@@ -143,6 +148,9 @@ class ChenjesuA2(Ability):
             return False
         if projectile.name == "OrzA3":
             self._bounce_with(projectile)
+            return True
+        if projectile.name in self.DESTROYED_SPECIAL_OBJECTS:
+            projectile.set_hp(0)
             return True
 
         self.set_hp(self.current_hp - projectile.current_damage)
