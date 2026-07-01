@@ -217,44 +217,44 @@
         "gun_locations": [
             [
                 87,
-                87
+                13
             ]
         ],
-        "BASE_SPEED": 12,
+        "BASE_SPEED": 6,
         "SILHOUETTE_COUNT": 5,
         "SILHOUETTE_COLORS": [
             [
                 0,
                 0,
-                128
+                200
             ],
             [
                 0,
                 0,
-                64
+                175
             ],
             [
                 0,
                 0,
-                32
+                150
             ],
             [
                 0,
                 0,
-                16
+                100
             ],
             [
                 0,
                 0,
-                8
+                50
             ]
         ],
         "SILHOUETTE_DIST": [
-            10,
-            20,
-            40,
-            80,
-            160
+            30,
+            60,
+            100,
+            150,
+            210
         ]
     },
     "ChmmrSatellite": {
