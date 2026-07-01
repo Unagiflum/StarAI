@@ -743,7 +743,7 @@
         "max_thrust": 32,
         "thrust_increment": 8,
         "thrust_wait": 0,
-        "launch_time": 10,
+        "launch_time": 5,
         "turn_wait": 1,
         "inertia": true,
         "omnidirectional": true,
