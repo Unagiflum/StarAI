@@ -252,6 +252,7 @@ class AbilityDefinition(_DefinitionMapping):
     jitter: float | None = None
     drain: int | None = None
     avoid_angle: float | None = None
+    collision_wait: int | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -350,6 +351,7 @@ class AbilityDefinition(_DefinitionMapping):
         "JITTER": "jitter",
         "DRAIN": "drain",
         "AVOID_ANGLE": "avoid_angle",
+        "COLLISION_WAIT": "collision_wait",
         "MASS": "mass",
     }
 
@@ -703,6 +705,7 @@ def parse_ability_definition(name, data):
         "JITTER",
         "DRAIN",
         "AVOID_ANGLE",
+        "COLLISION_WAIT",
         "MASS",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
@@ -810,6 +813,7 @@ def parse_ability_definition(name, data):
         "JITTER": ("jitter", float),
         "DRAIN": ("drain", int),
         "AVOID_ANGLE": ("avoid_angle", float),
+        "COLLISION_WAIT": ("collision_wait", int),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(
@@ -909,6 +913,7 @@ def parse_ability_definition(name, data):
         "jitter",
         "drain",
         "avoid_angle",
+        "collision_wait",
     ):
         if values[field_name] is not None and values[field_name] <= 0:
             raise CatalogValidationError(

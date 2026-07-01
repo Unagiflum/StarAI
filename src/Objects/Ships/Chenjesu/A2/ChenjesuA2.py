@@ -30,6 +30,8 @@ class ChenjesuA2(Ability):
         self.jitter = definition.jitter
         self.drain = definition.drain
         self.avoid_angle = definition.avoid_angle
+        self.collision_wait = definition.collision_wait or 0
+        self.collision_wait_timer = 0
         self.mass = definition.mass
         self.expiration_timer = float("inf")
         self.physical_collision_capabilities = PhysicalCollisionCapabilities(
@@ -80,6 +82,17 @@ class ChenjesuA2(Ability):
             return False
 
         self.previous_position = self.position.copy()
+        
+        if self.collision_wait_timer > 0:
+            self.collision_wait_timer -= 1
+            self.position[0] = (
+                self.position[0] + self.velocity[0] * const.SPEED_SCALE
+            ) % const.ARENA_SIZE
+            self.position[1] = (
+                self.position[1] + self.velocity[1] * const.SPEED_SCALE
+            ) % const.ARENA_SIZE
+            return True
+
         target = self._live_trackable_opponent()
         if target is None:
             move_angle = self._quantized_angle(self.rng.uniform(0.0, 360.0))
@@ -142,6 +155,7 @@ class ChenjesuA2(Ability):
             ship.current_energy = max(0, ship.current_energy - self.drain)
             if self.hit_sound:
                 self.hit_sound.play()
+        self.collision_wait_timer = self.collision_wait
         return True
 
     def handle_asteroid_contact(self, asteroid, normal=None):

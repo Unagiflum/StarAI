@@ -159,6 +159,7 @@
         "MAX_COUNT": 4,
         "JITTER": 16,
         "DRAIN": 10,
+        "COLLISION_WAIT": 1,
         "AVOID_ANGLE": 22.5,
         "MASS": 4
     },
