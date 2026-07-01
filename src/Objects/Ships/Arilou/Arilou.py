@@ -65,7 +65,6 @@ class Arilou(SpaceShip):
         self.velocity = [0.0, 0.0]
         self.collision_velocity = [0.0, 0.0]
         self.accumulated_impulses = [0.0, 0.0]
-        self.reset_controls()
         effect.begin(self.teleport_destination)
 
     def _finish_teleport(self):
@@ -76,7 +75,7 @@ class Arilou(SpaceShip):
 
     def process_controls(self, frame_id=None):
         if self.ability_actions_paused:
-            self.reset_controls()
+            # Suppress commands without losing held keys or their repeat timing.
             return []
 
         timer_state = (

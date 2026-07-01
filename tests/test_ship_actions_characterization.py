@@ -333,9 +333,8 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         ship = create_ship("Arilou", 1)
         ship.position = [10, 20]
         ship.energy_timer = ship.energy_wait
-        ship.thrust_active = True
-        ship.turn_left_active = True
-        ship.action1_active = True
+        for control in ("thrust", "turn_left", "action1", "action2"):
+            ship.set_control_state(control, True, frame_id=10)
         ship.velocity = [7.0, 8.0]
         ship.accumulated_impulses = [2.0, 3.0]
         with mock.patch.object(ship.rng, "randint", side_effect=[123, 456]):
@@ -369,9 +368,83 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(ship.current_hp, hp)
         self.assertEqual(ship.velocity, [0.0, 0.0])
         self.assertEqual(ship.accumulated_impulses, [0.0, 0.0])
-        self.assertFalse(ship.thrust_active)
-        self.assertFalse(ship.turn_left_active)
-        self.assertFalse(ship.action1_active)
+        self.assertTrue(ship.thrust_active)
+        self.assertTrue(ship.turn_left_active)
+        self.assertTrue(ship.action1_active)
+        self.assertTrue(ship.action2_active)
+        self.assertEqual(
+            ship.input_pressed_frames,
+            {
+                control: 10
+                for control in ("thrust", "turn_left", "action1", "action2")
+            },
+        )
+
+    def test_arilou_teleport_resumes_all_held_controls_when_ready(self):
+        ship = create_ship("Arilou", 1)
+        ship.position = [10, 20]
+        ship.heading = 4
+        ship.rotation = ship.heading * const.TURN_ANGLE
+        initial_energy = ship.current_energy
+        for control in ("thrust", "turn_right", "action1", "action2"):
+            ship.set_control_state(control, True, frame_id=1)
+
+        with mock.patch.object(
+            ship.rng, "randint", side_effect=[123, 456, 789, 1011]
+        ):
+            spawned = ship.process_controls(frame_id=1)
+            self.assertEqual([obj.name for obj in spawned], ["ArilouA2"])
+            ship.update()
+
+            frozen_timers = (
+                ship.thrust_timer,
+                ship.turn_timer,
+                ship.action1_timer,
+                ship.action2_timer,
+                ship.action3_timer,
+                ship.energy_timer,
+            )
+            for frame_id in range(2, 6):
+                self.assertEqual(ship.process_controls(frame_id), [])
+                self.assertEqual(
+                    (
+                        ship.thrust_timer,
+                        ship.turn_timer,
+                        ship.action1_timer,
+                        ship.action2_timer,
+                        ship.action3_timer,
+                        ship.energy_timer,
+                    ),
+                    frozen_timers,
+                )
+                ship.update()
+
+            self.assertEqual(ship.teleport_frame, 0)
+            self.assertEqual(ship.position, [123, 456])
+            self.assertTrue(ship.thrust_active)
+            self.assertTrue(ship.turn_right_active)
+            self.assertTrue(ship.action1_active)
+            self.assertTrue(ship.action2_active)
+
+            spawned = ship.process_controls(frame_id=6)
+            self.assertEqual(
+                [obj.name for obj in spawned], ["ThrustMarker", "ArilouA1"]
+            )
+            self.assertEqual(ship.heading, 5)
+            self.assertNotEqual(ship.accumulated_impulses, [0.0, 0.0])
+            ship.update()
+            self.assertNotEqual(ship.velocity, [0.0, 0.0])
+            self.assertEqual(
+                ship.current_energy, initial_energy - ship.a2_cost - ship.a1_cost
+            )
+
+            self.assertEqual(
+                [obj.name for obj in ship.process_controls(frame_id=7)],
+                ["ThrustMarker"],
+            )
+            spawned = ship.process_controls(frame_id=8)
+            self.assertEqual([obj.name for obj in spawned], ["ArilouA2"])
+            self.assertEqual(ship.teleport_frame, 1)
 
     def test_arilou_teleport_acceptance_cancels_same_frame_commands(self):
         ship = create_ship("Arilou", 1)
