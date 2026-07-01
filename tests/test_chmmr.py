@@ -50,16 +50,16 @@ class ChmmrTests(unittest.TestCase):
         self.assertEqual(ship.ship_type, "Avatar")
         self.assertEqual(ship.satellite_count, 3)
         self.assertEqual(ship.satellite_laser_color, (0, 0, 255))
-        self.assertEqual(tractor.base_speed, 48)
+        self.assertEqual(tractor.base_speed, 6)
         self.assertEqual(tractor.silhouette_count, 5)
         self.assertEqual(
             tractor.silhouette_colors,
             (
                 (0, 0, 200, 200),
-                (0, 0, 175, 175),
-                (0, 0, 150, 150),
-                (0, 0, 100, 100),
-                (0, 0, 50, 50),
+                (0, 0, 200, 200),
+                (0, 0, 200, 150),
+                (0, 0, 200, 100),
+                (0, 0, 200, 50),
             ),
         )
         self.assertEqual(get_ship_class("Chmmr").__name__, "Chmmr")
@@ -158,7 +158,7 @@ class ChmmrTests(unittest.TestCase):
         tractor.update()
         delta = wrapped_delta(self.target.position, self.chmmr.position)
         distance = math.hypot(*delta)
-        expected = 48 / self.target.mass
+        expected = 6 / self.target.mass
         self.assertAlmostEqual(self.target.accumulated_impulses[0], delta[0] / distance * expected)
         self.assertAlmostEqual(self.target.accumulated_impulses[1], delta[1] / distance * expected)
 
