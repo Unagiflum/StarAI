@@ -157,7 +157,7 @@
             180.0
         ],
         "MAX_COUNT": 4,
-        "JITTER": 16,
+        "JITTER": 32,
         "DRAIN": 10,
         "COLLISION_WAIT": 4,
         "AVOID_ANGLE": 22.5,
