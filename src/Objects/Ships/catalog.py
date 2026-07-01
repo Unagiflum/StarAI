@@ -118,6 +118,16 @@ class ShipDefinition(_DefinitionMapping):
     forms: Mapping[str, ShipFormDefinition] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    satellite_hp: int | None = None
+    satellite_speed: float | None = None
+    satellite_count: int | None = None
+    satellite_period: int | None = None
+    satellite_distance: float | None = None
+    satellite_laser_range: float | None = None
+    satellite_laser_damage: int | None = None
+    satellite_laser_wait: int | None = None
+    satellite_laser_color: tuple[int, int, int] | None = None
+    satellite_laser_width: int | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -152,6 +162,16 @@ class ShipDefinition(_DefinitionMapping):
         "immune_to_psychic": "immune_to_psychic",
         "default_form": "default_form",
         "forms": "forms",
+        "SATELLITE_HP": "satellite_hp",
+        "SATELLITE_SPEED": "satellite_speed",
+        "SATELLITE_COUNT": "satellite_count",
+        "SATELLITE_PERIOD": "satellite_period",
+        "SATELLITE_DISTANCE": "satellite_distance",
+        "SATELLITE_LASER_RANGE": "satellite_laser_range",
+        "SATELLITE_LASER_DAMAGE": "satellite_laser_damage",
+        "SATELLITE_LASER_WAIT": "satellite_laser_wait",
+        "SATELLITE_LASER_COLOR": "satellite_laser_color",
+        "SATELLITE_LASER_WIDTH": "satellite_laser_width",
     }
 
 
@@ -253,6 +273,10 @@ class AbilityDefinition(_DefinitionMapping):
     drain: int | None = None
     avoid_angle: float | None = None
     collision_wait: int | None = None
+    base_speed: float | None = None
+    silhouette_count: int | None = None
+    silhouette_colors: tuple[tuple[int, int, int], ...] | None = None
+    silhouette_distances: tuple[float, ...] | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -353,6 +377,10 @@ class AbilityDefinition(_DefinitionMapping):
         "AVOID_ANGLE": "avoid_angle",
         "COLLISION_WAIT": "collision_wait",
         "MASS": "mass",
+        "BASE_SPEED": "base_speed",
+        "SILHOUETTE_COUNT": "silhouette_count",
+        "SILHOUETTE_COLORS": "silhouette_colors",
+        "SILHOUETTE_DIST": "silhouette_distances",
     }
 
 
@@ -509,6 +537,16 @@ def parse_ship_definition(name, data):
         "immune_to_psychic",
         "default_form",
         "forms",
+        "SATELLITE_HP",
+        "SATELLITE_SPEED",
+        "SATELLITE_COUNT",
+        "SATELLITE_PERIOD",
+        "SATELLITE_DISTANCE",
+        "SATELLITE_LASER_RANGE",
+        "SATELLITE_LASER_DAMAGE",
+        "SATELLITE_LASER_WAIT",
+        "SATELLITE_LASER_COLOR",
+        "SATELLITE_LASER_WIDTH",
     }
     _check_keys(kind, name, data, allowed, required)
 
@@ -564,6 +602,34 @@ def parse_ship_definition(name, data):
     values["default_form"] = _optional_typed(
         kind, name, data, "default_form", str, None
     )
+    satellite_fields = {
+        "SATELLITE_HP": ("satellite_hp", int),
+        "SATELLITE_SPEED": ("satellite_speed", float),
+        "SATELLITE_COUNT": ("satellite_count", int),
+        "SATELLITE_PERIOD": ("satellite_period", int),
+        "SATELLITE_DISTANCE": ("satellite_distance", float),
+        "SATELLITE_LASER_RANGE": ("satellite_laser_range", float),
+        "SATELLITE_LASER_DAMAGE": ("satellite_laser_damage", int),
+        "SATELLITE_LASER_WAIT": ("satellite_laser_wait", int),
+        "SATELLITE_LASER_WIDTH": ("satellite_laser_width", int),
+    }
+    for json_key, (attribute, expected_type) in satellite_fields.items():
+        values[attribute] = _optional_typed(
+            kind, name, data, json_key, expected_type, None
+        )
+    if "SATELLITE_LASER_COLOR" in data:
+        values["satellite_laser_color"] = _int_tuple(
+            kind, name, data, "SATELLITE_LASER_COLOR", length=3
+        )
+        if any(
+            channel < 0 or channel > 255
+            for channel in values["satellite_laser_color"]
+        ):
+            raise CatalogValidationError(
+                f"Ship '{name}' SATELLITE_LASER_COLOR channels must be between 0 and 255"
+            )
+    else:
+        values["satellite_laser_color"] = None
     forms_data = data.get("forms", {})
     if not isinstance(forms_data, Mapping):
         raise CatalogValidationError(f"Ship '{name}' field 'forms' must be an object")
@@ -580,6 +646,42 @@ def parse_ship_definition(name, data):
         raise CatalogValidationError(f"Ship '{name}' start_energy exceeds max_energy")
     if values["sprite_scale"] <= 0:
         raise CatalogValidationError(f"Ship '{name}' sprite_scale must be positive")
+    satellite_values = (
+        values["satellite_hp"],
+        values["satellite_speed"],
+        values["satellite_count"],
+        values["satellite_period"],
+        values["satellite_distance"],
+        values["satellite_laser_range"],
+        values["satellite_laser_damage"],
+        values["satellite_laser_wait"],
+        values["satellite_laser_color"],
+        values["satellite_laser_width"],
+    )
+    if any(value is not None for value in satellite_values) and any(
+        value is None for value in satellite_values
+    ):
+        raise CatalogValidationError(
+            f"Ship '{name}' must define the complete SATELLITE_* configuration"
+        )
+    for field_name in (
+        "satellite_hp",
+        "satellite_speed",
+        "satellite_count",
+        "satellite_period",
+        "satellite_distance",
+        "satellite_laser_range",
+        "satellite_laser_damage",
+        "satellite_laser_width",
+    ):
+        if values[field_name] is not None and values[field_name] <= 0:
+            raise CatalogValidationError(
+                f"Ship '{name}' {field_name} must be positive"
+            )
+    if values["satellite_laser_wait"] is not None and values["satellite_laser_wait"] < 0:
+        raise CatalogValidationError(
+            f"Ship '{name}' satellite_laser_wait cannot be negative"
+        )
     if values["forms"]:
         if values["default_form"] is None:
             raise CatalogValidationError(
@@ -707,6 +809,10 @@ def parse_ability_definition(name, data):
         "AVOID_ANGLE",
         "COLLISION_WAIT",
         "MASS",
+        "BASE_SPEED",
+        "SILHOUETTE_COUNT",
+        "SILHOUETTE_COLORS",
+        "SILHOUETTE_DIST",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -814,6 +920,8 @@ def parse_ability_definition(name, data):
         "DRAIN": ("drain", int),
         "AVOID_ANGLE": ("avoid_angle", float),
         "COLLISION_WAIT": ("collision_wait", int),
+        "BASE_SPEED": ("base_speed", float),
+        "SILHOUETTE_COUNT": ("silhouette_count", int),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(
@@ -883,6 +991,41 @@ def parse_ability_definition(name, data):
         values["bolt_colors"] = tuple(colors)
     else:
         values["bolt_colors"] = None
+    if "SILHOUETTE_COLORS" in data:
+        colors = []
+        raw_colors = data["SILHOUETTE_COLORS"]
+        if not isinstance(raw_colors, list) or not raw_colors:
+            raise CatalogValidationError(
+                f"Ability '{name}' field 'SILHOUETTE_COLORS' must be a non-empty array"
+            )
+        for index, color in enumerate(raw_colors):
+            if not isinstance(color, list) or len(color) != 3:
+                raise CatalogValidationError(
+                    f"Ability '{name}' field 'SILHOUETTE_COLORS[{index}]' must contain 3 values"
+                )
+            parsed = tuple(
+                _typed(
+                    kind,
+                    name,
+                    f"SILHOUETTE_COLORS[{index}][{channel}]",
+                    item,
+                    int,
+                )
+                for channel, item in enumerate(color)
+            )
+            if any(channel < 0 or channel > 255 for channel in parsed):
+                raise CatalogValidationError(
+                    f"Ability '{name}' SILHOUETTE_COLORS channels must be between 0 and 255"
+                )
+            colors.append(parsed)
+        values["silhouette_colors"] = tuple(colors)
+    else:
+        values["silhouette_colors"] = None
+    values["silhouette_distances"] = (
+        _number_tuple(kind, name, data, "SILHOUETTE_DIST")
+        if "SILHOUETTE_DIST" in data
+        else None
+    )
     values["_source_keys"] = tuple(data)
 
     if values["ability_type"] not in {
@@ -925,6 +1068,28 @@ def parse_ability_definition(name, data):
         raise CatalogValidationError(
             f"Ability '{name}' directional sprite scales must be positive"
         )
+    silhouette_values = (
+        values["silhouette_count"],
+        values["silhouette_colors"],
+        values["silhouette_distances"],
+    )
+    if any(value is not None for value in silhouette_values):
+        if any(value is None for value in silhouette_values):
+            raise CatalogValidationError(
+                f"Ability '{name}' must define the complete SILHOUETTE_* configuration"
+            )
+        if values["silhouette_count"] <= 0:
+            raise CatalogValidationError(
+                f"Ability '{name}' silhouette_count must be positive"
+            )
+        if not (
+            values["silhouette_count"]
+            == len(values["silhouette_colors"])
+            == len(values["silhouette_distances"])
+        ):
+            raise CatalogValidationError(
+                f"Ability '{name}' SILHOUETTE_* lengths must match"
+            )
     if (
         values["segment_length_min"] is not None
         and values["segment_length_max"] is not None

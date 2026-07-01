@@ -146,14 +146,20 @@ class StarFieldRendererTests(unittest.TestCase):
             def draw(self, *args, **kwargs):
                 order.append("stars")
 
+        class ForegroundDrawable(Drawable):
+            def draw_foreground(self, *args, **kwargs):
+                order.append("laser foreground")
+
         planet = Drawable("planet")
         marker = Drawable("thrust marker")
         asteroid = Drawable("asteroid")
         ship = Drawable("ship")
         effect = Drawable("battle effect")
+        after_laser_effect = Drawable("after-laser effect")
+        after_laser_effect.render_layer = "after_lasers"
         abilities = [
             Drawable("Zoq-Fot area", "area", render_priority=1),
-            Drawable("laser", "laser"),
+            ForegroundDrawable("laser", "laser"),
             Drawable("other ability", "other"),
             Drawable("Shofixti area", "area"),
             Drawable("projectile", "projectile"),
@@ -166,7 +172,7 @@ class StarFieldRendererTests(unittest.TestCase):
             asteroids=[asteroid],
             abilities=abilities,
             ships=[ship],
-            effects=[effect],
+            effects=[effect, after_laser_effect],
         )
 
         _render_world_to_surface(
@@ -193,6 +199,8 @@ class StarFieldRendererTests(unittest.TestCase):
                 "special object",
                 "projectile",
                 "laser",
+                "after-laser effect",
+                "laser foreground",
                 "Shofixti area",
                 "Zoq-Fot area",
                 "battle effect",

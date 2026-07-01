@@ -339,6 +339,24 @@ def _render_world_to_surface(
             if getattr(ability, "type", None) == ability_type:
                 ability.draw(surface, scale_factor, translation, interp_t=interp_t)
 
+    after_laser_effects = tuple(
+        effect
+        for effect in snapshot.effects
+        if getattr(effect, "render_layer", None) == "after_lasers"
+    )
+    for effect in after_laser_effects:
+        effect.draw(surface, scale_factor, translation, interp_t=interp_t)
+
+    for ability in snapshot.abilities:
+        draw_foreground = getattr(ability, "draw_foreground", None)
+        if draw_foreground is not None:
+            draw_foreground(
+                surface,
+                scale_factor,
+                translation,
+                interp_t=interp_t,
+            )
+
     area_abilities = sorted(
         (
             ability
@@ -351,7 +369,8 @@ def _render_world_to_surface(
         ability.draw(surface, scale_factor, translation, interp_t=interp_t)
 
     for effect in snapshot.effects:
-        effect.draw(surface, scale_factor, translation, interp_t=interp_t)
+        if effect not in after_laser_effects:
+            effect.draw(surface, scale_factor, translation, interp_t=interp_t)
 
 
 def draw_battle(
