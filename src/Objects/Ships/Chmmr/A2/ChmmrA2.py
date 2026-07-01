@@ -57,7 +57,7 @@ class ChmmrA2(Ability):
         if key not in cache:
             mask = pygame.mask.from_surface(sprite)
             cache[key] = mask.to_surface(
-                setcolor=(*color, 255),
+                setcolor=color,
                 unsetcolor=(0, 0, 0, 0),
             )
         return cache[key]

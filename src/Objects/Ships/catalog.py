@@ -275,7 +275,7 @@ class AbilityDefinition(_DefinitionMapping):
     collision_wait: int | None = None
     base_speed: float | None = None
     silhouette_count: int | None = None
-    silhouette_colors: tuple[tuple[int, int, int], ...] | None = None
+    silhouette_colors: tuple[tuple[int, int, int, int], ...] | None = None
     silhouette_distances: tuple[float, ...] | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
@@ -999,9 +999,9 @@ def parse_ability_definition(name, data):
                 f"Ability '{name}' field 'SILHOUETTE_COLORS' must be a non-empty array"
             )
         for index, color in enumerate(raw_colors):
-            if not isinstance(color, list) or len(color) != 3:
+            if not isinstance(color, list) or len(color) != 4:
                 raise CatalogValidationError(
-                    f"Ability '{name}' field 'SILHOUETTE_COLORS[{index}]' must contain 3 values"
+                    f"Ability '{name}' field 'SILHOUETTE_COLORS[{index}]' must contain 4 values"
                 )
             parsed = tuple(
                 _typed(

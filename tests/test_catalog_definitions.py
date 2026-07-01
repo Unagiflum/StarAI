@@ -127,6 +127,13 @@ class CatalogDefinitionTests(unittest.TestCase):
         with self.assertRaisesRegex(CatalogValidationError, "references unknown ship"):
             build_catalogs(ship_entries, {"BrokenAbility": unknown_ship})
 
+    def test_silhouette_colors_require_rgba_channels(self):
+        ability_data = dict(self.raw_abilities["ChmmrA2"])
+        ability_data["SILHOUETTE_COLORS"] = [[0, 0, 200]] * 5
+
+        with self.assertRaisesRegex(CatalogValidationError, "must contain 4 values"):
+            parse_ability_definition("BrokenAbility", ability_data)
+
     def test_invalid_gun_direction_contracts_are_rejected(self):
         mismatched = dict(self.raw_abilities["EarthlingA1"])
         mismatched["gun_directions"] = [0.0, 10.0]

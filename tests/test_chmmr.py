@@ -15,6 +15,7 @@ if pygame.display.get_surface() is None:
 
 import src.const as const
 from src.Objects.Ships.Chmmr.A1.ChmmrA1 import ChmmrA1Spark
+from src.Objects.Ships.Chmmr.A2.ChmmrA2 import ChmmrA2
 from src.Objects.Ships.Chmmr.A3.ChmmrSatellite import ChmmrSatellite
 from src.Objects.Ships.Chmmr.A3.ChmmrSatelliteLaser import ChmmrSatelliteLaser
 from src.Objects.Ships.ability import SPECIAL_OBJECT_AREA_IMMUNITIES
@@ -51,7 +52,29 @@ class ChmmrTests(unittest.TestCase):
         self.assertEqual(ship.satellite_laser_color, (0, 0, 255))
         self.assertEqual(tractor.base_speed, 48)
         self.assertEqual(tractor.silhouette_count, 5)
+        self.assertEqual(
+            tractor.silhouette_colors,
+            (
+                (0, 0, 200, 200),
+                (0, 0, 175, 175),
+                (0, 0, 150, 150),
+                (0, 0, 100, 100),
+                (0, 0, 50, 50),
+            ),
+        )
         self.assertEqual(get_ship_class("Chmmr").__name__, "Chmmr")
+
+    def test_tractor_silhouette_uses_configured_alpha(self):
+        sprite = pygame.Surface((1, 1), pygame.SRCALPHA)
+        sprite.fill((255, 255, 255, 255))
+
+        silhouette = ChmmrA2._silhouette(
+            sprite,
+            (0, 0, 200, 73),
+            SimpleNamespace(),
+        )
+
+        self.assertEqual(silhouette.get_at((0, 0)), (0, 0, 200, 73))
 
     def test_first_update_spawns_three_evenly_spaced_satellites(self):
         self.chmmr.update()
