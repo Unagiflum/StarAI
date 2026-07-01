@@ -1298,6 +1298,12 @@
         "file_path": "Objects/Ships/Vux/A1/",
         "has_sprites": false,
         "LASER_RANGE": 644,
+        "LASER_COLOR": [
+            0,
+            255,
+            0
+        ],
+        "LASER_WIDTH": 6,
         "gun_locations": [
             [
                 56,
