@@ -1,5 +1,3 @@
-import math
-
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.Chenjesu.A1.ChenjesuA1 import ChenjesuA1
@@ -51,18 +49,4 @@ class Chenjesu(SpaceShip):
         if active_count >= definition.max_count:
             return ActionPlan.invalid(2)
 
-        cloud = ChenjesuA2(self)
-
-        def apply_launch_recoil():
-            recoil_speed = cloud.mass * cloud.speed / self.mass
-            launch_angle = math.radians(cloud.rotation)
-            self.add_impulse(
-                -math.sin(launch_angle) * recoil_speed,
-                math.cos(launch_angle) * recoil_speed,
-            )
-
-        return self.prepare_action_plan(
-            2,
-            cloud,
-            side_effects=(apply_launch_recoil,),
-        )
+        return self.prepare_action_plan(2, ChenjesuA2(self))

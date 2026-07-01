@@ -81,29 +81,33 @@ class ChenjesuA2(Ability):
 
         self.previous_position = self.position.copy()
         target = self._live_trackable_opponent()
-        base_velocity = self._target_velocity(target)
-        jitter_angle = self.rng.uniform(0.0, 360.0)
-        jitter_x, jitter_y = self._direction_vector(jitter_angle, self.jitter)
-        self.velocity = [
-            base_velocity[0] + jitter_x,
-            base_velocity[1] + jitter_y,
-        ]
-        self.apply_speed_limit()
+        if target is None:
+            move_angle = self._quantized_angle(self.rng.uniform(0.0, 360.0))
+            move_speed = self.jitter
+        else:
+            move_angle = self._target_move_angle(target)
+            move_speed = self.speed
+        self.velocity = list(self._direction_vector(move_angle, move_speed))
         self.position[0] = (
             self.position[0] + self.velocity[0] * const.SPEED_SCALE
         ) % const.ARENA_SIZE
         self.position[1] = (
             self.position[1] + self.velocity[1] * const.SPEED_SCALE
         ) % const.ARENA_SIZE
-        if self.velocity != [0.0, 0.0]:
-            self.rotation = math.degrees(
-                math.atan2(self.velocity[0], -self.velocity[1])
-            ) % 360
+        self.rotation = move_angle
         return True
 
     def _target_velocity(self, target):
         if target is None:
             return [0.0, 0.0]
+
+        move_angle = self._target_move_angle(target)
+        return list(self._direction_vector(move_angle, self.speed))
+
+    def _target_move_angle(self, target):
+        dx, dy = wrapped_delta(self.position, target.position)
+        if dx == 0 and dy == 0:
+            return self._quantized_angle(self.rotation)
 
         target_to_self = wrapped_delta(target.position, self.position)
         radial_angle = self._vector_angle(*target_to_self)
@@ -117,13 +121,9 @@ class ChenjesuA2(Ability):
                 candidates,
                 key=lambda angle: abs(self._signed_angle(angle - target.rotation)),
             )
-            return list(self._direction_vector(move_angle, self.speed))
+            return self._quantized_angle(move_angle)
 
-        dx, dy = wrapped_delta(self.position, target.position)
-        distance = math.hypot(dx, dy)
-        if distance == 0:
-            return [0.0, 0.0]
-        return [dx / distance * self.speed, dy / distance * self.speed]
+        return self._quantized_angle(self._vector_angle(dx, dy))
 
     def should_collide_with_ship(self, ship):
         return True
@@ -199,3 +199,8 @@ class ChenjesuA2(Ability):
     @staticmethod
     def _signed_angle(angle):
         return (angle + 180.0) % 360.0 - 180.0
+
+    @staticmethod
+    def _quantized_angle(angle):
+        direction = round(angle / const.TURN_ANGLE) % const.SHIP_DIRECTIONS
+        return direction * const.TURN_ANGLE

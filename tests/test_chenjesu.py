@@ -12,6 +12,7 @@ import pygame
 pygame.init()
 pygame.display.set_mode((1, 1))
 
+import src.const as const
 from src.Battle import collision_responses, collisions
 from src.Objects.Ships.Chenjesu.A1.ChenjesuA1 import ChenjesuA1Shard
 from src.Objects.Ships.Chenjesu.A2.ChenjesuA2 import ChenjesuA2
@@ -101,41 +102,44 @@ class ChenjesuTests(unittest.TestCase):
         ship.friendly_objects[-1].currently_alive = False
         self.assertTrue(ship.plan_action2().valid)
 
-    def test_a2_launch_recoils_parent_according_to_momentum(self):
+    def test_a2_launch_does_not_recoil_parent(self):
         ship = self.make_ship()
         ship.rotation = 90.0
-        expected_recoil_speed = (
-            ABILITY_DEFINITIONS["ChenjesuA2"].mass
-            * ABILITY_DEFINITIONS["ChenjesuA2"].speed
-            / ship.mass
-        )
 
         plan = ship.plan_action2()
         self.assertEqual(ship.accumulated_impulses, [0.0, 0.0])
 
         result = ship.commit_action(plan)
         self.assertTrue(result.valid)
-        self.assertAlmostEqual(ship.accumulated_impulses[0], expected_recoil_speed)
-        self.assertAlmostEqual(ship.accumulated_impulses[1], 0.0)
+        self.assertEqual(ship.accumulated_impulses, [0.0, 0.0])
 
         ship.update()
-        self.assertAlmostEqual(math.hypot(*ship.velocity), expected_recoil_speed)
+        self.assertEqual(ship.velocity, [0.0, 0.0])
 
-    def test_a2_pursues_target_and_uses_only_jitter_when_target_is_untrackable(self):
+    def test_a2_pursues_target_at_speed_and_jitters_when_target_is_unavailable(self):
         ship = self.make_ship()
         target = self.make_ship(player=2)
-        target.position = [1000.0, 500.0]
+        target.position = [1400.0, 500.0]
         ship.opponent = target
         cloud = ChenjesuA2(ship)
         cloud.position = [1000.0, 1000.0]
-        cloud.rng = SimpleNamespace(uniform=lambda start, end: 0.0)
+        cloud.rng = SimpleNamespace(uniform=lambda start, end: 31.0)
 
         cloud.update()
-        self.assertEqual(cloud.velocity, [0.0, -(cloud.speed + cloud.jitter)])
+        self.assertAlmostEqual(math.hypot(*cloud.velocity), cloud.speed)
+        self.assertEqual(cloud.rotation % const.TURN_ANGLE, 0.0)
+        self.assertEqual(cloud.rotation, 45.0)
 
         target.trackable = False
         cloud.update()
-        self.assertEqual(cloud.velocity, [0.0, -cloud.jitter])
+        self.assertAlmostEqual(math.hypot(*cloud.velocity), cloud.jitter)
+        self.assertEqual(cloud.rotation, 22.5)
+
+        target.trackable = True
+        target.current_hp = 0
+        cloud.update()
+        self.assertAlmostEqual(math.hypot(*cloud.velocity), cloud.jitter)
+        self.assertEqual(cloud.rotation, 22.5)
 
     def test_a2_leaves_enemy_front_arc_perpendicularly(self):
         ship = self.make_ship()
@@ -156,7 +160,9 @@ class ChenjesuTests(unittest.TestCase):
             math.atan2(base_velocity[0], -base_velocity[1])
         ) % 360
 
-        self.assertAlmostEqual(move_angle, 110.0)
+        self.assertAlmostEqual(math.hypot(*base_velocity), cloud.speed)
+        self.assertAlmostEqual(move_angle, 112.5)
+        self.assertEqual(move_angle % const.TURN_ANGLE, 0.0)
 
     def test_a2_drains_enemy_energy_and_bounces_without_ship_damage(self):
         ship = self.make_ship()
