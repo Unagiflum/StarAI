@@ -101,6 +101,26 @@ class ChenjesuTests(unittest.TestCase):
         ship.friendly_objects[-1].currently_alive = False
         self.assertTrue(ship.plan_action2().valid)
 
+    def test_a2_launch_recoils_parent_according_to_momentum(self):
+        ship = self.make_ship()
+        ship.rotation = 90.0
+        expected_recoil_speed = (
+            ABILITY_DEFINITIONS["ChenjesuA2"].mass
+            * ABILITY_DEFINITIONS["ChenjesuA2"].speed
+            / ship.mass
+        )
+
+        plan = ship.plan_action2()
+        self.assertEqual(ship.accumulated_impulses, [0.0, 0.0])
+
+        result = ship.commit_action(plan)
+        self.assertTrue(result.valid)
+        self.assertAlmostEqual(ship.accumulated_impulses[0], expected_recoil_speed)
+        self.assertAlmostEqual(ship.accumulated_impulses[1], 0.0)
+
+        ship.update()
+        self.assertAlmostEqual(math.hypot(*ship.velocity), expected_recoil_speed)
+
     def test_a2_pursues_target_and_uses_only_jitter_when_target_is_untrackable(self):
         ship = self.make_ship()
         target = self.make_ship(player=2)
