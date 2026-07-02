@@ -484,48 +484,28 @@ class Ability(PlayerObject):
         length = math.hypot(dx, dy)
         if length == 0:
             return
-            
+
         nx = dx / length
         ny = dy / length
-        
+
         # Perpendicular vector
         px = -ny
         py = nx
-        
+
         half_width = width / 2.0
-        
+
         # Rectangle base points
         p1 = (start_pos[0] + px * half_width, start_pos[1] + py * half_width)
         p2 = (start_pos[0] - px * half_width, start_pos[1] - py * half_width)
-        
-        # Rectangle end points (before the half-circle)
+
+        # Rectangle end points, tangent to the round cap.
         p3 = (end_pos[0] - px * half_width, end_pos[1] - py * half_width)
         p4 = (end_pos[0] + px * half_width, end_pos[1] + py * half_width)
-        
-        points = [p1, p2, p3]
-        
-        # Calculate half-circle points at the end
-        base_angle = math.atan2(dy, dx)
-        # Adapt number of segments based on width for smooth curve
-        num_segments = max(8, int(width)) 
-        
-        for i in range(1, num_segments):
-            # p3 is at base_angle - 90 deg, p4 is at base_angle + 90 deg
-            theta = base_angle - math.pi / 2 + (math.pi * i / num_segments)
-            cx = end_pos[0] + math.cos(theta) * half_width
-            cy = end_pos[1] + math.sin(theta) * half_width
-            points.append((cx, cy))
-            
-        points.append(p4)
-        
-        # Draw the main filled polygon (aliased)
-        pygame.draw.polygon(screen, color, points)
-        
-        # Add anti-aliasing and a half-brightness border along the sides and half-circle.
-        # We trace from p2 -> p3 -> half-circle -> p4 -> p1. (Excludes the base p1 -> p2).
-        border_points = points[1:] + [points[0]]
-        
-        border_color = (*color[:3], 128)
-        
-        # Draw the anti-aliased border (False means open line, so it doesn't close from p1 to p2)
-        pygame.draw.aalines(screen, border_color, False, border_points)
+
+        # Draw the cap first so the body covers its inward half without leaving a seam.
+        pygame.draw.aacircle(screen, color, end_pos, half_width)
+        pygame.draw.polygon(screen, color, (p1, p2, p3, p4))
+
+        # Full-color AA edges provide coverage blending without a dark alpha fringe.
+        pygame.draw.aaline(screen, color, p1, p4)
+        pygame.draw.aaline(screen, color, p2, p3)
