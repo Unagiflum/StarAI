@@ -278,6 +278,9 @@ class AbilityDefinition(_DefinitionMapping):
     silhouette_count: int | None = None
     silhouette_colors: tuple[tuple[int, int, int, int], ...] | None = None
     silhouette_distances: tuple[float, ...] | None = None
+    anim_length: int | None = None
+    circle_thickness: int | None = None
+    circle_colors: tuple[tuple[int, int, int, int], ...] | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -383,6 +386,9 @@ class AbilityDefinition(_DefinitionMapping):
         "SILHOUETTE_COUNT": "silhouette_count",
         "SILHOUETTE_COLORS": "silhouette_colors",
         "SILHOUETTE_DIST": "silhouette_distances",
+        "ANIM_LENGTH": "anim_length",
+        "CIRCLE_THICKNESS": "circle_thickness",
+        "CIRCLE_COLOR": "circle_colors",
     }
 
 
@@ -479,6 +485,34 @@ def _rgb_tuple(kind, name, data, field_name):
         color = tuple(
             _typed(kind, name, f"{field_name}[{index}][{channel}]", value, int)
             for channel, value in enumerate(item)
+        )
+        if any(channel < 0 or channel > 255 for channel in color):
+            raise CatalogValidationError(
+                f"{kind} '{name}' {field_name} channels must be between 0 and 255"
+            )
+        result.append(color)
+    return tuple(result)
+
+
+def _rgba_tuple(kind, name, data, field_name, *, length=None):
+    value = data[field_name]
+    if not isinstance(value, list) or not value:
+        raise CatalogValidationError(
+            f"{kind} '{name}' field '{field_name}' must be a non-empty array"
+        )
+    if length is not None and len(value) != length:
+        raise CatalogValidationError(
+            f"{kind} '{name}' field '{field_name}' must contain {length} colors"
+        )
+    result = []
+    for index, item in enumerate(value):
+        if not isinstance(item, list) or len(item) != 4:
+            raise CatalogValidationError(
+                f"{kind} '{name}' field '{field_name}[{index}]' must contain 4 values"
+            )
+        color = tuple(
+            _typed(kind, name, f"{field_name}[{index}][{channel}]", channel_value, int)
+            for channel, channel_value in enumerate(item)
         )
         if any(channel < 0 or channel > 255 for channel in color):
             raise CatalogValidationError(
@@ -840,6 +874,9 @@ def parse_ability_definition(name, data):
         "SILHOUETTE_COUNT",
         "SILHOUETTE_COLORS",
         "SILHOUETTE_DIST",
+        "ANIM_LENGTH",
+        "CIRCLE_THICKNESS",
+        "CIRCLE_COLOR",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -950,6 +987,8 @@ def parse_ability_definition(name, data):
         "SHIP_COLLISION_WAIT": ("ship_collision_wait", int),
         "BASE_SPEED": ("base_speed", float),
         "SILHOUETTE_COUNT": ("silhouette_count", int),
+        "ANIM_LENGTH": ("anim_length", int),
+        "CIRCLE_THICKNESS": ("circle_thickness", int),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(
@@ -1015,39 +1054,19 @@ def parse_ability_definition(name, data):
         values["bolt_colors"] = tuple(colors)
     else:
         values["bolt_colors"] = None
-    if "SILHOUETTE_COLORS" in data:
-        colors = []
-        raw_colors = data["SILHOUETTE_COLORS"]
-        if not isinstance(raw_colors, list) or not raw_colors:
-            raise CatalogValidationError(
-                f"Ability '{name}' field 'SILHOUETTE_COLORS' must be a non-empty array"
-            )
-        for index, color in enumerate(raw_colors):
-            if not isinstance(color, list) or len(color) != 4:
-                raise CatalogValidationError(
-                    f"Ability '{name}' field 'SILHOUETTE_COLORS[{index}]' must contain 4 values"
-                )
-            parsed = tuple(
-                _typed(
-                    kind,
-                    name,
-                    f"SILHOUETTE_COLORS[{index}][{channel}]",
-                    item,
-                    int,
-                )
-                for channel, item in enumerate(color)
-            )
-            if any(channel < 0 or channel > 255 for channel in parsed):
-                raise CatalogValidationError(
-                    f"Ability '{name}' SILHOUETTE_COLORS channels must be between 0 and 255"
-                )
-            colors.append(parsed)
-        values["silhouette_colors"] = tuple(colors)
-    else:
-        values["silhouette_colors"] = None
+    values["silhouette_colors"] = (
+        _rgba_tuple(kind, name, data, "SILHOUETTE_COLORS")
+        if "SILHOUETTE_COLORS" in data
+        else None
+    )
     values["silhouette_distances"] = (
         _number_tuple(kind, name, data, "SILHOUETTE_DIST")
         if "SILHOUETTE_DIST" in data
+        else None
+    )
+    values["circle_colors"] = (
+        _rgba_tuple(kind, name, data, "CIRCLE_COLOR", length=2)
+        if "CIRCLE_COLOR" in data
         else None
     )
     values["_source_keys"] = tuple(data)
@@ -1082,6 +1101,8 @@ def parse_ability_definition(name, data):
         "avoid_angle",
         "collision_wait",
         "ship_collision_wait",
+        "anim_length",
+        "circle_thickness",
     ):
         if values[field_name] is not None and values[field_name] <= 0:
             raise CatalogValidationError(
@@ -1114,6 +1135,26 @@ def parse_ability_definition(name, data):
         ):
             raise CatalogValidationError(
                 f"Ability '{name}' SILHOUETTE_* lengths must match"
+            )
+    circle_values = (
+        values["anim_length"],
+        values["circle_thickness"],
+        values["circle_colors"],
+    )
+    if any(value is not None for value in circle_values) and any(
+        value is None for value in circle_values
+    ):
+        raise CatalogValidationError(
+            f"Ability '{name}' must define the complete circle effect configuration"
+        )
+    if all(value is not None for value in circle_values):
+        if values["effect_range"] is None:
+            raise CatalogValidationError(
+                f"Ability '{name}' circle effect requires range"
+            )
+        if values["gun_locations"] is None:
+            raise CatalogValidationError(
+                f"Ability '{name}' circle effect requires gun_locations"
             )
     if (
         values["segment_length_min"] is not None

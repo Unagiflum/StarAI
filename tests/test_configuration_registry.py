@@ -131,13 +131,34 @@ class ShipRegistryTests(unittest.TestCase):
     def test_preloading_resources_does_not_construct_gameplay_objects(self):
         resources = AssetManager()
         with (
-            mock.patch("src.Objects.Ships.registry.get_ability_class") as get_class,
+            mock.patch(
+                "src.Objects.Ships.registry.get_ability_class",
+                wraps=get_ability_class,
+            ) as get_class,
             mock.patch.object(resources, "ability", wraps=resources.ability) as ability,
         ):
             preload_ship_ability_resources("Earthling", resources)
 
-        get_class.assert_not_called()
         expected_names = ability_names_for_ship("Earthling")
+        self.assertEqual(
+            get_class.call_args_list,
+            [mock.call(name) for name in expected_names],
+        )
+        self.assertEqual(
+            ability.call_args_list,
+            [mock.call(name) for name in expected_names],
+        )
+
+    def test_preloading_supports_compatibility_classes_without_preload_hook(self):
+        resources = AssetManager()
+        with mock.patch.object(
+            resources,
+            "ability",
+            wraps=resources.ability,
+        ) as ability:
+            preload_ship_ability_resources("Orz", resources)
+
+        expected_names = ability_names_for_ship("Orz")
         self.assertEqual(
             ability.call_args_list,
             [mock.call(name) for name in expected_names],

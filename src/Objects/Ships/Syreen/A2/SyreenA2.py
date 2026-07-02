@@ -1,19 +1,193 @@
 import math
+from weakref import WeakKeyDictionary
+
+import pygame
+import pygame.gfxdraw
 
 import src.const as const
+from src.Battle.effects import BattleEffect
 from src.Objects.Ships.ability import Ability
-from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 from src.Objects.Ships.launch_geometry import direction_vector, mask_projection_bounds
 from src.Objects.Ships.Syreen.A2.SyreenCrew import SyreenCrew
+from src.resources import default_assets
+
+
+def _farthest_alpha_radius(surface, origin):
+    """Return the farthest alpha>0 pixel-center distance from origin."""
+    mask = pygame.mask.from_surface(surface, threshold=0)
+    origin_x, origin_y = origin
+    maximum_squared = 0.0
+    for bounds in mask.get_bounding_rects():
+        for y in range(bounds.top, bounds.bottom):
+            for x in range(bounds.left, bounds.right):
+                if mask.get_at((x, y)):
+                    maximum_squared = max(
+                        maximum_squared,
+                        (x - origin_x) ** 2 + (y - origin_y) ** 2,
+                    )
+    return math.sqrt(maximum_squared)
+
+
+class SyreenSongEffect(BattleEffect):
+    """Fixed-origin, expanding visual wave for the Syreen song."""
+
+    render_layer = "after_lasers"
+    _overlay_cache = {}
+
+    def __init__(
+        self,
+        position,
+        starting_radius,
+        target_radius,
+        thickness,
+        colors,
+        total_frames,
+    ):
+        super().__init__(position=position, frames=(), frame_delay=1)
+        self.starting_radius = starting_radius
+        self.target_radius = target_radius
+        self.thickness = thickness
+        self.colors = colors
+        self.total_frames = total_frames
+
+    def update(self):
+        self.current_frame += 1
+        return self.current_frame < self.total_frames
+
+    def radius_and_color(self, interp_t=0.0):
+        denominator = max(1, self.total_frames - 1)
+        progress = min(1.0, max(0.0, (self.current_frame + interp_t) / denominator))
+        radius = self.starting_radius + (
+            self.target_radius - self.starting_radius
+        ) * progress
+        start, end = self.colors
+        color = tuple(
+            round(start[channel] + (end[channel] - start[channel]) * progress)
+            for channel in range(4)
+        )
+        return radius, color
+
+    @classmethod
+    def _overlay(cls, size):
+        overlay = cls._overlay_cache.get(size)
+        if overlay is None:
+            overlay = pygame.Surface(size, pygame.SRCALPHA)
+            cls._overlay_cache[size] = overlay
+        return overlay
+
+    @staticmethod
+    def _draw_feathered_circle(surface, center, radius, thickness, color):
+        center_radius = max(1, round(radius))
+        pixel_thickness = max(1.0, thickness)
+        half_thickness = max(0.5, pixel_thickness / 2.0)
+        maximum_offset = max(0, math.ceil(half_thickness) - 1)
+
+        offsets = sorted(
+            range(-maximum_offset, maximum_offset + 1),
+            key=abs,
+            reverse=True,
+        )
+        for offset in offsets:
+            # pygame.draw.circle's one-pixel outline lies at radius - 1.
+            stroke_radius = center_radius + offset + 1
+            if stroke_radius <= 0:
+                continue
+            edge_fade = max(0.0, 1.0 - abs(offset) / half_thickness)
+            alpha = round(color[3] * edge_fade)
+            if alpha:
+                stroke_color = (*color[:3], alpha)
+                pygame.gfxdraw.aacircle(
+                    surface,
+                    center[0],
+                    center[1],
+                    stroke_radius,
+                    stroke_color,
+                )
+                pygame.draw.circle(
+                    surface,
+                    stroke_color,
+                    center,
+                    stroke_radius,
+                    width=1,
+                )
+
+    def draw(self, screen, scale_factor, translation, interp_t=0.0):
+        radius, color = self.radius_and_color(interp_t)
+        pixel_radius = radius * scale_factor
+        pixel_thickness = self.thickness * scale_factor
+        extent = math.ceil(pixel_radius + pixel_thickness / 2.0 + 1)
+        if extent <= 0 or color[3] <= 0:
+            return
+
+        clip = screen.get_clip()
+        overlay = self._overlay(screen.get_size())
+        overlay.set_clip(clip)
+        overlay.fill((0, 0, 0, 0), clip)
+        screen_x = round((self.position[0] + translation[0]) * scale_factor)
+        screen_y = round((self.position[1] + translation[1]) * scale_factor)
+        arena_span = const.ARENA_SIZE * scale_factor
+        drew_circle = False
+
+        for wrap_x in (-1, 0, 1):
+            for wrap_y in (-1, 0, 1):
+                center = (
+                    round(const.SCREEN_LEFT + screen_x + wrap_x * arena_span),
+                    round(screen_y + wrap_y * arena_span),
+                )
+                bounds = pygame.Rect(
+                    center[0] - extent,
+                    center[1] - extent,
+                    extent * 2 + 1,
+                    extent * 2 + 1,
+                )
+                if not clip.colliderect(bounds):
+                    continue
+                self._draw_feathered_circle(
+                    overlay,
+                    center,
+                    pixel_radius,
+                    pixel_thickness,
+                    color,
+                )
+                drew_circle = True
+
+        overlay.set_clip(None)
+        if drew_circle:
+            screen.blit(overlay, clip.topleft, area=clip)
 
 
 class SyreenA2(Ability):
+    _starting_radius_cache = WeakKeyDictionary()
+
+    @classmethod
+    def preload_resources(cls, ability_name, resources=None):
+        resources = resources or default_assets()
+        ability_assets = super().preload_resources(ability_name, resources)
+        if resources in cls._starting_radius_cache:
+            return ability_assets
+
+        definition = ABILITY_DEFINITIONS[ability_name]
+        ship_definition = SHIP_DEFINITIONS[definition.ship_name]
+        ship_sprite = resources.ship(definition.ship_name).sprites[0]
+        gun_x, gun_y = definition.gun_locations[0]
+        gun_origin = (
+            gun_x * ship_definition.sprite_scale,
+            gun_y * ship_definition.sprite_scale,
+        )
+        farthest_radius = _farthest_alpha_radius(ship_sprite, gun_origin)
+        starting_radius = farthest_radius + definition.circle_thickness / 2.0
+        if starting_radius >= definition.effect_range:
+            raise ValueError(
+                f"Ability '{ability_name}' circle starts outside its configured range"
+            )
+        cls._starting_radius_cache[resources] = starting_radius
+        return ability_assets
+
     def __init__(self, parent):
         super().__init__("SyreenA2", parent)
         definition = ABILITY_DEFINITIONS["SyreenA2"]
-        self.range = (
-            definition.effect_range if definition.effect_range is not None else 832
-        )
+        self.range = definition.effect_range
         self.separation_distance = (
             definition.separation_distance
             if definition.separation_distance is not None
@@ -24,8 +198,22 @@ class SyreenA2(Ability):
             if definition.spawn_angle_increment is not None
             else 25
         )
-        self._spawned_crew = []
+        resources = getattr(parent, "resources", None) or default_assets()
+        if resources not in self._starting_radius_cache:
+            self.preload_resources("SyreenA2", resources)
+
+        self._spawned_objects = []
         self.place_self()
+        self._spawned_objects.append(
+            SyreenSongEffect(
+                position=self.position,
+                starting_radius=self._starting_radius_cache[resources],
+                target_radius=self.range,
+                thickness=definition.circle_thickness,
+                colors=definition.circle_colors,
+                total_frames=definition.anim_length,
+            )
+        )
 
     def place_self(self):
         self.position = self.configured_gun_position()
@@ -91,9 +279,9 @@ class SyreenA2(Ability):
                 (target.position[0] + dx * dist) % const.ARENA_SIZE,
                 (target.position[1] + dy * dist) % const.ARENA_SIZE,
             ]
-            self._spawned_crew.append(crew)
+            self._spawned_objects.append(crew)
 
     def drain_spawned_objects(self):
-        objects = self._spawned_crew
-        self._spawned_crew = []
+        objects = self._spawned_objects
+        self._spawned_objects = []
         return objects

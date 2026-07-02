@@ -8,7 +8,11 @@ from src.Battle.battle_aftermath import hide_dead_ship
 from src.Battle.collision_geometry import collision_info, objects_overlap
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ship
-from src.Objects.Ships.Syreen.A2.SyreenA2 import SyreenA2
+from src.Objects.Ships.Syreen.A2.SyreenA2 import (
+    SyreenA2,
+    SyreenSongEffect,
+    _farthest_alpha_radius,
+)
 from src.Objects.Ships.Syreen.A2.SyreenCrew import SyreenCrew
 from src.collision_capabilities import (
     AreaDamageCapabilities,
@@ -147,6 +151,14 @@ class SyreenSongTests(unittest.TestCase):
         self.parent.in_battle = True
         self.parent.planet = None
 
+    @staticmethod
+    def drain_crews(song):
+        return [
+            spawned
+            for spawned in song.drain_spawned_objects()
+            if isinstance(spawned, SyreenCrew)
+        ]
+
     def test_catalog_flags_limit_song_to_enemy_ships(self):
         definition = ABILITY_DEFINITIONS["SyreenA2"]
         song = SyreenA2(self.parent)
@@ -196,7 +208,7 @@ class SyreenSongTests(unittest.TestCase):
 
                 self.assertEqual(target.current_hp, 1)
                 self.assertEqual(target.current_energy, energy_after_activation)
-                self.assertEqual(len(song.drain_spawned_objects()), 4)
+                self.assertEqual(len(self.drain_crews(song)), 4)
 
     def test_spawn_count_matches_actual_nonlethal_damage(self):
         song = SyreenA2(self.parent)
@@ -207,7 +219,7 @@ class SyreenSongTests(unittest.TestCase):
         collisions._handle_area_damage([song, target], [])
 
         self.assertEqual(target.current_hp, 1)
-        crews = song.drain_spawned_objects()
+        crews = self.drain_crews(song)
         self.assertEqual(len(crews), 4)
         self.assertTrue(all(crew.origin_ship is target for crew in crews))
 
@@ -217,7 +229,7 @@ class SyreenSongTests(unittest.TestCase):
 
         song.update()
 
-        self.assertEqual(song.position, self.parent.position)
+        self.assertEqual(song.position, song.configured_gun_position())
         self.assertEqual(song.range, ABILITY_DEFINITIONS["SyreenA2"].effect_range)
 
     def test_crew_spawn_outside_cloaked_ilwrath_hull_and_move_away(self):
@@ -229,7 +241,7 @@ class SyreenSongTests(unittest.TestCase):
         song = SyreenA2(self.parent)
 
         collisions._handle_area_damage([song, target], [])
-        crews = song.drain_spawned_objects()
+        crews = self.drain_crews(song)
 
         self.assertEqual(len(crews), 4)
         for crew in crews:
@@ -238,6 +250,89 @@ class SyreenSongTests(unittest.TestCase):
             crew.update_physics()
             _, _, overlap = collision_info(crew, target)
             self.assertFalse(objects_overlap(crew, target, overlap))
+
+    def test_song_spawns_a_fixed_origin_battle_effect(self):
+        song = SyreenA2(self.parent)
+        effect = next(
+            spawned
+            for spawned in song.drain_spawned_objects()
+            if isinstance(spawned, SyreenSongEffect)
+        )
+        origin = list(effect.position)
+
+        self.parent.position = [750.0, 900.0]
+        song.update()
+
+        self.assertEqual(effect.position, origin)
+        self.assertEqual(effect.render_layer, "after_lasers")
+
+    def test_starting_radius_is_cached_outside_every_alpha_pixel(self):
+        song = SyreenA2(self.parent)
+        effect = next(
+            spawned
+            for spawned in song.drain_spawned_objects()
+            if isinstance(spawned, SyreenSongEffect)
+        )
+        definition = ABILITY_DEFINITIONS["SyreenA2"]
+        sprite = self.parent.resources.ship("Syreen").sprites[0]
+        gun_x, gun_y = definition.gun_locations[0]
+        farthest = _farthest_alpha_radius(sprite, (gun_x, gun_y))
+
+        self.assertAlmostEqual(
+            effect.starting_radius,
+            farthest + definition.circle_thickness / 2.0,
+        )
+        self.assertGreater(effect.starting_radius, farthest)
+
+    def test_ring_radius_and_color_interpolate_linearly(self):
+        effect = SyreenSongEffect(
+            position=[100.0, 100.0],
+            starting_radius=20.0,
+            target_radius=80.0,
+            thickness=8,
+            colors=((200, 100, 50, 240), (100, 50, 0, 40)),
+            total_frames=4,
+        )
+
+        samples = []
+        for frame in range(4):
+            effect.current_frame = frame
+            samples.append(effect.radius_and_color())
+
+        self.assertEqual([sample[0] for sample in samples], [20.0, 40.0, 60.0, 80.0])
+        self.assertEqual(samples[0][1], (200, 100, 50, 240))
+        self.assertEqual(samples[-1][1], (100, 50, 0, 40))
+
+    def test_ring_alpha_is_full_at_centerline_and_fades_at_edges(self):
+        import pygame
+
+        effect = SyreenSongEffect(
+            position=[100.0, 100.0],
+            starting_radius=50.0,
+            target_radius=50.0,
+            thickness=8,
+            colors=((255, 100, 255, 200), (255, 100, 255, 200)),
+            total_frames=2,
+        )
+        surface = pygame.Surface(
+            (const.SCREEN_WIDTH, const.SCREEN_HEIGHT), pygame.SRCALPHA
+        )
+        translation = [
+            const.SCREEN_HEIGHT / 2 - effect.position[0],
+            const.SCREEN_HEIGHT / 2 - effect.position[1],
+        ]
+
+        effect.draw(surface, 1.0, translation)
+
+        center_x = const.SCREEN_LEFT + const.SCREEN_HEIGHT // 2
+        center_y = const.SCREEN_HEIGHT // 2
+        middle_alpha = surface.get_at((center_x + 50, center_y)).a
+        near_edge_alpha = surface.get_at((center_x + 53, center_y)).a
+        outside_alpha = surface.get_at((center_x + 55, center_y)).a
+        self.assertEqual(middle_alpha, 200)
+        self.assertGreater(middle_alpha, near_edge_alpha)
+        self.assertGreater(near_edge_alpha, outside_alpha)
+        self.assertEqual(outside_alpha, 0)
 
 
 if __name__ == "__main__":

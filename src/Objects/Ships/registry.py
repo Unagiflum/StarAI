@@ -71,4 +71,10 @@ def ability_names_for_ship(ship_name):
 
 def preload_ship_ability_resources(ship_name, resources=None):
     for ability_name in ability_names_for_ship(ship_name):
-        Ability.preload_resources(ability_name, resources)
+        ability_class = get_ability_class(ability_name)
+        preload = getattr(
+            ability_class,
+            "preload_resources",
+            Ability.preload_resources,
+        )
+        preload(ability_name, resources)

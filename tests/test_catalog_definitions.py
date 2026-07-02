@@ -134,6 +134,43 @@ class CatalogDefinitionTests(unittest.TestCase):
         with self.assertRaisesRegex(CatalogValidationError, "must contain 4 values"):
             parse_ability_definition("BrokenAbility", ability_data)
 
+    def test_circle_effect_requires_two_rgba_colors_and_positive_dimensions(self):
+        ability_data = dict(self.raw_abilities["SyreenA2"])
+        definition = parse_ability_definition("SyreenA2", ability_data)
+
+        self.assertEqual(definition.anim_length, ability_data["ANIM_LENGTH"])
+        self.assertEqual(
+            definition.circle_thickness,
+            ability_data["CIRCLE_THICKNESS"],
+        )
+        self.assertEqual(
+            definition.circle_colors,
+            tuple(tuple(color) for color in ability_data["CIRCLE_COLOR"]),
+        )
+
+        invalid_cases = (
+            ("CIRCLE_COLOR", [[255, 100, 255, 128]], "must contain 2 colors"),
+            ("CIRCLE_COLOR", [[255, 100, 255, 256]] * 2, "between 0 and 255"),
+            ("ANIM_LENGTH", 0, "anim_length must be positive"),
+            ("CIRCLE_THICKNESS", 0, "circle_thickness must be positive"),
+        )
+        for field, value, message in invalid_cases:
+            with self.subTest(field=field, value=value):
+                invalid = dict(ability_data)
+                invalid[field] = value
+                with self.assertRaisesRegex(CatalogValidationError, message):
+                    parse_ability_definition("BrokenAbility", invalid)
+
+        for missing_field in ("range", "gun_locations"):
+            with self.subTest(missing_field=missing_field):
+                invalid = dict(ability_data)
+                invalid.pop(missing_field)
+                with self.assertRaisesRegex(
+                    CatalogValidationError,
+                    f"requires {missing_field}",
+                ):
+                    parse_ability_definition("BrokenAbility", invalid)
+
     def test_laser_colors_require_an_array_of_rgb_colors(self):
         ability_data = dict(self.raw_abilities["ChmmrA1"])
         ability_data["LASER_COLOR"] = [255, 0, 0]
