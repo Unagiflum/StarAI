@@ -310,6 +310,15 @@ class Fleet(ShipContainer):
                 return self.set_ship_at_slot(index, sprite, name, cost)
         return False
 
+    def add_ships_after_last(self, sprite, name, cost, count=1):
+        """Add several ships after the fleet tail, wrapping into earlier gaps."""
+        added_indices = self.model.add_ships_after_last(name, cost, count)
+        for index in added_indices:
+            slot_rect = self.slot_rect(index)
+            sprite_rect = sprite.get_rect(center=slot_rect.center)
+            self.ships[index] = (sprite, name, cost, sprite_rect)
+        return len(added_indices)
+
     def set_ship_at_slot(self, index, sprite, name, cost):
         """Replace an occupied slot, or append at the fleet's first empty slot."""
         if not 0 <= index < self.max_fleet_size:

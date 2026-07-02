@@ -28,14 +28,41 @@ PICKER_BOX_COLOR = const.SHIP_BOX_BACKGROUND_COLOR
 PICKER_CELL_GAP = 3
 PICKER_BORDER_WIDTH = 5
 PICKER_TOOLTIP_FONT_SIZE = const.SHIP_TOOLTIP_FONT_SIZE
+FLEET_CONTROL_WEIGHTS = {
+    "ai": 18,
+    "one_of_each": 25,
+    "2x": 12,
+    "4x": 12,
+    "fill": 15,
+    "clear": 18,
+}
+
+
+def fleet_control_rects(column_start, top, width, height, gap):
+    """Lay out the fleet controls in one row exactly as wide as the fleet."""
+    available_width = width - gap * (len(FLEET_CONTROL_WEIGHTS) - 1)
+    items = tuple(FLEET_CONTROL_WEIGHTS.items())
+    rects = {}
+    left = column_start
+    remaining_width = available_width
+    for index, (name, weight) in enumerate(items):
+        if index == len(items) - 1:
+            control_width = remaining_width
+        else:
+            control_width = available_width * weight // 100
+        rects[name] = pygame.Rect(left, top, control_width, height)
+        left += control_width + gap
+        remaining_width -= control_width
+    return rects
 
 
 class ShipPickerModal:
-    """Centered, fixed 5x5 catalog used to fill one fleet slot."""
+    """Centered, fixed 5x5 catalog used for direct or bulk fleet additions."""
 
-    def __init__(self, player, slot_index, ships_data, sprites):
+    def __init__(self, player, slot_index, ships_data, sprites, quantity=1):
         self.player = player
         self.slot_index = slot_index
+        self.quantity = quantity
         self.color = const.P1_COLOR if player == 1 else const.P2_COLOR
         if len(ships_data) > PICKER_CAPACITY:
             raise ValueError(
@@ -144,9 +171,13 @@ class ShipPickerModal:
         pygame.draw.rect(screen, self.color, self.rect)
         pygame.draw.rect(screen, PICKER_BOX_COLOR, self.content_rect)
 
-        title = title_font.render(
-            f"Player {self.player}: Select a Ship", True, ui.WHITE
-        )
+        if self.slot_index is not None:
+            title_label = f"Player {self.player}: Select a Ship"
+        elif self.quantity is None:
+            title_label = f"Player {self.player}: Select a Ship to Fill"
+        else:
+            title_label = f"Player {self.player}: Select a Ship ({self.quantity}x)"
+        title = title_font.render(title_label, True, ui.WHITE)
         screen.blit(title, title.get_rect(center=self.title_text_rect.center))
 
         mouse_pos = pygame.mouse.get_pos()
@@ -267,14 +298,20 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     left_column_start = int(0.033 * const.SCREEN_WIDTH)
     top_button_start = int(0.1 * const.SCREEN_HEIGHT)
-    AI_toggle_width = int(0.075 * const.SCREEN_WIDTH)
     top_button_height = int(0.0375 * const.SCREEN_HEIGHT)
-    each_button_width = int(
-        0.5 * (ui.SELECTION_WIDTH - AI_toggle_width - 2 * ui.button_spaceH)
-    )
 
     right_column_start = int(const.SCREEN_WIDTH // 2 + (0.016 * const.SCREEN_WIDTH))
     columns = {1: left_column_start, 2: right_column_start}
+    control_rects = {
+        player: fleet_control_rects(
+            columns[player],
+            top_button_start,
+            ui.SELECTION_WIDTH,
+            top_button_height,
+            ui.button_spaceH,
+        )
+        for player in (1, 2)
+    }
     fleet_top = top_button_start + top_button_height + 2 * ui.button_spaceV
     fleets = ui_box.create_player_fleet_panels(
         columns,
@@ -285,10 +322,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     ai_toggles = {
         player: ui_button.ToggleButton(
-            columns[player],
-            top_button_start,
-            AI_toggle_width,
-            top_button_height,
+            *control_rects[player]["ai"],
             "AI",
             initial_state=False,
             bg_color=(*const.P1_COLOR, 75) if player == 1 else (*const.P2_COLOR, 75),
@@ -305,11 +339,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     one_of_each_buttons = {
         player: ui_button.Button(
-            columns[player] + AI_toggle_width + ui.button_spaceH,
-            top_button_start,
-            each_button_width,
-            top_button_height,
-            "One of Each Ship",
+            *control_rects[player]["one_of_each"],
+            "1 of Each",
             lambda player=player: create_one_of_each(player),
             bg_color=(*const.P1_COLOR, 75) if player == 1 else (*const.P2_COLOR, 75),
             hover_color=(
@@ -318,16 +349,46 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         for player in (1, 2)
     }
+
+    ship_picker = None
+
+    def open_bulk_picker(player, quantity):
+        nonlocal ship_picker
+        ship_picker = ShipPickerModal(
+            player,
+            None,
+            ships_data,
+            selection_sprites,
+            quantity=quantity,
+        )
+
+    bulk_buttons = {
+        quantity: {
+            player: ui_button.Button(
+                *control_rects[player][label.lower()],
+                label,
+                lambda player=player, quantity=quantity: open_bulk_picker(
+                    player, quantity
+                ),
+                bg_color=(
+                    (*const.P1_COLOR, 75)
+                    if player == 1
+                    else (*const.P2_COLOR, 75)
+                ),
+                hover_color=(
+                    (*const.P1_COLOR, 255)
+                    if player == 1
+                    else (*const.P2_COLOR, 255)
+                ),
+            )
+            for player in (1, 2)
+        }
+        for label, quantity in (("2x", 2), ("4x", 4), ("Fill", None))
+    }
     clear_buttons = {
         player: ui_button.Button(
-            columns[player]
-            + AI_toggle_width
-            + 2 * ui.button_spaceH
-            + each_button_width,
-            top_button_start,
-            each_button_width,
-            top_button_height,
-            f"Clear Fleet {player}",
+            *control_rects[player]["clear"],
+            "Clear",
             fleets[player].clear,
             bg_color=(*const.P1_COLOR, 75) if player == 1 else (*const.P2_COLOR, 75),
             hover_color=(
@@ -359,7 +420,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
 
     running = True
-    ship_picker = None
+
+    control_groups = (
+        ai_toggles,
+        one_of_each_buttons,
+        *bulk_buttons.values(),
+        clear_buttons,
+    )
 
     def cancel_callback():
         nonlocal running
@@ -412,19 +479,33 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         if selected is not None:
                             name, _, cost, _ = selected
                             fleet = fleets[ship_picker.player]
-                            if fleet.set_ship_at_slot(
-                                ship_picker.slot_index,
-                                fleet_sprites[name],
-                                name,
-                                cost,
-                            ):
-                                print(f"Added {name} in {fleet.title}")
+                            if ship_picker.slot_index is not None:
+                                added_count = int(
+                                    fleet.set_ship_at_slot(
+                                        ship_picker.slot_index,
+                                        fleet_sprites[name],
+                                        name,
+                                        cost,
+                                    )
+                                )
+                            else:
+                                added_count = fleet.add_ships_after_last(
+                                    fleet_sprites[name],
+                                    name,
+                                    cost,
+                                    ship_picker.quantity,
+                                )
+                            if added_count:
+                                print(
+                                    f"Added {added_count} {name} ship(s) "
+                                    f"in {fleet.title}"
+                                )
                                 if menu_sound_manager:
                                     menu_sound_manager.play_sound("menu")
                             ship_picker = None
                 continue
 
-            for controls in (ai_toggles, one_of_each_buttons, clear_buttons):
+            for controls in control_groups:
                 for control in controls.values():
                     control.handle_event(event, menu_sound_manager)
 
@@ -460,7 +541,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             confirm_button.hover_color = ui.DISABLED_BUTTON
 
         controls_enabled = ship_picker is None
-        for controls in (ai_toggles, one_of_each_buttons, clear_buttons):
+        for controls in control_groups:
             for control in controls.values():
                 control.enabled = controls_enabled
         confirm_button.enabled = controls_enabled
@@ -479,7 +560,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             int(0.05 * const.SCREEN_HEIGHT),
         )
 
-        for controls in (ai_toggles, one_of_each_buttons, clear_buttons):
+        for controls in control_groups:
             for control in controls.values():
                 control.draw(screen, font)
         for fleet in fleets.values():

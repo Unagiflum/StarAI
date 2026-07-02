@@ -13,12 +13,14 @@ pygame.init()
 pygame.display.set_mode((1, 1))
 
 from src.Menus.pick_fleet import (
+    FLEET_CONTROL_WEIGHTS,
     PICKER_BORDER_WIDTH,
     PICKER_BOX_COLOR,
     PICKER_CAPACITY,
     PICKER_CELL_COLOR,
     PICKER_CELL_GAP,
     ShipPickerModal,
+    fleet_control_rects,
 )
 from src.Menus.pick_ship import (
     fleet_slot_indices_for_ships,
@@ -221,6 +223,22 @@ class FleetSlotTests(unittest.TestCase):
         self.assertIsNone(self.fleet.ships[1])
         self.assertEqual(self.fleet.ships[2][3].center, old_third_center)
 
+    def test_bulk_add_updates_the_ordered_sparse_view(self):
+        self.fleet.set_ship_at_slot(0, self.sprite, "First", 1)
+        self.fleet.set_ship_at_slot(47, self.sprite, "Last", 1)
+
+        added = self.fleet.add_ships_after_last(
+            self.sprite, "Bulk", 2, 4
+        )
+
+        self.assertEqual(added, 4)
+        self.assertEqual(
+            tuple(index for index, _ in self.fleet.occupied_slots()),
+            (0, 1, 2, 3, 47, 48),
+        )
+        self.assertEqual(self.fleet.model.ship_slots[48], "Bulk")
+        self.assertEqual(self.fleet.model.ship_slots[1:4], ("Bulk",) * 3)
+
     def test_population_preserves_persisted_empty_slots(self):
         sprites = {
             "First": self.sprite,
@@ -360,6 +378,21 @@ class ShipPickerModalTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "supports 25 ships"):
             ShipPickerModal(1, 0, catalog, sprites)
+
+
+class FleetControlLayoutTests(unittest.TestCase):
+    def test_six_controls_fit_exactly_above_the_fleet(self):
+        left = 50
+        width = ui.SELECTION_WIDTH
+        gap = ui.button_spaceH
+
+        rects = fleet_control_rects(left, 100, width, 36, gap)
+
+        self.assertEqual(tuple(rects), tuple(FLEET_CONTROL_WEIGHTS))
+        self.assertEqual(rects["ai"].left, left)
+        self.assertEqual(rects["clear"].right, left + width)
+        for previous, current in zip(rects.values(), tuple(rects.values())[1:]):
+            self.assertEqual(current.left - previous.right, gap)
 
 
 class UniformScalingTests(unittest.TestCase):

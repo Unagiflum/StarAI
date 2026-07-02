@@ -50,6 +50,33 @@ class FleetModel:
                 return True
         return False
 
+    def add_ships_after_last(
+        self, name: str, cost: int, count: int | None = 1
+    ) -> tuple[int, ...]:
+        """Add ships after the final occupied slot, then wrap into earlier gaps.
+
+        ``count=None`` fills every open slot. The returned indices let a view
+        update the same positions without duplicating the ordering rules.
+        """
+        if count is not None and count < 0:
+            raise ValueError("Ship count cannot be negative")
+
+        occupied = [
+            index for index, ship in enumerate(self._ships) if ship is not None
+        ]
+        start = occupied[-1] + 1 if occupied else 0
+        empty_indices = [
+            index
+            for index in (*range(start, self.capacity), *range(0, start))
+            if self._ships[index] is None
+        ]
+        if count is not None:
+            empty_indices = empty_indices[:count]
+
+        for index in empty_indices:
+            self._ships[index] = FleetShip(name, cost)
+        return tuple(empty_indices)
+
     def remove_ship(self, index: int) -> FleetShip | None:
         if 0 <= index < self.capacity:
             ship = self._ships[index]

@@ -52,6 +52,32 @@ class FleetModelTests(unittest.TestCase):
         self.assertTrue(fleet.is_empty)
         self.assertEqual(fleet.total_cost, 0)
 
+    def test_bulk_add_uses_trailing_slots_before_wrapping_into_gaps(self):
+        fleet = FleetModel(capacity=7)
+        fleet.replace_ship(0, "First", 1)
+        fleet.replace_ship(3, "Last", 1)
+
+        self.assertEqual(
+            fleet.add_ships_after_last("Bulk", 2, 4),
+            (4, 5, 6, 1),
+        )
+        self.assertEqual(
+            fleet.ship_slots,
+            ("First", "Bulk", None, "Last", "Bulk", "Bulk", "Bulk"),
+        )
+
+    def test_bulk_fill_adds_to_every_open_slot(self):
+        fleet = FleetModel(capacity=5)
+        fleet.replace_ship(1, "First", 1)
+        fleet.replace_ship(4, "Last", 1)
+
+        self.assertEqual(
+            fleet.add_ships_after_last("Fill", 3, None),
+            (0, 2, 3),
+        )
+        self.assertEqual(len(fleet), fleet.capacity)
+        self.assertEqual(fleet.total_cost, 11)
+
 
 class ShipSelectionStateTests(unittest.TestCase):
     def state(self, player1, player2, **kwargs):
