@@ -494,6 +494,23 @@ class ShipSelectionFleetLayoutTests(unittest.TestCase):
         self.assertEqual(screen.get_at(second_slot.center)[:3], ui.BLACK)
         self.assertEqual(screen.get_at(fleet.slot_rect(2).center)[:3], ui.BLACK)
 
+    def test_ship_selection_fleet_summarizes_current_fleet(self):
+        fleet = ShipSelectionFleet(0, 0, 640, 360, "Player 1 Fleet", (0, 0))
+        sprite = pygame.Surface((10, 10))
+        fleet.set_ship_at_slot(0, sprite, "First", 12)
+        fleet.set_ship_at_slot(1, sprite, "Second", 8)
+        fleet.set_current_fleet(
+            (
+                SimpleNamespace(currently_alive=True, cost=12),
+                SimpleNamespace(currently_alive=False, cost=8),
+            )
+        )
+
+        self.assertEqual(
+            fleet.summary_label(),
+            "Player 1: 1 Ship, Cost: 12",
+        )
+
     def test_hover_outline_fades_to_zero_and_back(self):
         half_period = SHIP_SELECTION_HOVER_FADE_MS // 2
 

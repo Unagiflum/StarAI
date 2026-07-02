@@ -418,13 +418,30 @@ class Fleet(ShipContainer):
 class ShipSelectionFleet(Fleet):
     """Fleet presentation used while choosing the next combatants."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.current_ship_count = 0
+        self.current_cost = 0
+
+    def set_current_fleet(self, ships):
+        """Set the live fleet totals displayed in the panel header."""
+        current_ships = [ship for ship in ships if ship.currently_alive]
+        self.current_ship_count = len(current_ships)
+        self.current_cost = sum(ship.cost for ship in current_ships)
+
+    def summary_label(self):
+        player_name = self.title.removesuffix(" Fleet")
+        ship_label = "Ship" if self.current_ship_count == 1 else "Ships"
+        return (
+            f"{player_name}: {self.current_ship_count} {ship_label}, "
+            f"Cost: {self.current_cost}"
+        )
+
     def draw(self, screen, font, player_font=None):
         pygame.draw.rect(screen, ui.BLACK, self.rect)
 
-        title_text = font.render(
-            f"{self.title} - cost: {self.get_total_cost()}", True, ui.WHITE
-        )
-        screen.blit(title_text, (self.rect.x + 10, self.rect.y + 10))
+        summary_text = font.render(self.summary_label(), True, ui.WHITE)
+        screen.blit(summary_text, (self.rect.x + 10, self.rect.y + 10))
 
         for ship in self.ships:
             if ship is not None:

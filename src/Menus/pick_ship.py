@@ -239,6 +239,7 @@ def run(
             fleet_sprites,
             ships_data,
         )
+        panels[player].set_current_fleet(player_ships[player])
     selectable_panel_slots = {
         player: tuple(
             (slot_index, panels[player].ships[slot_index])
