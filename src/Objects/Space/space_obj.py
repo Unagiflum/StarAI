@@ -136,7 +136,9 @@ class Planet(Object):
         self.collision_capabilities = CollisionCapabilities(CollisionRole.PLANET)
         self.physical_collision_capabilities = PhysicalCollisionCapabilities(is_immovable=True)
         self.durability_capabilities = DurabilityCapabilities(is_invulnerable=True)
-        self.impact_capabilities = ImpactCapabilities(impact_damage_percent=0.15)
+        self.impact_capabilities = ImpactCapabilities(
+            impact_damage_percent=Const.PLANET_IMPACT_DAMAGE_PERCENT
+        )
         self.can_move = False
         self.can_die = False
 
@@ -317,11 +319,16 @@ class Asteroid(Object):
             self.sprites[self.current_sprite].get_width(),
             self.sprites[self.current_sprite].get_height(),
         ]
+        self.mass = Const.ASTEROID_MASS
 
         self.rotation_delay = self.rng.randint(0, 3)
         self.rotation_timer = 0
 
-        speed = self.rng.uniform(Const.ASTEROID_SPEED / 2, Const.ASTEROID_SPEED)
+        speed = self.rng.randrange(
+            Const.ASTEROID_MIN_SPEED,
+            Const.ASTEROID_MAX_SPEED + Const.ASTEROID_SPEED_STEP,
+            Const.ASTEROID_SPEED_STEP,
+        )
         angle = self.rng.uniform(0, 2 * math.pi)
         self.velocity = [speed * math.cos(angle), speed * math.sin(angle)]
 

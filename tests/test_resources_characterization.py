@@ -125,6 +125,16 @@ class ResourceCharacterizationTests(unittest.TestCase):
         self.assertEqual(len(first.sprites), 29)
         self.assertEqual(len(first.death_animation), 5 * const.VIDEO_FPS_MULTIPLIER)
         self.assertEqual(first.masks[0].get_size(), first.sprites[0].get_size())
+        self.assertEqual(first.mass, const.ASTEROID_MASS)
+        speed = (first.velocity[0] ** 2 + first.velocity[1] ** 2) ** 0.5
+        allowed_speeds = range(
+            const.ASTEROID_MIN_SPEED,
+            const.ASTEROID_MAX_SPEED + const.ASTEROID_SPEED_STEP,
+            const.ASTEROID_SPEED_STEP,
+        )
+        self.assertTrue(
+            any(abs(speed - allowed_speed) < 1e-9 for allowed_speed in allowed_speeds)
+        )
         expected = pygame.image.load(
             str(const.ASTEROID_PATH / "asteroidend04.png")
         ).convert_alpha()
@@ -145,6 +155,10 @@ class ResourceCharacterizationTests(unittest.TestCase):
 
         self.assertEqual(planet.image.get_size(), (planet.diameter, planet.diameter))
         self.assertEqual(planet.mask.get_size(), (planet.diameter, planet.diameter))
+        self.assertEqual(
+            planet.impact_capabilities.impact_damage_percent,
+            const.PLANET_IMPACT_DAMAGE_PERCENT,
+        )
 
     def test_battle_animation_frames_follow_numeric_filename_order(self):
         blast = BattleEffect.from_blast([0, 0], (1, 0), 1)

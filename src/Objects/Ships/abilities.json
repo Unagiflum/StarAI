@@ -1017,7 +1017,7 @@
         "hit_parent": true,
         "hit_self": true,
         "omnidirectional": true,
-        "frames": 8,
+        "frames": 10,
         "file_path": "Objects/Ships/Shofixti/A2/",
         "gun_locations": [
             [

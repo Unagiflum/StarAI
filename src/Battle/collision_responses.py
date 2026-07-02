@@ -431,7 +431,7 @@ def resolve_ship_planet_collision(
             if getattr(ship, "current_hp", 0) > 0:
                 damage = max(
                     1,
-                    math.ceil(
+                    math.floor(
                         ship.current_hp * planet_impact.impact_damage_percent
                     ),
                 )

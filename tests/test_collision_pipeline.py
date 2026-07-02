@@ -221,9 +221,10 @@ class CollisionPipelineTests(CollisionTestCase):
         ship.position = [100, 100]
         ship.previous_position = ship.position.copy()
         ship.velocity = [3.0, 2.0]
+        ship.current_hp = 11
         planet = self.make_planet([118, 100])
         planet.impact_capabilities = ImpactCapabilities(
-            impact_damage_percent=0.15
+            impact_damage_percent=0.25
         )
 
         with mock.patch.object(
@@ -234,7 +235,7 @@ class CollisionPipelineTests(CollisionTestCase):
 
         self.assertEqual(ship.velocity, [-3.0, 2.0])
         self.assertIn(id(planet), ship.planet_contacts)
-        self.assertEqual(ship.current_hp, 8)
+        self.assertEqual(ship.current_hp, 9)
         play_boom.assert_called_once_with(2)
 
     def test_planet_impact_uses_ship_specific_damage_hook(self):
@@ -245,7 +246,7 @@ class CollisionPipelineTests(CollisionTestCase):
         ship.take_planet_impact_damage = mock.Mock(return_value=0)
         planet = self.make_planet([118, 100])
         planet.impact_capabilities = ImpactCapabilities(
-            impact_damage_percent=0.15
+            impact_damage_percent=0.25
         )
 
         with mock.patch.object(collisions.BattleEffect, "play_boom"):

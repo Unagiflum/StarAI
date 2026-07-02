@@ -168,7 +168,7 @@
     },
     "Earthling": {
         "ship_type": "Cruiser",
-        "cost": 12,
+        "cost": 11,
         "max_hp": 18,
         "start_hp": 18,
         "max_energy": 18,
@@ -192,7 +192,7 @@
     },
     "Ilwrath": {
         "ship_type": "Avenger",
-        "cost": 11,
+        "cost": 10,
         "max_hp": 22,
         "start_hp": 22,
         "max_energy": 16,
