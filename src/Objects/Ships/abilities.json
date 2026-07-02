@@ -1274,7 +1274,15 @@
         "speed": 5,
         "life_time": 384,
         "inertia": false,
-        "radius": 4,
+        "radius": 3,
+        "COLOR": [
+            [
+                150,
+                255,
+                200,
+                255
+            ]
+        ],
         "blocks_lasers": false,
         "has_sprites": false,
         "file_path": "Objects/Ships/Syreen/A2/"

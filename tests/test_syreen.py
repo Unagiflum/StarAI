@@ -55,6 +55,16 @@ class SyreenCrewMotionTests(unittest.TestCase):
         self.assertEqual(crew.size, [8, 8])
         self.assertEqual(crew.get_sprite().get_size(), (8, 8))
 
+    def test_configured_colors_cycle_each_physics_frame(self):
+        crew = SyreenCrew(self.parent)
+        crew.colors = ((10, 20, 30, 40), (50, 60, 70, 80))
+
+        self.assertEqual(crew.get_sprite().get_at((4, 4)), (10, 20, 30, 40))
+        crew.update_physics()
+        self.assertEqual(crew.get_sprite().get_at((4, 4)), (50, 60, 70, 80))
+        crew.update_physics()
+        self.assertEqual(crew.get_sprite().get_at((4, 4)), (10, 20, 30, 40))
+
     def test_prediction_uses_the_same_motion_step_as_runtime(self):
         crew = self.make_crew()
 

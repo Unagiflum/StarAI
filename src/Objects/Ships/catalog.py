@@ -281,6 +281,7 @@ class AbilityDefinition(_DefinitionMapping):
     anim_length: int | None = None
     circle_thickness: int | None = None
     circle_colors: tuple[tuple[int, int, int, int], ...] | None = None
+    colors: tuple[tuple[int, int, int, int], ...] | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -389,6 +390,7 @@ class AbilityDefinition(_DefinitionMapping):
         "ANIM_LENGTH": "anim_length",
         "CIRCLE_THICKNESS": "circle_thickness",
         "CIRCLE_COLOR": "circle_colors",
+        "COLOR": "colors",
     }
 
 
@@ -877,6 +879,7 @@ def parse_ability_definition(name, data):
         "ANIM_LENGTH",
         "CIRCLE_THICKNESS",
         "CIRCLE_COLOR",
+        "COLOR",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -1067,6 +1070,11 @@ def parse_ability_definition(name, data):
     values["circle_colors"] = (
         _rgba_tuple(kind, name, data, "CIRCLE_COLOR", length=2)
         if "CIRCLE_COLOR" in data
+        else None
+    )
+    values["colors"] = (
+        _rgba_tuple(kind, name, data, "COLOR")
+        if "COLOR" in data
         else None
     )
     values["_source_keys"] = tuple(data)

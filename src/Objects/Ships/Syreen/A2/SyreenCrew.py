@@ -31,9 +31,11 @@ class SyreenCrew(Ability):
         self.speed = definition.speed
         self.turn_wait = 0  # Can change direction instantly
 
-        # Crew is rendered as an anti-aliased green circle with a configurable radius.
+        # Crew is rendered as an anti-aliased circle with configurable radius and colors.
         radius = definition.radius if definition.radius is not None else 2
         self.size = [radius * 2, radius * 2]
+        self.colors = definition.colors or ((0, 255, 0, 255),)
+        self.current_color_index = 0
         self.damages = list(definition.damage)
         self.current_damage = definition.damage[0]
         self.hp_array = list(definition.start_hp)
@@ -189,6 +191,7 @@ class SyreenCrew(Ability):
             self.accumulated_impulses,
         )
         self.accumulated_impulses = [0.0, 0.0]
+        self.current_color_index = (self.current_color_index + 1) % len(self.colors)
 
     def predict_unhindered_trajectory(self, frames=60):
         position = list(self.position)
@@ -228,22 +231,22 @@ class SyreenCrew(Ability):
         return super().update()
 
     def get_sprite(self, interp_t=0.0):
-        if not hasattr(self, "_cached_sprite"):
+        colors = getattr(self, "colors", ((0, 255, 0, 255),))
+        color_index = getattr(self, "current_color_index", 0)
+        if not hasattr(self, "_cached_sprites"):
             import pygame
             import pygame.gfxdraw
 
             radius = int(self.size[0] / 2)
             diameter = radius * 2
-            self._cached_sprite = pygame.Surface(
-                (diameter, diameter), pygame.SRCALPHA
-            )
-            pygame.draw.circle(
-                self._cached_sprite, (0, 255, 0), (radius, radius), radius
-            )
-            pygame.gfxdraw.aacircle(
-                self._cached_sprite, radius, radius, radius, (0, 255, 0)
-            )
-        return self._cached_sprite
+            sprites = []
+            for color in colors:
+                sprite = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
+                pygame.draw.circle(sprite, color, (radius, radius), radius)
+                pygame.gfxdraw.aacircle(sprite, radius, radius, radius, color)
+                sprites.append(sprite)
+            self._cached_sprites = tuple(sprites)
+        return self._cached_sprites[color_index]
 
     def get_collision_mask(self):
         if not hasattr(self, "_cached_mask"):

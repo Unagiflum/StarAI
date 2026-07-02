@@ -178,6 +178,25 @@ class CatalogDefinitionTests(unittest.TestCase):
         with self.assertRaisesRegex(CatalogValidationError, r"LASER_COLOR\[0\].*3 values"):
             parse_ability_definition("BrokenAbility", ability_data)
 
+    def test_syreen_crew_colors_are_rgba_arrays(self):
+        ability_data = dict(self.raw_abilities["SyreenCrew"])
+        definition = parse_ability_definition("SyreenCrew", ability_data)
+
+        self.assertEqual(
+            definition.colors,
+            tuple(tuple(color) for color in ability_data["COLOR"]),
+        )
+
+        for color, message in (
+            ([0, 255, 0], "must contain 4 values"),
+            ([0, 255, 0, 256], "between 0 and 255"),
+        ):
+            with self.subTest(color=color):
+                invalid = dict(ability_data)
+                invalid["COLOR"] = [color]
+                with self.assertRaisesRegex(CatalogValidationError, message):
+                    parse_ability_definition("BrokenAbility", invalid)
+
     def test_invalid_gun_direction_contracts_are_rejected(self):
         mismatched = dict(self.raw_abilities["EarthlingA1"])
         mismatched["gun_directions"] = [0.0, 10.0]
