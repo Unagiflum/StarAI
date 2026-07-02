@@ -152,7 +152,7 @@ class ChenjesuA2(Ability):
     def handle_ship_contact(self, ship, normal=None):
         self._bounce_with(ship, normal)
         if ship.player != self.player:
-            ship.current_energy = max(0, ship.current_energy - self.drain)
+            ship.change_energy(-min(ship.current_energy, self.drain))
             if self.hit_sound:
                 self.hit_sound.play()
         self.collision_wait_timer = self.collision_wait

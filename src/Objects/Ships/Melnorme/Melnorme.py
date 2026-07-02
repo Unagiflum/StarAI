@@ -27,4 +27,6 @@ class Melnorme(SpaceShip):
         return self.validate_action(2, MelnormeA2)
 
     def energy_regeneration_enabled(self):
-        return not self.action1_active
+        # UQM's held projectile calls DeltaEnergy(ship, 0) every frame,
+        # continually restarting the battery wait without spending energy.
+        return self.held_a1 is None

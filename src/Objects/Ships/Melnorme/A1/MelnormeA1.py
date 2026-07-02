@@ -168,7 +168,7 @@ class MelnormeA1(Ability):
             return
         cost = self.parent.a1_cost
         if self.parent.current_hp > 0 and self.parent.current_energy >= cost:
-            self.parent.current_energy -= cost
+            self.parent.change_energy(-cost)
             self.level = 0
             self.level_timer = 0
             self._apply_level(reset_animation=True)

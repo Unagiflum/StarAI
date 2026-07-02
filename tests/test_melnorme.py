@@ -118,19 +118,30 @@ class MelnormeTests(unittest.TestCase):
         projectile.update()
         self.assertEqual(projectile.current_hp, 2)
 
-    def test_a1_hold_pauses_battery_timer(self):
+    def test_held_a1_charge_pauses_battery_timer(self):
         ship = self.make_ship()
+        projectile = ship.perform_action1()
         ship.current_energy = 0
         ship.energy_timer = 0
-        ship.action1_active = True
 
         for _ in range(20):
             ship.update_timers()
         self.assertEqual((ship.current_energy, ship.energy_timer), (0, 0))
 
-        ship.action1_active = False
+        projectile.release()
         for _ in range(5):
             ship.update_timers()
+        self.assertEqual(ship.current_energy, 1)
+
+    def test_a1_button_without_a_charge_does_not_pause_battery_timer(self):
+        ship = self.make_ship()
+        ship.current_energy = 0
+        ship.energy_timer = 0
+        ship.action1_active = True
+
+        for _ in range(5):
+            ship.update_timers()
+
         self.assertEqual(ship.current_energy, 1)
 
     def test_a2_animation_holds_final_frame(self):

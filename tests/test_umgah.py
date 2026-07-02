@@ -188,7 +188,7 @@ class UmgahTests(CollisionTestCase):
             areas.append(self.ship.perform_action1())
 
         self.assertEqual([area.current_frame for area in areas], [0, 1, 2])
-        self.assertEqual(self.ship.current_energy, 0)
+        self.assertEqual(self.ship.current_energy, self.ship.max_energy)
         self.assertEqual(self.ship.energy_timer, 0)
         self.assertTrue(areas[0].update())
         self.assertFalse(areas[0].update())

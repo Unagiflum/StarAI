@@ -56,6 +56,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
     def test_action_plan_validation_does_not_commit_until_requested(self):
         ship = create_ship("Earthling", 1)
         initial_energy = ship.current_energy
+        ship.energy_timer = ship.energy_wait
         launch_sound = mock.Mock()
         ability = SimpleNamespace(launch_sound=launch_sound)
         ship.action_factories = {1: mock.Mock(return_value=ability)}
@@ -79,6 +80,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(result.cooldown_action, 1)
         self.assertTrue(result.launch_sound_played)
         self.assertEqual(ship.current_energy, initial_energy - ship.a1_cost)
+        self.assertEqual(ship.energy_timer, 0)
         launch_sound.play.assert_called_once_with()
 
     def test_invalid_target_plan_rolls_back_every_commit_field(self):
@@ -233,6 +235,24 @@ class ShipActionCharacterizationTests(unittest.TestCase):
                 (9, 8, []),
             ],
         )
+
+    def test_sustained_supox_fire_postpones_recharge_until_firing_stalls(self):
+        ship = create_ship("Supox", 1)
+        ability = SimpleNamespace(launch_sound=None)
+        ship.action_factories = {1: mock.Mock(return_value=ability)}
+        ship.set_control_state("action1", True, frame_id=0)
+
+        shot_frames = []
+        for frame_id in range(49):
+            if ship.process_controls(frame_id):
+                shot_frames.append(frame_id)
+
+        self.assertEqual(shot_frames, list(range(0, 48, 3)))
+        self.assertEqual(ship.current_energy, 0)
+        self.assertEqual(ship.energy_timer, 3)
+
+        self.assertEqual(ship.process_controls(49), [])
+        self.assertEqual(ship.process_controls(50), [ability])
 
     def test_earthling_point_defense_consumes_energy_per_spawned_shot(self):
         ship = create_ship("Earthling", 1)
@@ -471,14 +491,11 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         ship.heading = 4
         ship.rotation = ship.heading * const.TURN_ANGLE
         ship.energy_timer = ship.energy_wait
+        ship.thrust_timer = 4
+        ship.turn_timer = 3
+        ship.action1_timer = 5
+        ship.action3_timer = 2
         initial_energy = ship.current_energy
-        initial_timers = (
-            ship.thrust_timer,
-            ship.turn_timer,
-            ship.action1_timer,
-            ship.action3_timer,
-            ship.energy_timer,
-        )
         for control in ("thrust", "turn_left", "action1", "action2"):
             ship.set_control_state(control, True, frame_id=1)
 
@@ -497,7 +514,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
                 ship.action3_timer,
                 ship.energy_timer,
             ),
-            initial_timers,
+            (3, 2, 4, 1, 0),
         )
 
     def test_arilou_teleport_excludes_ship_from_collision_pipeline(self):

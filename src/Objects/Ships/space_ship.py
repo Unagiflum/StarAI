@@ -132,6 +132,7 @@ class SpaceShip(PlayerObject):
         self.action1_timer = 0
         self.action2_timer = 0
         self.action3_timer = 0
+        self.energy_timer = 0
         self.boarded_marines.clear()
         self.clear_confused()
         self.reset_controls()
@@ -489,14 +490,28 @@ class SpaceShip(PlayerObject):
         if regeneration_enabled:
             self.energy_timer += 1
         if regeneration_enabled and self.energy_timer > self.energy_wait:
-
-            self.energy_timer = 0
-            if self.current_energy < self.max_energy:
-                self.current_energy = min(
-                    self.max_energy, self.current_energy + self.energy_regen
-                )
+            if (
+                self.current_energy < self.max_energy
+                or self.energy_regen < 0
+            ):
+                self.change_energy(self.energy_regen)
+            else:
+                self.energy_timer = 0
 
     def energy_regeneration_enabled(self):
+        return True
+
+    def change_energy(self, delta, *, reset_wait=True):
+        """Apply UQM DeltaEnergy semantics and report whether it succeeded."""
+        if delta < 0 and -delta > self.current_energy:
+            return False
+
+        self.current_energy = max(
+            0,
+            min(self.max_energy, self.current_energy + delta),
+        )
+        if reset_wait:
+            self.energy_timer = 0
         return True
 
     @property
@@ -571,6 +586,7 @@ class SpaceShip(PlayerObject):
         raw_result=None,
         *,
         energy_change=None,
+        resets_energy_wait=True,
         crew_change=0,
         side_effects=(),
         launch_sound=None,
@@ -593,6 +609,7 @@ class SpaceShip(PlayerObject):
             valid=True,
             spawned_objects=objects,
             energy_change=-cost if energy_change is None else energy_change,
+            resets_energy_wait=resets_energy_wait,
             crew_change=crew_change,
             cooldown_frames=const.cooldown_frames(wait),
             cooldown_committed=True,
@@ -607,7 +624,11 @@ class SpaceShip(PlayerObject):
         if not plan.valid:
             return ActionResult.invalid()
 
-        self.current_energy += plan.energy_change
+        if not self.change_energy(
+            plan.energy_change,
+            reset_wait=plan.resets_energy_wait,
+        ):
+            return ActionResult.invalid()
         self.current_hp += plan.crew_change
         cooldown_action = None
         if plan.cooldown_committed:

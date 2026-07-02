@@ -63,6 +63,7 @@ class Ilwrath(SpaceShip):
             return self.prepare_action_plan(
                 2,
                 energy_change=0,
+                resets_energy_wait=False,
                 side_effects=(self.uncloak,),
                 launch_sound=self._uncloak_sound,
                 use_first_object_sound=False,

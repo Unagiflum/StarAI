@@ -244,8 +244,5 @@ class Slylandro(SpaceShip):
             return ActionPlan.invalid(2)
         pulse = SlylandroA2(self)
         gain = ability_definition.battery_gain
-
-        def recharge():
-            self.current_energy = min(self.max_energy, self.current_energy + gain)
-
-        return self.prepare_action_plan(2, pulse, side_effects=(recharge,))
+        energy_change = min(gain, self.max_energy - self.current_energy)
+        return self.prepare_action_plan(2, pulse, energy_change=energy_change)

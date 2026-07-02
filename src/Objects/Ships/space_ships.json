@@ -483,7 +483,7 @@
         "a1_wait": 0,
         "a2_wait": 7,
         "a3_wait": 0,
-        "mass": 7,
+        "mass": 5,
         "inertia": true,
         "sprite_path": "Objects/Ships/Spathi/",
         "sprite_scale": 1.0
@@ -595,7 +595,7 @@
         "energy_wait": 255,
         "max_thrust": 36,
         "thrust_increment": 6,
-        "thrust_wait": 4,
+        "thrust_wait": 6,
         "turn_wait": 1,
         "a1_cost": 0,
         "a2_cost": 1,

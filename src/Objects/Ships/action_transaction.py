@@ -23,6 +23,7 @@ class ActionPlan:
     valid: bool
     spawned_objects: tuple[Any, ...] = ()
     energy_change: int = 0
+    resets_energy_wait: bool = True
     crew_change: int = 0
     cooldown_frames: int = 0
     cooldown_committed: bool = False

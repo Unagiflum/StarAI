@@ -78,34 +78,7 @@ class Arilou(SpaceShip):
             # Suppress commands without losing held keys or their repeat timing.
             return []
 
-        timer_state = (
-            self.thrust_timer,
-            self.turn_timer,
-            self.action1_timer,
-            self.action3_timer,
-            self.energy_timer,
-            self.camera_freeze_timer,
-        )
-        energy = self.current_energy
-        new_objects = super().process_controls(frame_id)
-        if self.ability_actions_paused:
-            energy_after_commit = self.current_energy
-            (
-                self.thrust_timer,
-                self.turn_timer,
-                self.action1_timer,
-                self.action3_timer,
-                self.energy_timer,
-                self.camera_freeze_timer,
-            ) = timer_state
-            if energy >= self.a2_cost:
-                self.current_energy = energy - self.a2_cost
-            else:
-                # A battery tick in the input frame may be what made A2 valid.
-                # That tick precedes acceptance and must not produce negative energy.
-                self.current_energy = energy_after_commit
-                self.energy_timer = 0
-        return new_objects
+        return super().process_controls(frame_id)
 
     def action2_cancels_other_commands(self):
         return True

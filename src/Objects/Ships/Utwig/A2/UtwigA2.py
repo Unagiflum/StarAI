@@ -64,9 +64,7 @@ class UtwigA2(Ability):
         if damage <= 0:
             return
 
-        self.parent.current_energy = min(
-            self.parent.max_energy, self.parent.current_energy + damage
-        )
+        self.parent.change_energy(damage)
 
         if self.gain_sound:
             self.gain_sound.play()
