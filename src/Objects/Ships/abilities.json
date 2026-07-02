@@ -1237,22 +1237,6 @@
         "collide_fighters": false,
         "omnidirectional": true,
         "has_sprites": false,
-        "ANIM_LENGTH": 8,
-        "CIRCLE_THICKNESS": 8,
-        "CIRCLE_COLOR": [
-            [
-                255,
-                100,
-                255,
-                128
-            ],
-            [
-                255,
-                100,
-                255,
-                25
-            ]
-        ],
         "file_path": "Objects/Ships/Syreen/A2/",
         "gun_locations": [
             [
