@@ -1,6 +1,7 @@
 import os
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -26,6 +27,7 @@ from src.Menus.pick_ship import (
     fleet_slot_indices_for_ships,
     fleet_slots_for_ships,
     selection_prompt,
+    show_battle_countdown,
 )
 from src.menu_state import ShipSelectionState
 from src.UI.ship_sprites import fit_ship_sprites, scale_ship_sprites
@@ -44,6 +46,66 @@ from src.UI.ui_box import (
     ShipSelectionFleet,
     ship_selection_hover_alpha,
 )
+
+
+class BattleCountdownTests(unittest.TestCase):
+    def test_shows_each_number_for_configured_wall_clock_time(self):
+        rendered_numbers = []
+
+        class RecordingFont:
+            def render(self, text, antialias, color):
+                rendered_numbers.append(text)
+                return pygame.Surface((40, 60), pygame.SRCALPHA)
+
+        fake_clock = SimpleNamespace(
+            tick=mock.Mock(return_value=0.25), reset=mock.Mock()
+        )
+        screen = pygame.Surface((320, 180))
+
+        with (
+            mock.patch(
+                "src.Menus.pick_ship.PresentationClock", return_value=fake_clock
+            ),
+            mock.patch(
+                "src.Menus.pick_ship.pygame.font.SysFont",
+                return_value=RecordingFont(),
+            ),
+            mock.patch("src.Menus.pick_ship.pygame.mouse.set_pos") as set_pos,
+            mock.patch("src.Menus.pick_ship.pygame.event.get", return_value=[]),
+            mock.patch("src.Menus.pick_ship.pygame.display.flip") as flip,
+        ):
+            show_battle_countdown(screen, steps=3, step_time=0.5)
+
+        self.assertEqual(rendered_numbers, ["3", "2", "1"])
+        self.assertEqual(fake_clock.tick.call_count, 6)
+        self.assertEqual(fake_clock.reset.call_count, 3)
+        self.assertEqual(flip.call_count, 3)
+        set_pos.assert_called_once_with((0, 0))
+        self.assertEqual(screen.get_at((0, 0))[:3], ui.BLACK)
+
+    def test_window_close_during_countdown_exits_immediately(self):
+        fake_clock = SimpleNamespace(
+            tick=mock.Mock(return_value=0.25), reset=mock.Mock()
+        )
+        screen = pygame.Surface((320, 180))
+        quit_event = pygame.event.Event(pygame.QUIT)
+
+        with (
+            mock.patch(
+                "src.Menus.pick_ship.PresentationClock", return_value=fake_clock
+            ),
+            mock.patch("src.Menus.pick_ship.pygame.mouse.set_pos"),
+            mock.patch(
+                "src.Menus.pick_ship.pygame.event.get", return_value=[quit_event]
+            ),
+            mock.patch("src.Menus.pick_ship.pygame.display.flip"),
+            mock.patch("src.Menus.pick_ship.pygame.quit") as quit_pygame,
+            self.assertRaises(SystemExit),
+        ):
+            show_battle_countdown(screen, steps=3, step_time=0.5)
+
+        quit_pygame.assert_called_once_with()
+        fake_clock.tick.assert_not_called()
 
 
 class SelectionPromptTests(unittest.TestCase):

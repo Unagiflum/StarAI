@@ -61,6 +61,12 @@ SCREEN_WIDTH = int(SCREEN_HEIGHT * 1.6)
 SCREEN_LEFT = int((SCREEN_WIDTH - SCREEN_HEIGHT) / 2)
 FPS = 24
 INPUT_REPEAT_DELAY_FRAMES = 3
+
+# Pre-battle countdown. COUNT_DOWN_TIME is the wall-clock duration, in seconds,
+# for which each number is displayed.
+COUNT_DOWN_STEPS = 3
+COUNT_DOWN_TIME = 0.5
+
 # Aftermath timing is simulation-owned rather than derived from audio playback.
 # shipdies.wav is about 50 frames and the eight-frame explosion animation lasts
 # 16 frames, so two seconds leaves a small buffer after both complete.  The

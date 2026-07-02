@@ -25,6 +25,34 @@ X_COLOR = (255, 100, 100, 100)
 X_THICKNESS = int(0.2 * FLEET_ICON_SIZE[0])
 
 
+def show_battle_countdown(screen, steps=None, step_time=None):
+    """Show a responsive wall-clock countdown before battle resumes."""
+    steps = Const.COUNT_DOWN_STEPS if steps is None else steps
+    step_time = Const.COUNT_DOWN_TIME if step_time is None else step_time
+    if steps < 0 or step_time < 0:
+        raise ValueError("Countdown steps and time must be non-negative")
+
+    pygame.mouse.set_pos((0, 0))
+    font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.35))
+    clock = PresentationClock(Const.FPS, Const.VIDEO_FPS_MULTIPLIER)
+
+    for number in range(steps, 0, -1):
+        screen.fill(ui.BLACK)
+        number_surface = font.render(str(number), True, ui.WHITE)
+        number_rect = number_surface.get_rect(center=screen.get_rect().center)
+        screen.blit(number_surface, number_rect)
+        pygame.display.flip()
+        clock.reset()
+
+        elapsed_seconds = 0.0
+        while elapsed_seconds < step_time:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+            elapsed_seconds += clock.tick()
+
+
 def draw_x(surface, rect):
     """Draw a red X in a square box sized to the largest ship dimension."""
     size = FLEET_ICON_SIZE[0]
@@ -383,6 +411,7 @@ def run(
                 ):
                     if menu_sound_manager:
                         menu_sound_manager.play_sound("menu")
+                    show_battle_countdown(screen)
                     return confirm_callback()
 
         if selection_state.confirmation_ready:
