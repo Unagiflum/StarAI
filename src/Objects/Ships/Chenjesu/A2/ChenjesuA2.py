@@ -16,6 +16,10 @@ from src.toroidal import wrapped_delta
 
 
 class ChenjesuA2(Ability):
+    COLLISION_WAIT = ABILITY_DEFINITIONS["ChenjesuA2"].collision_wait or 0
+    SHIP_COLLISION_WAIT = (
+        ABILITY_DEFINITIONS["ChenjesuA2"].ship_collision_wait or 0
+    )
     AREA_IMMUNITIES = {"SyreenA2", "SlylandroA2"}
     DESTROYED_SPECIAL_OBJECTS = {"VuxA2", "SyreenCrew", "KzerZaA2"}
     COLLIDING_SPECIAL_OBJECTS = DESTROYED_SPECIAL_OBJECTS | {
@@ -31,7 +35,9 @@ class ChenjesuA2(Ability):
         self.drain = definition.drain
         self.avoid_angle = definition.avoid_angle
         self.collision_wait = definition.collision_wait or 0
+        self.ship_collision_wait = definition.ship_collision_wait or 0
         self.collision_wait_timer = 0
+        self.launch_frames_remaining = 1
         self.mass = definition.mass
         self.expiration_timer = float("inf")
         self.physical_collision_capabilities = PhysicalCollisionCapabilities(
@@ -76,21 +82,16 @@ class ChenjesuA2(Ability):
     def update(self):
         if not self.currently_alive or self.current_hp <= 0:
             return False
-        if not self._parent_alive():
-            self.current_hp = 0
-            self.currently_alive = False
-            return False
-
         self.previous_position = self.position.copy()
-        
+
+        if self.launch_frames_remaining > 0:
+            self.launch_frames_remaining -= 1
+            self._advance_with_current_velocity()
+            return True
+
         if self.collision_wait_timer > 0:
             self.collision_wait_timer -= 1
-            self.position[0] = (
-                self.position[0] + self.velocity[0] * const.SPEED_SCALE
-            ) % const.ARENA_SIZE
-            self.position[1] = (
-                self.position[1] + self.velocity[1] * const.SPEED_SCALE
-            ) % const.ARENA_SIZE
+            self._advance_with_current_velocity()
             return True
 
         target = self._live_trackable_opponent()
@@ -151,25 +152,29 @@ class ChenjesuA2(Ability):
 
     def handle_ship_contact(self, ship, normal=None):
         self._bounce_with(ship, normal)
+        self._begin_collision_recovery()
+        self._delay_ship_controls(ship)
         if ship.player != self.player:
             ship.change_energy(-min(ship.current_energy, self.drain))
             if self.hit_sound:
                 self.hit_sound.play()
-        self.collision_wait_timer = self.collision_wait
         return True
 
     def handle_asteroid_contact(self, asteroid, normal=None):
         self._bounce_with(asteroid, normal)
+        self._begin_collision_recovery()
         return True
 
     def handle_planet_contact(self, planet, outward_normal, overlap):
         bounce_off_static_body(self, planet, outward_normal, overlap)
+        self._begin_collision_recovery()
         self.set_hp(self.current_hp - 1)
         # Returning false on a lethal impact lets the common collision path
         # create the configured animation and invoke on_destroyed.
         return self.current_hp > 0
 
     def handle_projectile_contact(self, projectile):
+        self._begin_collision_recovery()
         if projectile.name == "ChenjesuA2":
             return False
         if projectile.name == "OrzA3":
@@ -188,6 +193,29 @@ class ChenjesuA2(Ability):
             self.death_sound.play()
         self._death_sound_played = True
 
+    def on_collision_contact(self, other):
+        self._begin_collision_recovery()
+
+    def _begin_collision_recovery(self):
+        timer = getattr(self, "collision_wait_timer", 0)
+        ship_wait = getattr(self, "ship_collision_wait", self.SHIP_COLLISION_WAIT)
+        collision_wait = getattr(self, "collision_wait", self.COLLISION_WAIT)
+        if timer <= ship_wait:
+            self.collision_wait_timer = timer + collision_wait
+
+    def _delay_ship_controls(self, ship):
+        delay = const.cooldown_frames(self.ship_collision_wait)
+        ship.thrust_timer = max(ship.thrust_timer, delay)
+        ship.turn_timer = max(ship.turn_timer, delay)
+
+    def _advance_with_current_velocity(self):
+        self.position[0] = (
+            self.position[0] + self.velocity[0] * const.SPEED_SCALE
+        ) % const.ARENA_SIZE
+        self.position[1] = (
+            self.position[1] + self.velocity[1] * const.SPEED_SCALE
+        ) % const.ARENA_SIZE
+
     def _bounce_with(self, other, normal=None):
         calculated_normal, distance, overlap = collision_info(self, other)
         elastic_bounce(
@@ -197,9 +225,6 @@ class ChenjesuA2(Ability):
             distance,
             overlap,
         )
-
-    def _parent_alive(self):
-        return self.parent.currently_alive and self.parent.current_hp > 0
 
     @staticmethod
     def _direction_vector(angle, magnitude):

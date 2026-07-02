@@ -23,6 +23,7 @@ class ChenjesuA1(_ChenjesuCrystal, Ability):
         self.expiration_timer = float("inf")
         self.spawned_objects = []
         self.fragmented = False
+        self.fragment_pending = False
         directory = const.source_path(ABILITY_DEFINITIONS[self.name].file_path)
         self.break_sound = self.audio_service.load_effect(
             directory / "ChenjesuA1break.wav",
@@ -30,10 +31,19 @@ class ChenjesuA1(_ChenjesuCrystal, Ability):
         )
         self.launch_from_gun()
 
+    def request_fragment(self):
+        if not self.fragmented and self.is_alive():
+            self.fragment_pending = True
+
+    def finalize_collision_frame(self):
+        if self.fragment_pending and self.is_alive():
+            self.fragment()
+
     def fragment(self):
         if self.fragmented or not self.is_alive():
             return
         self.fragmented = True
+        self.fragment_pending = False
         definition = ABILITY_DEFINITIONS[self.name]
         angle_step = 360.0 / definition.fragment_count
         self.spawned_objects = [

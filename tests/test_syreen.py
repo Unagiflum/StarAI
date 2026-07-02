@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import src.const as const
 from src.Battle import collisions
+from src.Battle.battle_aftermath import hide_dead_ship
 from src.Battle.collision_geometry import collision_info, objects_overlap
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ship
@@ -31,6 +32,16 @@ class SyreenCrewMotionTests(unittest.TestCase):
         crew = SyreenCrew(self.parent, [500.0, 500.0])
         crew.planet = self.planet
         return crew
+
+    def test_free_crew_detaches_and_survives_parent_cleanup(self):
+        crew = self.make_crew()
+        game_objects = [self.parent, crew]
+
+        hide_dead_ship(self.parent, game_objects)
+
+        self.assertTrue(crew.currently_alive)
+        self.assertIsNone(crew.parent)
+        self.assertIn(crew, game_objects)
 
     def test_default_constructor_uses_parent_position_and_configured_radius(self):
         crew = SyreenCrew(self.parent)

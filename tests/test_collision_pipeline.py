@@ -581,6 +581,7 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertTrue(cloud.currently_alive)
         self.assertEqual(cloud.current_hp, 2)
         self.assertLess(cloud.velocity[0], 0.0)
+        self.assertEqual(cloud.collision_wait_timer, 6)
 
     def test_kzerza_fighter_contact_does_not_damage_enemy_ship(self):
         parent = self.make_ship()

@@ -9,21 +9,24 @@ class Chenjesu(SpaceShip):
     def __init__(self, ship_name, player_num, resources=None, audio_service=None):
         super().__init__(ship_name, player_num, resources, audio_service)
         self.active_a1 = None
+        self.a1_latched = False
 
     def initialize_in_battle(self, position, heading):
         super().initialize_in_battle(position, heading)
         self.active_a1 = None
+        self.a1_latched = False
 
     def plan_action1(self):
         if not self.can_action1():
             return ActionPlan.invalid(1)
-        if self.active_a1 is not None and self.active_a1.is_alive():
+        if self.a1_latched:
             return ActionPlan.invalid(1)
 
         projectile = ChenjesuA1(self)
 
         def track_projectile():
             self.active_a1 = projectile
+            self.a1_latched = True
 
         return self.prepare_action_plan(
             1,
@@ -32,9 +35,10 @@ class Chenjesu(SpaceShip):
         )
 
     def perform_action1_release(self):
+        self.a1_latched = False
         projectile = self.active_a1
         if projectile is not None:
-            projectile.fragment()
+            projectile.request_fragment()
 
     def plan_action2(self):
         if not self.can_action2():

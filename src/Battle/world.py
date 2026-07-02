@@ -247,3 +247,16 @@ class World:
                 isinstance(obj, (Ability, Asteroid)) and not obj.currently_alive
             )
         )
+
+    def finalize_collision_frame(self) -> None:
+        """Run post-contact hooks and publish anything they spawn."""
+        self.remove_dead_collision_objects()
+        spawned_objects = []
+        for obj in self.snapshot():
+            finalize = getattr(obj, "finalize_collision_frame", None)
+            if finalize is None:
+                continue
+            finalize()
+            spawned_objects.extend(self._drain_spawned_objects(obj))
+        self.remove_dead_collision_objects()
+        self.add_all(spawned_objects)

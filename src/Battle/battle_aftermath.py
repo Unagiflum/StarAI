@@ -239,7 +239,26 @@ def update_aftermath(
 
 
 def hide_dead_ship(ship, game_objects):
-    World.coerce(game_objects).remove_where(lambda obj: obj is ship)
+    world = World.coerce(game_objects)
+    removed_owners = [ship]
+    pending = world.abilities
+    while pending:
+        removed_any = False
+        for ability in pending[:]:
+            if not any(
+                getattr(ability, "parent", None) is owner
+                for owner in removed_owners
+            ):
+                continue
+            ability.on_parent_removed()
+            if not ability.is_alive():
+                removed_owners.append(ability)
+            pending.remove(ability)
+            removed_any = True
+        if not removed_any:
+            break
+    world.remove_dead_collision_objects()
+    world.remove_where(lambda obj: obj is ship)
     if hasattr(ship, "position") and hasattr(ship, "previous_position"):
         ship.previous_position = ship.position.copy()
 

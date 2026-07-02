@@ -361,11 +361,7 @@ def handle_collisions(
     )
 
     world.add_all(effects)
-    world.remove_dead_collision_objects()
-    for obj in world.snapshot():
-        finalize = getattr(obj, "finalize_collision_frame", None)
-        if finalize is not None:
-            finalize()
+    world.finalize_collision_frame()
 
 
 def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):

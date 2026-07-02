@@ -38,6 +38,13 @@ ONE_SIDED_SPECIAL_OBJECT_BOUNCES = {
 }
 
 
+def _notify_collision_contact(first, second):
+    for obj, other in ((first, second), (second, first)):
+        handler = getattr(obj, "on_collision_contact", None)
+        if handler is not None:
+            handler(other)
+
+
 def damage_ship(ship, damage, *, shieldable=True, non_lethal=False):
     """Route combat damage through a ship's defenses.
 
@@ -528,6 +535,7 @@ def _resolve_configured_special_object_pair(
     if outcome is SpecialObjectPairOutcome.BOUNCE_BOTH:
         normal, distance, overlap = collision_info(first, second)
         elastic_bounce(first, second, normal, distance, overlap)
+        _notify_collision_contact(first, second)
         return CollisionOutcome.RESOLVED
     if outcome in (
         SpecialObjectPairOutcome.BOUNCE_FIRST,
@@ -540,6 +548,7 @@ def _resolve_configured_special_object_pair(
         )
         normal, _, overlap = collision_info(moving, stationary)
         bounce_off_static_body(moving, stationary, normal, overlap)
+        _notify_collision_contact(first, second)
         return CollisionOutcome.RESOLVED
 
     if outcome is SpecialObjectPairOutcome.DESTROY_FIRST:
@@ -700,6 +709,7 @@ def resolve_projectile_projectile_collision(
         ):
             normal, distance, actual_overlap = collision_info(first, second)
             elastic_bounce(first, second, normal, distance, actual_overlap)
+            _notify_collision_contact(first, second)
             return CollisionOutcome.RESOLVED
 
         BattleEffect.play_boom(max(first.current_damage, second.current_damage))

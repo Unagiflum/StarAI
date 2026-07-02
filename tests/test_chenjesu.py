@@ -14,6 +14,7 @@ pygame.display.set_mode((1, 1))
 
 import src.const as const
 from src.Battle import collision_responses, collisions
+from src.Battle.battle_aftermath import hide_dead_ship
 from src.Objects.Ships.Chenjesu.A1.ChenjesuA1 import ChenjesuA1Shard
 from src.Objects.Ships.Chenjesu.A2.ChenjesuA2 import ChenjesuA2
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
@@ -45,6 +46,8 @@ class ChenjesuTests(unittest.TestCase):
         self.assertEqual(ABILITY_DEFINITIONS["ChenjesuA1"].fragment_count, 8)
         self.assertEqual(ABILITY_DEFINITIONS["ChenjesuA2"].mass, 4)
         self.assertEqual(ABILITY_DEFINITIONS["ChenjesuA2"].avoid_angle, 22.5)
+        self.assertEqual(ABILITY_DEFINITIONS["ChenjesuA2"].collision_wait, 6)
+        self.assertEqual(ABILITY_DEFINITIONS["ChenjesuA2"].ship_collision_wait, 3)
         self.assertEqual(get_ship_class("Chenjesu").__name__, "Chenjesu")
         self.assertEqual(get_ability_class("ChenjesuA2").__name__, "ChenjesuA2")
 
@@ -62,10 +65,19 @@ class ChenjesuTests(unittest.TestCase):
     def test_primary_release_spawns_evenly_distributed_shards_without_end_animation(self):
         ship = self.make_ship()
         projectile = ship.perform_action1()
+        start_position = projectile.position.copy()
         ship.perform_action1_release()
-        shards = projectile.drain_spawned_objects()
+
+        self.assertTrue(projectile.currently_alive)
+        self.assertEqual(projectile.drain_spawned_objects(), [])
+
+        projectile.update()
+        game_objects = [projectile]
+        collisions.handle_collisions(game_objects)
+        shards = game_objects
 
         self.assertFalse(projectile.currently_alive)
+        self.assertNotEqual(projectile.position, start_position)
         self.assertEqual(len(shards), 8)
         self.assertTrue(all(isinstance(shard, ChenjesuA1Shard) for shard in shards))
         self.assertTrue(all(not shard.death_animation for shard in shards))
@@ -78,6 +90,19 @@ class ChenjesuTests(unittest.TestCase):
         for _ in range(9):
             self.assertTrue(shards[0].update())
         self.assertFalse(shards[0].update())
+
+    def test_destroyed_primary_does_not_refire_until_weapon_is_released(self):
+        ship = self.make_ship()
+        projectile = ship.perform_action1()
+        projectile.current_hp = 0
+        projectile.currently_alive = False
+        projectile.on_destroyed()
+
+        self.assertFalse(ship.plan_action1().valid)
+
+        ship.perform_action1_release()
+        ship.action1_timer = 0
+        self.assertTrue(ship.plan_action1().valid)
 
     def test_friendly_crystals_ignore_each_other_but_hit_a2(self):
         ship = self.make_ship()
@@ -125,6 +150,11 @@ class ChenjesuTests(unittest.TestCase):
         cloud.position = [1000.0, 1000.0]
         cloud.rng = SimpleNamespace(uniform=lambda start, end: 31.0)
 
+        initial_velocity = cloud.velocity.copy()
+        cloud.update()
+        self.assertEqual(cloud.velocity, initial_velocity)
+        self.assertEqual(cloud.rotation, 180.0)
+
         cloud.update()
         self.assertAlmostEqual(math.hypot(*cloud.velocity), cloud.speed)
         self.assertEqual(cloud.rotation % const.TURN_ANGLE, 0.0)
@@ -164,6 +194,25 @@ class ChenjesuTests(unittest.TestCase):
         self.assertAlmostEqual(move_angle, 112.5)
         self.assertEqual(move_angle % const.TURN_ANGLE, 0.0)
 
+    def test_a2_keeps_bounce_velocity_for_six_steering_frames(self):
+        ship = self.make_ship()
+        target = self.make_ship(player=2)
+        target.position = [1000.0, 0.0]
+        ship.opponent = target
+        cloud = ChenjesuA2(ship)
+        cloud.position = [1000.0, 1000.0]
+        cloud.launch_frames_remaining = 0
+        cloud.velocity = [7.0, 0.0]
+        cloud.collision_wait_timer = cloud.collision_wait
+
+        for expected_timer in range(5, -1, -1):
+            cloud.update()
+            self.assertEqual(cloud.velocity, [7.0, 0.0])
+            self.assertEqual(cloud.collision_wait_timer, expected_timer)
+
+        cloud.update()
+        self.assertNotEqual(cloud.velocity, [7.0, 0.0])
+
     def test_a2_drains_enemy_energy_and_bounces_without_ship_damage(self):
         ship = self.make_ship()
         target = self.make_ship(player=2)
@@ -183,6 +232,9 @@ class ChenjesuTests(unittest.TestCase):
         self.assertEqual(target.current_hp, starting_hp)
         self.assertLess(cloud.velocity[0], 10.0)
         self.assertGreater(target.velocity[0], 0.0)
+        self.assertEqual(cloud.collision_wait_timer, 6)
+        self.assertEqual(target.thrust_timer, const.cooldown_frames(3))
+        self.assertEqual(target.turn_timer, const.cooldown_frames(3))
 
     def test_a2_takes_projectile_damage_and_kills_projectile(self):
         ship = self.make_ship()
@@ -244,6 +296,8 @@ class ChenjesuTests(unittest.TestCase):
                 self.assertTrue(second.currently_alive)
                 self.assertLess(first.velocity[0], 0.0)
                 self.assertGreater(second.velocity[0], 0.0)
+                self.assertEqual(first.collision_wait_timer, 6)
+                self.assertEqual(second.collision_wait_timer, 6)
 
     def test_a2_ignores_only_the_two_specified_area_effects(self):
         cloud = ChenjesuA2(self.make_ship())
@@ -273,15 +327,21 @@ class ChenjesuTests(unittest.TestCase):
             )
         )
 
-    def test_parent_death_removes_a2_silently(self):
+    def test_parent_cleanup_removes_a2_silently_after_death_sequence(self):
         audio = RecordingAudioService()
         ship = self.make_ship(audio=audio)
         cloud = ChenjesuA2(ship)
         audio.operations.clear()
         ship.current_hp = 0
 
-        self.assertFalse(cloud.update())
+        self.assertTrue(cloud.update())
+        self.assertTrue(cloud.currently_alive)
+
+        game_objects = [ship, cloud]
+        hide_dead_ship(ship, game_objects)
+
         self.assertFalse(cloud.currently_alive)
+        self.assertNotIn(cloud, game_objects)
         self.assertEqual(audio.operations, [])
 
 

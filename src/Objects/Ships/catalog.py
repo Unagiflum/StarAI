@@ -273,6 +273,7 @@ class AbilityDefinition(_DefinitionMapping):
     drain: int | None = None
     avoid_angle: float | None = None
     collision_wait: int | None = None
+    ship_collision_wait: int | None = None
     base_speed: float | None = None
     silhouette_count: int | None = None
     silhouette_colors: tuple[tuple[int, int, int, int], ...] | None = None
@@ -376,6 +377,7 @@ class AbilityDefinition(_DefinitionMapping):
         "DRAIN": "drain",
         "AVOID_ANGLE": "avoid_angle",
         "COLLISION_WAIT": "collision_wait",
+        "SHIP_COLLISION_WAIT": "ship_collision_wait",
         "MASS": "mass",
         "BASE_SPEED": "base_speed",
         "SILHOUETTE_COUNT": "silhouette_count",
@@ -832,6 +834,7 @@ def parse_ability_definition(name, data):
         "DRAIN",
         "AVOID_ANGLE",
         "COLLISION_WAIT",
+        "SHIP_COLLISION_WAIT",
         "MASS",
         "BASE_SPEED",
         "SILHOUETTE_COUNT",
@@ -944,6 +947,7 @@ def parse_ability_definition(name, data):
         "DRAIN": ("drain", int),
         "AVOID_ANGLE": ("avoid_angle", float),
         "COLLISION_WAIT": ("collision_wait", int),
+        "SHIP_COLLISION_WAIT": ("ship_collision_wait", int),
         "BASE_SPEED": ("base_speed", float),
         "SILHOUETTE_COUNT": ("silhouette_count", int),
     }
@@ -1077,6 +1081,7 @@ def parse_ability_definition(name, data):
         "drain",
         "avoid_angle",
         "collision_wait",
+        "ship_collision_wait",
     ):
         if values[field_name] is not None and values[field_name] <= 0:
             raise CatalogValidationError(

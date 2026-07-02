@@ -16,6 +16,8 @@ from src.toroidal import wrapped_delta
 
 
 class SyreenCrew(Ability):
+    survives_parent_cleanup = True
+
     def __init__(self, parent, position=None, origin_ship=None):
         super().__init__("SyreenCrew", parent)
         self.area_damage_capabilities = replace(
@@ -79,7 +81,7 @@ class SyreenCrew(Ability):
         return True
 
     def can_recover_with_parent(self):
-        return True
+        return self.parent is not None
 
     def recover_with_parent(self):
         self.handle_ship_contact(self.parent, None)
@@ -228,6 +230,7 @@ class SyreenCrew(Ability):
     def get_sprite(self, interp_t=0.0):
         if not hasattr(self, "_cached_sprite"):
             import pygame
+            import pygame.gfxdraw
 
             radius = int(self.size[0] / 2)
             diameter = radius * 2
@@ -237,8 +240,8 @@ class SyreenCrew(Ability):
             pygame.draw.circle(
                 self._cached_sprite, (0, 255, 0), (radius, radius), radius
             )
-            pygame.draw.aacircle(
-                self._cached_sprite, (0, 255, 0), (radius, radius), radius
+            pygame.gfxdraw.aacircle(
+                self._cached_sprite, radius, radius, radius, (0, 255, 0)
             )
         return self._cached_sprite
 

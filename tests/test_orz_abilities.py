@@ -14,6 +14,7 @@ pygame.display.set_mode((1, 1))
 
 import src.const as const
 from src.Battle.battle import initialize_new_round_ships
+from src.Battle.battle_aftermath import hide_dead_ship
 from src.Battle import collision_responses, collisions
 from src.Battle.collision_contract import CollisionContext, CollisionEnvironment
 from src.Battle.status_bar import draw_boarded_marine_icons
@@ -58,6 +59,21 @@ class OrzAbilityTests(unittest.TestCase):
             6 * const.VIDEO_FPS_MULTIPLIER,
         )
         self.assertTrue(ABILITY_DEFINITIONS["OrzA1"].has_sound)
+
+    def test_marine_survives_parent_explosion_until_cleanup(self):
+        opponent = create_ship("Earthling", 2)
+        opponent.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = opponent
+        marine, _ = self.ship.perform_action3()
+        self.ship.current_hp = 0
+        self.ship.currently_alive = False
+
+        self.assertTrue(marine.update())
+
+        game_objects = [self.ship, marine]
+        hide_dead_ship(self.ship, game_objects)
+        self.assertFalse(marine.currently_alive)
+        self.assertNotIn(marine, game_objects)
 
     def test_a2_turns_turret_relative_to_hull_and_wraps(self):
         self.assertEqual(self.ship.turret.relative_heading, 0)

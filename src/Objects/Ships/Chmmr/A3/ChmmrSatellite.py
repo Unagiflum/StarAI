@@ -127,8 +127,6 @@ class ChmmrSatellite(Ability):
         if (
             not self.currently_alive
             or self.current_hp <= 0
-            or not self.parent.currently_alive
-            or self.parent.current_hp <= 0
         ):
             self.currently_alive = False
             return False

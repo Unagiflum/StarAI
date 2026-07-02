@@ -41,6 +41,7 @@ def outward_visual_laser_start(start, end, distance):
 
 class Ability(PlayerObject):
     sound_enabled = True
+    survives_parent_cleanup = False
 
     def __init__(self, ability_name, parent):
         ability_definition = ABILITY_DEFINITIONS[ability_name]
@@ -372,6 +373,14 @@ class Ability(PlayerObject):
         """Let an ability react without imposing one special_object behavior."""
         if self.opponent is opponent:
             self.opponent = None
+
+    def on_parent_removed(self):
+        """Detach independent objects or silently remove ship-owned objects."""
+        if self.survives_parent_cleanup:
+            self.parent = None
+            return
+        self.current_hp = 0
+        self.currently_alive = False
 
     def _live_trackable_opponent(self):
         if (

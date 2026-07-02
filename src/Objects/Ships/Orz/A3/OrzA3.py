@@ -151,9 +151,6 @@ class OrzA3(Ability):
     def update(self):
         if not self.currently_alive:
             return False
-        if not self._parent_alive():
-            self._die()
-            return False
         if self.current_hp <= 0:
             self._die()
             return False

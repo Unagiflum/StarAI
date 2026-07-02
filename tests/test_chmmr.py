@@ -22,6 +22,7 @@ from src.Objects.Ships.ability import SPECIAL_OBJECT_AREA_IMMUNITIES
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 from src.Objects.Ships.registry import create_ability, create_ship, get_ship_class
 from src.Battle.collision_responses import resolve_projectile_projectile_collision
+from src.Battle.battle_aftermath import hide_dead_ship
 from src.audio import NullAudioService
 from src.toroidal import wrapped_delta, wrapped_distance
 
@@ -219,6 +220,21 @@ class ChmmrTests(unittest.TestCase):
         satellite.update()
 
         self.assertAlmostEqual(wrapped_distance(start, satellite.position), 80)
+
+    def test_satellite_survives_parent_explosion_until_cleanup(self):
+        satellite = ChmmrSatellite(self.chmmr)
+        laser = ChmmrSatelliteLaser(satellite, self.target)
+        self.chmmr.current_hp = 0
+        self.chmmr.currently_alive = False
+
+        self.assertTrue(satellite.update())
+
+        game_objects = [self.chmmr, satellite, laser]
+        hide_dead_ship(self.chmmr, game_objects)
+        self.assertFalse(satellite.currently_alive)
+        self.assertFalse(laser.currently_alive)
+        self.assertNotIn(satellite, game_objects)
+        self.assertNotIn(laser, game_objects)
 
     def test_satellite_targets_lowest_hp_and_waits_two_frames_between_shots(self):
         satellite = ChmmrSatellite(self.chmmr)
