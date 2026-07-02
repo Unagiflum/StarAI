@@ -390,9 +390,14 @@ def _handle_area_damage(game_objects, effects, excluded_ids=frozenset()):
                 distance,
                 damage,
             )
+            ability.on_area_damage_hit(target, applied_damage)
+            append_effects = getattr(ability, "append_area_hit_effects", None)
+            if append_effects is not None:
+                append_effects(target, effects, delta, distance, damage)
             if ability.area_damage_capabilities.plays_impact_sound:
                 BattleEffect.play_boom(damage)
-            ability.on_area_damage_hit(target, applied_damage)
+            if not ability.currently_alive:
+                break
 
         ability.area_damage_pending = bool(
             ability.area_damage_capabilities.persistent and ability.currently_alive

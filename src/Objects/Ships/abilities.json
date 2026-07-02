@@ -1586,13 +1586,15 @@
         "damage": [
             1
         ],
-        "speed": 120,
+        "speed": 96,
+        "parent_vel": 0.0,
         "life_time": 10,
         "turn_wait": 1,
         "inertia": true,
         "omnidirectional": true,
+        "frames": 16,
         "file_path": "Objects/Ships/ZoqFotPik/A1/",
-        "SPREAD_ANGLE": 5,
+        "SPREAD_ANGLE": 5.625,
         "gun_locations": [
             [
                 59,
@@ -1618,10 +1620,10 @@
         "file_path": "Objects/Ships/ZoqFotPik/A2/",
         "offset": 0.5,
         "has_sprites": false,
-        "advancing_frames": 2,
-        "retracting_frames": 8,
-        "area_width": 12,
-        "area_length": 100,
+        "advancing_frames": 5,
+        "retracting_frames": 5,
+        "area_width": 10,
+        "area_length": 140,
         "gun_locations": [
             [
                 59,

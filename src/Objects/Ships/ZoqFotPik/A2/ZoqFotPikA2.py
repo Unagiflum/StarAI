@@ -1,9 +1,20 @@
 import math
+from dataclasses import replace
+
 import pygame
 
 import src.const as const
-from src.Battle.collision_geometry import collision_info, objects_overlap
-from src.collision_capabilities import AreaDamageCapabilities, CollisionRole
+from src.Battle.collision_geometry import (
+    collision_info,
+    estimated_impact,
+    objects_overlap,
+)
+from src.Battle.effects import BattleEffect
+from src.collision_capabilities import (
+    AreaDamageCapabilities,
+    CollisionRole,
+    ProjectileContactPolicy,
+)
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 
@@ -26,22 +37,30 @@ class ZoqFotPikA2(Ability):
         self._duration = self.advancing_frames + self.retracting_frames
         self.velocity = [0.0, 0.0]
         self.can_move = False
-        self.can_die = False
+        self.can_die = True
         self.can_expire = True
         self.area_damage_pending = parent.in_battle
         self.area_damage_capabilities = AreaDamageCapabilities(
             emits=True,
             targetable=True,
-            vulnerable=False,
+            vulnerable=True,
             persistent=True,
             plays_impact_sound=True,
         )
+        self.laser_target_capabilities = replace(
+            self.laser_target_capabilities,
+            targetable=True,
+            vulnerable=True,
+            blocks_lasers=True,
+        )
+        self._blocking_target = None
         self._current_sprite = None
         self._current_mask = None
 
         self._shape_cache = {}
 
         self._sync_to_parent(0)
+        self._age = 1
 
     def _generate_shape(self, length, visual_idx):
         cache_key = (length, visual_idx)
@@ -80,7 +99,7 @@ class ZoqFotPikA2(Ability):
             )
         scale_factor = max(0.01, min(1.0, scale_factor))
 
-        current_length = max(1, int(self.area_length * scale_factor))
+        current_length = max(1, round(self.area_length * scale_factor))
 
         visual_idx = const.heading_to_sprite_index(self.heading)
         self._current_sprite, self._current_mask = self._generate_shape(
@@ -123,10 +142,8 @@ class ZoqFotPikA2(Ability):
     def area_damage_for_target(self, target, distance):
         if target in self._damaged_targets:
             return 0
-
-
-
-        from src.Battle.collision_geometry import collision_info, objects_overlap
+        if getattr(target, "player", None) == self.player:
+            return 0
 
         _, _, overlap = collision_info(self, target)
         if not objects_overlap(self, target, overlap):
@@ -135,6 +152,28 @@ class ZoqFotPikA2(Ability):
 
     def on_area_damage_hit(self, target, damage):
         self._damaged_targets.add(target)
+        capabilities = getattr(
+            target,
+            "special_object_collision_capabilities",
+            None,
+        )
+        if (
+            capabilities is not None
+            and capabilities.projectile_contact_policy
+            is ProjectileContactPolicy.FRAGILE
+        ):
+            return
+
+        self._blocking_target = target
+        self.current_hp = 0
+        self.currently_alive = False
+        self.area_damage_pending = False
+
+    def append_area_hit_effects(self, target, effects, delta, distance, damage):
+        if target is not self._blocking_target:
+            return
+        contact, normal = estimated_impact(self, target)
+        effects.append(BattleEffect.from_blast(contact, normal, damage))
 
     def get_collision_mask(self):
         return self._current_mask
