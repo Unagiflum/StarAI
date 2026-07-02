@@ -52,8 +52,8 @@ class SyreenCrewMotionTests(unittest.TestCase):
 
         self.assertEqual(crew.position, self.parent.position)
         self.assertIsNot(crew.position, self.parent.position)
-        self.assertEqual(crew.size, [8, 8])
-        self.assertEqual(crew.get_sprite().get_size(), (8, 8))
+        self.assertEqual(crew.size, [6, 6])
+        self.assertEqual(crew.get_sprite().get_size(), (6, 6))
 
     def test_configured_colors_cycle_each_physics_frame(self):
         crew = SyreenCrew(self.parent)
