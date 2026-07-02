@@ -281,6 +281,7 @@ def _render_world_to_surface(
     star_field_renderer,
     skip_stars=False,
     show_gravity_range=True,
+    show_entry_trails=True,
     show_crosshairs=False,
     interp_t=0.0,
 ):
@@ -314,7 +315,7 @@ def _render_world_to_surface(
         ability.draw(surface, scale_factor, translation, interp_t=interp_t)
 
     entering_ships = set(entry_state.entering_ships if entry_state else ())
-    if entry_state:
+    if entry_state and show_entry_trails:
         draw_entry_silhouettes(
             surface,
             entry_state,
@@ -545,6 +546,7 @@ def draw_battle(
                 star_field_renderer,
                 skip_stars=True,
                 show_gravity_range=False,
+                show_entry_trails=False,
                 show_crosshairs=False,
                 interp_t=interp_t,
             )

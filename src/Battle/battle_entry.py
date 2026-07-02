@@ -84,6 +84,9 @@ class EntryState:
     camera_targets: tuple
     trackable_states: dict
     trail_styles: dict = field(default_factory=dict)
+    render_cache_frame: int | None = field(default=None, repr=False)
+    silhouette_cache: dict = field(default_factory=dict, repr=False)
+    scaled_silhouette_cache: dict = field(default_factory=dict, repr=False)
 
 
 def start_entry(
@@ -165,40 +168,68 @@ def draw_entry_silhouettes(
     scale_factor,
     translation,
 ):
+    if entry.render_cache_frame != frame_id:
+        entry.render_cache_frame = frame_id
+        entry.silhouette_cache.clear()
+        entry.scaled_silhouette_cache.clear()
+
     for ship in entry.entering_ships:
         mask = ship.get_collision_mask()
         for position, color in visible_silhouettes(entry, ship, frame_id):
-            silhouette = mask.to_surface(
-                setcolor=(*color, 255),
-                unsetcolor=(0, 0, 0, 0),
+            mask_size = mask.get_size()
+            scaled_size = (
+                max(1, int(mask_size[0] * scale_factor)),
+                max(1, int(mask_size[1] * scale_factor)),
             )
-            scaled = pygame.transform.smoothscale_by(silhouette, scale_factor)
-            _draw_wrapped(
-                screen,
-                scaled,
+            destinations = _wrapped_destinations(
+                scaled_size,
                 position,
                 scale_factor,
                 translation,
             )
+            if not destinations:
+                continue
+
+            silhouette_key = (id(mask), color)
+            silhouette = entry.silhouette_cache.get(silhouette_key)
+            if silhouette is None:
+                silhouette = mask.to_surface(
+                    setcolor=(*color, 255),
+                    unsetcolor=(0, 0, 0, 0),
+                )
+                entry.silhouette_cache[silhouette_key] = silhouette
+
+            if scaled_size == mask_size:
+                scaled = silhouette
+            else:
+                scaled_key = (*silhouette_key, scaled_size)
+                scaled = entry.scaled_silhouette_cache.get(scaled_key)
+                if scaled is None:
+                    scaled = pygame.transform.smoothscale(silhouette, scaled_size)
+                    entry.scaled_silhouette_cache[scaled_key] = scaled
+
+            for destination in destinations:
+                screen.blit(scaled, destination)
 
 
-def _draw_wrapped(screen, image, position, scale_factor, translation):
-    rect = image.get_rect()
+def _wrapped_destinations(image_size, position, scale_factor, translation):
+    width, height = image_size
     screen_x = int((position[0] + translation[0]) * scale_factor)
     screen_y = int((position[1] + translation[1]) * scale_factor)
+    destinations = []
 
     for dx in (-1, 0, 1):
         for dy in (-1, 0, 1):
             pos_x = screen_x + dx * const.ARENA_SIZE * scale_factor
             pos_y = screen_y + dy * const.ARENA_SIZE * scale_factor
             if (
-                -rect.width <= pos_x <= const.SCREEN_HEIGHT + rect.width
-                and -rect.height <= pos_y <= const.SCREEN_HEIGHT + rect.height
+                -width <= pos_x <= const.SCREEN_HEIGHT + width
+                and -height <= pos_y <= const.SCREEN_HEIGHT + height
             ):
-                screen.blit(
-                    image,
+                destinations.append(
                     (
-                        const.SCREEN_LEFT + pos_x - rect.width // 2,
-                        pos_y - rect.height // 2,
-                    ),
+                        const.SCREEN_LEFT + pos_x - width // 2,
+                        pos_y - height // 2,
+                    )
                 )
+    return destinations

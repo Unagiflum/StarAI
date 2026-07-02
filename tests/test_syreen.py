@@ -330,9 +330,33 @@ class SyreenSongTests(unittest.TestCase):
         near_edge_alpha = surface.get_at((center_x + 53, center_y)).a
         outside_alpha = surface.get_at((center_x + 55, center_y)).a
         self.assertEqual(middle_alpha, 200)
-        self.assertGreater(middle_alpha, near_edge_alpha)
-        self.assertGreater(near_edge_alpha, outside_alpha)
+        self.assertEqual(near_edge_alpha, 100)
         self.assertEqual(outside_alpha, 0)
+
+    def test_ring_surrounding_view_is_culled_without_changing_viewport_path(self):
+        import pygame
+
+        effect = SyreenSongEffect(
+            position=[50.0, 50.0],
+            starting_radius=200.0,
+            target_radius=200.0,
+            thickness=8,
+            colors=((255, 100, 255, 200), (255, 100, 255, 200)),
+            total_frames=2,
+        )
+        surface = pygame.Surface((100, 100), pygame.SRCALPHA)
+
+        effect.draw(surface, 1.0, [0.0, 0.0])
+
+        self.assertEqual(surface.get_bounding_rect(), pygame.Rect(0, 0, 0, 0))
+
+    def test_ring_overlay_cache_is_bounded_to_main_and_viewport_sizes(self):
+        SyreenSongEffect._overlay_cache.clear()
+
+        for size in ((960, 960), (200, 200), (320, 240)):
+            SyreenSongEffect._overlay(size)
+
+        self.assertEqual(len(SyreenSongEffect._overlay_cache), 2)
 
 
 if __name__ == "__main__":

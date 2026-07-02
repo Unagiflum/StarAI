@@ -1238,7 +1238,7 @@
         "omnidirectional": true,
         "has_sprites": false,
         "ANIM_LENGTH": 5,
-        "CIRCLE_THICKNESS": 15,
+        "CIRCLE_THICKNESS": 2,
         "CIRCLE_COLOR": [
             [
                 255,

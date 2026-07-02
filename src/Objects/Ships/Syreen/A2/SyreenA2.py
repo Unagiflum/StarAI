@@ -1,4 +1,5 @@
 import math
+from collections import OrderedDict
 from weakref import WeakKeyDictionary
 
 import pygame
@@ -33,7 +34,8 @@ class SyreenSongEffect(BattleEffect):
     """Fixed-origin, expanding visual wave for the Syreen song."""
 
     render_layer = "after_lasers"
-    _overlay_cache = {}
+    _overlay_cache = OrderedDict()
+    _overlay_cache_limit = 2
 
     def __init__(
         self,
@@ -74,6 +76,10 @@ class SyreenSongEffect(BattleEffect):
         if overlay is None:
             overlay = pygame.Surface(size, pygame.SRCALPHA)
             cls._overlay_cache[size] = overlay
+            while len(cls._overlay_cache) > cls._overlay_cache_limit:
+                cls._overlay_cache.popitem(last=False)
+        else:
+            cls._overlay_cache.move_to_end(size)
         return overlay
 
     @staticmethod
@@ -83,18 +89,17 @@ class SyreenSongEffect(BattleEffect):
         half_thickness = max(0.5, pixel_thickness / 2.0)
         maximum_offset = max(0, math.ceil(half_thickness) - 1)
 
+        # Three strokes retain a soft inner/outer edge without drawing every
+        # one-pixel radius across the full thickness.
         offsets = sorted(
-            range(-maximum_offset, maximum_offset + 1),
-            key=abs,
-            reverse=True,
+            {-maximum_offset, 0, maximum_offset}, key=abs, reverse=True
         )
         for offset in offsets:
             # pygame.draw.circle's one-pixel outline lies at radius - 1.
             stroke_radius = center_radius + offset + 1
             if stroke_radius <= 0:
                 continue
-            edge_fade = max(0.0, 1.0 - abs(offset) / half_thickness)
-            alpha = round(color[3] * edge_fade)
+            alpha = color[3] if offset == 0 else round(color[3] * 0.5)
             if alpha:
                 stroke_color = (*color[:3], alpha)
                 pygame.gfxdraw.aacircle(
@@ -112,22 +117,40 @@ class SyreenSongEffect(BattleEffect):
                     width=1,
                 )
 
+    @staticmethod
+    def _outline_intersects_rect(center, radius, thickness, rect):
+        nearest_x = min(max(center[0], rect.left), rect.right)
+        nearest_y = min(max(center[1], rect.top), rect.bottom)
+        nearest_distance = math.hypot(
+            center[0] - nearest_x,
+            center[1] - nearest_y,
+        )
+        farthest_distance = max(
+            math.hypot(center[0] - x, center[1] - y)
+            for x in (rect.left, rect.right)
+            for y in (rect.top, rect.bottom)
+        )
+        half_thickness = max(0.5, thickness / 2.0)
+        return (
+            nearest_distance <= radius + half_thickness
+            and farthest_distance >= max(0.0, radius - half_thickness)
+        )
+
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         radius, color = self.radius_and_color(interp_t)
-        pixel_radius = radius * scale_factor
+        raw_pixel_radius = radius * scale_factor
+        pixel_radius = max(1, round(raw_pixel_radius / 2.0) * 2)
         pixel_thickness = self.thickness * scale_factor
         extent = math.ceil(pixel_radius + pixel_thickness / 2.0 + 1)
         if extent <= 0 or color[3] <= 0:
             return
 
         clip = screen.get_clip()
-        overlay = self._overlay(screen.get_size())
-        overlay.set_clip(clip)
-        overlay.fill((0, 0, 0, 0), clip)
         screen_x = round((self.position[0] + translation[0]) * scale_factor)
         screen_y = round((self.position[1] + translation[1]) * scale_factor)
         arena_span = const.ARENA_SIZE * scale_factor
-        drew_circle = False
+        visible_circles = []
+        dirty_rect = None
 
         for wrap_x in (-1, 0, 1):
             for wrap_y in (-1, 0, 1):
@@ -141,20 +164,41 @@ class SyreenSongEffect(BattleEffect):
                     extent * 2 + 1,
                     extent * 2 + 1,
                 )
-                if not clip.colliderect(bounds):
-                    continue
-                self._draw_feathered_circle(
-                    overlay,
+                if not self._outline_intersects_rect(
                     center,
                     pixel_radius,
                     pixel_thickness,
-                    color,
+                    clip,
+                ):
+                    continue
+                visible_circles.append(center)
+                clipped_bounds = bounds.clip(clip)
+                dirty_rect = (
+                    clipped_bounds
+                    if dirty_rect is None
+                    else dirty_rect.union(clipped_bounds)
                 )
-                drew_circle = True
+
+        if not visible_circles or not dirty_rect:
+            return
+
+        # The same drawing path is used for the battle view and both HUD
+        # viewports. The scratch surface only needs to cover the active clip.
+        overlay = self._overlay(clip.size)
+        local_dirty = dirty_rect.move(-clip.left, -clip.top)
+        overlay.set_clip(local_dirty)
+        overlay.fill((0, 0, 0, 0), local_dirty)
+        for center in visible_circles:
+            self._draw_feathered_circle(
+                overlay,
+                (center[0] - clip.left, center[1] - clip.top),
+                pixel_radius,
+                pixel_thickness,
+                color,
+            )
 
         overlay.set_clip(None)
-        if drew_circle:
-            screen.blit(overlay, clip.topleft, area=clip)
+        screen.blit(overlay, dirty_rect.topleft, area=local_dirty)
 
 
 class SyreenA2(Ability):

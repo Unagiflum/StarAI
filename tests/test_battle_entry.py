@@ -125,6 +125,42 @@ class BattleEntryAnimationTests(unittest.TestCase):
         self.assertGreater(first_points[3][0], 1000)
         self.assertGreater(first_points[3][1], 1000)
 
+    def test_repeated_trail_colors_are_colorized_and_scaled_once_per_frame(self):
+        ship = Ship([1000, 1000], 0)
+        real_mask = pygame.mask.Mask((8, 8), fill=True)
+        mask = mock.Mock(wraps=real_mask)
+        ship.get_collision_mask = mock.Mock(return_value=mask)
+        animation = start_entry(
+            (ship,),
+            ship,
+            object(),
+            frame_id=0,
+            trail_styles={
+                ship: EntryTrailStyle(
+                    angles=(45, 135, 225, 315),
+                    spacing=10,
+                )
+            },
+        )
+        surface = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+
+        with mock.patch.object(
+            pygame.transform,
+            "smoothscale",
+            wraps=pygame.transform.smoothscale,
+        ) as smoothscale:
+            for _ in range(2):
+                draw_entry_silhouettes(
+                    surface,
+                    animation,
+                    0,
+                    0.5,
+                    [-520.0, -520.0],
+                )
+
+        self.assertEqual(mask.to_surface.call_count, 1)
+        self.assertEqual(smoothscale.call_count, 1)
+
     def test_trail_wraps_around_the_arena(self):
         ship = Ship([10, 10], 90)
 

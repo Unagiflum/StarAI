@@ -25,6 +25,7 @@ from src.Objects.Space.space_obj import (
     _annular_sector_points,
     _circle_outline_intersects_rect,
     _draw_antialiased_dashed_circle,
+    _gravity_ring_surface,
 )
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
@@ -127,6 +128,37 @@ class StarFieldRendererTests(unittest.TestCase):
 
         planet.draw_gravity_range.assert_not_called()
         planet.draw.assert_called_once()
+
+    def test_hud_world_render_omits_entry_trails(self):
+        entry = SimpleNamespace(entering_ships=())
+        world = SimpleNamespace(
+            stars=[],
+            planets=[],
+            thrust_markers=[],
+            asteroids=[],
+            abilities=[],
+            ships=[],
+            effects=[],
+        )
+
+        with mock.patch(
+            "src.Battle.battle_draw.draw_entry_silhouettes"
+        ) as draw_entry:
+            _render_world_to_surface(
+                pygame.Surface((320, 240)),
+                world,
+                1.0,
+                [0, 0],
+                [0, 0],
+                entry,
+                0,
+                StarFieldRenderer(),
+                skip_stars=True,
+                show_gravity_range=False,
+                show_entry_trails=False,
+            )
+
+        draw_entry.assert_not_called()
 
     def test_world_objects_render_in_explicit_combat_layers(self):
         order = []
@@ -247,6 +279,12 @@ class StarFieldRendererTests(unittest.TestCase):
         self.assertEqual(surface.get_at((200, 200)).a, 0)
         self.assertEqual(surface.get_at((200, 100)).a, 0)
         self.assertGreater(surface.get_at((350, 200)).a, 0)
+
+    def test_gravity_ring_surface_reuses_exact_cached_geometry(self):
+        first = _gravity_ring_surface(124, 5, (255, 0, 0, 200))
+        second = _gravity_ring_surface(124, 5, (255, 0, 0, 200))
+
+        self.assertIs(first, second)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import math
+from collections import OrderedDict
 from src.Objects.object import Object
 import src.const as Const
 import pygame
@@ -17,7 +18,11 @@ from src.toroidal import view_center_and_size, wrapped_delta, wrapped_distance
 from src.resources import default_assets
 
 
-_gravity_range_overlay = None
+_GRAVITY_RING_CACHE_LIMIT = 4
+_GRAVITY_RING_CACHE_BYTES = 8 * 1024 * 1024
+_gravity_ring_cache = OrderedDict()
+_gravity_ring_cache_bytes = 0
+_gravity_range_scratch = {}
 
 
 def _circle_outline_intersects_rect(center, radius, width, rect):
@@ -75,7 +80,7 @@ def _annular_sector_points(
 ):
     """Return an annular sector whose closing edges point toward ``center``."""
     arc_length = max(1.0, outer_radius * (end_angle - start_angle))
-    point_count = max(3, int(math.ceil(arc_length / 4.0)) + 1)
+    point_count = max(3, int(math.ceil(arc_length / 8.0)) + 1)
     angles = [
         start_angle + (end_angle - start_angle) * point / (point_count - 1)
         for point in range(point_count)
@@ -90,6 +95,53 @@ def _annular_sector_points(
     outer_points = [point_at(outer_radius, angle) for angle in angles]
     inner_points = [point_at(inner_radius, angle) for angle in reversed(angles)]
     return outer_points + inner_points
+
+
+def _gravity_ring_surface(radius, width, color):
+    """Return an LRU-cached, tightly bounded gravity-ring surface."""
+    global _gravity_ring_cache_bytes
+
+    key = (radius, width, color)
+    cached = _gravity_ring_cache.get(key)
+    if cached is not None:
+        _gravity_ring_cache.move_to_end(key)
+        return cached
+
+    extent = math.ceil(radius + width / 2.0 + 1)
+    size = extent * 2 + 1
+    estimated_bytes = size * size * 4
+    if estimated_bytes > _GRAVITY_RING_CACHE_BYTES:
+        return None
+
+    surface = pygame.Surface((size, size), pygame.SRCALPHA)
+    _draw_antialiased_dashed_circle(
+        surface,
+        color,
+        (extent, extent),
+        radius,
+        width,
+        dash_fraction=0.5,
+    )
+    surface_bytes = surface.get_pitch() * surface.get_height()
+    _gravity_ring_cache[key] = surface
+    _gravity_ring_cache_bytes += surface_bytes
+
+    while (
+        len(_gravity_ring_cache) > _GRAVITY_RING_CACHE_LIMIT
+        or _gravity_ring_cache_bytes > _GRAVITY_RING_CACHE_BYTES
+    ):
+        _, evicted = _gravity_ring_cache.popitem(last=False)
+        _gravity_ring_cache_bytes -= evicted.get_pitch() * evicted.get_height()
+    return surface
+
+
+def _gravity_scratch(size):
+    surface = _gravity_range_scratch.get(size)
+    if surface is None:
+        surface = pygame.Surface(size, pygame.SRCALPHA)
+        _gravity_range_scratch.clear()
+        _gravity_range_scratch[size] = surface
+    return surface
 
 
 class Planet(Object):
@@ -156,25 +208,17 @@ class Planet(Object):
         return planet
 
     def draw_gravity_range(self, screen, scale_factor, translation, interp_t=0.0):
-        global _gravity_range_overlay
-
         border_color = (255, 0, 0, 200)  # Red, semi-transparent
-        if (
-            _gravity_range_overlay is None
-            or _gravity_range_overlay.get_size() != screen.get_size()
-        ):
-            _gravity_range_overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
-        gravity_range_surface = _gravity_range_overlay
-        gravity_range_surface.fill((0, 0, 0, 0))
-
         from src.Battle.interpolation import interpolated_position
 
         pos = interpolated_position(self, interp_t)
         screen_x = int((pos[0] + translation[0]) * scale_factor)
         screen_y = int((pos[1] + translation[1]) * scale_factor)
-        range_radius = int(Const.GRAVITY_RANGE * scale_factor)
+        raw_radius = Const.GRAVITY_RANGE * scale_factor
+        range_radius = max(1, round(raw_radius))
         line_width = max(1, int(20 * scale_factor))
         clip_rect = screen.get_clip()
+        visible_centers = []
 
         for dx in [-1, 0, 1]:
             for dy in [-1, 0, 1]:
@@ -188,16 +232,35 @@ class Planet(Object):
                     clip_rect,
                 ):
                     continue
-                _draw_antialiased_dashed_circle(
-                    gravity_range_surface,
-                    border_color,
-                    center,
-                    range_radius,
-                    line_width,
-                    dash_fraction=0.5,
-                )
+                visible_centers.append(center)
 
-        screen.blit(gravity_range_surface, (0, 0))
+        if not visible_centers:
+            return
+
+        ring = _gravity_ring_surface(range_radius, line_width, border_color)
+        if ring is not None:
+            extent = ring.get_width() // 2
+            for center in visible_centers:
+                screen.blit(
+                    ring,
+                    (center[0] - extent, center[1] - extent),
+                )
+            return
+
+        # Very large rings would make poor cache entries. Render those through
+        # a clip-sized reusable scratch surface instead.
+        scratch = _gravity_scratch(clip_rect.size)
+        scratch.fill((0, 0, 0, 0))
+        for center in visible_centers:
+            _draw_antialiased_dashed_circle(
+                scratch,
+                border_color,
+                (center[0] - clip_rect.left, center[1] - clip_rect.top),
+                range_radius,
+                line_width,
+                dash_fraction=0.5,
+            )
+        screen.blit(scratch, clip_rect.topleft)
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):
         from src.Battle.interpolation import interpolated_position
