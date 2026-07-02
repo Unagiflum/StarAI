@@ -65,9 +65,11 @@
         "has_sprites": false,
         "LASER_RANGE": 400,
         "LASER_COLOR": [
-            255,
-            255,
-            0
+            [
+                255,
+                255,
+                0
+            ]
         ],
         "LASER_WIDTH": 6,
         "gun_locations": [
@@ -182,9 +184,26 @@
         "has_sprites": true,
         "LASER_RANGE": 600,
         "LASER_COLOR": [
-            255,
-            0,
-            0
+            [
+                189,
+                0,
+                0
+            ],
+            [
+                255,
+                24,
+                0
+            ],
+            [
+                255,
+                140,
+                0
+            ],
+            [
+                255,
+                24,
+                0
+            ]
         ],
         "LASER_WIDTH": 6,
         "gun_locations": [
@@ -220,7 +239,7 @@
                 13
             ]
         ],
-        "BASE_SPEED": 6,
+        "BASE_SPEED": 12,
         "SILHOUETTE_COUNT": 5,
         "SILHOUETTE_COLORS": [
             [
@@ -390,9 +409,11 @@
         "has_sprites": false,
         "LASER_RANGE": 400,
         "LASER_COLOR": [
-            255,
-            255,
-            255
+            [
+                255,
+                255,
+                255
+            ]
         ],
         "LASER_WIDTH": 4,
         "gun_locations": [
@@ -645,9 +666,11 @@
         "has_sprites": false,
         "LASER_RANGE": 564,
         "LASER_COLOR": [
-            255,
-            0,
-            0
+            [
+                255,
+                0,
+                0
+            ]
         ],
         "LASER_WIDTH": 6,
         "gun_locations": [
@@ -1433,9 +1456,11 @@
         "has_sprites": false,
         "LASER_RANGE": 644,
         "LASER_COLOR": [
-            0,
-            255,
-            0
+            [
+                0,
+                255,
+                0
+            ]
         ],
         "LASER_WIDTH": 6,
         "gun_locations": [

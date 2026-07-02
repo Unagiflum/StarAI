@@ -115,7 +115,13 @@ class ChmmrSatellite(Ability):
         )
         if not candidates:
             return None
-        return min(candidates, key=lambda target: target.current_hp)
+        return min(
+            candidates,
+            key=lambda target: (
+                target.current_hp,
+                wrapped_distance(self.position, target.position),
+            ),
+        )
 
     def update(self):
         if (

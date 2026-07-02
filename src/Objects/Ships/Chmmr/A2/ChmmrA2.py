@@ -34,8 +34,13 @@ class ChmmrA2(Ability):
         self.previous_position = self.position.copy()
         self.position = self.configured_gun_position()
         target = self.target
-        if self._target_is_visible() and getattr(target, "inertia", False):
-            delta = wrapped_delta(target.position, self.parent.position)
+        first_update = self.expiration_timer == self._duration
+        if (
+            first_update
+            and self._target_is_visible()
+            and getattr(target, "inertia", False)
+        ):
+            delta = wrapped_delta(target.position, self.position)
             distance = math.hypot(*delta)
             mass = getattr(target, "mass", 0)
             if distance > 0 and mass > 0:
@@ -66,11 +71,23 @@ class ChmmrA2(Ability):
         if not self._target_is_visible():
             return
 
-        from src.Battle.interpolation import interpolated_position
+        from src.Battle.interpolation import (
+            interpolated_position,
+            interpolated_sprite_index,
+        )
 
         target_position = interpolated_position(self.target, interp_t)
         parent_position = interpolated_position(self.parent, interp_t)
-        delta = wrapped_delta(target_position, parent_position)
+        visual_rotation = (
+            interpolated_sprite_index(self.parent, interp_t)
+            / const.VIDEO_FPS_MULTIPLIER
+            * const.TURN_ANGLE
+        )
+        gun_position = self.configured_gun_position(
+            rotation=visual_rotation,
+            position=parent_position,
+        )
+        delta = wrapped_delta(target_position, gun_position)
         distance = math.hypot(*delta)
         if distance == 0:
             return

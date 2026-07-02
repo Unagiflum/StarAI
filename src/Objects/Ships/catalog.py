@@ -220,7 +220,7 @@ class AbilityDefinition(_DefinitionMapping):
     track_directions: int | None = None
     weapon_wait: float | None = None
     laser_range: float | None = None
-    laser_color: tuple[int, int, int] | None = None
+    laser_color: tuple[tuple[int, int, int], ...] | None = None
     laser_width: int | None = None
     max_recoil: float | None = None
     recoil_increment: float | None = None
@@ -459,6 +459,30 @@ def _int_pair_tuple(kind, name, data, field_name):
                 _typed(kind, name, f"{field_name}[{index}][1]", item[1], int),
             )
         )
+    return tuple(result)
+
+
+def _rgb_tuple(kind, name, data, field_name):
+    value = data[field_name]
+    if not isinstance(value, list) or not value:
+        raise CatalogValidationError(
+            f"{kind} '{name}' field '{field_name}' must be a non-empty array"
+        )
+    result = []
+    for index, item in enumerate(value):
+        if not isinstance(item, list) or len(item) != 3:
+            raise CatalogValidationError(
+                f"{kind} '{name}' field '{field_name}[{index}]' must contain 3 values"
+            )
+        color = tuple(
+            _typed(kind, name, f"{field_name}[{index}][{channel}]", value, int)
+            for channel, value in enumerate(item)
+        )
+        if any(channel < 0 or channel > 255 for channel in color):
+            raise CatalogValidationError(
+                f"{kind} '{name}' {field_name} channels must be between 0 and 255"
+            )
+        result.append(color)
     return tuple(result)
 
 
@@ -934,11 +958,7 @@ def parse_ability_definition(name, data):
             )
         values["mass"] = _typed(kind, name, "MASS", data["MASS"], float)
     if "LASER_COLOR" in data:
-        values["laser_color"] = _int_tuple(kind, name, data, "LASER_COLOR", length=3)
-        if any(channel < 0 or channel > 255 for channel in values["laser_color"]):
-            raise CatalogValidationError(
-                f"Ability '{name}' LASER_COLOR channels must be between 0 and 255"
-            )
+        values["laser_color"] = _rgb_tuple(kind, name, data, "LASER_COLOR")
     else:
         values["laser_color"] = None
     if "gun_locations" in data:

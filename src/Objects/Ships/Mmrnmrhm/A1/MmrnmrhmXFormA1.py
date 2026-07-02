@@ -26,7 +26,7 @@ class MmrnmrhmXFormA1(Ability):
         super().__init__("MmrnmrhmXFormA1", parent)
         definition = ABILITY_DEFINITIONS["MmrnmrhmXFormA1"]
         self.LASER_RANGE = definition.laser_range
-        self.LASER_COLOR = definition.laser_color
+        self.configure_laser_colors(definition.laser_color)
         self.LASER_WIDTH = definition.laser_width
         self.gun_location = gun_location or definition.gun_locations[0]
         self.volley = volley or _LaserVolley()

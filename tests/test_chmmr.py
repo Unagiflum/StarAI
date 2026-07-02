@@ -49,8 +49,9 @@ class ChmmrTests(unittest.TestCase):
 
         self.assertEqual(ship.ship_type, "Avatar")
         self.assertEqual(ship.satellite_count, 3)
+        self.assertEqual(ship.satellite_period, 64)
         self.assertEqual(ship.satellite_laser_color, (0, 0, 255))
-        self.assertEqual(tractor.base_speed, 6)
+        self.assertEqual(tractor.base_speed, 12)
         self.assertEqual(tractor.silhouette_count, 5)
         self.assertEqual(
             tractor.silhouette_colors,
@@ -126,6 +127,37 @@ class ChmmrTests(unittest.TestCase):
         enemy_satellite.parent = self.target
         self.assertTrue(beam.should_consider_laser_target(enemy_satellite))
 
+    def test_primary_clamps_spark_to_an_intercepted_laser_endpoint(self):
+        with mock.patch.object(self.chmmr.rng, "uniform", return_value=300):
+            beam = self.chmmr.plan_action1().spawned_objects[0]
+        spark = beam.drain_spawned_objects()[0]
+        full_delta = wrapped_delta(beam.start_position, beam.end_position)
+        full_distance = math.hypot(*full_delta)
+        beam.end_position = [
+            (beam.start_position[0] + full_delta[0] / full_distance * 100)
+            % const.ARENA_SIZE,
+            (beam.start_position[1] + full_delta[1] / full_distance * 100)
+            % const.ARENA_SIZE,
+        ]
+        beam.intercepted = True
+
+        beam.on_laser_hit(self.target, beam.end_position)
+
+        self.assertAlmostEqual(wrapped_distance(beam.start_position, spark.position), 100)
+
+    def test_primary_cycles_through_configured_laser_colors(self):
+        expected = (
+            (189, 0, 0),
+            (255, 24, 0),
+            (255, 140, 0),
+            (255, 24, 0),
+        )
+
+        beams = [self.chmmr.plan_action1().spawned_objects[0] for _ in expected]
+
+        self.assertEqual(ABILITY_DEFINITIONS["ChmmrA1"].laser_color, expected)
+        self.assertEqual(tuple(beam.LASER_COLOR for beam in beams), expected)
+
     def test_primary_overlay_uses_ship_direction_only_while_beam_exists(self):
         self.chmmr.heading = 4
         self.chmmr.previous_heading = 4
@@ -154,13 +186,18 @@ class ChmmrTests(unittest.TestCase):
         )
 
     def test_tractor_adds_mass_scaled_impulse_only_to_visible_inertial_targets(self):
+        self.chmmr.rotation = 90
+        self.chmmr.heading = 4
         tractor = self.chmmr.plan_action2().spawned_objects[0]
         tractor.update()
-        delta = wrapped_delta(self.target.position, self.chmmr.position)
+        delta = wrapped_delta(self.target.position, tractor.position)
         distance = math.hypot(*delta)
-        expected = 6 / self.target.mass
+        expected = 12 / self.target.mass
         self.assertAlmostEqual(self.target.accumulated_impulses[0], delta[0] / distance * expected)
         self.assertAlmostEqual(self.target.accumulated_impulses[1], delta[1] / distance * expected)
+        first_impulse = self.target.accumulated_impulses.copy()
+        tractor.update()
+        self.assertEqual(self.target.accumulated_impulses, first_impulse)
 
         for inertia, cloaked in ((False, False), (True, True)):
             with self.subTest(inertia=inertia, cloaked=cloaked):
@@ -221,6 +258,36 @@ class ChmmrTests(unittest.TestCase):
         self.assertEqual(satellite.drain_spawned_objects(), [])
         satellite.update()
         self.assertEqual(len(satellite.drain_spawned_objects()), 1)
+
+    def test_satellite_breaks_equal_hp_ties_by_nearest_target(self):
+        satellite = ChmmrSatellite(self.chmmr)
+        satellite.opponent = None
+        far = SimpleNamespace(
+            name="FarProjectile",
+            player=2,
+            currently_alive=True,
+            current_hp=1,
+            position=[satellite.position[0] + 200, satellite.position[1]],
+            trackable=True,
+            physical_collision_capabilities=None,
+            laser_target_capabilities=None,
+        )
+        near = SimpleNamespace(
+            name="NearProjectile",
+            player=2,
+            currently_alive=True,
+            current_hp=1,
+            position=[satellite.position[0] + 20, satellite.position[1]],
+            trackable=True,
+            physical_collision_capabilities=None,
+            laser_target_capabilities=None,
+        )
+        satellite.enemy_objects = [far, near]
+
+        satellite.update()
+
+        laser = satellite.drain_spawned_objects()[0]
+        self.assertIs(laser.target, near)
 
     def test_satellite_collision_and_area_immunity_contracts(self):
         satellite = ChmmrSatellite(self.chmmr)

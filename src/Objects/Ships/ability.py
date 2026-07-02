@@ -188,6 +188,20 @@ class Ability(PlayerObject):
             self.parent, location, rotation=rotation, position=position
         )
 
+    def configure_laser_colors(self, colors):
+        """Select the next configured color for a sequence of laser shots."""
+        if not colors:
+            raise ValueError(f"Ability '{self.name}' has no configured laser colors")
+        cycles = getattr(self.parent, "_laser_color_cycles", None)
+        if cycles is None:
+            cycles = {}
+            self.parent._laser_color_cycles = cycles
+        index = cycles.get(self.name, 0)
+        self.LASER_COLORS = colors
+        self.LASER_COLOR = colors[index % len(colors)]
+        cycles[self.name] = index + 1
+        return self.LASER_COLOR
+
     def launch_from_gun(
         self,
         index=0,

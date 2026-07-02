@@ -34,7 +34,7 @@ class ChmmrA1(Ability):
         super().__init__("ChmmrA1", parent)
         definition = ABILITY_DEFINITIONS["ChmmrA1"]
         self.LASER_RANGE = definition.laser_range
-        self.LASER_COLOR = definition.laser_color
+        self.configure_laser_colors(definition.laser_color)
         self.LASER_WIDTH = definition.laser_width
         self.end_position = [0.0, 0.0]
         self._spawned_objects = []
@@ -77,13 +77,26 @@ class ChmmrA1(Ability):
         ]
 
     def _create_spark(self):
-        distance = self.rng.uniform(0, self.LASER_RANGE)
+        self._spark_distance = self.rng.uniform(0, self.LASER_RANGE)
+        position = self._spark_position(self._spark_distance)
+        self._spark = ChmmrA1Spark(self.parent, position)
+        self._spawned_objects.append(self._spark)
+
+    def _spark_position(self, distance):
         angle = math.radians(self.rotation)
-        position = [
+        return [
             (self.start_position[0] + math.sin(angle) * distance) % const.ARENA_SIZE,
             (self.start_position[1] - math.cos(angle) * distance) % const.ARENA_SIZE,
         ]
-        self._spawned_objects.append(ChmmrA1Spark(self.parent, position))
+
+    def on_laser_hit(self, target, contact, segment_index=None):
+        if not getattr(self, "intercepted", False):
+            return
+        end_delta = wrapped_delta(self.start_position, self.end_position)
+        endpoint_distance = math.hypot(*end_delta)
+        if self._spark_distance > endpoint_distance:
+            self._spark_distance = endpoint_distance
+            self._spark.position = self._spark_position(endpoint_distance)
 
     def drain_spawned_objects(self):
         spawned, self._spawned_objects = self._spawned_objects, []

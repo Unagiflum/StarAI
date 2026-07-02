@@ -116,6 +116,7 @@ class SpaceShip(PlayerObject):
         self.confused_timer = 0
         self.confused_frames = ()
         self.confused_frame = 0
+        self._laser_color_cycles = {}
 
     def initialize_in_battle(self, position, heading):
         self.position = list(position)
@@ -133,6 +134,7 @@ class SpaceShip(PlayerObject):
         self.action2_timer = 0
         self.action3_timer = 0
         self.energy_timer = 0
+        self._laser_color_cycles.clear()
         self.boarded_marines.clear()
         self.clear_confused()
         self.reset_controls()

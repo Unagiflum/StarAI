@@ -1,4 +1,5 @@
-from src.Objects.Ships.ability import Ability, ABILITIES_DATA
+from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 import pygame
 import src.const as const
 from src.toroidal import wrapped_delta, wrapped_distance
@@ -7,10 +8,10 @@ from src.toroidal import wrapped_delta, wrapped_distance
 class EarthlingA2(Ability):
     def __init__(self, parent, target=None):
         super().__init__("EarthlingA2", parent)
-        ability_data = ABILITIES_DATA["EarthlingA2"]
-        self.LASER_RANGE = ability_data.get("LASER_RANGE", 400)
-        self.LASER_COLOR = tuple(ability_data.get("LASER_COLOR", [255, 255, 255]))
-        self.LASER_WIDTH = ability_data.get("LASER_WIDTH", 4)
+        definition = ABILITY_DEFINITIONS["EarthlingA2"]
+        self.LASER_RANGE = definition.laser_range
+        self.configure_laser_colors(definition.laser_color)
+        self.LASER_WIDTH = definition.laser_width
         self.target = target
         self.end_position = [0, 0]
         self.position = self.configured_gun_position()

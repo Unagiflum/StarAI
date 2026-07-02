@@ -1,5 +1,5 @@
 from src.Objects.Ships.ability import Ability, wrapped_endpoint
-from src.Objects.Ships.catalog import ABILITIES_DATA
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.toroidal import wrapped_delta
 import pygame
 import math
@@ -9,10 +9,10 @@ import src.const as const
 class VuxA1(Ability):
     def __init__(self, parent):
         super().__init__("VuxA1", parent)
-        ability_data = ABILITIES_DATA["VuxA1"]
-        self.LASER_RANGE = ability_data.get("LASER_RANGE", 644)
-        self.LASER_COLOR = (0, 255, 0)
-        self.LASER_WIDTH = ability_data.get("LASER_WIDTH", 6)
+        definition = ABILITY_DEFINITIONS["VuxA1"]
+        self.LASER_RANGE = definition.laser_range
+        self.configure_laser_colors(definition.laser_color)
+        self.LASER_WIDTH = definition.laser_width
 
         self.end_position = [0, 0]
         self.place_self()
