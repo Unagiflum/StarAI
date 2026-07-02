@@ -3,6 +3,7 @@ import sys
 from src.UI import ui, ui_slider, ui_button
 import src.const as Const
 from src.configuration import TrainingSettingsRepository
+from src.frame_timing import PresentationClock
 from src.persistence import PersistenceValidationError
 
 # Define constants
@@ -32,7 +33,7 @@ def save_settings(settings):
 
 def run(screen, menu_sound_manager=None, audio_service=None):
     """Run the Training Settings menu."""
-    clock = pygame.time.Clock()
+    clock = PresentationClock(Const.FPS, Const.VIDEO_FPS_MULTIPLIER)
     font = pygame.font.SysFont(None, int(0.03 * Const.SCREEN_HEIGHT))
     settings = load_settings()
     background = ui.load_background(
@@ -148,7 +149,7 @@ def run(screen, menu_sound_manager=None, audio_service=None):
 
     running = True
     while running:
-        clock.tick(Const.FPS)
+        clock.tick()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()

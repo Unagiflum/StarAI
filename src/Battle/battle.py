@@ -1,7 +1,6 @@
 import pygame
 import sys
 import random
-from collections import deque
 
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.ability import Ability
@@ -23,6 +22,7 @@ from src.audio import (
     use_audio_service,
 )
 from src.resources import use_asset_manager
+from src.frame_timing import PresentationClock
 import src.const as const
 
 CONTROL_NAMES = ("Forward", "Left", "Right", "Action 1", "Action 2")
@@ -66,35 +66,6 @@ class FixedStepScheduler:
 
     def reset(self, *, start_ready=False):
         self.accumulator = self.step_seconds if start_ready else 0.0
-
-
-class AdaptiveRenderRate:
-    """Lower the presentation rate when frame work exceeds its budget."""
-
-    def __init__(self, physics_fps, max_multiplier, sample_frames=60):
-        self.physics_fps = physics_fps
-        self.multiplier = max(1, max_multiplier)
-        self.sample_frames = max(1, sample_frames)
-        self._work_samples = deque(maxlen=self.sample_frames)
-
-    @property
-    def target_fps(self):
-        return self.physics_fps * self.multiplier
-
-    def observe(self, work_seconds):
-        if work_seconds <= 0:
-            return
-        self._work_samples.append(work_seconds)
-        if len(self._work_samples) < self.sample_frames:
-            return
-
-        average_work = sum(self._work_samples) / len(self._work_samples)
-        self._work_samples.clear()
-        if average_work > 1.0 / self.target_fps and self.multiplier > 1:
-            self.multiplier -= 1
-
-    def reset_samples(self):
-        self._work_samples.clear()
 
 
 class BattleSimulation:
@@ -512,7 +483,7 @@ def run(
     audio_service=None,
     menu_sound_manager=None,
 ):
-    clock = pygame.time.Clock()
+    clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
     simulation = BattleSimulation(
         screen,
         ship1,
@@ -531,11 +502,9 @@ def run(
     state = simulation.state()
     accumulated_key_changes = []
     fixed_step = FixedStepScheduler(const.FPS)
-    render_rate = AdaptiveRenderRate(const.FPS, const.VIDEO_FPS_MULTIPLIER)
 
     while running:
-        elapsed_seconds = clock.tick(render_rate.target_fps) / 1000.0
-        render_rate.observe(clock.get_rawtime() / 1000.0)
+        elapsed_seconds = clock.tick()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -599,8 +568,7 @@ def run(
                     pygame.event.clear(pygame.KEYDOWN)
                     pygame.event.clear(pygame.KEYUP)
                     fixed_step.reset()
-                    render_rate.reset_samples()
-                    clock.tick()
+                    clock.reset()
                     if not simulation.running:
                         running = False
                         break

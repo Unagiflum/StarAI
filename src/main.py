@@ -10,13 +10,13 @@ import pygame
 from src.Menus import pick_fleet, train_settings, game_settings
 from src.UI import ui, ui_button
 from src.audio import PygameAudioService
+from src.frame_timing import PresentationClock
 from src.resources import default_assets
 import src.const as const
 
-# Warning overlay timing (in frames at FPS).
-_WARNING_VISIBLE_FRAMES = const.FPS * 5  # fully visible
-_WARNING_FADE_FRAMES = const.FPS * 2  # fade-out
-_WARNING_TOTAL_FRAMES = _WARNING_VISIBLE_FRAMES + _WARNING_FADE_FRAMES
+_WARNING_VISIBLE_SECONDS = 5.0
+_WARNING_FADE_SECONDS = 2.0
+_WARNING_TOTAL_SECONDS = _WARNING_VISIBLE_SECONDS + _WARNING_FADE_SECONDS
 
 
 def package_smoke_test():
@@ -96,17 +96,25 @@ def _build_warning_surface(asset_errors):
 
 
 def handle_menu_selection(
-    menu_callable, screen, menu_sound_manager=None, audio_service=None
+    menu_callable,
+    screen,
+    menu_sound_manager=None,
+    audio_service=None,
+    presentation_clock=None,
 ):
     """Handle the selected menu item."""
     if menu_callable is None:
         pygame.quit()
         sys.exit()
-    menu_callable(
-        screen=screen,
-        menu_sound_manager=menu_sound_manager,
-        audio_service=audio_service,
-    )
+    try:
+        menu_callable(
+            screen=screen,
+            menu_sound_manager=menu_sound_manager,
+            audio_service=audio_service,
+        )
+    finally:
+        if presentation_clock is not None:
+            presentation_clock.reset()
 
 
 def main():
@@ -119,7 +127,7 @@ def main():
 
     screen = pygame.display.set_mode((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
     pygame.display.set_caption("StarAI")
-    clock = pygame.time.Clock()
+    clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
 
     # Preload all assets before anything else renders.
     asset_errors = default_assets().preload_all()
@@ -131,7 +139,7 @@ def main():
             )
 
     warning_surface = _build_warning_surface(asset_errors) if asset_errors else None
-    warning_frame = 0
+    warning_elapsed_seconds = 0.0
 
     audio_service = PygameAudioService()
     menu_sound_manager = ui.SoundManager(audio_service=audio_service)
@@ -170,6 +178,7 @@ def main():
                 screen,
                 menu_sound_manager=menu_sound_manager,
                 audio_service=audio_service,
+                presentation_clock=clock,
             ),
             bg_color=ui.MAIN_BUTTON_COLOR,
             hover_color=ui.MAIN_BUTTON_COLOR_HI,
@@ -178,7 +187,7 @@ def main():
 
     running = True
     while running:
-        clock.tick(const.FPS)
+        elapsed_seconds = clock.tick()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -204,20 +213,23 @@ def main():
             button.draw(screen, button_font)
 
         # Draw fading warning overlay if assets failed to load.
-        if warning_surface is not None and warning_frame < _WARNING_TOTAL_FRAMES:
-            if warning_frame < _WARNING_VISIBLE_FRAMES:
+        if (
+            warning_surface is not None
+            and warning_elapsed_seconds < _WARNING_TOTAL_SECONDS
+        ):
+            if warning_elapsed_seconds < _WARNING_VISIBLE_SECONDS:
                 alpha = 255
             else:
                 fade_progress = (
-                    warning_frame - _WARNING_VISIBLE_FRAMES
-                ) / _WARNING_FADE_FRAMES
+                    warning_elapsed_seconds - _WARNING_VISIBLE_SECONDS
+                ) / _WARNING_FADE_SECONDS
                 alpha = max(0, int(255 * (1.0 - fade_progress)))
             overlay = warning_surface.copy()
             overlay.set_alpha(alpha)
             x = (const.SCREEN_WIDTH - overlay.get_width()) // 2
             y = const.SCREEN_HEIGHT - overlay.get_height() - 20
             screen.blit(overlay, (x, y))
-            warning_frame += 1
+            warning_elapsed_seconds += elapsed_seconds
 
         pygame.display.flip()
 

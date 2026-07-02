@@ -9,6 +9,7 @@ from src.UI.ship_sprites import (
     scale_ship_sprites,
 )
 import src.const as const
+from src.frame_timing import PresentationClock
 from src.configuration import Fleets, FleetsRepository, PlayerFleet
 from src.Menus import pick_ship
 from src.persistence import PersistenceValidationError
@@ -279,7 +280,7 @@ def load_fleets(left_fleet, right_fleet, fleet_sprites, ships_data):
 
 def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     """Run the Pick Fleet module."""
-    clock = pygame.time.Clock()
+    clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
     font = pygame.font.SysFont(None, cost_FONT_SIZE)
     title_font = pygame.font.SysFont(None, TITLE_FONT_SIZE)
     picker_title_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.042))
@@ -413,11 +414,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
             print("Fleets confirmed.")
 
-            pick_ship.run(
-                screen=screen,
-                menu_sound_manager=menu_sound_manager,
-                audio_service=audio_service,
-            )
+            try:
+                pick_ship.run(
+                    screen=screen,
+                    menu_sound_manager=menu_sound_manager,
+                    audio_service=audio_service,
+                )
+            finally:
+                clock.reset()
 
     running = True
 
@@ -458,7 +462,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
 
     while running:
-        clock.tick(const.FPS)
+        clock.tick()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:

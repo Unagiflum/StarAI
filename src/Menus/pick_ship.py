@@ -13,6 +13,7 @@ from src.configuration import FleetsRepository
 from src.menu_state import ShipSelectionState
 
 from src.Battle import battle
+from src.frame_timing import PresentationClock
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS
 from src.Objects.Ships.registry import create_ship, preload_ship_ability_resources
 
@@ -156,7 +157,7 @@ def run(
     audio_service=None,
     menu_sound_manager=None,
 ):
-    clock = pygame.time.Clock()
+    clock = PresentationClock(Const.FPS, Const.VIDEO_FPS_MULTIPLIER)
     font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.03))
     state_font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.025))
     tooltip_font = pygame.font.SysFont(None, Const.SHIP_TOOLTIP_FONT_SIZE)
@@ -327,7 +328,7 @@ def run(
 
     running = True
     while running:
-        clock.tick(Const.FPS)
+        clock.tick()
 
         for player, button in random_buttons.items():
             button.enabled = selection_state.selection_allowed(player)

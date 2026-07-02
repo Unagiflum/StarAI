@@ -3,6 +3,7 @@ import sys
 from src.UI import ui, ui_button
 import src.const as const
 from src.configuration import GameSettingsRepository
+from src.frame_timing import PresentationClock
 from src.persistence import PersistenceValidationError
 
 TITLE_FONT_SIZE = int(const.SCREEN_HEIGHT * 0.08)
@@ -31,7 +32,7 @@ def save_settings(settings):
 
 def run(screen, menu_sound_manager=None, audio_service=None):
     """Run the Play Settings menu."""
-    clock = pygame.time.Clock()
+    clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
     font = pygame.font.SysFont(None, int(0.03 * const.SCREEN_HEIGHT))
     settings = load_settings()
     background = ui.load_background(
@@ -121,7 +122,7 @@ def run(screen, menu_sound_manager=None, audio_service=None):
 
     running = True
     while running:
-        clock.tick(const.FPS)
+        clock.tick()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
