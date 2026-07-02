@@ -41,7 +41,7 @@
             },
             "A2": {
                 "energy_regen": -1,
-                "energy_wait": 9,
+                "energy_wait": 8,
                 "max_thrust": 60,
                 "thrust_increment": 60,
                 "thrust_wait": 0,

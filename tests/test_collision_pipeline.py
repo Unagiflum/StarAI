@@ -129,6 +129,49 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertEqual(first.current_hp, 10)
         self.assertEqual(second.current_hp, 10)
 
+    def test_ship_ramming_damage_uses_projectile_contact_policy(self):
+        ship = self.make_ship()
+        ship.player = 1
+        ship.position = [100, 100]
+        ship.previous_position = ship.position.copy()
+        ship.impact_capabilities = ImpactCapabilities(ramming_damage=3)
+        special_object = self.make_special_object()
+        special_object.player = 2
+        special_object.parent = self.make_ship()
+        special_object.hit_parent = False
+        special_object.current_hp = 5
+        special_object.hp_array = [5]
+        special_object.handle_ship_contact = mock.Mock(return_value=True)
+        special_object.special_object_collision_capabilities = replace(
+            special_object.special_object_collision_capabilities,
+            projectile_contact_policy=ProjectileContactPolicy.TAKE_DAMAGE,
+        )
+
+        collisions.handle_collisions([ship, special_object])
+
+        self.assertTrue(special_object.currently_alive)
+        self.assertEqual(special_object.current_hp, 2)
+        special_object.handle_ship_contact.assert_called_once()
+
+    def test_ship_ramming_damage_ignores_non_projectile_vulnerable_special_object(self):
+        ship = self.make_ship()
+        ship.player = 1
+        ship.position = [100, 100]
+        ship.previous_position = ship.position.copy()
+        ship.impact_capabilities = ImpactCapabilities(ramming_damage=3)
+        special_object = self.make_special_object()
+        special_object.player = 2
+        special_object.parent = self.make_ship()
+        special_object.hit_parent = False
+        special_object.current_hp = 5
+        special_object.hp_array = [5]
+        special_object.handle_ship_contact = mock.Mock(return_value=True)
+
+        collisions.handle_collisions([ship, special_object])
+
+        self.assertEqual(special_object.current_hp, 5)
+        special_object.handle_ship_contact.assert_called_once()
+
     def test_asteroids_collide_elastically_without_damage(self):
         first = self.make_asteroid([100, 100])
         second = self.make_asteroid([118, 100])

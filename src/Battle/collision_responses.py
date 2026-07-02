@@ -235,6 +235,53 @@ def _apply_ramming_damage_to_asteroid(source, asteroid, effects):
         BattleEffect.play_boom(impact.ramming_damage)
 
 
+def _apply_ramming_damage_to_projectile_like(
+    source,
+    projectile,
+    effects,
+    normal,
+    contact,
+):
+    """Apply a ship's weapon-like impact to projectile-vulnerable objects."""
+    impact = getattr(source, "impact_capabilities", None)
+    if (
+        not impact
+        or impact.ramming_damage <= 0
+        or not is_live_special_object(projectile)
+    ):
+        return False
+
+    capabilities = getattr(
+        projectile,
+        "special_object_collision_capabilities",
+        None,
+    )
+    if capabilities is None:
+        return False
+
+    policy = capabilities.projectile_contact_policy
+    if policy is ProjectileContactPolicy.DEFAULT:
+        return False
+
+    if policy is ProjectileContactPolicy.FRAGILE:
+        set_projectile_hp(projectile, 0)
+    else:
+        set_projectile_hp(
+            projectile,
+            projectile.current_hp - impact.ramming_damage,
+        )
+
+    BattleEffect.play_boom(impact.ramming_damage)
+    _finalize_dead_projectile_like(
+        projectile,
+        effects,
+        normal,
+        impact.ramming_damage,
+        contact,
+    )
+    return True
+
+
 def resolve_ship_ship_collision(
     first_ship,
     second_ship,
@@ -802,6 +849,14 @@ def resolve_projectile_ship_collision(
     contact, impact_normal = projectile_impact(projectile, ship, overlap)
     if contact is None:
         return CollisionOutcome.IGNORED
+
+    _apply_ramming_damage_to_projectile_like(
+        ship,
+        projectile,
+        context.effects,
+        impact_normal,
+        contact,
+    )
 
     capabilities = getattr(
         projectile,

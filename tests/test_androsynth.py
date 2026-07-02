@@ -40,40 +40,66 @@ class AndrosynthTests(unittest.TestCase):
         self.assertEqual(tuple(definition.forms), ("Base", "A2"))
         self.assertTrue(definition.forms["Base"].inertia)
         self.assertFalse(definition.forms["A2"].inertia)
+        self.assertEqual(definition.forms["A2"].energy_wait, 8)
         self.assertEqual(definition.forms["A2"].collision_damage, 3)
         self.assertEqual(ABILITY_DEFINITIONS["AndrosynthA1"].frames, 2)
         self.assertEqual(len(self.resources.ability("AndrosynthA1").sprites[0]), 2)
         self.assertEqual(len(self.resources.ship_form("Androsynth", "A2").sprites), 80)
         self.assertFalse(self.resources._asset_errors)
 
-    def test_bubble_chooses_a_direction_within_ninety_degrees_of_target(self):
+    def test_bubble_uses_uqm_facing_bias_toward_target(self):
         target = create_ship("Earthling", 2, resources=self.resources)
         target.position = [1100.0, 1000.0]
         self.ship.opponent = target
         self.ship.rng = mock.Mock()
-        self.ship.rng.uniform.return_value = 30.0
+        self.ship.rng.randrange.return_value = 3
         bubble = create_ability("AndrosynthA1", self.ship)
-        bubble.turn_timer = 0
 
         bubble.update_heading()
 
-        dx = target.position[0] - bubble.position[0]
-        dy = target.position[1] - bubble.position[1]
-        target_angle = math.degrees(math.atan2(dx, -dy)) % 360
-        self.assertAlmostEqual(bubble.rotation, target_angle + 30.0)
+        # Starting north with a target to the east, TrackShip first turns one
+        # facing clockwise, then applies the selected three-facing offset.
+        self.assertEqual(bubble.rotation, 4 * 22.5)
         self.assertAlmostEqual(math.hypot(*bubble.velocity), 32.0)
-        self.ship.rng.uniform.assert_called_once_with(-90.0, 90.0)
+        self.ship.rng.randrange.assert_called_once_with(8)
 
-    def test_bubble_chooses_an_unbiased_direction_without_a_visible_target(self):
+    def test_bubble_chooses_a_random_facing_without_a_visible_target(self):
         self.ship.rng = mock.Mock()
-        self.ship.rng.uniform.return_value = 237.0
+        self.ship.rng.randrange.return_value = 11
         bubble = create_ability("AndrosynthA1", self.ship)
-        bubble.turn_timer = 0
 
         bubble.update_heading()
 
-        self.assertEqual(bubble.rotation, 237.0)
-        self.ship.rng.uniform.assert_called_once_with(0.0, 360.0)
+        self.assertEqual(bubble.rotation, 247.5)
+        self.ship.rng.randrange.assert_called_once_with(16)
+
+    def test_bubble_steers_on_first_update_then_every_three_updates(self):
+        self.ship.rng = mock.Mock()
+        self.ship.rng.randrange.return_value = 0
+        bubble = create_ability("AndrosynthA1", self.ship)
+
+        bubble.update_heading()
+        self.assertEqual(self.ship.rng.randrange.call_count, 1)
+        self.assertEqual(bubble.turn_timer, 3)
+
+        for _ in range(3):
+            bubble.update_heading()
+        self.assertEqual(self.ship.rng.randrange.call_count, 1)
+
+        bubble.update_heading()
+        self.assertEqual(self.ship.rng.randrange.call_count, 2)
+
+    def test_bubble_animation_uses_uqm_random_zero_to_three_frame_wait(self):
+        self.ship.rng = mock.Mock()
+        self.ship.rng.randrange.side_effect = [0, 3]
+        bubble = create_ability("AndrosynthA1", self.ship)
+        starting_frame = bubble.current_frame
+
+        bubble.update()
+
+        self.assertNotEqual(bubble.current_frame, starting_frame)
+        self.assertEqual(bubble.frame_timer, 3)
+        self.ship.rng.randrange.assert_has_calls([mock.call(16), mock.call(4)])
 
     def test_transform_preserves_shared_state_then_forces_forward_thrust(self):
         self.ship.velocity = [12.0, -7.0]
@@ -86,7 +112,7 @@ class AndrosynthTests(unittest.TestCase):
 
         self.assertTrue(result.valid)
         self.assertTrue(self.ship.is_blazer)
-        self.assertEqual(self.ship.current_energy, 8)
+        self.assertEqual(self.ship.current_energy, 10)
         self.assertEqual(self.ship.current_hp, 13)
         self.assertEqual(self.ship.heading, 9)
         self.assertAlmostEqual(math.hypot(*self.ship.velocity), math.hypot(12, -7))
@@ -107,7 +133,7 @@ class AndrosynthTests(unittest.TestCase):
         self.ship.update_physics()
         self.assertAlmostEqual(math.hypot(*self.ship.velocity), 60.0)
 
-    def test_blocked_transform_spends_energy_and_commits_wait(self):
+    def test_blocked_transform_commits_wait_without_spending_energy(self):
         target = create_ship("Earthling", 2, resources=self.resources)
         target.position = self.ship.position.copy()
         target.previous_position = target.position.copy()
@@ -117,9 +143,32 @@ class AndrosynthTests(unittest.TestCase):
         result = self.ship.commit_action(self.ship.plan_action2())
 
         self.assertTrue(result.valid)
-        self.assertEqual(self.ship.current_energy, 8)
+        self.assertEqual(self.ship.current_energy, 10)
         self.assertEqual(self.ship.action2_timer, 1)
         self.assertFalse(self.ship.is_blazer)
+
+    def test_transform_requires_two_energy_without_spending_it(self):
+        self.ship.current_energy = 1
+        self.assertFalse(self.ship.plan_action2().valid)
+
+        self.ship.current_energy = 2
+        result = self.ship.commit_action(self.ship.plan_action2())
+
+        self.assertTrue(result.valid)
+        self.assertTrue(self.ship.is_blazer)
+        self.assertEqual(self.ship.current_energy, 2)
+
+    def test_blazer_drains_one_energy_every_nine_updates(self):
+        self.ship.current_energy = 10
+        result = self.ship.commit_action(self.ship.plan_action2())
+        self.assertTrue(result.valid)
+
+        for _ in range(8):
+            self.ship.update_timers()
+        self.assertEqual(self.ship.current_energy, 10)
+
+        self.ship.update_timers()
+        self.assertEqual(self.ship.current_energy, 9)
 
     def test_zero_energy_immediately_forces_unblocked_return_to_base(self):
         self.assertTrue(self.ship._try_transform())
@@ -220,6 +269,23 @@ class AndrosynthTests(unittest.TestCase):
 
         self.assertFalse(crew.currently_alive)
         self.assertEqual(self.ship.current_hp, starting_hp)
+
+    def test_blazer_damages_dogi_through_central_collision_handling(self):
+        self.assertTrue(self.ship._try_transform())
+        chenjesu = create_ship("Chenjesu", 2, resources=self.resources)
+        chenjesu.position = [2000.0, 2000.0]
+        chenjesu.previous_position = chenjesu.position.copy()
+        chenjesu.opponent = self.ship
+        dogi = create_ability("ChenjesuA2", chenjesu)
+        dogi.position = self.ship.position.copy()
+        dogi.previous_position = dogi.position.copy()
+        starting_energy = self.ship.current_energy
+
+        handle_collisions([self.ship, chenjesu, dogi])
+
+        self.assertFalse(dogi.currently_alive)
+        self.assertEqual(dogi.current_hp, 0)
+        self.assertEqual(self.ship.current_energy, starting_energy - dogi.drain)
 
     def test_blazer_rams_ships_and_destroys_asteroids(self):
         self.assertTrue(self.ship._try_transform())

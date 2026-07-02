@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 import math
 
-from src.Battle.effects import BattleEffect
 from src.Battle.collision_geometry import ship_shape_change_blocked
 from src.collision_capabilities import ImpactCapabilities
 from src.Objects.Ships.action_transaction import ActionPlan
@@ -49,6 +48,9 @@ class Androsynth(SpaceShip):
         transform = AndrosynthA2(self)
         return self.prepare_action_plan(
             2,
+            # UQM treats the configured cost as an activation threshold; the
+            # Blazer pays for itself through negative energy regeneration.
+            energy_change=0,
             side_effects=(self._try_transform,),
             launch_sound=transform.launch_sound,
             use_first_object_sound=False,
@@ -170,13 +172,7 @@ class Androsynth(SpaceShip):
         if special_object.name != "OrzA3":
             return False
 
-        damage = self.impact_capabilities.ramming_damage
-        BattleEffect.play_boom(damage)
-        special_object.set_hp(special_object.current_hp - damage)
         if not special_object.currently_alive:
-            on_destroyed = getattr(special_object, "on_destroyed", None)
-            if on_destroyed is not None:
-                on_destroyed()
             return True
 
         dot = (
