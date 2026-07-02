@@ -91,6 +91,7 @@ class SpaceShip(PlayerObject):
         self.current_hp = ship_definition.start_hp
         self.current_energy = ship_definition.start_energy
         self.energy_timer = 0
+        self.last_lethal_damage_source = None
 
         # Timers
         self.thrust_timer = 0
@@ -134,6 +135,7 @@ class SpaceShip(PlayerObject):
         self.action2_timer = 0
         self.action3_timer = 0
         self.energy_timer = 0
+        self.last_lethal_damage_source = None
         self._laser_color_cycles.clear()
         self.boarded_marines.clear()
         self.clear_confused()

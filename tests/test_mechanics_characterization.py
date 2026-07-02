@@ -25,6 +25,7 @@ from src.Battle.battle_aftermath import (
     start_or_update_aftermath,
     update_aftermath,
 )
+from src.Battle import collision_responses
 from src.Battle.battle_draw import calculate_view_parameters
 from src.Battle.battle_init import validate_ship_positions
 from src.Objects.object import PlayerObject
@@ -33,6 +34,7 @@ from src.Objects.Ships.ability import Ability, wrapped_endpoint
 from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.space_ship import SpaceShip
+from src.audio import RecordingAudioService
 from src.toroidal import (
     nearest_position,
     view_center_and_size,
@@ -564,6 +566,8 @@ class AftermathCharacterizationTests(unittest.TestCase):
         first = self.make_ship(1, hp=0)
         second = self.make_ship(2, hp=0)
         first.shofixti_self_destruct = True
+        cause = SimpleNamespace(name="ShofixtiA2", parent=first)
+        second.last_lethal_damage_source = cause
         simulation = BattleSimulation.__new__(BattleSimulation)
         simulation.player1 = first
         simulation.player2 = second
@@ -595,6 +599,127 @@ class AftermathCharacterizationTests(unittest.TestCase):
             [effect.ship for effect in simulation.aftermath.pending_explosions],
             [first] * 4 + [second] * 4,
         )
+
+    def test_self_destruct_flag_without_a2_lethal_hit_does_not_order_selection(self):
+        first = self.make_ship(1, hp=0)
+        second = self.make_ship(2, hp=0)
+        first.shofixti_self_destruct = True
+        second.last_lethal_damage_source = SimpleNamespace(
+            name="UnrelatedProjectile",
+            parent=first,
+        )
+
+        aftermath = start_or_update_aftermath(
+            None,
+            [first, second],
+            first,
+            second,
+            [first, second],
+            40,
+            sound_enabled=False,
+        )
+
+        self.assertFalse(aftermath.shofixti_won_by_a2)
+        self.assertIsNone(aftermath.choose_second_player)
+        self.assertIsNone(aftermath.initial_victor)
+
+    def test_late_survivor_death_does_not_replay_ditty_or_order_selection(self):
+        dead = self.make_ship(1, hp=0)
+        survivor = self.make_ship(2)
+        audio = RecordingAudioService()
+        game_objects = [dead, survivor]
+        aftermath = start_or_update_aftermath(
+            None,
+            [dead],
+            dead,
+            survivor,
+            game_objects,
+            10,
+            audio_service=audio,
+        )
+
+        with mock.patch(
+            "src.Battle.battle_aftermath.BattleEffect.ship_explosion",
+            return_value=object(),
+        ):
+            update_aftermath(
+                aftermath,
+                dead,
+                survivor,
+                game_objects,
+                aftermath.death_sequence_ready_frame,
+                audio_service=audio,
+            )
+
+            self.assertEqual(
+                aftermath_camera_targets(
+                    aftermath,
+                    dead,
+                    survivor,
+                    aftermath.death_sequence_ready_frame,
+                ),
+                [survivor],
+            )
+
+            survivor.current_hp = 0
+            survivor.shofixti_self_destruct = True
+            late_frame = aftermath.death_sequence_ready_frame + 1
+            aftermath = start_or_update_aftermath(
+                aftermath,
+                [survivor],
+                dead,
+                survivor,
+                game_objects,
+                late_frame,
+                audio_service=audio,
+            )
+
+            self.assertEqual(
+                aftermath_camera_targets(
+                    aftermath,
+                    dead,
+                    survivor,
+                    late_frame,
+                ),
+                [survivor],
+            )
+            self.assertIsNone(aftermath.choose_second_player)
+
+            second_ready_frame = aftermath.death_sequence_ready_frame
+            update_aftermath(
+                aftermath,
+                dead,
+                survivor,
+                game_objects,
+                second_ready_frame,
+                audio_service=audio,
+            )
+
+        ditties = [
+            operation
+            for operation in audio.operations
+            if operation[0] == "play_victory_ditty"
+        ]
+        self.assertEqual(ditties, [("play_victory_ditty", survivor)])
+        self.assertTrue(
+            aftermath_ready_for_selection(aftermath, second_ready_frame)
+        )
+
+    def test_lethal_area_damage_records_the_ability_as_cause(self):
+        ship = self.make_ship(2, hp=3)
+        source = SimpleNamespace(name="ShofixtiA2")
+
+        applied = collision_responses.apply_ship_area_damage(
+            source,
+            ship,
+            [],
+            [0, 0],
+            0,
+            3,
+        )
+
+        self.assertEqual(applied, 3)
+        self.assertIs(ship.last_lethal_damage_source, source)
 
     def test_scheduled_explosions_keep_frame_and_object_order(self):
         random.seed(13)
@@ -647,13 +772,14 @@ class AftermathCharacterizationTests(unittest.TestCase):
             ),
             [survivor, dead],
         )
-        self.assertIsNone(
+        self.assertEqual(
             aftermath_camera_targets(
                 aftermath,
                 dead,
                 survivor,
                 release_frame,
-            )
+            ),
+            [survivor],
         )
 
     def test_victory_audio_starts_once_at_view_boundary_and_honors_sound_setting(self):
@@ -716,6 +842,8 @@ class AftermathCharacterizationTests(unittest.TestCase):
         tie_aftermath = AftermathState(
             start_frame,
             start_frame,
+            initial_victor=dead,
+            shofixti_won_by_a2=True,
             tie_break_ship=dead,
             choose_second_player=dead.player,
             death_sequence_ready_frame=conclusion_frame,

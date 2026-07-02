@@ -319,16 +319,7 @@ class BattleSimulation:
                 getattr(self, "rng", random),
                 rebirth_ships=reborn_ships,
             )
-            permanent_deaths = [
-                ship
-                for ship in newly_dead
-                if ship not in self.aftermath.pending_rebirths
-            ]
-            winner = self.winner() if permanent_deaths else None
-            if winner is not None:
-                on_battle_won = getattr(winner, "on_battle_won", None)
-                if on_battle_won is not None:
-                    on_battle_won()
+            self._notify_recorded_victory()
 
         if self.aftermath is None:
             return
@@ -343,6 +334,7 @@ class BattleSimulation:
             audio,
         )
         self._complete_ready_rebirths()
+        self._notify_recorded_victory()
 
         if self.aftermath is None:
             return
@@ -387,10 +379,22 @@ class BattleSimulation:
             self.aftermath = None
             self.audio.start_battle_music()
         else:
-            winner = self.winner()
-            on_battle_won = getattr(winner, "on_battle_won", None)
-            if on_battle_won is not None:
-                on_battle_won()
+            battle_aftermath.record_resolved_victory(
+                self.aftermath,
+                self.player1,
+                self.player2,
+            )
+
+    def _notify_recorded_victory(self):
+        if self.aftermath is None or self.aftermath.victory_notified:
+            return
+        victor = self.aftermath.initial_victor
+        if victor is None:
+            return
+        on_battle_won = getattr(victor, "on_battle_won", None)
+        if on_battle_won is not None:
+            on_battle_won()
+        self.aftermath.victory_notified = True
 
     def _reenter_reborn_ships(self, ships):
         if len(ships) == 2:

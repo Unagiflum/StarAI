@@ -45,18 +45,27 @@ def _notify_collision_contact(first, second):
             handler(other)
 
 
-def damage_ship(ship, damage, *, shieldable=True, non_lethal=False):
+def damage_ship(ship, damage, *, shieldable=True, non_lethal=False, source=None):
     """Route combat damage through a ship's defenses.
 
     The fallback keeps lightweight collision test doubles compatible.
     """
     take_damage = getattr(ship, "take_damage", None)
     if take_damage is not None:
-        return take_damage(damage, shieldable=shieldable, non_lethal=non_lethal)
-    previous_hp = ship.current_hp
-    min_hp = 1 if non_lethal else 0
-    ship.current_hp = max(min_hp, ship.current_hp - max(0, damage))
-    return previous_hp - ship.current_hp
+        applied = take_damage(
+            damage,
+            shieldable=shieldable,
+            non_lethal=non_lethal,
+        )
+    else:
+        previous_hp = ship.current_hp
+        min_hp = 1 if non_lethal else 0
+        ship.current_hp = max(min_hp, ship.current_hp - max(0, damage))
+        applied = previous_hp - ship.current_hp
+
+    if applied > 0 and ship.current_hp <= 0:
+        ship.last_lethal_damage_source = source
+    return applied
 
 
 def ship_is_area_target(source, ship):
@@ -129,6 +138,7 @@ def apply_ship_area_damage(source, ship, effects, delta, distance, damage):
         damage,
         shieldable=shieldable,
         non_lethal=non_lethal,
+        source=source,
     )
 
 
@@ -231,7 +241,7 @@ def _resolve_mobile_solid_contact(
 def _apply_ramming_damage_to_ship(source, ship):
     impact = getattr(source, "impact_capabilities", None)
     if impact and impact.ramming_damage > 0:
-        damage_ship(ship, impact.ramming_damage)
+        damage_ship(ship, impact.ramming_damage, source=source)
         BattleEffect.play_boom(impact.ramming_damage)
 
 
@@ -898,7 +908,7 @@ def resolve_projectile_ship_collision(
 
     damage = projectile.current_damage
     BattleEffect.play_boom(damage)
-    damage_ship(ship, damage)
+    damage_ship(ship, damage, source=projectile)
     projectile.on_ship_impact(ship)
     motion_handler = getattr(ship, "on_projectile_motion_contact", None)
     if motion_handler is not None:

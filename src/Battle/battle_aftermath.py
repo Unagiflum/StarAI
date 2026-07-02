@@ -40,12 +40,23 @@ class AftermathState:
     pending_explosions: list[ScheduledExplosion] = field(default_factory=list)
     ships_pending_hide: set[SpaceShip] = field(default_factory=set)
     camera_hold_targets: list[SpaceShip] = field(default_factory=list)
-    ditty_started: bool = False
+    victory_ditty_played: bool = False
+    initial_victor: SpaceShip | None = None
+    victory_cause: object | None = None
+    shofixti_won_by_a2: bool = False
+    initial_victor_died_permanently: bool = False
+    victory_notified: bool = False
     tie_break_ship: SpaceShip | None = None
     choose_second_player: int | None = None
     pending_rebirths: dict[SpaceShip, PendingRebirth] = field(default_factory=dict)
     death_sequence_ready_frame: int | None = None
     conclusion_started_frame: int | None = None
+    selection_ready_frame: int | None = None
+
+    @property
+    def ditty_started(self):
+        """Compatibility name for the monotonic victory-ditty event."""
+        return self.victory_ditty_played
 
     def register_rebirths(self, ships):
         for ship in ships:
@@ -91,6 +102,9 @@ def start_or_update_aftermath(
         latest_death_frame=frame_id,
     )
     state.register_rebirths(rebirth_ships)
+    permanent_deaths = [ship for ship in dead_ships if ship not in rebirth_ships]
+    if state.initial_victor in permanent_deaths:
+        state.initial_victor_died_permanently = True
 
     for ship in dead_ships:
         ship.current_hp = 0
@@ -112,25 +126,85 @@ def start_or_update_aftermath(
             sequence_ready_frame,
         )
         state.ships_pending_hide.add(ship)
-        state.camera_hold_targets.append(ship)
         state.latest_death_frame = frame_id
+
+    # Camera framing follows the current death event. Retaining older dead ships
+    # here causes a late survivor death to zoom out to both wreck positions.
+    state.camera_hold_targets = list(dead_ships)
 
     release_dead_opponents(game_objects, dead_ships)
 
-    if player1.current_hp <= 0 and player2.current_hp <= 0:
-        self_destructors = [
-            ship
-            for ship in (player1, player2)
-            if getattr(ship, "shofixti_self_destruct", False)
-        ]
-        if len(self_destructors) == 1:
-            state.tie_break_ship = self_destructors[0]
-            state.choose_second_player = self_destructors[0].player
+    record_resolved_victory(
+        state,
+        player1,
+        player2,
+        permanent_deaths=permanent_deaths,
+    )
+
+    if state.initial_victor_died_permanently:
+        state.selection_ready_frame = state.death_sequence_ready_frame
 
     audio.stop_music()
-    state.ditty_started = False
-    state.conclusion_started_frame = None
     return state
+
+
+def record_resolved_victory(
+    aftermath: AftermathState,
+    player1,
+    player2,
+    *,
+    permanent_deaths=(),
+):
+    """Record the first resolved victory without deriving it from later state."""
+    if aftermath.initial_victor is not None or aftermath.pending_rebirths:
+        return aftermath.initial_victor
+
+    permanent_deaths = list(permanent_deaths)
+    if len(permanent_deaths) == 2:
+        victor, cause = _shofixti_a2_victory(permanent_deaths)
+        if victor is None:
+            return None
+        aftermath.initial_victor = victor
+        aftermath.victory_cause = cause
+        aftermath.shofixti_won_by_a2 = True
+        aftermath.tie_break_ship = victor
+        aftermath.choose_second_player = victor.player
+        return victor
+
+    living_ships = [
+        ship
+        for ship in (player1, player2)
+        if ship.currently_alive and ship.current_hp > 0
+    ]
+    if len(living_ships) != 1:
+        return None
+
+    victor = living_ships[0]
+    aftermath.initial_victor = victor
+    if len(permanent_deaths) == 1:
+        aftermath.victory_cause = getattr(
+            permanent_deaths[0],
+            "last_lethal_damage_source",
+            None,
+        )
+    return victor
+
+
+def _shofixti_a2_victory(permanent_deaths):
+    for candidate in permanent_deaths:
+        if not getattr(candidate, "shofixti_self_destruct", False):
+            continue
+        opponent = next(
+            (ship for ship in permanent_deaths if ship is not candidate),
+            None,
+        )
+        cause = getattr(opponent, "last_lethal_damage_source", None)
+        if (
+            getattr(cause, "name", None) == "ShofixtiA2"
+            and getattr(cause, "parent", None) is candidate
+        ):
+            return candidate, cause
+    return None, None
 
 
 def release_dead_opponents(game_objects, dead_ships):
@@ -209,32 +283,37 @@ def update_aftermath(
             hide_dead_ship(item.ship, world)
             aftermath.ships_pending_hide.discard(item.ship)
 
-    living_ships = [
-        ship
-        for ship in (player1, player2)
-        if ship.currently_alive and ship.current_hp > 0
-    ]
     death_view_done = (
         aftermath.death_sequence_ready_frame is not None
         and frame_id >= aftermath.death_sequence_ready_frame
     )
     if aftermath.pending_rebirths:
         return
-    if not death_view_done or aftermath.conclusion_started_frame is not None:
+    if not death_view_done:
         return
 
-    victory_ship = None
-    if len(living_ships) == 1:
-        victory_ship = living_ships[0]
-    elif not living_ships and aftermath.tie_break_ship is not None:
-        victory_ship = aftermath.tie_break_ship
+    record_resolved_victory(aftermath, player1, player2)
 
+    if aftermath.initial_victor_died_permanently:
+        aftermath.conclusion_started_frame = (
+            aftermath.conclusion_started_frame or frame_id
+        )
+        aftermath.selection_ready_frame = frame_id
+        return
+
+    if aftermath.victory_ditty_played:
+        return
+
+    victory_ship = aftermath.initial_victor
     if victory_ship is not None:
         if audio_service is None and sound_enabled:
             play_victory_ditty(victory_ship)
         else:
             audio.play_victory_ditty(victory_ship)
-        aftermath.ditty_started = True
+        aftermath.victory_ditty_played = True
+        aftermath.selection_ready_frame = frame_id + const.VICTORY_DITTY_VIEW_FRAMES
+    else:
+        aftermath.selection_ready_frame = frame_id
     aftermath.conclusion_started_frame = frame_id
 
 
@@ -290,6 +369,11 @@ def aftermath_camera_targets(
         and aftermath.death_sequence_ready_frame is not None
         and frame_id >= aftermath.death_sequence_ready_frame
     ):
+        if (
+            aftermath.initial_victor is not None
+            and not aftermath.initial_victor_died_permanently
+        ):
+            return [aftermath.initial_victor]
         return None
 
     targets.extend(aftermath.camera_hold_targets)
@@ -303,6 +387,8 @@ def aftermath_ready_for_selection(
 ):
     if aftermath.pending_rebirths or aftermath.conclusion_started_frame is None:
         return False
+    if aftermath.selection_ready_frame is not None:
+        return frame_id >= aftermath.selection_ready_frame
     elapsed = frame_id - aftermath.conclusion_started_frame
     return elapsed >= const.VICTORY_DITTY_VIEW_FRAMES
 
