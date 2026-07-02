@@ -253,6 +253,10 @@ class SpaceShip(PlayerObject):
     def rebirth_entry_trail_style(self):
         return STANDARD_ENTRY_TRAIL
 
+    def on_round_started(self):
+        """React after the ship's opponent for a new round is committed."""
+        return None
+
     def set_control_state(self, control_name, pressed, frame_id=None):
         attribute = CONTROL_STATE_ATTRIBUTES[control_name]
         was_active = getattr(self, attribute)

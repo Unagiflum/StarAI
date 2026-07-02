@@ -145,6 +145,7 @@ class BattleSimulation:
         self.player2 = battle_state["player2"]
         self.player1_ships = player1_ships
         self.player2_ships = player2_ships
+        self._notify_round_started()
 
         reset_ship_controls(self.player1)
         reset_ship_controls(self.player2)
@@ -172,6 +173,10 @@ class BattleSimulation:
                 if ship is not None:
                     ship.audio_service = self.audio
                     ship.rng = self.rng
+
+    def _notify_round_started(self):
+        for ship in (self.player1, self.player2):
+            ship.on_round_started()
 
     @property
     def game_objects(self):
@@ -340,7 +345,8 @@ class BattleSimulation:
             return
 
         if (
-            not self.aftermath.pending_rebirths
+            getattr(self, "entry", None) is None
+            and not self.aftermath.pending_rebirths
             and battle_aftermath.aftermath_ready_for_selection(
                 self.aftermath,
                 self.frame_id,
@@ -450,6 +456,7 @@ class BattleSimulation:
             previous_player2,
             rng=self.rng,
         )
+        self._notify_round_started()
         reset_key_states(self.key_states)
         reset_ship_controls(self.player1)
         reset_ship_controls(self.player2)

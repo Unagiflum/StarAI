@@ -171,12 +171,32 @@ class PkunkRebirthTests(unittest.TestCase):
             for operation in audio.operations
         ))
 
-    def test_winning_resets_the_initial_chance(self):
+    def test_round_start_resets_the_initial_chance(self):
         ship = create_ship("Pkunk", 1)
         ship.rebirth_count = 3
 
-        ship.on_battle_won()
+        ship.on_round_started()
 
+        self.assertEqual(ship.rebirth_count, 0)
+        self.assertEqual(ship.current_rebirth_chance, 0.75)
+
+    def test_preserved_winner_resets_when_next_opponent_is_committed(self):
+        ship = create_ship("Pkunk", 1)
+        first_opponent = create_ship("Earthling", 2)
+        simulation = BattleSimulation(
+            None,
+            ship,
+            first_opponent,
+            audio_service=RecordingAudioService(),
+            include_stars=False,
+        )
+        ship.rebirth_count = 2
+        next_opponent = create_ship("Vux", 2)
+
+        simulation.select_next_round((ship, next_opponent))
+
+        self.assertIs(simulation.player1, ship)
+        self.assertIs(ship.opponent, next_opponent)
         self.assertEqual(ship.rebirth_count, 0)
         self.assertEqual(ship.current_rebirth_chance, 0.75)
 

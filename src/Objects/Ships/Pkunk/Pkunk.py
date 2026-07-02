@@ -42,7 +42,7 @@ class Pkunk(SpaceShip):
                 const.source_path("Objects/Ships/Pkunk/Pkunk-rebirth.wav")
             )
 
-    def on_battle_won(self):
+    def on_round_started(self):
         self.rebirth_count = 0
 
     def rebirth_entry_trail_style(self):

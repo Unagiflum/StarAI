@@ -881,6 +881,38 @@ class AftermathCharacterizationTests(unittest.TestCase):
             )
         )
 
+    def test_selection_waits_for_rebirth_entry_to_finish(self):
+        dead = self.make_ship(1, hp=0, alive=False)
+        survivor = self.make_ship(2)
+        simulation = BattleSimulation.__new__(BattleSimulation)
+        simulation.player1 = dead
+        simulation.player2 = survivor
+        simulation.game_objects = [dead, survivor]
+        simulation.frame_id = 100
+        simulation.sound_enabled = False
+        simulation.audio = RecordingAudioService(enabled=False)
+        simulation.rng = random.Random(1)
+        simulation.needs_selection = False
+        simulation.entry = object()
+        simulation.aftermath = AftermathState(
+            started_frame=10,
+            latest_death_frame=10,
+            victory_ditty_played=True,
+            initial_victor=survivor,
+            death_sequence_ready_frame=20,
+            conclusion_started_frame=20,
+            selection_ready_frame=90,
+        )
+
+        simulation._update_aftermath()
+
+        self.assertFalse(simulation.needs_selection)
+
+        simulation.entry = None
+        simulation._update_aftermath()
+
+        self.assertTrue(simulation.needs_selection)
+
 
 if __name__ == "__main__":
     unittest.main()
