@@ -290,6 +290,15 @@ def swept_overlap_positions(obj, other):
     relative_distance = math.hypot(relative_delta[0], relative_delta[1])
     if relative_distance <= 0:
         return None, None
+    if not swept_paths_can_overlap(
+        obj,
+        other,
+        obj_previous,
+        other_previous,
+        obj_delta,
+        other_delta,
+    ):
+        return None, None
 
     steps = max(1, int(math.ceil(relative_distance / sweep_step_size(obj, other))))
     for step in range(1, steps + 1):
@@ -306,6 +315,44 @@ def swept_overlap_positions(obj, other):
             return obj_position, other_position
 
     return None, None
+
+
+def swept_paths_can_overlap(
+    obj,
+    other,
+    obj_previous,
+    other_previous,
+    obj_delta,
+    other_delta,
+):
+    """Conservatively reject swept paths whose bounds cannot meet.
+
+    Each axis of the relative path is tested against periodic images of the
+    arena origin. Passing both axis tests is necessary, but intentionally not
+    sufficient, so the sampled mask checks remain authoritative.
+    """
+    relative_start = wrapped_delta(obj_previous, other_previous)
+    relative_end = [
+        relative_start[0] + other_delta[0] - obj_delta[0],
+        relative_start[1] + other_delta[1] - obj_delta[1],
+    ]
+    broadphase_radius = max(
+        radius(obj) + radius(other),
+        mask_radius(obj) + mask_radius(other),
+    )
+    return _periodic_axis_sweep_can_overlap(
+        relative_start[0], relative_end[0], broadphase_radius
+    ) and _periodic_axis_sweep_can_overlap(
+        relative_start[1], relative_end[1], broadphase_radius
+    )
+
+
+def _periodic_axis_sweep_can_overlap(start, end, padding):
+    """Return whether a padded 1-D sweep reaches an arena-origin image."""
+    low = min(start, end) - padding
+    high = max(start, end) + padding
+    arena_size = const.ARENA_SIZE
+    return math.ceil(low / arena_size) <= math.floor(high / arena_size)
 
 
 def sweep_previous_position(obj):

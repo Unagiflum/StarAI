@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 import pygame
 
@@ -157,6 +158,30 @@ class CollisionGeometryTests(CollisionTestCase):
         self.assertEqual([-1.0, 0.0], normal)
         self.assertAlmostEqual(45.0, contact[0])
         self.assertAlmostEqual(200.0, contact[1])
+
+    def test_distant_swept_paths_skip_sampled_mask_checks(self):
+        projectile = body([100, 200], previous_position=[0, 200])
+        target = body([2000, 2000])
+
+        with mock.patch(
+            "src.Battle.collision_geometry.objects_overlap_at_positions"
+        ) as overlap:
+            contact, _ = swept_impact(projectile, target)
+
+        self.assertIsNone(contact)
+        overlap.assert_not_called()
+
+    def test_swept_impact_keeps_collision_across_wrapped_boundary(self):
+        projectile = body(
+            [10, 300],
+            previous_position=[const.ARENA_SIZE - 20, 300],
+        )
+        target = body([0, 300])
+
+        contact, _ = swept_impact(projectile, target)
+
+        self.assertIsNotNone(contact)
+        self.assertLess(min(contact[0], const.ARENA_SIZE - contact[0]), 10)
 
     def test_solid_sweep_uses_twelve_pixel_samples(self):
         full_mask = pygame.mask.Mask((10, 10), fill=True)
