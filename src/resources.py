@@ -144,6 +144,17 @@ class AssetManager:
         self._ship_variants = {}
         self._asset_errors = []
 
+    def invalidate_interpolated_graphics(self):
+        """Discard graphics whose frame layout depends on display frame rate."""
+        self._ships.clear()
+        self._ship_forms.clear()
+        self._abilities.clear()
+        self._ability_retractions.clear()
+        self._asteroids = None
+        self._animations.clear()
+        self._ship_variants.clear()
+        self._asset_errors.clear()
+
     @staticmethod
     def _image(path, convert_alpha=True):
         path = const.source_path(path)

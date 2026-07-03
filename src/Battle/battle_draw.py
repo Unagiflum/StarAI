@@ -375,6 +375,10 @@ def _render_world_to_surface(
             effect.draw(surface, scale_factor, translation, interp_t=interp_t)
 
 
+def _should_show_crosshairs(mode, is_mirror):
+    return mode == "always" or (mode == "mirror_match_only" and is_mirror)
+
+
 def draw_battle(
     screen,
     game_objects,
@@ -400,7 +404,7 @@ def draw_battle(
     elif len(players) == 2:
         is_mirror = players[0].name == players[1].name
 
-    show_crosshairs = is_mirror or getattr(const, "ALWAYS_SHOW_CROSSHAIRS", False)
+    show_crosshairs = _should_show_crosshairs(const.SHIP_CROSSHAIRS, is_mirror)
 
     midpoint = [
         const.SCREEN_HEIGHT / (2 * scale_factor) - translation[0],
@@ -419,6 +423,7 @@ def draw_battle(
         entry_state,
         frame_id,
         star_field_renderer,
+        show_gravity_range=const.SHOW_PLANET_GRAVITY_MARKER,
         show_crosshairs=show_crosshairs,
         interp_t=interp_t,
     )

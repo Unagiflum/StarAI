@@ -54,3 +54,8 @@ class PresentationClock:
         """Discard stale samples and elapsed time after a nested loop or pause."""
         self.rate.reset_samples()
         self._clock.tick()
+
+    def set_max_multiplier(self, multiplier):
+        """Apply a new presentation-rate ceiling and discard old timing samples."""
+        self.rate.multiplier = max(1, multiplier)
+        self.reset()

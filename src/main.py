@@ -7,9 +7,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import pygame
-from src.Menus import pick_fleet, train_settings, game_settings
+from src.Menus import display_settings, game_settings, pick_fleet, train_settings
 from src.UI import ui, ui_button
 from src.audio import PygameAudioService
+from src.configuration import DisplaySettingsRepository
 from src.frame_timing import PresentationClock
 from src.resources import default_assets
 import src.const as const
@@ -19,9 +20,18 @@ _WARNING_FADE_SECONDS = 2.0
 _WARNING_TOTAL_SECONDS = _WARNING_VISIBLE_SECONDS + _WARNING_FADE_SECONDS
 
 
+def apply_saved_display_settings():
+    settings = DisplaySettingsRepository(
+        const.DISPLAY_JSON_PATH, const.DEFAULT_DISPLAY
+    ).load()
+    const.apply_display_settings(settings)
+    return settings
+
+
 def package_smoke_test():
     """Exercise packaged resources and dynamic imports without opening a window."""
     const.initialize_user_data()
+    apply_saved_display_settings()
     log_path = const.USER_DATA_ROOT / "smoke-test-error.log"
     try:
         pygame.init()
@@ -114,12 +124,13 @@ def handle_menu_selection(
         )
     finally:
         if presentation_clock is not None:
-            presentation_clock.reset()
+            presentation_clock.set_max_multiplier(const.VIDEO_FPS_MULTIPLIER)
 
 
 def main():
     # Create writable per-user copies of the bundled configuration defaults.
     const.initialize_user_data()
+    apply_saved_display_settings()
 
     # Initialize Pygame
     pygame.init()
@@ -161,6 +172,7 @@ def main():
     menu_items = [
         ("Play Game", pick_fleet.run),
         ("Game Settings", game_settings.run),
+        ("Display Settings", display_settings.run),
         ("Training Settings", train_settings.run),
         ("Quit", None),
     ]

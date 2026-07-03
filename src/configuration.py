@@ -98,6 +98,82 @@ class GameSettingsRepository:
 
 
 @dataclass(frozen=True)
+class DisplaySettings:
+    video_frame_rate: int
+    ship_crosshairs: str
+    show_planet_gravity_marker: bool
+
+    def to_dict(self) -> dict[str, int | str | bool]:
+        return {
+            "video_frame_rate": self.video_frame_rate,
+            "ship_crosshairs": self.ship_crosshairs,
+            "show_planet_gravity_marker": self.show_planet_gravity_marker,
+        }
+
+
+class DisplaySettingsCodec:
+    VIDEO_FRAME_RATES = (24, 48, 72, 96, 120)
+    CROSSHAIR_MODES = ("never", "mirror_match_only", "always")
+
+    def __init__(self, defaults: Mapping[str, Any]):
+        self.defaults = dict(defaults)
+
+    def _value(self, name: str, value: Any) -> int | str | bool:
+        if name == "video_frame_rate":
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value not in self.VIDEO_FRAME_RATES
+            ):
+                raise PersistenceValidationError(
+                    "video_frame_rate must be one of 24, 48, 72, 96, or 120"
+                )
+            return value
+        if name == "ship_crosshairs":
+            if value not in self.CROSSHAIR_MODES:
+                raise PersistenceValidationError(
+                    "ship_crosshairs must be never, mirror_match_only, or always"
+                )
+            return value
+        if name == "show_planet_gravity_marker":
+            if not isinstance(value, bool):
+                raise PersistenceValidationError(
+                    "show_planet_gravity_marker must be a boolean"
+                )
+            return value
+        raise PersistenceValidationError(f"Unknown display setting {name}")
+
+    def decode(self, value: Any) -> DisplaySettings:
+        loaded = require_object(value, "Display settings")
+        values = merge_validated_defaults(self.defaults, loaded, self._value)
+        return DisplaySettings(**values)
+
+    def encode(self, settings: DisplaySettings) -> dict[str, int | str | bool]:
+        return {
+            name: self._value(name, value)
+            for name, value in settings.to_dict().items()
+        }
+
+
+class DisplaySettingsRepository:
+    def __init__(self, path: Path, defaults: Mapping[str, Any]):
+        self.path = Path(path)
+        self.codec = DisplaySettingsCodec(defaults)
+
+    def default(self) -> DisplaySettings:
+        return self.codec.decode({})
+
+    def load(self) -> DisplaySettings:
+        try:
+            return self.codec.decode(read_json(self.path))
+        except EXPECTED_READ_ERRORS:
+            return self.default()
+
+    def save(self, settings: DisplaySettings) -> None:
+        atomic_write_json(self.path, self.codec.encode(settings))
+
+
+@dataclass(frozen=True)
 class TrainingSettings:
     learning_rate: float
     discount_factor: float

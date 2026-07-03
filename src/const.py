@@ -155,7 +155,8 @@ MAX_SHIP_SIZE = 200
 SHIP_COLS = 7
 SHIP_ROWS = 7
 SOUND_EFFECT_VOLUME = 0.4
-ALWAYS_SHOW_CROSSHAIRS = True
+SHIP_CROSSHAIRS = "always"
+SHOW_PLANET_GRAVITY_MARKER = True
 
 # Battle entry animation.
 ENTRY_TRAIL_SILHOUETTES = 12
@@ -169,10 +170,12 @@ PROJ_GAP = 5
 
 # File Paths
 DEFAULT_GAME_JSON_PATH = source_path("Config/game_settings.json")
+DEFAULT_DISPLAY_JSON_PATH = source_path("Config/display_settings.json")
 DEFAULT_TRAINING_JSON_PATH = source_path("Config/train_settings.json")
 DEFAULT_FLEETS_JSON_PATH = source_path("Config/fleets.json")
 
 GAME_JSON_PATH = USER_DATA_ROOT / "game_settings.json"
+DISPLAY_JSON_PATH = USER_DATA_ROOT / "display_settings.json"
 TRAINING_JSON_PATH = USER_DATA_ROOT / "train_settings.json"
 FLEETS_JSON_PATH = USER_DATA_ROOT / "fleets.json"
 
@@ -211,6 +214,26 @@ DEFAULT_TRAINING = {
     "batch_size": 64,
 }
 
+DEFAULT_DISPLAY = {
+    "video_frame_rate": 120,
+    "ship_crosshairs": "always",
+    "show_planet_gravity_marker": True,
+}
+
+
+def apply_display_settings(settings):
+    """Apply validated display settings to runtime rendering constants."""
+    global VIDEO_FPS_MULTIPLIER, VIDEO_FPS
+    global TOTAL_SPRITE_DIRECTIONS, TOTAL_SPRITE_STEP
+    global SHIP_CROSSHAIRS, SHOW_PLANET_GRAVITY_MARKER
+
+    VIDEO_FPS_MULTIPLIER = settings.video_frame_rate // FPS
+    VIDEO_FPS = settings.video_frame_rate
+    TOTAL_SPRITE_DIRECTIONS = SHIP_DIRECTIONS * VIDEO_FPS_MULTIPLIER
+    TOTAL_SPRITE_STEP = 360 / TOTAL_SPRITE_DIRECTIONS
+    SHIP_CROSSHAIRS = settings.ship_crosshairs
+    SHOW_PLANET_GRAVITY_MARKER = settings.show_planet_gravity_marker
+
 
 def initialize_user_data(user_data_root=None):
     """Seed missing user configuration from the bundled defaults.
@@ -222,11 +245,13 @@ def initialize_user_data(user_data_root=None):
     root.mkdir(parents=True, exist_ok=True)
     paths = {
         "game_settings": root / "game_settings.json",
+        "display_settings": root / "display_settings.json",
         "train_settings": root / "train_settings.json",
         "fleets": root / "fleets.json",
     }
     defaults = {
         "game_settings": DEFAULT_GAME_JSON_PATH,
+        "display_settings": DEFAULT_DISPLAY_JSON_PATH,
         "train_settings": DEFAULT_TRAINING_JSON_PATH,
         "fleets": DEFAULT_FLEETS_JSON_PATH,
     }

@@ -170,6 +170,55 @@ class ToggleButton(Button):
         return self.is_on
 
 
+class RadioButton(Button):
+    def __init__(self, x, y, width, height, text, callback, selected=False):
+        super().__init__(
+            x, y, width, height, text, callback,
+            ui.MENU_BUTTON_COLOR, ui.MENU_BUTTON_COLOR_HI,
+        )
+        self.selected = selected
+
+    def draw(self, surface, font):
+        super().draw(surface, font)
+        center = (self.rect.x + 20, self.rect.centery)
+        pygame.draw.circle(surface, ui.WHITE, center, 9, 2)
+        if self.selected:
+            pygame.draw.circle(surface, ui.BRIGHT_GREEN, center, 5)
+
+
+class Checkbox(Button):
+    def __init__(self, x, y, width, height, text, initial_state=False):
+        super().__init__(
+            x, y, width, height, text, None,
+            ui.MENU_BUTTON_COLOR, ui.MENU_BUTTON_COLOR_HI,
+        )
+        self.is_checked = initial_state
+
+    def handle_event(self, event, sound_manager=None):
+        if event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos):
+            if sound_manager:
+                sound_manager.play_sound("menu")
+            self.is_checked = not self.is_checked
+
+    def draw(self, surface, font):
+        super().draw(surface, font)
+        box = pygame.Rect(self.rect.x + 11, self.rect.centery - 9, 18, 18)
+        pygame.draw.rect(surface, ui.WHITE, box, 2)
+        if self.is_checked:
+            pygame.draw.lines(
+                surface,
+                ui.BRIGHT_GREEN,
+                False,
+                [(box.left + 3, box.centery), (box.centerx - 1, box.bottom - 4),
+                 (box.right - 3, box.top + 3)],
+                3,
+            )
+
+    @property
+    def value(self):
+        return self.is_checked
+
+
 class KeyBinding(Button):
     def __init__(
         self,
