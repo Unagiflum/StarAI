@@ -17,6 +17,11 @@ from src.Objects.Ships.catalog import SHIP_DEFINITIONS, SHIPS_DATA
 from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, ActionResult
 from src.resources import default_assets
 from src.entry_styles import STANDARD_ENTRY_TRAIL
+from src.turn_credits import (
+    accrue_turn_credits,
+    initialize_turn_credits,
+    spend_turn_credits,
+)
 
 CONTROL_STATE_ATTRIBUTES = {
     "thrust": "thrust_active",
@@ -100,6 +105,7 @@ class SpaceShip(PlayerObject):
         self.action1_timer = 0
         self.action2_timer = 0
         self.action3_timer = 0
+        initialize_turn_credits(self, full=True)
 
         self.can_die = True
         self._active_damage_shield = None
@@ -135,6 +141,7 @@ class SpaceShip(PlayerObject):
         self.action1_timer = 0
         self.action2_timer = 0
         self.action3_timer = 0
+        initialize_turn_credits(self, full=True)
         self.energy_timer = 0
         self.last_lethal_damage_source = None
         self._laser_color_cycles.clear()
@@ -299,12 +306,18 @@ class SpaceShip(PlayerObject):
                 return list(result.spawned_objects)
 
         if self.is_confused:
-            self.turn_right()
+            self.turn_right(const.DIRECTIONS_MULTIPLIER)
         else:
+            turned = 0
             if self.turn_left_active and turn_left_ready and self.turn_input_enabled():
-                self.turn_left()
-            if self.turn_right_active and turn_right_ready and self.turn_input_enabled():
-                self.turn_right()
+                turned = self.turn_left(self._turn_steps_for_input("turn_left"))
+            if (
+                not turned
+                and self.turn_right_active
+                and turn_right_ready
+                and self.turn_input_enabled()
+            ):
+                self.turn_right(self._turn_steps_for_input("turn_right"))
         thrust_angles = self.get_active_thrust_angles(
             thrust_ready, turn_left_ready, turn_right_ready
         )
@@ -391,6 +404,12 @@ class SpaceShip(PlayerObject):
 
         return frame_id - pressed_frame >= const.INPUT_REPEAT_DELAY_FRAMES
 
+    def _turn_steps_for_input(self, control_name):
+        """Return the fine-angle steps requested by this input state."""
+        if control_name in self.newly_pressed_controls:
+            return 1
+        return min(self.turn_credits, const.DIRECTIONS_MULTIPLIER)
+
     def on_ship_impact(self, other, impact):
         """Return optional behavior for a physical collision with another ship."""
         return ShipImpactResult()
@@ -458,7 +477,7 @@ class SpaceShip(PlayerObject):
         return self.thrust_timer == 0
 
     def can_turn(self):
-        return self.turn_timer == 0
+        return self.turn_timer == 0 and self.turn_credits > 0
 
     def can_action1(self):
         return self.action1_timer == 0 and self.current_energy >= self.a1_cost
@@ -492,6 +511,8 @@ class SpaceShip(PlayerObject):
             self.action2_timer -= 1
         if self.action3_timer > 0:
             self.action3_timer -= 1
+        if hasattr(self, "turn_credit_capacity"):
+            accrue_turn_credits(self, self.turn_wait)
         if not self.inertia and self.thrust_timer == 0 and not self.thrust_active:
             self.velocity = [0.0, 0.0]
 
@@ -548,29 +569,30 @@ class SpaceShip(PlayerObject):
         if self.confused_timer <= 0:
             self.clear_confused()
 
-    def turn_left(self):
-        if self.can_turn():
-            old_heading = self.heading
-            old_rotation = self.rotation
-            self.heading = (self.heading - 1) % const.SHIP_DIRECTIONS
-            self.rotation = self.heading * const.TURN_ANGLE
-            if self.rotation_would_overlap():
-                self.heading = old_heading
-                self.rotation = old_rotation
-                return
-            self.turn_timer = const.cooldown_frames(self.turn_wait)
+    def turn_left(self, max_steps=1):
+        return self._turn(-1, max_steps)
 
-    def turn_right(self):
-        if self.can_turn():
+    def turn_right(self, max_steps=1):
+        return self._turn(1, max_steps)
+
+    def _turn(self, direction, max_steps):
+        turned = 0
+        requested = min(max(0, int(max_steps)), self.turn_credits)
+        if not self.can_turn() or requested <= 0:
+            return turned
+
+        for _ in range(requested):
             old_heading = self.heading
             old_rotation = self.rotation
-            self.heading = (self.heading + 1) % const.SHIP_DIRECTIONS
+            self.heading = (self.heading + direction) % const.SHIP_DIRECTIONS
             self.rotation = self.heading * const.TURN_ANGLE
             if self.rotation_would_overlap():
                 self.heading = old_heading
                 self.rotation = old_rotation
-                return
-            self.turn_timer = const.cooldown_frames(self.turn_wait)
+                break
+            spend_turn_credits(self, 1)
+            turned += 1
+        return turned
 
     def rotation_would_overlap(self):
         return ship_rotation_blocked(self)

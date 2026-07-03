@@ -13,6 +13,11 @@ from src.collision_capabilities import (
 )
 from src.Objects.Ships.catalog import ABILITIES_DATA, ABILITY_DEFINITIONS
 from src.resources import default_assets
+from src.turn_credits import (
+    accrue_turn_credits,
+    initialize_turn_credits,
+    spend_turn_credits,
+)
 from src.audio import compatibility_audio_service
 from src.toroidal import nearest_position, wrapped_delta
 from src.Objects.Ships.launch_geometry import gun_world_position, place_projectile_at_gun
@@ -149,7 +154,10 @@ class Ability(PlayerObject):
         # Store HP array for evolution
         self.hp_array = ability_definition.start_hp
         # State flags
-        self.turn_timer = const.cooldown_frames(self.turn_wait)
+        # Generic tracking cadence is governed by turn credits. Specialized
+        # abilities may still reuse turn_timer for their own behavior.
+        self.turn_timer = 0
+        initialize_turn_credits(self, full=False)
         self.can_move = True
         self.can_die = True
         self.can_expire = True
@@ -265,6 +273,9 @@ class Ability(PlayerObject):
                 int((self.rotation % 360) / direction_step) % const.SHIP_DIRECTIONS
             )
 
+        if self.tracking and hasattr(self, "turn_credit_capacity"):
+            accrue_turn_credits(self, self.turn_wait)
+
         if self.tracking and self._live_trackable_opponent():
             # Find opponent
             dx, dy = wrapped_delta(self.position, self.opponent.position)
@@ -276,7 +287,7 @@ class Ability(PlayerObject):
 
             # Quantize to nearest available direction
             direction_step = const.TURN_ANGLE
-            current_angle = self.rotation
+            current_angle = self.rotation % 360
             target_direction = round(target_angle / direction_step)
             target_angle = (target_direction * direction_step) % 360
 
@@ -287,19 +298,23 @@ class Ability(PlayerObject):
             elif angle_diff < -180:
                 angle_diff += 360
 
-            # Turn if timer allows
-            if self.turn_timer <= 0:
-                if self.opponent.trackable:
-                    if abs(angle_diff) >= direction_step:
-                        self.rotation = (
-                            current_angle
-                            + (direction_step if angle_diff > 0 else -direction_step)
-                        ) % 360
-                        self.turn_timer = const.cooldown_frames(self.turn_wait)
-                    else:
-                        self.rotation = target_angle
-            else:
-                self.turn_timer -= 1
+            if self.opponent.trackable and self.turn_credits > 0:
+                steps_to_target = round(abs(angle_diff) / direction_step)
+                steps = min(
+                    steps_to_target,
+                    self.turn_credits,
+                    const.DIRECTIONS_MULTIPLIER,
+                )
+                if steps:
+                    direction = 1 if angle_diff > 0 else -1
+                    self.rotation = (
+                        current_angle + direction * steps * direction_step
+                    ) % 360
+                    spend_turn_credits(self, steps)
+
+            self.heading = (
+                round(self.rotation / direction_step) % const.SHIP_DIRECTIONS
+            )
             angle_rad = math.radians(self.rotation)
             self.velocity = [
                 math.sin(angle_rad) * self.speed,

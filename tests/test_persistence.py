@@ -110,9 +110,10 @@ class GameSettingsPersistenceTests(unittest.TestCase):
         self.assertEqual(changed.asteroid_count, 12)
         self.assertEqual(changed.ship_directions, 32)
 
-    def test_only_asteroid_count_is_applied_to_runtime(self):
+    def test_gameplay_settings_are_applied_to_runtime(self):
         original_count = const.ASTEROID_COUNT
         original_directions = const.SHIP_DIRECTIONS
+        codec = self.repository(".").codec
         settings = self.repository(".").codec.decode({
             "asteroid_count": 11,
             "ship_directions": 64,
@@ -120,9 +121,18 @@ class GameSettingsPersistenceTests(unittest.TestCase):
         try:
             const.apply_game_settings(settings)
             self.assertEqual(const.ASTEROID_COUNT, 11)
-            self.assertEqual(const.SHIP_DIRECTIONS, original_directions)
+            self.assertEqual(const.DIRECTIONS_MULTIPLIER, 4)
+            self.assertEqual(const.SHIP_DIRECTIONS, 64)
+            self.assertEqual(const.TURN_ANGLE, 360 / 64)
+            self.assertEqual(
+                const.TOTAL_SPRITE_DIRECTIONS,
+                64 * const.VIDEO_FPS_MULTIPLIER,
+            )
         finally:
-            const.ASTEROID_COUNT = original_count
+            const.apply_game_settings(codec.decode({
+                "asteroid_count": original_count,
+                "ship_directions": original_directions,
+            }))
 
 
 class FleetPersistenceTests(unittest.TestCase):

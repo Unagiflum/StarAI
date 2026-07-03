@@ -5,6 +5,7 @@ import pygame
 import src.const as const
 from src.UI import ui, ui_button, ui_slider
 from src.configuration import GameSettings, GameSettingsRepository
+from src.resources import default_assets
 from src.frame_timing import PresentationClock
 from src.persistence import PersistenceValidationError
 
@@ -230,7 +231,9 @@ def run_game_play(screen, menu_sound_manager=None, audio_service=None):
         except (OSError, PersistenceValidationError) as error:
             print(f"Error saving game-play settings: {error}")
             return
-        const.apply_game_settings(new_settings)
+        directions_changed = const.apply_game_settings(new_settings)
+        if directions_changed:
+            default_assets().invalidate_interpolated_graphics()
         finished[0] = True
 
     save_button = ui_button.Button(

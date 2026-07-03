@@ -129,6 +129,17 @@ TOTAL_SPRITE_DIRECTIONS = SHIP_DIRECTIONS * VIDEO_FPS_MULTIPLIER
 TOTAL_SPRITE_STEP = 360 / TOTAL_SPRITE_DIRECTIONS
 
 
+def _recompute_direction_constants():
+    """Recompute gameplay and rendered direction counts from their multipliers."""
+    global SHIP_DIRECTIONS, TURN_ANGLE
+    global TOTAL_SPRITE_DIRECTIONS, TOTAL_SPRITE_STEP
+
+    SHIP_DIRECTIONS = ASSET_SPRITE_DIRECTIONS * DIRECTIONS_MULTIPLIER
+    TURN_ANGLE = 360 / SHIP_DIRECTIONS
+    TOTAL_SPRITE_DIRECTIONS = SHIP_DIRECTIONS * VIDEO_FPS_MULTIPLIER
+    TOTAL_SPRITE_STEP = 360 / TOTAL_SPRITE_DIRECTIONS
+
+
 def heading_to_sprite_index(heading):
     """Convert a gameplay heading to a sprite/mask array index."""
     return (heading * VIDEO_FPS_MULTIPLIER) % TOTAL_SPRITE_DIRECTIONS
@@ -217,21 +228,23 @@ DEFAULT_GAMEPLAY = {
 
 def apply_game_settings(settings):
     """Apply game settings that currently affect runtime behavior."""
-    global ASTEROID_COUNT
+    global ASTEROID_COUNT, DIRECTIONS_MULTIPLIER
 
+    previous_multiplier = DIRECTIONS_MULTIPLIER
     ASTEROID_COUNT = settings.asteroid_count
+    DIRECTIONS_MULTIPLIER = settings.ship_directions // ASSET_SPRITE_DIRECTIONS
+    _recompute_direction_constants()
+    return DIRECTIONS_MULTIPLIER != previous_multiplier
 
 
 def apply_display_settings(settings):
     """Apply validated display settings to runtime rendering constants."""
     global VIDEO_FPS_MULTIPLIER, VIDEO_FPS
-    global TOTAL_SPRITE_DIRECTIONS, TOTAL_SPRITE_STEP
     global SHIP_CROSSHAIRS, SHOW_PLANET_GRAVITY_MARKER
 
     VIDEO_FPS_MULTIPLIER = settings.video_frame_rate // FPS
     VIDEO_FPS = settings.video_frame_rate
-    TOTAL_SPRITE_DIRECTIONS = SHIP_DIRECTIONS * VIDEO_FPS_MULTIPLIER
-    TOTAL_SPRITE_STEP = 360 / TOTAL_SPRITE_DIRECTIONS
+    _recompute_direction_constants()
     SHIP_CROSSHAIRS = settings.ship_crosshairs
     SHOW_PLANET_GRAVITY_MARKER = settings.show_planet_gravity_marker
 

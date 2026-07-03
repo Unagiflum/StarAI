@@ -23,9 +23,12 @@ class Slylandro(SpaceShip):
 
     def __init__(self, ship_name, player_num, resources=None, audio_service=None):
         super().__init__(ship_name, player_num, resources, audio_service)
-        stride = const.VIDEO_FPS_MULTIPLIER
-        self.sprites = tuple(self.sprites[index * stride] for index in range(16))
-        self.masks = tuple(self.masks[index * stride] for index in range(16))
+        # Probe rotation is an animation, not a movement heading. Keep its
+        # 16 source phases and their video interpolation frames independent of
+        # the number of gameplay headings.
+        stride = const.DIRECTIONS_MULTIPLIER
+        self.sprites = tuple(self.sprites[::stride])
+        self.masks = tuple(self.masks[::stride])
         self.base_sprites = self.sprites
         self.animation_frame = 0
 
@@ -52,19 +55,17 @@ class Slylandro(SpaceShip):
         self._set_velocity_from_heading()
         return objects
 
-    def turn_left(self):
-        if self.can_turn():
-            self.heading = (self.heading - 1) % const.SHIP_DIRECTIONS
-            self.rotation = self.heading * const.TURN_ANGLE
-            self.turn_timer = const.cooldown_frames(self.turn_wait)
+    def turn_left(self, max_steps=1):
+        turned = super().turn_left(max_steps)
+        if turned:
             self._set_velocity_from_heading()
+        return turned
 
-    def turn_right(self):
-        if self.can_turn():
-            self.heading = (self.heading + 1) % const.SHIP_DIRECTIONS
-            self.rotation = self.heading * const.TURN_ANGLE
-            self.turn_timer = const.cooldown_frames(self.turn_wait)
+    def turn_right(self, max_steps=1):
+        turned = super().turn_right(max_steps)
+        if turned:
             self._set_velocity_from_heading()
+        return turned
 
     def update(self):
         self.previous_position = self.position.copy()
@@ -157,7 +158,7 @@ class Slylandro(SpaceShip):
         self.velocity = self._heading_velocity()
 
     def _sprite_would_overlap(self, frame):
-        candidate_mask = self.masks[frame]
+        candidate_mask = self.masks[self._animation_asset_index(frame)]
         candidate_masks = tuple(candidate_mask for _ in self.masks)
         return ship_shape_change_blocked(
             self,
@@ -189,12 +190,13 @@ class Slylandro(SpaceShip):
         if visual is None:
             return
         limpet_sprite, offset_x, offset_y = visual
-        frame_count = len(self.base_sprites)
         has_full_cycle = len(self.sprites) == self.animation_phases
         new_sprites = []
 
         for phase in range(self.animation_phases):
-            source_index = phase if has_full_cycle else phase % frame_count
+            source_index = (
+                phase if has_full_cycle else self._animation_asset_index(phase)
+            )
             current_sprite = self.sprites[source_index].copy()
             rotated_x, rotated_y = self._limpet_phase_offset(
                 offset_x, offset_y, phase
@@ -215,10 +217,16 @@ class Slylandro(SpaceShip):
     def set_sprite(self, interp_t=0.0):
         if len(self.sprites) == self.animation_phases:
             return self.sprites[self.animation_frame]
-        return self.sprites[self.animation_frame % len(self.sprites)]
+        return self.sprites[self._animation_asset_index(self.animation_frame)]
 
     def get_collision_mask(self):
-        return self.masks[self.animation_frame % len(self.masks)]
+        return self.masks[self._animation_asset_index(self.animation_frame)]
+
+    def _animation_asset_index(self, phase):
+        return (
+            (phase % const.ASSET_SPRITE_DIRECTIONS)
+            * const.VIDEO_FPS_MULTIPLIER
+        ) % len(self.masks)
 
     def plan_action1(self):
         if not self.can_action1():
