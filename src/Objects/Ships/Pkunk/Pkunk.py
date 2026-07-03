@@ -30,6 +30,8 @@ class Pkunk(SpaceShip):
 
     def complete_rebirth(self):
         self.current_hp = self.max_hp
+        self.current_energy = self.max_energy
+        self.energy_timer = 0
         self.currently_alive = True
         self.cloaked = False
         self.trackable = True

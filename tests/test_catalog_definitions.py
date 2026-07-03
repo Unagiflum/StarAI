@@ -73,7 +73,7 @@ class CatalogDefinitionTests(unittest.TestCase):
             SHIP_DEFINITIONS["Shofixti"].circle_size,
             self.raw_ships["Shofixti"]["circle_size"],
         )
-        self.assertEqual(SHIP_DEFINITIONS["Shofixti"].circle_gap, 1)
+        self.assertEqual(SHIP_DEFINITIONS["Shofixti"].circle_gap, 3)
 
         ability_data = dict(self.raw_abilities["EarthlingA1"])
         for key in (
