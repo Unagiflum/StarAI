@@ -34,10 +34,14 @@ class AudioServiceIntegrationTests(unittest.TestCase):
 
     def test_audio_initialization_returns_pygame_service_on_success(self):
         resources = object()
-        with mock.patch("pygame.mixer.init") as mixer_init:
+        with (
+            mock.patch("pygame.mixer.init") as mixer_init,
+            mock.patch("pygame.mixer.set_num_channels") as set_num_channels,
+        ):
             service = initialize_pygame_audio(resources)
 
         mixer_init.assert_called_once_with()
+        set_num_channels.assert_called_once_with(32)
         self.assertIsInstance(service, PygameAudioService)
         self.assertIs(service.resources, resources)
 

@@ -127,6 +127,7 @@ def initialize_pygame_audio(resources=None):
 
     try:
         pygame.mixer.init()
+        pygame.mixer.set_num_channels(32)
     except (pygame.error, OSError) as error:
         print(f"Audio unavailable; continuing without sound: {error}")
         return NullAudioService()
