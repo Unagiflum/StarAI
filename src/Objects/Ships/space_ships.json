@@ -410,8 +410,8 @@
         "a3_wait": 0,
         "mass": 1,
         "inertia": true,
-        "initial_rebirth_chance": 0.75,
-        "rebirth_chance_decay": 0.333,
+        "initial_rebirth_chance": 0.5,
+        "rebirth_chance_decay": 1.0,
         "sprite_path": "Objects/Ships/Pkunk/",
         "sprite_scale": 1.0
     },
