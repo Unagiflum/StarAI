@@ -9,7 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import pygame
 from src.Menus import display_settings, game_settings, pick_fleet, train_settings
 from src.UI import ui, ui_button
-from src.audio import PygameAudioService
+from src.audio import initialize_pygame_audio
 from src.configuration import DisplaySettingsRepository
 from src.frame_timing import PresentationClock
 from src.resources import default_assets
@@ -36,7 +36,7 @@ def package_smoke_test():
     try:
         pygame.init()
         pygame.display.set_mode((1, 1))
-        pygame.mixer.init()
+        initialize_pygame_audio()
 
         asset_errors = default_assets().preload_all()
         if asset_errors:
@@ -134,7 +134,7 @@ def main():
 
     # Initialize Pygame
     pygame.init()
-    pygame.mixer.init()
+    audio_service = initialize_pygame_audio()
 
     screen = pygame.display.set_mode((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
     pygame.display.set_caption("StarAI")
@@ -152,7 +152,6 @@ def main():
     warning_surface = _build_warning_surface(asset_errors) if asset_errors else None
     warning_elapsed_seconds = 0.0
 
-    audio_service = PygameAudioService()
     menu_sound_manager = ui.SoundManager(audio_service=audio_service)
     menu_sound_manager.load_sounds()
     menu_sound_manager.set_volume(0.30)

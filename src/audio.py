@@ -121,6 +121,18 @@ class NullAudioService:
         pass
 
 
+def initialize_pygame_audio(resources=None):
+    """Initialize Pygame audio, falling back to silent operation on failure."""
+    import pygame
+
+    try:
+        pygame.mixer.init()
+    except (pygame.error, OSError) as error:
+        print(f"Audio unavailable; continuing without sound: {error}")
+        return NullAudioService()
+    return PygameAudioService(resources=resources)
+
+
 class RecordingAudioService(NullAudioService):
     """Pygame-free test adapter recording operation order and arguments."""
 

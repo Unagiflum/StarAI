@@ -11,7 +11,12 @@ import pygame
 pygame.init()
 pygame.display.set_mode((1, 1))
 
-from src.audio import NullAudioService, RecordingAudioService
+from src.audio import (
+    NullAudioService,
+    PygameAudioService,
+    RecordingAudioService,
+    initialize_pygame_audio,
+)
 from src.Battle.battle import BattleSimulation
 from src.Battle.effects import BattleEffect
 from src.Objects.Ships.ability import Ability
@@ -19,6 +24,23 @@ from src.Objects.Ships.registry import create_ship
 
 
 class AudioServiceIntegrationTests(unittest.TestCase):
+    def test_audio_initialization_falls_back_to_null_service(self):
+        with mock.patch(
+            "pygame.mixer.init", side_effect=pygame.error("no audio device")
+        ):
+            service = initialize_pygame_audio()
+
+        self.assertIsInstance(service, NullAudioService)
+
+    def test_audio_initialization_returns_pygame_service_on_success(self):
+        resources = object()
+        with mock.patch("pygame.mixer.init") as mixer_init:
+            service = initialize_pygame_audio(resources)
+
+        mixer_init.assert_called_once_with()
+        self.assertIsInstance(service, PygameAudioService)
+        self.assertIs(service.resources, resources)
+
     def test_disabled_headless_simulation_never_touches_pygame_audio(self):
         audio = NullAudioService()
         with (

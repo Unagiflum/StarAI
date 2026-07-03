@@ -637,6 +637,26 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         draw_start = draw_laser.call_args.args[2]
         self.assertEqual(draw_start, (const.SCREEN_LEFT + 500, 491))
 
+    def test_kzerza_fighter_uses_its_simulation_rng(self):
+        carrier = create_ship("KzerZa", 1)
+        rng = mock.Mock()
+        rng.choice.side_effect = [True, False, True]
+        rng.random.return_value = 0.1
+        carrier.rng = rng
+
+        fighter = create_ability("KzerZaA2", carrier)
+
+        self.assertTrue(fighter.jitter_angle_toggle)
+        self.assertFalse(fighter.jitter_dist_toggle)
+        self.assertEqual(rng.choice.call_count, 2)
+
+        fighter.mode = fighter.ATTACKING
+        fighter.update()
+
+        rng.random.assert_called_once_with()
+        self.assertEqual(rng.choice.call_count, 3)
+        self.assertFalse(fighter.jitter_angle_toggle)
+
     def test_kohr_ah_primary_is_press_only_and_release_stops_live_saws(self):
         ship = create_ship("KohrAh", 1)
         ship.action1_active = True
