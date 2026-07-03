@@ -4,6 +4,7 @@ import pygame
 
 import src.const as const
 from src.UI import ui, ui_button, ui_slider
+from src.UI.loading_screen import preload_assets
 from src.configuration import DisplaySettingsRepository
 from src.frame_timing import PresentationClock
 from src.persistence import PersistenceValidationError
@@ -136,6 +137,7 @@ def run(screen, menu_sound_manager=None, audio_service=None):
         const.apply_display_settings(new_settings)
         if frame_rate_changed:
             default_assets().invalidate_interpolated_graphics()
+            preload_assets(screen, default_assets())
         back_to_menu[0] = True
 
     save_button = ui_button.Button(

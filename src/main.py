@@ -9,6 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import pygame
 from src.Menus import display_settings, game_settings, pick_fleet
 from src.UI import ui, ui_button
+from src.UI.loading_screen import preload_assets
 from src.audio import initialize_pygame_audio
 from src.configuration import DisplaySettingsRepository, GameSettingsRepository
 from src.frame_timing import PresentationClock
@@ -151,7 +152,7 @@ def main():
     clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
 
     # Preload all assets before anything else renders.
-    asset_errors = default_assets().preload_all()
+    asset_errors = preload_assets(screen, default_assets())
     if asset_errors:
         for error in asset_errors:
             print(

@@ -4,6 +4,8 @@ import pygame
 
 import src.const as const
 from src.UI import ui, ui_button, ui_slider
+from src.UI.key_display import draw_pressed_keys
+from src.UI.loading_screen import preload_assets
 from src.configuration import GameSettings, GameSettingsRepository
 from src.resources import default_assets
 from src.frame_timing import PresentationClock
@@ -64,13 +66,24 @@ def run_input_keys(screen, menu_sound_manager=None, audio_service=None):
     font = pygame.font.SysFont(None, int(0.03 * const.SCREEN_HEIGHT))
     settings = load_settings()
     background = _background()
+    pressed_keys = {}
+    binding_width = int(0.2 * const.SCREEN_WIDTH)
+    player1_binding_left = int(0.25 * const.SCREEN_WIDTH)
+    player2_binding_left = int(0.65 * const.SCREEN_WIDTH)
+    pressed_key_panel = pygame.Rect(
+        player1_binding_left,
+        int(0.68 * const.SCREEN_HEIGHT),
+        player2_binding_left + binding_width - player1_binding_left,
+        int(0.12 * const.SCREEN_HEIGHT),
+    )
+    pressed_key_font = pygame.font.SysFont(None, int(0.028 * const.SCREEN_HEIGHT))
 
     key_bindings = []
     start_y = int(0.25 * const.SCREEN_HEIGHT)
     y_spacing = int(0.08 * const.SCREEN_HEIGHT)
     player_labels = (
         (
-            int(0.25 * const.SCREEN_WIDTH),
+            player1_binding_left,
             const.P1_COLOR,
             (
                 "Player 1: Left",
@@ -81,7 +94,7 @@ def run_input_keys(screen, menu_sound_manager=None, audio_service=None):
             ),
         ),
         (
-            int(0.65 * const.SCREEN_WIDTH),
+            player2_binding_left,
             const.P2_COLOR,
             (
                 "Player 2: Left",
@@ -98,7 +111,7 @@ def run_input_keys(screen, menu_sound_manager=None, audio_service=None):
                 ui_button.KeyBinding(
                     x,
                     start_y + index * y_spacing,
-                    int(0.2 * const.SCREEN_WIDTH),
+                    binding_width,
                     int(0.05 * const.SCREEN_HEIGHT),
                     label,
                     settings[label],
@@ -142,6 +155,12 @@ def run_input_keys(screen, menu_sound_manager=None, audio_service=None):
         clock.tick()
         for event in pygame.event.get():
             _exit_on_quit(event)
+            if event.type == pygame.KEYDOWN:
+                pressed_keys.setdefault(event.key, None)
+            elif event.type == pygame.KEYUP:
+                pressed_keys.pop(event.key, None)
+            elif event.type == pygame.WINDOWFOCUSLOST:
+                pressed_keys.clear()
             for binding in key_bindings:
                 binding.handle_event(event, menu_sound_manager)
             save_button.handle_event(event, menu_sound_manager)
@@ -153,6 +172,13 @@ def run_input_keys(screen, menu_sound_manager=None, audio_service=None):
         )
         for binding in key_bindings:
             binding.draw(screen, font)
+        draw_pressed_keys(
+            screen,
+            pressed_keys,
+            pressed_key_panel,
+            pressed_key_font,
+            label="Key Tester",
+        )
         save_button.draw(screen, font)
         cancel_button.draw(screen, font)
         pygame.display.flip()
@@ -247,6 +273,7 @@ def run_game_play(screen, menu_sound_manager=None, audio_service=None):
         directions_changed = const.apply_game_settings(new_settings)
         if directions_changed:
             default_assets().invalidate_interpolated_graphics()
+            preload_assets(screen, default_assets())
         finished[0] = True
 
     save_button = ui_button.Button(

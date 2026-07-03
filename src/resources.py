@@ -672,22 +672,28 @@ class AssetManager:
             self._menu_ship_sprites[ship_name] = sprite
         return self._menu_ship_sprites[ship_name]
 
-    def preload_all(self):
+    def preload_all(self, progress_callback=None):
         """Eagerly load all assets referenced by the catalogs.
 
         Returns a list of :class:`AssetError` for every asset that could not
         be loaded.  Failed assets are replaced by colored placeholders so the
-        game can continue.
+        game can continue.  ``progress_callback``, when provided, receives
+        ``(loaded_ships, total_ships)`` as each ship finishes loading.
         """
         self._asset_errors = []
 
         # Ships and their menu sprites.
-        for ship_name in SHIP_DEFINITIONS:
+        total_ships = len(SHIP_DEFINITIONS)
+        if progress_callback is not None:
+            progress_callback(0, total_ships)
+        for loaded_ships, ship_name in enumerate(SHIP_DEFINITIONS, start=1):
             self.ship(ship_name)
             self.menu_ship_sprite(ship_name)
             definition = SHIP_DEFINITIONS[ship_name]
             for form_name in definition.forms:
                 self.ship_form(ship_name, form_name)
+            if progress_callback is not None:
+                progress_callback(loaded_ships, total_ships)
 
         # Abilities, their sounds, and retraction assets.
         for ability_name, definition in ABILITY_DEFINITIONS.items():
