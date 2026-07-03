@@ -1,6 +1,39 @@
 import pygame
+import pygame.gfxdraw
 
 import src.const as const
+
+
+SPECIAL_INDICATOR_BORDER_COLOR = (0, 0, 0)
+
+
+def draw_special_indicator(screen, ship):
+    """Draw a ship-provided anti-aliased HUD status light, when present."""
+    color = getattr(ship, "hud_indicator_color", None)
+    size = getattr(ship, "hud_indicator_size", None)
+    gap = getattr(ship, "hud_indicator_gap", None)
+    if color is None or size is None or gap is None:
+        return
+
+    radius = size // 2
+    center = gap + radius
+    pygame.gfxdraw.filled_circle(
+        screen,
+        center,
+        center,
+        radius,
+        SPECIAL_INDICATOR_BORDER_COLOR,
+    )
+    pygame.gfxdraw.aacircle(
+        screen,
+        center,
+        center,
+        radius,
+        SPECIAL_INDICATOR_BORDER_COLOR,
+    )
+    inner_radius = radius - 1
+    pygame.gfxdraw.filled_circle(screen, center, center, inner_radius, color)
+    pygame.gfxdraw.aacircle(screen, center, center, inner_radius, color)
 
 
 class StatusBar:

@@ -773,17 +773,41 @@ class ShipActionCharacterizationTests(unittest.TestCase):
 
     def test_shofixti_secondary_marks_self_destruct_only_in_battle(self):
         setup_ship = create_ship("Shofixti", 1)
-        setup_ship.shofixti_self_destruct = False
-        setup_ship.perform_action2()
+        self.assertEqual(setup_ship.shofixti_arming_stage, setup_ship.SAFE)
+        for _ in range(3):
+            setup_ship.perform_action2()
         self.assertFalse(setup_ship.shofixti_self_destruct)
         self.assertEqual(setup_ship.current_hp, setup_ship.start_hp)
 
         battle_ship = create_ship("Shofixti", 1)
         battle_ship.initialize_in_battle([100, 100], 0)
+        self.assertEqual(battle_ship.hud_indicator_color, (0, 255, 0))
+        self.assertIsNone(battle_ship.perform_action2())
+        self.assertEqual(battle_ship.hud_indicator_color, (255, 255, 0))
+        self.assertIsNone(battle_ship.perform_action2())
+        self.assertEqual(battle_ship.hud_indicator_color, (255, 0, 0))
         result = battle_ship.perform_action2()
         self.assertTrue(battle_ship.shofixti_self_destruct)
         self.assertEqual(battle_ship.current_hp, 0)
         self.assertIsNotNone(result)
+
+    def test_shofixti_secondary_arming_requires_distinct_key_presses(self):
+        ship = create_ship("Shofixti", 1)
+        ship.initialize_in_battle([100, 100], 0)
+
+        ship.set_control_state("action2", True, 1)
+        self.assertEqual(ship.process_controls(1), [])
+        self.assertEqual(ship.shofixti_arming_stage, ship.CAUTION)
+        for frame_id in range(2, 10):
+            self.assertEqual(ship.process_controls(frame_id), [])
+        self.assertEqual(ship.shofixti_arming_stage, ship.CAUTION)
+
+        ship.set_control_state("action2", False, 10)
+        ship.process_controls(10)
+        ship.set_control_state("action2", True, 11)
+        ship.process_controls(11)
+        self.assertEqual(ship.shofixti_arming_stage, ship.ARMED)
+        self.assertEqual(ship.current_hp, ship.start_hp)
 
     def test_druuge_primary_recoils_and_secondary_converts_crew_to_energy(self):
         ship = create_ship("Druuge", 1)

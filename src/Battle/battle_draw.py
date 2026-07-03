@@ -7,6 +7,7 @@ from src.Battle.status_bar import (
     draw_player_status,
     draw_boarded_marine_icons,
     draw_limpet_count,
+    draw_special_indicator,
     StatusBar,
 )
 from src.Battle.battle_entry import draw_entry_silhouettes
@@ -586,6 +587,7 @@ def draw_battle(
                 _TOTAL_WIDTH,
                 HUD_BOTTOM_PADDING,
             )
+            draw_special_indicator(panel_surface, live_ship)
 
         # Blit the unified panel to the screen
         screen.blit(panel_surface, (status_x, const.SCREEN_HEIGHT - panel_h))

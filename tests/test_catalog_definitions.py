@@ -67,6 +67,13 @@ class CatalogDefinitionTests(unittest.TestCase):
         self.assertEqual(ship.fade_duration, 8)
         self.assertEqual(ship.saw_count, 8)
         self.assertEqual(ship.gas_count, 16)
+        self.assertIsNone(ship.circle_size)
+        self.assertIsNone(ship.circle_gap)
+        self.assertEqual(
+            SHIP_DEFINITIONS["Shofixti"].circle_size,
+            self.raw_ships["Shofixti"]["circle_size"],
+        )
+        self.assertEqual(SHIP_DEFINITIONS["Shofixti"].circle_gap, 1)
 
         ability_data = dict(self.raw_abilities["EarthlingA1"])
         for key in (

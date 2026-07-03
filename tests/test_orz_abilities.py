@@ -500,6 +500,8 @@ class OrzAbilityTests(unittest.TestCase):
         marine.handle_ship_contact(enemy)
 
         enemy.perform_action2()
+        enemy.perform_action2()
+        enemy.perform_action2()
 
         self.assertFalse(marine.currently_alive)
         self.assertEqual(enemy.boarded_marines, [])

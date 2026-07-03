@@ -114,6 +114,8 @@ class ShipDefinition(_DefinitionMapping):
     initial_rebirth_chance: float | None = None
     rebirth_chance_decay: float | None = None
     immune_to_psychic: bool = False
+    circle_size: int | None = None
+    circle_gap: int | None = None
     default_form: str | None = None
     forms: Mapping[str, ShipFormDefinition] = field(
         default_factory=lambda: MappingProxyType({})
@@ -160,6 +162,8 @@ class ShipDefinition(_DefinitionMapping):
         "initial_rebirth_chance": "initial_rebirth_chance",
         "rebirth_chance_decay": "rebirth_chance_decay",
         "immune_to_psychic": "immune_to_psychic",
+        "circle_size": "circle_size",
+        "circle_gap": "circle_gap",
         "default_form": "default_form",
         "forms": "forms",
         "SATELLITE_HP": "satellite_hp",
@@ -597,6 +601,8 @@ def parse_ship_definition(name, data):
         "initial_rebirth_chance",
         "rebirth_chance_decay",
         "immune_to_psychic",
+        "circle_size",
+        "circle_gap",
         "default_form",
         "forms",
         "SATELLITE_HP",
@@ -661,6 +667,12 @@ def parse_ship_definition(name, data):
     values["immune_to_psychic"] = _optional_typed(
         kind, name, data, "immune_to_psychic", bool, False
     )
+    values["circle_size"] = _optional_typed(
+        kind, name, data, "circle_size", int, None
+    )
+    values["circle_gap"] = _optional_typed(
+        kind, name, data, "circle_gap", int, None
+    )
     values["default_form"] = _optional_typed(
         kind, name, data, "default_form", str, None
     )
@@ -708,6 +720,10 @@ def parse_ship_definition(name, data):
         raise CatalogValidationError(f"Ship '{name}' start_energy exceeds max_energy")
     if values["sprite_scale"] <= 0:
         raise CatalogValidationError(f"Ship '{name}' sprite_scale must be positive")
+    if values["circle_size"] is not None and values["circle_size"] < 3:
+        raise CatalogValidationError(f"Ship '{name}' circle_size must be at least 3")
+    if values["circle_gap"] is not None and values["circle_gap"] < 0:
+        raise CatalogValidationError(f"Ship '{name}' circle_gap cannot be negative")
     satellite_values = (
         values["satellite_hp"],
         values["satellite_speed"],

@@ -436,6 +436,8 @@
         "a3_wait": 0,
         "mass": 1,
         "inertia": true,
+        "circle_size": 15,
+        "circle_gap": 3,
         "sprite_path": "Objects/Ships/Shofixti/",
         "sprite_scale": 1.0
     },

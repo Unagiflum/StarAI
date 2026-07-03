@@ -12,7 +12,7 @@ import pygame
 pygame.init()
 pygame.display.set_mode((1, 1))
 
-from src.Battle.status_bar import draw_limpet_count
+from src.Battle.status_bar import draw_limpet_count, draw_special_indicator
 
 
 class LimpetStatusTests(unittest.TestCase):
@@ -55,6 +55,50 @@ class LimpetStatusTests(unittest.TestCase):
 
         screen.blit.assert_not_called()
         self.resources.ability.assert_not_called()
+
+
+class SpecialIndicatorTests(unittest.TestCase):
+    def test_draws_antialiased_light_with_one_pixel_panel_inset(self):
+        panel = pygame.Surface((20, 20))
+        panel.fill((12, 34, 56))
+        ship = SimpleNamespace(
+            hud_indicator_color=(255, 255, 0),
+            hud_indicator_size=8,
+            hud_indicator_gap=1,
+        )
+
+        with mock.patch(
+            "src.Battle.status_bar.pygame.gfxdraw.aacircle",
+            wraps=pygame.gfxdraw.aacircle,
+        ) as aacircle:
+            draw_special_indicator(panel, ship)
+
+        self.assertEqual(aacircle.call_count, 2)
+        self.assertEqual(panel.get_at((0, 5))[:3], (12, 34, 56))
+        self.assertEqual(panel.get_at((1, 5))[:3], (0, 0, 0))
+        self.assertEqual(panel.get_at((5, 5))[:3], (255, 255, 0))
+
+    def test_size_and_gap_control_circle_placement(self):
+        panel = pygame.Surface((24, 24))
+        panel.fill((12, 34, 56))
+        ship = SimpleNamespace(
+            hud_indicator_color=(255, 0, 0),
+            hud_indicator_size=12,
+            hud_indicator_gap=3,
+        )
+
+        draw_special_indicator(panel, ship)
+
+        self.assertEqual(panel.get_at((2, 9))[:3], (12, 34, 56))
+        self.assertEqual(panel.get_at((3, 9))[:3], (0, 0, 0))
+        self.assertEqual(panel.get_at((9, 9))[:3], (255, 0, 0))
+
+    def test_omits_light_for_ships_without_an_indicator(self):
+        screen = mock.Mock()
+
+        draw_special_indicator(screen, SimpleNamespace())
+
+        screen.assert_not_called()
 
 
 if __name__ == "__main__":
