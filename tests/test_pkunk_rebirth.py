@@ -64,10 +64,11 @@ class PkunkRebirthTests(unittest.TestCase):
 
     def test_rebirth_chance_uses_configured_decay_after_each_success(self):
         ship = create_ship("Pkunk", 1)
-        self.assertEqual(ship.rebirth_chance_decay, 1.0)
+        self.assertEqual(ship.initial_rebirth_chance, 0.7)
+        self.assertEqual(ship.rebirth_chance_decay, 0.3)
         ship.audio_service = RecordingAudioService()
         ship.rng = mock.Mock()
-        ship.rng.random.side_effect = [0.49, 0.24, 0.08]
+        ship.rng.random.side_effect = [0.69, 0.20, 0.06]
 
         chances = []
         for _ in range(3):
@@ -77,7 +78,8 @@ class PkunkRebirthTests(unittest.TestCase):
             self.assertEqual(ship.current_hp, 0)
             ship.complete_rebirth()
 
-        self.assertEqual(chances, [0.5, 0.5, 0.5])
+        for actual, expected in zip(chances, [0.7, 0.21, 0.063]):
+            self.assertAlmostEqual(actual, expected)
         self.assertEqual(ship.rebirth_count, 3)
         self.assertEqual(ship.current_hp, ship.max_hp)
         self.assertEqual(
@@ -219,7 +221,7 @@ class PkunkRebirthTests(unittest.TestCase):
         ship.on_round_started()
 
         self.assertEqual(ship.rebirth_count, 3)
-        self.assertEqual(ship.current_rebirth_chance, 0.5)
+        self.assertAlmostEqual(ship.current_rebirth_chance, 0.0189)
 
     def test_preserved_winner_keeps_rebirth_chance_for_next_opponent(self):
         ship = create_ship("Pkunk", 1)
@@ -239,7 +241,7 @@ class PkunkRebirthTests(unittest.TestCase):
         self.assertIs(simulation.player1, ship)
         self.assertIs(ship.opponent, next_opponent)
         self.assertEqual(ship.rebirth_count, 2)
-        self.assertEqual(ship.current_rebirth_chance, 0.5)
+        self.assertAlmostEqual(ship.current_rebirth_chance, 0.063)
 
     def test_staggered_pending_rebirth_does_not_count_as_a_win(self):
         first = create_ship("Pkunk", 1)
