@@ -113,6 +113,7 @@ class ShipDefinition(_DefinitionMapping):
     gas_count: int = 16
     initial_rebirth_chance: float | None = None
     rebirth_chance_decay: float | None = None
+    reset_rebirth_chance: bool = True
     immune_to_psychic: bool = False
     circle_size: int | None = None
     circle_gap: int | None = None
@@ -161,6 +162,7 @@ class ShipDefinition(_DefinitionMapping):
         "GAS_COUNT": "gas_count",
         "initial_rebirth_chance": "initial_rebirth_chance",
         "rebirth_chance_decay": "rebirth_chance_decay",
+        "reset_rebirth_chance": "reset_rebirth_chance",
         "immune_to_psychic": "immune_to_psychic",
         "circle_size": "circle_size",
         "circle_gap": "circle_gap",
@@ -600,6 +602,7 @@ def parse_ship_definition(name, data):
         "GAS_COUNT",
         "initial_rebirth_chance",
         "rebirth_chance_decay",
+        "reset_rebirth_chance",
         "immune_to_psychic",
         "circle_size",
         "circle_gap",
@@ -663,6 +666,9 @@ def parse_ship_definition(name, data):
     )
     values["rebirth_chance_decay"] = _optional_typed(
         kind, name, data, "rebirth_chance_decay", float, None
+    )
+    values["reset_rebirth_chance"] = _optional_typed(
+        kind, name, data, "reset_rebirth_chance", bool, True
     )
     values["immune_to_psychic"] = _optional_typed(
         kind, name, data, "immune_to_psychic", bool, False

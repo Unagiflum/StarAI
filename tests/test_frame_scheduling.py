@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import Mock
 
 from src.Battle.battle import FixedStepScheduler
-from src.frame_timing import AdaptiveRenderRate, PresentationClock
+from src.frame_timing import PresentationClock
 
 
 class FixedStepSchedulerTests(unittest.TestCase):
@@ -22,41 +22,44 @@ class FixedStepSchedulerTests(unittest.TestCase):
         self.assertEqual(interpolation, 0.0)
 
 
-class AdaptiveRenderRateTests(unittest.TestCase):
-    def test_render_multiplier_falls_until_work_fits_the_budget(self):
-        rate = AdaptiveRenderRate(24, 5, sample_frames=3)
-
-        for _ in range(3):
-            rate.observe(0.010)
-        self.assertEqual(rate.multiplier, 4)
-        self.assertEqual(rate.target_fps, 96)
-
-        for _ in range(3):
-            rate.observe(0.010)
-        self.assertEqual(rate.multiplier, 4)
-
-
 class PresentationClockTests(unittest.TestCase):
-    def test_paces_at_adaptive_presentation_rate_and_returns_seconds(self):
+    def test_paces_at_configured_presentation_rate_and_returns_seconds(self):
         pygame_clock = Mock()
         pygame_clock.tick.return_value = 25
-        pygame_clock.get_rawtime.return_value = 10
-        clock = PresentationClock(24, 5, sample_frames=1, clock=pygame_clock)
+        clock = PresentationClock(24, 5, clock=pygame_clock)
 
         elapsed_seconds = clock.tick()
 
         pygame_clock.tick.assert_called_once_with(120)
         self.assertEqual(elapsed_seconds, 0.025)
-        self.assertEqual(clock.target_fps, 96)
+        self.assertEqual(clock.target_fps, 120)
 
-    def test_reset_discards_samples_and_stale_elapsed_time(self):
+    def test_repeated_ticks_do_not_reduce_configured_rate(self):
+        pygame_clock = Mock()
+        pygame_clock.tick.return_value = 25
+        clock = PresentationClock(24, 5, clock=pygame_clock)
+
+        for _ in range(120):
+            clock.tick()
+
+        self.assertEqual(clock.target_fps, 120)
+        pygame_clock.tick.assert_called_with(120)
+
+    def test_reset_discards_stale_elapsed_time(self):
         pygame_clock = Mock()
         clock = PresentationClock(24, 5, clock=pygame_clock)
-        clock.rate.observe(0.01)
 
         clock.reset()
 
-        self.assertEqual(len(clock.rate._work_samples), 0)
+        pygame_clock.tick.assert_called_once_with()
+
+    def test_set_multiplier_applies_new_configured_rate(self):
+        pygame_clock = Mock()
+        clock = PresentationClock(24, 5, clock=pygame_clock)
+
+        clock.set_multiplier(2)
+
+        self.assertEqual(clock.target_fps, 48)
         pygame_clock.tick.assert_called_once_with()
 
 

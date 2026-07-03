@@ -45,7 +45,8 @@ class Pkunk(SpaceShip):
             )
 
     def on_round_started(self):
-        self.rebirth_count = 0
+        if self.reset_rebirth_chance:
+            self.rebirth_count = 0
 
     def rebirth_entry_trail_style(self):
         return EntryTrailStyle(

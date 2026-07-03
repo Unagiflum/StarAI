@@ -124,7 +124,7 @@ def handle_menu_selection(
         )
     finally:
         if presentation_clock is not None:
-            presentation_clock.set_max_multiplier(const.VIDEO_FPS_MULTIPLIER)
+            presentation_clock.set_multiplier(const.VIDEO_FPS_MULTIPLIER)
 
 
 def main():

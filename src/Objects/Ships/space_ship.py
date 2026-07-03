@@ -84,6 +84,7 @@ class SpaceShip(PlayerObject):
         self.inertia = ship_definition.inertia
         self.initial_rebirth_chance = ship_definition.initial_rebirth_chance
         self.rebirth_chance_decay = ship_definition.rebirth_chance_decay
+        self.reset_rebirth_chance = ship_definition.reset_rebirth_chance
         self.collision_velocity = [0.0, 0.0]
         self.accumulated_impulses = [0.0, 0.0]
         self.planet_contacts = set()

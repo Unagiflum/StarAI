@@ -212,16 +212,16 @@ class PkunkRebirthTests(unittest.TestCase):
             for operation in audio.operations
         ))
 
-    def test_round_start_resets_the_initial_chance(self):
+    def test_round_start_preserves_rebirth_chance_when_reset_is_disabled(self):
         ship = create_ship("Pkunk", 1)
         ship.rebirth_count = 3
 
         ship.on_round_started()
 
-        self.assertEqual(ship.rebirth_count, 0)
+        self.assertEqual(ship.rebirth_count, 3)
         self.assertEqual(ship.current_rebirth_chance, 0.5)
 
-    def test_preserved_winner_resets_when_next_opponent_is_committed(self):
+    def test_preserved_winner_keeps_rebirth_chance_for_next_opponent(self):
         ship = create_ship("Pkunk", 1)
         first_opponent = create_ship("Earthling", 2)
         simulation = BattleSimulation(
@@ -238,7 +238,7 @@ class PkunkRebirthTests(unittest.TestCase):
 
         self.assertIs(simulation.player1, ship)
         self.assertIs(ship.opponent, next_opponent)
-        self.assertEqual(ship.rebirth_count, 0)
+        self.assertEqual(ship.rebirth_count, 2)
         self.assertEqual(ship.current_rebirth_chance, 0.5)
 
     def test_staggered_pending_rebirth_does_not_count_as_a_win(self):

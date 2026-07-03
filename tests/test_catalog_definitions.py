@@ -67,6 +67,7 @@ class CatalogDefinitionTests(unittest.TestCase):
         self.assertEqual(ship.fade_duration, 8)
         self.assertEqual(ship.saw_count, 8)
         self.assertEqual(ship.gas_count, 16)
+        self.assertTrue(ship.reset_rebirth_chance)
         self.assertIsNone(ship.circle_size)
         self.assertIsNone(ship.circle_gap)
         self.assertEqual(
