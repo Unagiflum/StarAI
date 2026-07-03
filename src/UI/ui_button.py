@@ -232,6 +232,7 @@ class KeyBinding(Button):
         bg_color=ui.DARK_GREY,
         hover_color=ui.DARK_GREEN,
         text_color=ui.WHITE,
+        border_color=ui.WHITE,
     ):
         super().__init__(
             x,
@@ -248,6 +249,7 @@ class KeyBinding(Button):
         self.default_key = default_key
         self.key = default_key
         self.waiting_for_key = False
+        self.border_color = border_color
 
     def handle_event(self, event, sound_manager=None):
         if event.type == pygame.MOUSEBUTTONDOWN:
@@ -283,9 +285,22 @@ class KeyBinding(Button):
         else:
             color = self.bg_color
 
-        # Draw the button background
-        pygame.draw.rect(surface, color, self.rect, border_radius=5)
-        pygame.draw.rect(surface, ui.WHITE, self.rect, 2, border_radius=5)  # Border
+        # Alpha-blend the fill while keeping the border fully opaque.
+        button_surface = pygame.Surface(self.rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(
+            button_surface,
+            color,
+            button_surface.get_rect(),
+            border_radius=5,
+        )
+        surface.blit(button_surface, self.rect)
+        pygame.draw.rect(
+            surface,
+            self.border_color,
+            self.rect,
+            2,
+            border_radius=5,
+        )
 
         # Decide which text to display
         if self.waiting_for_key:

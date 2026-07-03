@@ -20,10 +20,6 @@ from src.persistence import (
 )
 
 
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 @dataclass(frozen=True)
 class GameSettings:
     bindings: Mapping[str, int]
@@ -170,80 +166,6 @@ class DisplaySettingsRepository:
             return self.default()
 
     def save(self, settings: DisplaySettings) -> None:
-        atomic_write_json(self.path, self.codec.encode(settings))
-
-
-@dataclass(frozen=True)
-class TrainingSettings:
-    learning_rate: float
-    discount_factor: float
-    epsilon: float
-    number_of_hidden_layers: int
-    layer_size: int
-    batch_size: int
-
-    def to_dict(self) -> dict[str, int | float]:
-        return {
-            "learning_rate": self.learning_rate,
-            "discount_factor": self.discount_factor,
-            "epsilon": self.epsilon,
-            "number_of_hidden_layers": self.number_of_hidden_layers,
-            "layer_size": self.layer_size,
-            "batch_size": self.batch_size,
-        }
-
-
-class TrainingSettingsCodec:
-    _ranges = {
-        "learning_rate": (0.0001, 0.01),
-        "discount_factor": (0.8, 1.0),
-        "epsilon": (0.0, 1.0),
-        "number_of_hidden_layers": (1, 20),
-        "layer_size": (16, 512),
-        "batch_size": (32, 256),
-    }
-    _integer_fields = {"number_of_hidden_layers", "layer_size", "batch_size"}
-
-    def __init__(self, defaults: Mapping[str, int | float]):
-        self.defaults = dict(defaults)
-
-    def _value(self, name: str, value: Any) -> int | float:
-        if name in self._integer_fields:
-            if not isinstance(value, int) or isinstance(value, bool):
-                raise PersistenceValidationError(f"{name} must be an integer")
-        elif not _is_number(value):
-            raise PersistenceValidationError(f"{name} must be a number")
-        minimum, maximum = self._ranges[name]
-        if not minimum <= value <= maximum:
-            raise PersistenceValidationError(f"{name} is outside its supported range")
-        return value if name in self._integer_fields else float(value)
-
-    def decode(self, value: Any) -> TrainingSettings:
-        loaded = require_object(value, "Training settings")
-        values = merge_validated_defaults(self.defaults, loaded, self._value)
-        return TrainingSettings(**values)
-
-    def encode(self, settings: TrainingSettings) -> dict[str, int | float]:
-        return {
-            name: self._value(name, value) for name, value in settings.to_dict().items()
-        }
-
-
-class TrainingSettingsRepository:
-    def __init__(self, path: Path, defaults: Mapping[str, int | float]):
-        self.path = Path(path)
-        self.codec = TrainingSettingsCodec(defaults)
-
-    def default(self) -> TrainingSettings:
-        return self.codec.decode({})
-
-    def load(self) -> TrainingSettings:
-        try:
-            return self.codec.decode(read_json(self.path))
-        except EXPECTED_READ_ERRORS:
-            return self.default()
-
-    def save(self, settings: TrainingSettings) -> None:
         atomic_write_json(self.path, self.codec.encode(settings))
 
 

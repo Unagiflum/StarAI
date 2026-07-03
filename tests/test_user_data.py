@@ -19,10 +19,6 @@ class UserDataInitializationTests(unittest.TestCase):
                 const.DEFAULT_DISPLAY_JSON_PATH.read_bytes(),
             )
             self.assertEqual(
-                paths["train_settings"].read_bytes(),
-                const.DEFAULT_TRAINING_JSON_PATH.read_bytes(),
-            )
-            self.assertEqual(
                 paths["fleets"].read_bytes(),
                 const.DEFAULT_FLEETS_JSON_PATH.read_bytes(),
             )

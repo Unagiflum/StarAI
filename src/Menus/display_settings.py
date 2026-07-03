@@ -43,11 +43,34 @@ def run(screen, menu_sound_manager=None, audio_service=None):
         const.MENU_BG_PATH, const.SCREEN_WIDTH, const.SCREEN_HEIGHT
     )
 
+    panel_left = int(const.SCREEN_WIDTH * 0.24)
+    panel_width = int(const.SCREEN_WIDTH * 0.52)
+    panel_gap = int(const.SCREEN_HEIGHT * 0.012)
+    panel_height = int(const.SCREEN_HEIGHT * 0.12)
+    panel_rects = tuple(
+        pygame.Rect(
+            panel_left,
+            int(const.SCREEN_HEIGHT * 0.20) + index * (panel_height + panel_gap),
+            panel_width,
+            panel_height,
+        )
+        for index in range(3)
+    )
+    panel_surfaces = []
+    for panel_rect in panel_rects:
+        panel_surface = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(
+            panel_surface,
+            ui.SETTINGS_PANEL,
+            panel_surface.get_rect(),
+            border_radius=5,
+        )
+        panel_surfaces.append(panel_surface)
     control_left = int(const.SCREEN_WIDTH * 0.25)
     control_width = int(const.SCREEN_WIDTH * 0.5)
     frame_rate = ui_slider.Slider(
         control_left,
-        int(const.SCREEN_HEIGHT * 0.23),
+        panel_rects[0].y + int(const.SCREEN_HEIGHT * 0.02),
         control_width,
         24,
         120,
@@ -55,6 +78,8 @@ def run(screen, menu_sound_manager=None, audio_service=None):
         "Video Frame Rate",
         is_int=True,
         step=24,
+        bg_color=ui.MENU_BUTTON_COLOR,
+        hover_color=ui.MENU_BUTTON_COLOR_HI,
     )
 
     selected_crosshairs = [settings.ship_crosshairs]
@@ -65,7 +90,7 @@ def run(screen, menu_sound_manager=None, audio_service=None):
         for button, (_, option_value) in zip(radio_buttons, CROSSHAIR_OPTIONS):
             button.selected = option_value == value
 
-    radio_top = int(const.SCREEN_HEIGHT * 0.40)
+    radio_top = panel_rects[1].y + int(const.SCREEN_HEIGHT * 0.045)
     radio_width = control_width // len(CROSSHAIR_OPTIONS) - 8
     for index, (label, value) in enumerate(CROSSHAIR_OPTIONS):
         radio_buttons.append(
@@ -82,7 +107,7 @@ def run(screen, menu_sound_manager=None, audio_service=None):
 
     gravity_marker = ui_button.Checkbox(
         control_left,
-        int(const.SCREEN_HEIGHT * 0.57),
+        panel_rects[2].y + int(const.SCREEN_HEIGHT * 0.03),
         control_width,
         int(const.SCREEN_HEIGHT * 0.06),
         "Show Planet Gravity Marker",
@@ -146,6 +171,8 @@ def run(screen, menu_sound_manager=None, audio_service=None):
             screen, "Display Settings", TITLE_FONT_SIZE,
             int(0.1 * const.SCREEN_HEIGHT),
         )
+        for panel_rect, panel_surface in zip(panel_rects, panel_surfaces):
+            screen.blit(panel_surface, panel_rect)
         frame_rate.draw(screen, font)
 
         label = font.render("Ship Color Crosshairs", True, ui.WHITE)

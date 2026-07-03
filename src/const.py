@@ -171,12 +171,10 @@ PROJ_GAP = 5
 # File Paths
 DEFAULT_GAME_JSON_PATH = source_path("Config/game_settings.json")
 DEFAULT_DISPLAY_JSON_PATH = source_path("Config/display_settings.json")
-DEFAULT_TRAINING_JSON_PATH = source_path("Config/train_settings.json")
 DEFAULT_FLEETS_JSON_PATH = source_path("Config/fleets.json")
 
 GAME_JSON_PATH = USER_DATA_ROOT / "game_settings.json"
 DISPLAY_JSON_PATH = USER_DATA_ROOT / "display_settings.json"
-TRAINING_JSON_PATH = USER_DATA_ROOT / "train_settings.json"
 FLEETS_JSON_PATH = USER_DATA_ROOT / "fleets.json"
 
 SHIPS_JSON_PATH = source_path("Objects/Ships/space_ships.json")
@@ -203,15 +201,6 @@ DEFAULT_KEYS = {
     "Player 2: Forward": pygame.K_UP,
     "Player 2: Action 1": pygame.K_RCTRL,
     "Player 2: Action 2": pygame.K_RSHIFT,
-}
-
-DEFAULT_TRAINING = {
-    "learning_rate": 0.001,
-    "discount_factor": 0.99,
-    "epsilon": 1.0,
-    "number_of_hidden_layers": 3,
-    "layer_size": 128,
-    "batch_size": 64,
 }
 
 DEFAULT_DISPLAY = {
@@ -246,13 +235,11 @@ def initialize_user_data(user_data_root=None):
     paths = {
         "game_settings": root / "game_settings.json",
         "display_settings": root / "display_settings.json",
-        "train_settings": root / "train_settings.json",
         "fleets": root / "fleets.json",
     }
     defaults = {
         "game_settings": DEFAULT_GAME_JSON_PATH,
         "display_settings": DEFAULT_DISPLAY_JSON_PATH,
-        "train_settings": DEFAULT_TRAINING_JSON_PATH,
         "fleets": DEFAULT_FLEETS_JSON_PATH,
     }
     for name, destination in paths.items():

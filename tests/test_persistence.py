@@ -19,8 +19,6 @@ from src.configuration import (
     FleetsRepository,
     GameSettingsRepository,
     PlayerFleet,
-    TrainingSettings,
-    TrainingSettingsRepository,
 )
 from src.persistence import PersistenceValidationError, atomic_write_json
 
@@ -68,42 +66,6 @@ class GameSettingsPersistenceTests(unittest.TestCase):
         self.assertEqual(saved["Player 1: Left"], pygame.K_z)
         self.assertEqual(list(saved), list(const.DEFAULT_KEYS))
         self.assertEqual(loaded.key_names()["Player 1: Left"], "z")
-
-
-class TrainingSettingsPersistenceTests(unittest.TestCase):
-    def repository(self, directory):
-        return TrainingSettingsRepository(
-            Path(directory) / "training.json", const.DEFAULT_TRAINING
-        )
-
-    def test_partial_settings_merge_defaults_and_invalid_ranges_fall_back(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "training.json"
-            path.write_text(json.dumps({
-                "learning_rate": 0.005,
-                "epsilon": 2.0,
-                "batch_size": "64",
-            }), encoding="utf-8")
-            settings = self.repository(directory).load().to_dict()
-
-        self.assertEqual(settings["learning_rate"], 0.005)
-        self.assertEqual(settings["epsilon"], const.DEFAULT_TRAINING["epsilon"])
-        self.assertEqual(settings["batch_size"], const.DEFAULT_TRAINING["batch_size"])
-        self.assertEqual(
-            settings["number_of_hidden_layers"],
-            const.DEFAULT_TRAINING["number_of_hidden_layers"],
-        )
-
-    def test_round_trip_preserves_training_json_shape(self):
-        settings = TrainingSettings(0.002, 0.95, 0.5, 4, 256, 128)
-        with tempfile.TemporaryDirectory() as directory:
-            repository = self.repository(directory)
-            repository.save(settings)
-            saved = json.loads(repository.path.read_text(encoding="utf-8"))
-            loaded = repository.load()
-
-        self.assertEqual(saved, settings.to_dict())
-        self.assertEqual(loaded, settings)
 
 
 class FleetPersistenceTests(unittest.TestCase):

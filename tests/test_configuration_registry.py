@@ -40,7 +40,6 @@ class ConfigurationPathTests(unittest.TestCase):
         resource_paths = (
             const.DEFAULT_GAME_JSON_PATH,
             const.DEFAULT_DISPLAY_JSON_PATH,
-            const.DEFAULT_TRAINING_JSON_PATH,
             const.DEFAULT_FLEETS_JSON_PATH,
             const.SHIPS_JSON_PATH,
             const.ABILITIES_JSON_PATH,
@@ -55,7 +54,6 @@ class ConfigurationPathTests(unittest.TestCase):
         user_paths = (
             const.GAME_JSON_PATH,
             const.DISPLAY_JSON_PATH,
-            const.TRAINING_JSON_PATH,
             const.FLEETS_JSON_PATH,
         )
 
