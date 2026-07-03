@@ -1,15 +1,46 @@
 """Authoritative battle object storage and typed object queries."""
 
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from src.Battle.effects import BattleEffect
+from src.collision_capabilities import CollisionRole
 from src.Objects.object import Object, ThrustMarker
 from src.Objects.Space.space_obj import Asteroid, Planet, Star
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
 
 T = TypeVar("T")
+
+_COLLISION_GROUP_BY_ROLE = {
+    CollisionRole.SHIP: "ships",
+    CollisionRole.PROJECTILE: "projectiles",
+    CollisionRole.SPECIAL_OBJECT: "special_objects",
+    CollisionRole.ASTEROID: "asteroids",
+    CollisionRole.PLANET: "planets",
+}
+
+
+@dataclass
+class CollisionFrameSnapshot:
+    """One stable-order classification pass for collision handling.
+
+    This object is frame-local.  ``World`` remains the sole authoritative
+    store, while collision code avoids repeatedly deriving the same typed
+    lists from it.
+    """
+
+    objects: list[Any] = field(default_factory=list)
+    ships: list[SpaceShip] = field(default_factory=list)
+    projectiles: list[Ability] = field(default_factory=list)
+    special_objects: list[Ability] = field(default_factory=list)
+    lasers: list[Ability] = field(default_factory=list)
+    area_abilities: list[Ability] = field(default_factory=list)
+    asteroids: list[Asteroid] = field(default_factory=list)
+    planets: list[Planet] = field(default_factory=list)
+    pending_area_damage: list[Any] = field(default_factory=list)
+    spatial_categories: dict[int, frozenset[str]] = field(default_factory=dict)
 
 
 class World:
@@ -48,6 +79,51 @@ class World:
 
     def snapshot(self) -> list[Any]:
         return self._objects[:]
+
+    def collision_snapshot(self) -> CollisionFrameSnapshot:
+        """Classify collision-relevant objects in one authoritative pass."""
+        snapshot = CollisionFrameSnapshot(objects=self.snapshot())
+        for obj in snapshot.objects:
+            categories = set()
+
+            if isinstance(obj, SpaceShip):
+                snapshot.ships.append(obj)
+            elif isinstance(obj, Asteroid):
+                snapshot.asteroids.append(obj)
+            elif isinstance(obj, Planet):
+                snapshot.planets.append(obj)
+            elif isinstance(obj, Ability):
+                if obj.type == "projectile":
+                    snapshot.projectiles.append(obj)
+                elif obj.type == "special_object":
+                    snapshot.special_objects.append(obj)
+                elif obj.type == "laser":
+                    snapshot.lasers.append(obj)
+                elif obj.type == "area":
+                    snapshot.area_abilities.append(obj)
+
+            collision_capabilities = getattr(obj, "collision_capabilities", None)
+            role = getattr(collision_capabilities, "role", CollisionRole.NONE)
+            role_category = _COLLISION_GROUP_BY_ROLE.get(role)
+            if role_category is not None:
+                categories.update(
+                    (role_category, "laser_targets", "area_targets")
+                )
+            elif role is CollisionRole.AREA:
+                categories.add("laser_targets")
+
+            area_capabilities = getattr(obj, "area_damage_capabilities", None)
+            if (
+                area_capabilities is not None
+                and area_capabilities.emits
+                and getattr(obj, "currently_alive", True)
+                and getattr(obj, "area_damage_pending", False)
+            ):
+                snapshot.pending_area_damage.append(obj)
+
+            if categories:
+                snapshot.spatial_categories[id(obj)] = frozenset(categories)
+        return snapshot
 
     def add(self, obj: Any) -> None:
         if hasattr(obj, "position") and hasattr(obj, "previous_position"):

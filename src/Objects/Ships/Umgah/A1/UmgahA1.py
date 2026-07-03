@@ -74,6 +74,11 @@ class UmgahA1(Ability):
             return 0
         return self.current_damage
 
+    def maximum_area_damage_radius(self):
+        from src.Battle.collision_geometry import mask_canvas_radius, mask_radius
+
+        return max(mask_radius(self), mask_canvas_radius(self))
+
     def on_planet_area_hit(self, planet, effects, delta, distance, damage):
         if distance > 0:
             normal = [-delta[0] / distance, -delta[1] / distance]

@@ -237,6 +237,21 @@ class Ability(PlayerObject):
         """Return damage for one eligible area-damage target."""
         return self.damage_at_distance(distance)
 
+    def maximum_area_damage_radius(self):
+        """Return a finite spatial-query radius, or ``None`` to force a scan.
+
+        Radial abilities conventionally expose ``range``.  Mask-shaped area
+        abilities override this method with their current mask radius.
+        """
+        effect_range = getattr(self, "range", None)
+        if (
+            isinstance(effect_range, (int, float))
+            and math.isfinite(effect_range)
+            and effect_range >= 0
+        ):
+            return float(effect_range)
+        return None
+
     def on_area_damage_hit(self, target, damage):
         """Handle ability-owned state after area damage is applied."""
 

@@ -150,6 +150,11 @@ class ZoqFotPikA2(Ability):
             return 0
         return self.current_damage
 
+    def maximum_area_damage_radius(self):
+        from src.Battle.collision_geometry import mask_canvas_radius, mask_radius
+
+        return max(mask_radius(self), mask_canvas_radius(self))
+
     def on_area_damage_hit(self, target, damage):
         self._damaged_targets.add(target)
         capabilities = getattr(

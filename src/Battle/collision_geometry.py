@@ -1,6 +1,8 @@
 """Read-only collision geometry for the wrapped battle arena."""
 
 import math
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 import src.const as const
 from src.Objects.object import Object
@@ -8,14 +10,64 @@ from src.Objects.Space.space_obj import Planet
 from src.toroidal import nearest_position, wrapped_delta, wrapped_distance
 
 
-def laser_hit_info(laser, target):
-    segment_provider = getattr(laser, "collision_segments", None)
-    if segment_provider is None:
-        start = getattr(laser, "start_position", laser.parent.position)
-        end = getattr(laser, "end_position", laser.position)
-        raw_segments = ((start, end),)
-    else:
-        raw_segments = segment_provider()
+_geometry_cache = ContextVar("collision_geometry_cache", default=None)
+
+
+@contextmanager
+def pair_geometry_cache():
+    """Cache immutable geometry lookups for one pair dispatch.
+
+    Positions are intentionally never cached because swept tests and response
+    handlers can reposition bodies.  Masks, dimensions, and derived radii are
+    stable during one authoritative pair test and are commonly requested at
+    every swept sample.
+    """
+    if _geometry_cache.get() is not None:
+        yield
+        return
+
+    token = _geometry_cache.set({})
+    try:
+        yield
+    finally:
+        _geometry_cache.reset(token)
+
+
+def invalidate_geometry(obj):
+    """Drop cached dimensions after an authoritative response changes an object."""
+    cache = _geometry_cache.get()
+    if cache is not None:
+        cache.pop(id(obj), None)
+
+
+def geometry_cache_active():
+    return _geometry_cache.get() is not None
+
+
+def _cached_geometry_value(obj, key, factory):
+    cache = _geometry_cache.get()
+    if cache is None:
+        return factory()
+    identity = id(obj)
+    entry = cache.get(identity)
+    if entry is None or entry[0] is not obj:
+        entry = (obj, {})
+        cache[identity] = entry
+    values = entry[1]
+    if key not in values:
+        values[key] = factory()
+    return values[key]
+
+
+def laser_hit_info(laser, target, *, raw_segments=None):
+    if raw_segments is None:
+        segment_provider = getattr(laser, "collision_segments", None)
+        if segment_provider is None:
+            start = getattr(laser, "start_position", laser.parent.position)
+            end = getattr(laser, "end_position", laser.position)
+            raw_segments = ((start, end),)
+        else:
+            raw_segments = segment_provider()
     laser_width = getattr(laser, "LASER_WIDTH", 1)
     target_mask = get_collision_mask(target)
     path_distance = 0.0
@@ -94,7 +146,21 @@ def sample_laser_mask_hit(start, end, target, target_mask, laser_width=1):
     # Sort offsets by absolute distance to center so central hit is favored
     offsets.sort(key=abs)
 
-    for step in range(steps + 1):
+    sample_range = _segment_box_sample_range(
+        start,
+        dx,
+        dy,
+        steps,
+        left - abs(nx) * half_width,
+        left + target_size[0] + abs(nx) * half_width,
+        top - abs(ny) * half_width,
+        top + target_size[1] + abs(ny) * half_width,
+    )
+    if sample_range is None:
+        return None
+
+    first_step, last_step = sample_range
+    for step in range(first_step, last_step + 1):
         ratio = step / steps
         base_x = start[0] + dx * ratio
         base_y = start[1] + dy * ratio
@@ -107,13 +173,44 @@ def sample_laser_mask_hit(start, end, target, target_mask, laser_width=1):
             mask_y = int(y - top)
             
             if (
-                0 <= mask_x < target_mask.get_size()[0]
-                and 0 <= mask_y < target_mask.get_size()[1]
+                0 <= mask_x < target_size[0]
+                and 0 <= mask_y < target_size[1]
                 and target_mask.get_at((mask_x, mask_y))
             ):
                 return [x, y]
 
     return None
+
+
+def _segment_box_sample_range(start, dx, dy, steps, left, right, top, bottom):
+    """Return original beam sample indices whose centers can reach a mask.
+
+    The returned indices use the same full-segment ``step / steps`` ratios as
+    the legacy loop, so this optimization cannot shift pixel sample locations.
+    """
+    enter = 0.0
+    leave = 1.0
+    for origin, delta, low, high in (
+        (start[0], dx, left, right),
+        (start[1], dy, top, bottom),
+    ):
+        if delta == 0:
+            if origin < low or origin > high:
+                return None
+            continue
+        axis_enter = (low - origin) / delta
+        axis_leave = (high - origin) / delta
+        if axis_enter > axis_leave:
+            axis_enter, axis_leave = axis_leave, axis_enter
+        enter = max(enter, axis_enter)
+        leave = min(leave, axis_leave)
+        if enter > leave:
+            return None
+
+    epsilon = 1e-12
+    first = max(0, int(math.ceil(enter * steps - epsilon)))
+    last = min(steps, int(math.floor(leave * steps + epsilon)))
+    return (first, last) if first <= last else None
 
 
 def collision_info(obj, other):
@@ -137,8 +234,8 @@ def objects_overlap(obj, other, overlap):
     if obj_mask is None or other_mask is None:
         return True
 
-    obj_size = obj_mask.get_size()
-    other_size = other_mask.get_size()
+    obj_size = collision_mask_size(obj, obj_mask)
+    other_size = collision_mask_size(other, other_mask)
     delta = wrapped_delta(other.position, obj.position)
     offset = (
         int(round(-delta[0] + obj_size[0] / 2 - other_size[0] / 2)),
@@ -317,6 +414,15 @@ def swept_overlap_positions(obj, other):
     return None, None
 
 
+def objects_overlap_during_frame(obj, other):
+    """Read-only exact overlap predicate for debug broad-phase validation."""
+    _, _, overlap = collision_info(obj, other)
+    if objects_overlap(obj, other, overlap):
+        return True
+    obj_position, _ = swept_overlap_positions(obj, other)
+    return obj_position is not None
+
+
 def swept_paths_can_overlap(
     obj,
     other,
@@ -393,8 +499,8 @@ def mask_overlap_contact(obj, other, obj_position, other_position):
     if obj_mask is None or other_mask is None:
         return None
 
-    obj_size = obj_mask.get_size()
-    other_size = other_mask.get_size()
+    obj_size = collision_mask_size(obj, obj_mask)
+    other_size = collision_mask_size(other, other_mask)
     delta = wrapped_delta(other_position, obj_position)
     offset = (
         int(round(-delta[0] + obj_size[0] / 2 - other_size[0] / 2)),
@@ -476,8 +582,8 @@ def objects_overlap_at_positions(obj, other, obj_position, other_position):
     if obj_mask is None or other_mask is None:
         return True
 
-    obj_size = obj_mask.get_size()
-    other_size = other_mask.get_size()
+    obj_size = collision_mask_size(obj, obj_mask)
+    other_size = collision_mask_size(other, other_mask)
     offset = (
         int(round(-delta[0] + obj_size[0] / 2 - other_size[0] / 2)),
         int(round(-delta[1] + obj_size[1] / 2 - other_size[1] / 2)),
@@ -486,22 +592,36 @@ def objects_overlap_at_positions(obj, other, obj_position, other_position):
 
 
 def get_collision_mask(obj):
-    if isinstance(obj, Object):
-        return obj.get_collision_mask()
+    def lookup():
+        if isinstance(obj, Object):
+            return obj.get_collision_mask()
 
-    # Compatibility boundary for collision test doubles.
-    get_mask = getattr(obj, "get_collision_mask", None)
-    return get_mask() if get_mask is not None else None
+        # Compatibility boundary for collision test doubles.
+        get_mask = getattr(obj, "get_collision_mask", None)
+        return get_mask() if get_mask is not None else None
+
+    return _cached_geometry_value(obj, "mask", lookup)
+
+
+def collision_mask_size(obj, mask=None):
+    def lookup():
+        collision_mask = mask if mask is not None else get_collision_mask(obj)
+        return collision_mask.get_size() if collision_mask is not None else None
+
+    return _cached_geometry_value(obj, "mask_size", lookup)
 
 
 def collision_size(obj):
-    if isinstance(obj, Planet):
-        return [obj.diameter, obj.diameter]
-    size = getattr(obj, "size", None)
-    if size is not None:
-        return size
-    mask = get_collision_mask(obj)
-    return mask.get_size() if mask is not None else [0, 0]
+    def lookup():
+        if isinstance(obj, Planet):
+            return [obj.diameter, obj.diameter]
+        size = getattr(obj, "size", None)
+        if size is not None:
+            return size
+        mask = get_collision_mask(obj)
+        return mask.get_size() if mask is not None else [0, 0]
+
+    return _cached_geometry_value(obj, "size", lookup)
 
 
 def mask_broadphase_overlap(obj, other):
@@ -596,11 +716,26 @@ def segment_direction(start, end):
 
 
 def radius(obj):
-    if isinstance(obj, Planet):
-        return obj.diameter / 2
-    return max(collision_size(obj)) / 2
+    def lookup():
+        if isinstance(obj, Planet):
+            return obj.diameter / 2
+        return max(collision_size(obj)) / 2
+
+    return _cached_geometry_value(obj, "radius", lookup)
 
 
 def mask_radius(obj):
-    size = collision_size(obj)
-    return math.hypot(size[0], size[1]) / 2
+    def lookup():
+        size = collision_size(obj)
+        return math.hypot(size[0], size[1]) / 2
+
+    return _cached_geometry_value(obj, "mask_radius", lookup)
+
+
+def mask_canvas_radius(obj):
+    """Return the current mask canvas radius for conservative spatial bounds."""
+    def lookup():
+        size = collision_mask_size(obj)
+        return math.hypot(size[0], size[1]) / 2 if size is not None else 0.0
+
+    return _cached_geometry_value(obj, "mask_canvas_radius", lookup)
