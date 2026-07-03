@@ -179,7 +179,7 @@ def run_game_play(screen, menu_sound_manager=None, audio_service=None):
             panel_width,
             panel_height,
         )
-        for index in range(2)
+        for index in range(3)
     )
     panel_surfaces = []
     for panel_rect in panel_rects:
@@ -219,12 +219,25 @@ def run_game_play(screen, menu_sound_manager=None, audio_service=None):
         hover_color=ui.MENU_BUTTON_COLOR_HI,
         values=(16, 32, 64),
     )
+    repeat_key_delay = ui_slider.Slider(
+        control_left,
+        panel_rects[2].y + int(const.SCREEN_HEIGHT * 0.02),
+        control_width,
+        0,
+        10,
+        settings.repeat_key_delay,
+        "Repeat Key Delay",
+        is_int=True,
+        bg_color=ui.MENU_BUTTON_COLOR,
+        hover_color=ui.MENU_BUTTON_COLOR_HI,
+    )
 
     def save_and_exit():
         new_settings = GameSettings(
             settings.bindings,
             asteroid_count=int(asteroid_count.value),
             ship_directions=int(ship_directions.value),
+            repeat_key_delay=int(repeat_key_delay.value),
         )
         try:
             _settings_repository().save(new_settings)
@@ -263,6 +276,7 @@ def run_game_play(screen, menu_sound_manager=None, audio_service=None):
             _exit_on_quit(event)
             asteroid_count.handle_event(event, menu_sound_manager)
             ship_directions.handle_event(event, menu_sound_manager)
+            repeat_key_delay.handle_event(event, menu_sound_manager)
             save_button.handle_event(event, menu_sound_manager)
             cancel_button.handle_event(event, menu_sound_manager)
 
@@ -274,6 +288,7 @@ def run_game_play(screen, menu_sound_manager=None, audio_service=None):
             screen.blit(panel_surface, panel_rect)
         asteroid_count.draw(screen, font)
         ship_directions.draw(screen, font)
+        repeat_key_delay.draw(screen, font)
         save_button.draw(screen, font)
         cancel_button.draw(screen, font)
         pygame.display.flip()

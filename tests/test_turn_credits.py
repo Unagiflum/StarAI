@@ -24,12 +24,14 @@ class TurnCreditTests(unittest.TestCase):
             const.DEFAULT_KEYS,
             asteroid_count=const.ASTEROID_COUNT,
             ship_directions=const.SHIP_DIRECTIONS,
+            repeat_key_delay=const.INPUT_REPEAT_DELAY_FRAMES,
         )
         const.apply_game_settings(
             GameSettings(
                 const.DEFAULT_KEYS,
                 asteroid_count=const.ASTEROID_COUNT,
                 ship_directions=64,
+                repeat_key_delay=const.INPUT_REPEAT_DELAY_FRAMES,
             )
         )
         self.resources = AssetManager()

@@ -223,16 +223,18 @@ DEFAULT_DISPLAY = {
 DEFAULT_GAMEPLAY = {
     "asteroid_count": 5,
     "ship_directions": 16,
+    "repeat_key_delay": 3,
 }
 
 
 def apply_game_settings(settings):
     """Apply game settings that currently affect runtime behavior."""
-    global ASTEROID_COUNT, DIRECTIONS_MULTIPLIER
+    global ASTEROID_COUNT, DIRECTIONS_MULTIPLIER, INPUT_REPEAT_DELAY_FRAMES
 
     previous_multiplier = DIRECTIONS_MULTIPLIER
     ASTEROID_COUNT = settings.asteroid_count
     DIRECTIONS_MULTIPLIER = settings.ship_directions // ASSET_SPRITE_DIRECTIONS
+    INPUT_REPEAT_DELAY_FRAMES = settings.repeat_key_delay
     _recompute_direction_constants()
     return DIRECTIONS_MULTIPLIER != previous_multiplier
 

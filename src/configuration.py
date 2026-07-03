@@ -25,6 +25,7 @@ class GameSettings:
     bindings: Mapping[str, int]
     asteroid_count: int = 5
     ship_directions: int = 16
+    repeat_key_delay: int = 3
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "bindings", MappingProxyType(dict(self.bindings)))
@@ -40,6 +41,7 @@ class GameSettingsCodec:
     DEFAULT_GAMEPLAY = {
         "asteroid_count": 5,
         "ship_directions": 16,
+        "repeat_key_delay": 3,
     }
 
     def __init__(
@@ -74,12 +76,16 @@ class GameSettingsCodec:
             return value
         if name == "ship_directions" and value in (16, 32, 64):
             return value
+        if name == "repeat_key_delay" and 0 <= value <= 10:
+            return value
         if name == "asteroid_count":
             raise PersistenceValidationError("asteroid_count must be from 1 to 20")
         if name == "ship_directions":
             raise PersistenceValidationError(
                 "ship_directions must be one of 16, 32, or 64"
             )
+        if name == "repeat_key_delay":
+            raise PersistenceValidationError("repeat_key_delay must be from 0 to 10")
         raise PersistenceValidationError(f"Unknown game setting {name}")
 
     def from_key_names(
@@ -104,6 +110,7 @@ class GameSettingsCodec:
             bindings,
             asteroid_count=current.asteroid_count,
             ship_directions=current.ship_directions,
+            repeat_key_delay=current.repeat_key_delay,
         )
 
     def encode(self, settings: GameSettings) -> dict[str, int]:
@@ -118,6 +125,9 @@ class GameSettingsCodec:
         )
         encoded["ship_directions"] = self._gameplay_value(
             "ship_directions", settings.ship_directions
+        )
+        encoded["repeat_key_delay"] = self._gameplay_value(
+            "repeat_key_delay", settings.repeat_key_delay
         )
         return encoded
 

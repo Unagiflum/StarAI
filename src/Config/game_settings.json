@@ -10,5 +10,6 @@
     "Player 2: Action 1": 1073742052,
     "Player 2: Action 2": 1073742053,
     "asteroid_count": 5,
-    "ship_directions": 16
+    "ship_directions": 16,
+    "repeat_key_delay": 3
 }

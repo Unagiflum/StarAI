@@ -33,6 +33,7 @@ class GameSettingsPersistenceTests(unittest.TestCase):
         self.assertEqual(settings.key_codes(), const.DEFAULT_KEYS)
         self.assertEqual(settings.asteroid_count, 5)
         self.assertEqual(settings.ship_directions, 16)
+        self.assertEqual(settings.repeat_key_delay, 3)
 
     def test_malformed_json_uses_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -68,7 +69,12 @@ class GameSettingsPersistenceTests(unittest.TestCase):
         self.assertEqual(saved["Player 1: Left"], pygame.K_z)
         self.assertEqual(
             list(saved),
-            [*const.DEFAULT_KEYS, "asteroid_count", "ship_directions"],
+            [
+                *const.DEFAULT_KEYS,
+                "asteroid_count",
+                "ship_directions",
+                "repeat_key_delay",
+            ],
         )
         self.assertEqual(loaded.key_names()["Player 1: Left"], "z")
 
@@ -79,6 +85,7 @@ class GameSettingsPersistenceTests(unittest.TestCase):
             path.write_text(json.dumps({
                 "asteroid_count": 20,
                 "ship_directions": 64,
+                "repeat_key_delay": 10,
             }), encoding="utf-8")
             settings = repository.load()
             repository.save(settings)
@@ -86,15 +93,18 @@ class GameSettingsPersistenceTests(unittest.TestCase):
 
             self.assertEqual(loaded.asteroid_count, 20)
             self.assertEqual(loaded.ship_directions, 64)
+            self.assertEqual(loaded.repeat_key_delay, 10)
 
             path.write_text(json.dumps({
                 "asteroid_count": 0,
                 "ship_directions": 48,
+                "repeat_key_delay": 11,
             }), encoding="utf-8")
             invalid = repository.load()
 
         self.assertEqual(invalid.asteroid_count, 5)
         self.assertEqual(invalid.ship_directions, 16)
+        self.assertEqual(invalid.repeat_key_delay, 3)
 
     def test_changing_bindings_preserves_gameplay_values(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -102,6 +112,7 @@ class GameSettingsPersistenceTests(unittest.TestCase):
             current = repository.codec.decode({
                 "asteroid_count": 12,
                 "ship_directions": 32,
+                "repeat_key_delay": 0,
             })
             names = current.key_names()
             names["Player 1: Left"] = "z"
@@ -109,14 +120,17 @@ class GameSettingsPersistenceTests(unittest.TestCase):
 
         self.assertEqual(changed.asteroid_count, 12)
         self.assertEqual(changed.ship_directions, 32)
+        self.assertEqual(changed.repeat_key_delay, 0)
 
     def test_gameplay_settings_are_applied_to_runtime(self):
         original_count = const.ASTEROID_COUNT
         original_directions = const.SHIP_DIRECTIONS
+        original_repeat_delay = const.INPUT_REPEAT_DELAY_FRAMES
         codec = self.repository(".").codec
         settings = self.repository(".").codec.decode({
             "asteroid_count": 11,
             "ship_directions": 64,
+            "repeat_key_delay": 7,
         })
         try:
             const.apply_game_settings(settings)
@@ -124,6 +138,7 @@ class GameSettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(const.DIRECTIONS_MULTIPLIER, 4)
             self.assertEqual(const.SHIP_DIRECTIONS, 64)
             self.assertEqual(const.TURN_ANGLE, 360 / 64)
+            self.assertEqual(const.INPUT_REPEAT_DELAY_FRAMES, 7)
             self.assertEqual(
                 const.TOTAL_SPRITE_DIRECTIONS,
                 64 * const.VIDEO_FPS_MULTIPLIER,
@@ -132,6 +147,7 @@ class GameSettingsPersistenceTests(unittest.TestCase):
             const.apply_game_settings(codec.decode({
                 "asteroid_count": original_count,
                 "ship_directions": original_directions,
+                "repeat_key_delay": original_repeat_delay,
             }))
 
 
