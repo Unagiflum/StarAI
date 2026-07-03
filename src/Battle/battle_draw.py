@@ -33,6 +33,8 @@ VIEWPORT_COLUMN_WIDTH = (
 HUD_FILL = (0, 0, 0)
 HUD_BOTTOM_PADDING = 20
 MARINE_REGION_HEIGHT = HUD_BOTTOM_PADDING
+HUD_INSTRUCTION_FONT_SIZE = 30
+HUD_INSTRUCTION_MARGIN = 20
 
 # Derived layout — constant once the screen geometry is set.
 _TOTAL_WIDTH = (BAR_WIDTH * 2) + VIEWPORT_COLUMN_WIDTH
@@ -595,7 +597,29 @@ def draw_battle(
             draw_special_indicator(panel_surface, live_ship)
 
         # Blit the unified panel to the screen
-        screen.blit(panel_surface, (status_x, const.SCREEN_HEIGHT - panel_h))
+        screen.blit(panel_surface, (status_x, 0))
+
+    instruction_font = pygame.font.SysFont(None, HUD_INSTRUCTION_FONT_SIZE)
+    pause_text = instruction_font.render("Press F1 to Pause", True, ui.WHITE)
+    exit_text = instruction_font.render("Press Esc to Exit", True, ui.WHITE)
+    screen.blit(
+        pause_text,
+        pause_text.get_rect(
+            bottomleft=(
+                HUD_INSTRUCTION_MARGIN,
+                const.SCREEN_HEIGHT - HUD_INSTRUCTION_MARGIN,
+            )
+        ),
+    )
+    screen.blit(
+        exit_text,
+        exit_text.get_rect(
+            bottomright=(
+                const.SCREEN_WIDTH - HUD_INSTRUCTION_MARGIN,
+                const.SCREEN_HEIGHT - HUD_INSTRUCTION_MARGIN,
+            )
+        ),
+    )
 
     if is_paused:
         from src.UI.ui import WHITE

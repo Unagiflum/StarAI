@@ -80,7 +80,7 @@ class BattleCountdownTests(unittest.TestCase):
         self.assertEqual(fake_clock.tick.call_count, 6)
         self.assertEqual(fake_clock.reset.call_count, 3)
         self.assertEqual(flip.call_count, 3)
-        set_pos.assert_called_once_with((0, 0))
+        set_pos.assert_called_once_with((0, screen.get_height() - 1))
         self.assertEqual(screen.get_at((0, 0))[:3], ui.BLACK)
 
     def test_window_close_during_countdown_exits_immediately(self):

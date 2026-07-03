@@ -3,6 +3,7 @@ import sys
 import random
 
 from src.UI import ui, ui_button, ui_box
+from src.UI.match_dialog import confirm_end_match
 from src.UI.ship_sprites import (
     load_menu_ship_sprites,
     populate_fleet_panel,
@@ -25,19 +26,33 @@ X_COLOR = (255, 100, 100, 100)
 X_THICKNESS = int(0.2 * FLEET_ICON_SIZE[0])
 
 
-def show_battle_countdown(screen, steps=None, step_time=None):
+def show_battle_countdown(
+    screen,
+    steps=None,
+    step_time=None,
+    *,
+    background=None,
+    overlay_alpha=128,
+):
     """Show a responsive wall-clock countdown before battle resumes."""
     steps = Const.COUNT_DOWN_STEPS if steps is None else steps
     step_time = Const.COUNT_DOWN_TIME if step_time is None else step_time
     if steps < 0 or step_time < 0:
         raise ValueError("Countdown steps and time must be non-negative")
 
-    pygame.mouse.set_pos((0, 0))
     font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.35))
     clock = PresentationClock(Const.FPS, Const.VIDEO_FPS_MULTIPLIER)
+    overlay = None
+    if background is not None:
+        overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, overlay_alpha))
 
     for number in range(steps, 0, -1):
-        screen.fill(ui.BLACK)
+        if background is None:
+            screen.fill(ui.BLACK)
+        else:
+            screen.blit(background, (0, 0))
+            screen.blit(overlay, (0, 0))
         number_surface = font.render(str(number), True, ui.WHITE)
         number_rect = number_surface.get_rect(center=screen.get_rect().center)
         screen.blit(number_surface, number_rect)
@@ -51,6 +66,8 @@ def show_battle_countdown(screen, steps=None, step_time=None):
                     pygame.quit()
                     sys.exit()
             elapsed_seconds += clock.tick()
+
+    pygame.mouse.set_pos((0, screen.get_height() - 1))
 
 
 def draw_x(surface, rect):
@@ -356,6 +373,12 @@ def run(
     )
 
     running = True
+
+    def request_end_match():
+        nonlocal running
+        if confirm_end_match(screen, menu_sound_manager):
+            running = False
+
     while running:
         clock.tick()
 
@@ -366,6 +389,10 @@ def run(
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                request_end_match()
+                continue
 
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mouse_pos = event.pos
@@ -405,15 +432,19 @@ def run(
                 if cancel_button.rect.collidepoint(event.pos):
                     if menu_sound_manager:
                         menu_sound_manager.play_sound("menu")
-                    running = False
+                    request_end_match()
                 elif (
                     confirm_button.rect.collidepoint(event.pos)
                     and selection_state.confirmation_ready
                 ):
                     if menu_sound_manager:
                         menu_sound_manager.play_sound("menu")
-                    show_battle_countdown(screen)
+                    if start_battle:
+                        show_battle_countdown(screen)
                     return confirm_callback()
+
+        if not running:
+            break
 
         if selection_state.confirmation_ready:
             confirm_button.bg_color = ui.OK_GREEN

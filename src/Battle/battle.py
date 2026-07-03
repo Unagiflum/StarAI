@@ -23,6 +23,7 @@ from src.audio import (
 )
 from src.resources import use_asset_manager
 from src.frame_timing import PresentationClock
+from src.UI.match_dialog import confirm_end_match
 import src.const as const
 
 CONTROL_NAMES = ("Forward", "Left", "Right", "Action 1", "Action 2")
@@ -497,6 +498,8 @@ def run(
 
     running = True
     is_paused = False
+    resume_countdown_pending = False
+    resume_countdown_background = None
     pygame.event.clear(pygame.KEYDOWN)
     pygame.event.clear(pygame.KEYUP)
 
@@ -519,17 +522,29 @@ def run(
                     if is_paused:
                         simulation.audio.pause()
                     else:
-                        simulation.audio.unpause()
+                        resume_countdown_pending = True
                 elif event.key == pygame.K_ESCAPE:
-                    simulation.audio.stop_music()
-                    running = False
+                    was_paused = is_paused
+                    frozen_battle_frame = screen.copy()
+                    if not was_paused:
+                        simulation.audio.pause()
+                    if confirm_end_match(screen, menu_sound_manager):
+                        simulation.audio.stop_music()
+                        running = False
+                    elif not was_paused:
+                        resume_countdown_pending = True
+                        resume_countdown_background = frozen_battle_frame
+                    clock.reset()
                 elif event.key in simulation.key_states:
                     accumulated_key_changes.append((event.key, True))
             elif event.type == pygame.KEYUP:
                 if event.key in simulation.key_states:
                     accumulated_key_changes.append((event.key, False))
 
-        if is_paused:
+        if not running:
+            continue
+
+        if is_paused or resume_countdown_pending:
             for key, pressed in accumulated_key_changes:
                 simulation.handle_key_change(key, pressed)
             accumulated_key_changes.clear()
@@ -573,6 +588,8 @@ def run(
                     if not simulation.running:
                         running = False
                         break
+                    simulation.audio.pause()
+                    resume_countdown_pending = True
                     state = simulation.state()
                     interp_t = 0.0
                     break
@@ -580,29 +597,51 @@ def run(
         if not running:
             continue
 
-        # Drawing
-        draw_battle(
-            screen,
-            simulation.world,
-            simulation.border_rect,
-            simulation.border_color,
-            star_field_renderer,
-            camera_targets=(
-                simulation.entry.camera_targets
-                if simulation.entry
-                else battle_aftermath.aftermath_camera_targets(
-                    simulation.aftermath,
-                    simulation.player1,
-                    simulation.player2,
-                    simulation.frame_id,
-                )
-            ),
-            entry_state=simulation.entry,
-            frame_id=simulation.frame_id,
-            original_ships=(simulation.player1, simulation.player2),
-            is_paused=is_paused,
-            interp_t=interp_t,
-        )
+        # Preserve the exact frame behind an Escape confirmation. Redrawing it
+        # here can move interpolation forward even though simulation is paused.
+        if resume_countdown_background is None:
+            draw_battle(
+                screen,
+                simulation.world,
+                simulation.border_rect,
+                simulation.border_color,
+                star_field_renderer,
+                camera_targets=(
+                    simulation.entry.camera_targets
+                    if simulation.entry
+                    else battle_aftermath.aftermath_camera_targets(
+                        simulation.aftermath,
+                        simulation.player1,
+                        simulation.player2,
+                        simulation.frame_id,
+                    )
+                ),
+                entry_state=simulation.entry,
+                frame_id=simulation.frame_id,
+                original_ships=(simulation.player1, simulation.player2),
+                is_paused=is_paused,
+                interp_t=interp_t,
+            )
+
+        if resume_countdown_pending:
+            from src.Menus import pick_ship
+
+            reset_key_states(simulation.key_states)
+            reset_ship_controls(simulation.player1)
+            reset_ship_controls(simulation.player2)
+            accumulated_key_changes.clear()
+            pick_ship.show_battle_countdown(
+                screen,
+                background=resume_countdown_background or screen.copy(),
+                overlay_alpha=128,
+            )
+            pygame.event.clear(pygame.KEYDOWN)
+            pygame.event.clear(pygame.KEYUP)
+            fixed_step.reset()
+            clock.reset()
+            simulation.audio.unpause()
+            resume_countdown_pending = False
+            resume_countdown_background = None
 
 
 def _sync_interpolation_snapshots(game_objects):
