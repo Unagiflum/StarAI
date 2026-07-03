@@ -25,7 +25,7 @@ class EarthlingA2(Ability):
     def _is_in_range(self, target):
         return self._distance_to(target) <= self.LASER_RANGE
 
-    def get_shots(self, max_shots):
+    def get_shots(self):
         valid_targets = []
 
         if (
@@ -47,11 +47,10 @@ class EarthlingA2(Ability):
             if self._is_in_range(obj):
                 valid_targets.append(obj)
 
-        shots = min(max_shots, len(valid_targets))
-        if shots == 0:
+        if not valid_targets:
             return None
 
-        return [EarthlingA2(self.parent, valid_targets[i]) for i in range(shots)]
+        return [EarthlingA2(self.parent, target) for target in valid_targets]
 
     def calculate_end_position(self):
         self.position = self.configured_gun_position()

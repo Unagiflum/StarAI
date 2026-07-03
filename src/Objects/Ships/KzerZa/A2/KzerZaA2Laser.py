@@ -29,7 +29,9 @@ class KzerZaA2Laser(Ability):
         self.start_position = self.configured_gun_position()
         dx, dy = wrapped_delta(self.start_position, self.aim_target.position)
         target_angle = math.degrees(math.atan2(dx, -dy)) % 360
-        direction_step = 360 / self.track_directions
+        direction_step = 360 / (
+            self.track_directions * const.DIRECTIONS_MULTIPLIER
+        )
         shot_angle = round(target_angle / direction_step) * direction_step
         angle = math.radians(shot_angle)
         direction = [math.sin(angle), -math.cos(angle)]

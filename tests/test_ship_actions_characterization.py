@@ -254,7 +254,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(ship.process_controls(49), [])
         self.assertEqual(ship.process_controls(50), [ability])
 
-    def test_earthling_point_defense_consumes_energy_per_spawned_shot(self):
+    def test_earthling_point_defense_consumes_one_cost_for_all_spawned_shots(self):
         ship = create_ship("Earthling", 1)
         shots = [object(), object(), object()]
         launch_sound = mock.Mock()
@@ -262,7 +262,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
             launch_sound=launch_sound,
             get_shots=mock.Mock(return_value=shots),
         )
-        ship.current_energy = ship.a2_cost * 3 + 1
+        ship.current_energy = ship.a2_cost + 1
 
         with mock.patch(
             "src.Objects.Ships.Earthling.Earthling.EarthlingA2",
@@ -273,7 +273,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(result, shots)
         self.assertEqual(ship.current_energy, 1)
         self.assertEqual(ship.action2_timer, const.cooldown_frames(ship.a2_wait))
-        point_defense.get_shots.assert_called_once_with(3)
+        point_defense.get_shots.assert_called_once_with()
         launch_sound.play.assert_called_once_with()
 
     def test_earthling_point_defense_does_not_commit_when_there_are_no_targets(self):
@@ -636,6 +636,27 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(laser.start_position, [500, 500])
         draw_start = draw_laser.call_args.args[2]
         self.assertEqual(draw_start, (const.SCREEN_LEFT + 500, 491))
+
+    def test_kzerza_fighter_laser_directions_scale_with_direction_multiplier(self):
+        carrier = create_ship("KzerZa", 1)
+        target = create_ship("Shofixti", 2)
+        carrier.position = [500, 500]
+        fighter = create_ability("KzerZaA2", carrier)
+        fighter.position = [500, 500]
+
+        target_angle = math.radians(14)
+        target.position = [
+            500 + math.sin(target_angle) * 100,
+            500 - math.cos(target_angle) * 100,
+        ]
+
+        with mock.patch.object(const, "DIRECTIONS_MULTIPLIER", 2):
+            laser = create_ability("KzerZaA2Laser", fighter, target)
+
+        dx = laser.end_position[0] - laser.start_position[0]
+        dy = laser.end_position[1] - laser.start_position[1]
+        shot_angle = math.degrees(math.atan2(dx, -dy)) % 360
+        self.assertAlmostEqual(shot_angle, 11.25)
 
     def test_kzerza_fighter_uses_its_simulation_rng(self):
         carrier = create_ship("KzerZa", 1)

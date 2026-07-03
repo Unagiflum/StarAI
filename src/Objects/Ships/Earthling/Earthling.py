@@ -11,19 +11,15 @@ class Earthling(SpaceShip):
         if not self.can_action2():
             return ActionPlan.invalid(2)
 
-        max_shots = self.current_energy // self.a2_cost
-        if max_shots == 0:
-            return ActionPlan.invalid(2)
-
         point_defense = EarthlingA2(self)
-        projectiles = point_defense.get_shots(max_shots)
+        projectiles = point_defense.get_shots()
         if not projectiles:
             return ActionPlan.invalid(2)
 
         return self.prepare_action_plan(
             2,
             projectiles,
-            energy_change=-len(projectiles) * self.a2_cost,
+            energy_change=-self.a2_cost,
             launch_sound=point_defense.launch_sound,
             use_first_object_sound=False,
         )
