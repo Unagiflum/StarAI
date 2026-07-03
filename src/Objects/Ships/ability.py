@@ -15,6 +15,7 @@ from src.Objects.Ships.catalog import ABILITIES_DATA, ABILITY_DEFINITIONS
 from src.resources import default_assets
 from src.turn_credits import (
     accrue_turn_credits,
+    available_turn_credits,
     initialize_turn_credits,
     spend_turn_credits,
 )
@@ -298,11 +299,12 @@ class Ability(PlayerObject):
             elif angle_diff < -180:
                 angle_diff += 360
 
-            if self.opponent.trackable and self.turn_credits > 0:
+            available_credits = available_turn_credits(self)
+            if self.opponent.trackable and available_credits > 0:
                 steps_to_target = round(abs(angle_diff) / direction_step)
                 steps = min(
                     steps_to_target,
-                    self.turn_credits,
+                    available_credits,
                     const.DIRECTIONS_MULTIPLIER,
                 )
                 if steps:

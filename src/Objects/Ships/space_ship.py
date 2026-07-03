@@ -19,6 +19,7 @@ from src.resources import default_assets
 from src.entry_styles import STANDARD_ENTRY_TRAIL
 from src.turn_credits import (
     accrue_turn_credits,
+    available_turn_credits,
     initialize_turn_credits,
     spend_turn_credits,
 )
@@ -477,7 +478,7 @@ class SpaceShip(PlayerObject):
         return self.thrust_timer == 0
 
     def can_turn(self):
-        return self.turn_timer == 0 and self.turn_credits > 0
+        return self.turn_timer == 0 and available_turn_credits(self) > 0
 
     def can_action1(self):
         return self.action1_timer == 0 and self.current_energy >= self.a1_cost
@@ -577,7 +578,10 @@ class SpaceShip(PlayerObject):
 
     def _turn(self, direction, max_steps):
         turned = 0
-        requested = min(max(0, int(max_steps)), self.turn_credits)
+        requested = min(
+            max(0, int(max_steps)),
+            available_turn_credits(self),
+        )
         if not self.can_turn() or requested <= 0:
             return turned
 

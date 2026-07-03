@@ -53,18 +53,21 @@ class TurnCreditTests(unittest.TestCase):
         self.assertEqual(ship.rotation, const.TURN_ANGLE)
         self.assertEqual(ship.turn_credits, 3)
 
-    def test_held_repeat_spends_every_available_credit(self):
+    def test_held_repeat_paces_full_credits_at_configured_turn_rate(self):
         ship = self.make_ship()
-        ship.turn_wait = 14
+        ship.turn_wait = 9
         ship.set_control_state("turn_right", True, frame_id=0)
 
-        for frame_id in range(4):
+        headings = []
+        for frame_id in range(10):
             ship.process_controls(frame_id=frame_id)
+            headings.append(ship.heading)
 
-        # One step on the press, no turns during the repeat delay, then all
-        # three remaining credits when repeat becomes active on frame three.
+        # The immediate press is followed by paced repeats. Four fine steps
+        # are spread over ten frames instead of being spent in one burst when
+        # the repeat delay expires.
+        self.assertEqual(headings, [1, 1, 1, 2, 2, 3, 3, 3, 4, 4])
         self.assertEqual(ship.heading, 4)
-        self.assertEqual(ship.turn_credits, 0)
 
     def test_fractional_progress_preserves_configured_average_rate(self):
         ship = self.make_ship()
