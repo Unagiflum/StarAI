@@ -413,6 +413,8 @@
         "initial_rebirth_chance": 0.7,
         "rebirth_chance_decay": 0.3,
         "reset_rebirth_chance": false,
+        "circle_size": 35,
+        "circle_gap": 3,
         "sprite_path": "Objects/Ships/Pkunk/",
         "sprite_scale": 1.0
     },
@@ -437,7 +439,7 @@
         "a3_wait": 0,
         "mass": 1,
         "inertia": true,
-        "circle_size": 15,
+        "circle_size": 35,
         "circle_gap": 3,
         "sprite_path": "Objects/Ships/Shofixti/",
         "sprite_scale": 1.0
@@ -584,6 +586,8 @@
         "a3_wait": 0,
         "mass": 1,
         "inertia": true,
+        "circle_size": 35,
+        "circle_gap": 3,
         "sprite_path": "Objects/Ships/Umgah/",
         "sprite_scale": 1.0
     },

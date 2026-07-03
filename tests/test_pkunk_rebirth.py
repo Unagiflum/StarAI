@@ -24,6 +24,7 @@ from src.Battle.battle_aftermath import (
 )
 from src.Battle.world import World
 from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.catalog import SHIP_DEFINITIONS
 from src.Objects.Ships.Chenjesu.A2.ChenjesuA2 import ChenjesuA2
 from src.Objects.Ships.registry import create_ship
 from src.audio import RecordingAudioService
@@ -36,6 +37,20 @@ class LongDurationRecordingAudioService(RecordingAudioService):
 
 
 class PkunkRebirthTests(unittest.TestCase):
+    def test_hud_indicator_reports_current_rebirth_chance(self):
+        ship = create_ship("Pkunk", 1)
+
+        self.assertEqual(ship.hud_indicator_color, (0, 255, 0))
+        self.assertEqual(
+            ship.hud_indicator_size,
+            SHIP_DEFINITIONS["Pkunk"].circle_size,
+        )
+        self.assertEqual(ship.hud_indicator_gap, 3)
+        self.assertEqual(ship.hud_indicator_fraction, 0.7)
+
+        ship.rebirth_count = 2
+        self.assertAlmostEqual(ship.hud_indicator_fraction, 0.063)
+
     def test_rebirth_restores_opponent_for_all_tracking_ability_types(self):
         pkunk = create_ship("Pkunk", 1)
         chenjesu = create_ship("Chenjesu", 2)

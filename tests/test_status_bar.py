@@ -93,6 +93,45 @@ class SpecialIndicatorTests(unittest.TestCase):
         self.assertEqual(panel.get_at((3, 9))[:3], (0, 0, 0))
         self.assertEqual(panel.get_at((9, 9))[:3], (255, 0, 0))
 
+    def test_draws_fraction_as_green_positive_and_black_negative_pie(self):
+        panel = pygame.Surface((24, 24))
+        panel.fill((12, 34, 56))
+        ship = SimpleNamespace(
+            hud_indicator_color=(0, 255, 0),
+            hud_indicator_fraction=0.25,
+            hud_indicator_size=14,
+            hud_indicator_gap=2,
+        )
+
+        with mock.patch(
+            "src.Battle.status_bar.pygame.gfxdraw.aapolygon",
+            wraps=pygame.gfxdraw.aapolygon,
+        ) as aapolygon:
+            draw_special_indicator(panel, ship)
+
+        aapolygon.assert_called_once()
+        self.assertEqual(panel.get_at((9, 9))[:3], (0, 255, 0))
+        self.assertEqual(panel.get_at((9, 14))[:3], (0, 0, 0))
+        self.assertEqual(panel.get_at((2, 9))[:3], (0, 0, 0))
+        self.assertEqual(panel.get_at((1, 9))[:3], (12, 34, 56))
+
+    def test_draws_ship_specific_negative_pie_color_inside_black_border(self):
+        panel = pygame.Surface((24, 24))
+        panel.fill((12, 34, 56))
+        ship = SimpleNamespace(
+            hud_indicator_color=(255, 0, 0),
+            hud_indicator_negative_color=(0, 255, 0),
+            hud_indicator_fraction=0.25,
+            hud_indicator_size=14,
+            hud_indicator_gap=2,
+        )
+
+        draw_special_indicator(panel, ship)
+
+        self.assertEqual(panel.get_at((9, 9))[:3], (255, 0, 0))
+        self.assertEqual(panel.get_at((9, 14))[:3], (0, 255, 0))
+        self.assertEqual(panel.get_at((2, 9))[:3], (0, 0, 0))
+
     def test_omits_light_for_ships_without_an_indicator(self):
         screen = mock.Mock()
 

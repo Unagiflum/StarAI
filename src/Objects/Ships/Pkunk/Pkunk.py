@@ -4,12 +4,13 @@ from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.Pkunk.A1.PkunkA1 import PkunkA1
 from src.Objects.Ships.Pkunk.A2.PkunkA2 import PkunkA2
-from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 
 
 class Pkunk(SpaceShip):
     REBIRTH_TRAIL_GAP = 5
     REBIRTH_TRAIL_ANGLES = (45, 135, 225, 315)
+    REBIRTH_INDICATOR_COLOR = (0, 255, 0)
 
     def __init__(self, ship_name, player_num, resources=None, audio_service=None):
         super().__init__(ship_name, player_num, resources, audio_service)
@@ -20,6 +21,22 @@ class Pkunk(SpaceShip):
         return self.initial_rebirth_chance * (
             self.rebirth_chance_decay**self.rebirth_count
         )
+
+    @property
+    def hud_indicator_color(self):
+        return self.REBIRTH_INDICATOR_COLOR
+
+    @property
+    def hud_indicator_fraction(self):
+        return self.current_rebirth_chance
+
+    @property
+    def hud_indicator_size(self):
+        return SHIP_DEFINITIONS[self.name].circle_size
+
+    @property
+    def hud_indicator_gap(self):
+        return SHIP_DEFINITIONS[self.name].circle_gap
 
     def attempt_rebirth(self):
         if self.rng.random() >= self.current_rebirth_chance:

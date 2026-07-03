@@ -5,11 +5,13 @@ from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Umgah.A1.UmgahA1 import UmgahA1
 from src.Objects.Ships.Umgah.A2.UmgahA2 import UmgahA2
-from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 
 
 class Umgah(SpaceShip):
     action_factories = {1: UmgahA1}
+    ENERGY_WAIT_INDICATOR_COLOR = (255, 0, 0)
+    ENERGY_WAIT_INDICATOR_NEGATIVE_COLOR = (0, 255, 0)
 
     def __init__(self, ship_name, player_num, resources=None, audio_service=None):
         super().__init__(ship_name, player_num, resources, audio_service)
@@ -20,6 +22,31 @@ class Umgah(SpaceShip):
         super().initialize_in_battle(position, heading)
         self._a1_animation_frame = 0
         self._reverse_burst_active = False
+
+    @property
+    def hud_indicator_color(self):
+        return self.ENERGY_WAIT_INDICATOR_COLOR
+
+    @property
+    def hud_indicator_fraction(self):
+        if self.current_energy >= self.max_energy:
+            return 0.0
+        if self.energy_wait <= 0:
+            return 0.0
+        remaining = self.energy_wait - self.energy_timer
+        return max(0.0, min(1.0, remaining / self.energy_wait))
+
+    @property
+    def hud_indicator_negative_color(self):
+        return self.ENERGY_WAIT_INDICATOR_NEGATIVE_COLOR
+
+    @property
+    def hud_indicator_size(self):
+        return SHIP_DEFINITIONS[self.name].circle_size
+
+    @property
+    def hud_indicator_gap(self):
+        return SHIP_DEFINITIONS[self.name].circle_gap
 
     def take_a1_animation_frame(self):
         frame = self._a1_animation_frame

@@ -49,6 +49,23 @@ class UmgahTests(CollisionTestCase):
         self.assertEqual(assets.masks[0][0].get_at(center), 0)
         self.assertFalse(self.resources._asset_errors)
 
+    def test_hud_indicator_counts_down_energy_wait(self):
+        self.assertEqual(self.ship.hud_indicator_color, (255, 0, 0))
+        self.assertEqual(self.ship.hud_indicator_negative_color, (0, 255, 0))
+        self.assertEqual(
+            self.ship.hud_indicator_size,
+            SHIP_DEFINITIONS["Umgah"].circle_size,
+        )
+        self.assertEqual(self.ship.hud_indicator_gap, 3)
+        self.assertEqual(self.ship.hud_indicator_fraction, 0.0)
+
+        self.ship.current_energy -= 1
+        self.ship.energy_timer = self.ship.energy_wait // 2
+        self.assertEqual(self.ship.hud_indicator_fraction, 0.5)
+
+        self.ship.energy_timer = self.ship.energy_wait
+        self.assertEqual(self.ship.hud_indicator_fraction, 0.0)
+
     def test_a1_exclusion_uses_parent_scale_not_ability_scale(self):
         ship_definition = SHIP_DEFINITIONS["Umgah"]
         ability_definition = ABILITY_DEFINITIONS["UmgahA1"]

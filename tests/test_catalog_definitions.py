@@ -75,6 +75,16 @@ class CatalogDefinitionTests(unittest.TestCase):
             self.raw_ships["Shofixti"]["circle_size"],
         )
         self.assertEqual(SHIP_DEFINITIONS["Shofixti"].circle_gap, 3)
+        self.assertEqual(
+            SHIP_DEFINITIONS["Pkunk"].circle_size,
+            self.raw_ships["Pkunk"]["circle_size"],
+        )
+        self.assertEqual(SHIP_DEFINITIONS["Pkunk"].circle_gap, 3)
+        self.assertEqual(
+            SHIP_DEFINITIONS["Umgah"].circle_size,
+            self.raw_ships["Umgah"]["circle_size"],
+        )
+        self.assertEqual(SHIP_DEFINITIONS["Umgah"].circle_gap, 3)
 
         ability_data = dict(self.raw_abilities["EarthlingA1"])
         for key in (

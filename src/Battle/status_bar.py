@@ -1,3 +1,5 @@
+import math
+
 import pygame
 import pygame.gfxdraw
 
@@ -5,6 +7,32 @@ import src.const as const
 
 
 SPECIAL_INDICATOR_BORDER_COLOR = (0, 0, 0)
+SPECIAL_INDICATOR_NEGATIVE_COLOR = (0, 0, 0)
+
+
+def _draw_indicator_fraction(surface, center, radius, fraction, color):
+    """Draw a clockwise pie slice starting at twelve o'clock."""
+    fraction = max(0.0, min(1.0, fraction))
+    if fraction <= 0.0:
+        return
+    if fraction >= 1.0:
+        pygame.gfxdraw.filled_circle(surface, center, center, radius, color)
+        pygame.gfxdraw.aacircle(surface, center, center, radius, color)
+        return
+
+    sweep = math.tau * fraction
+    point_count = max(2, math.ceil(32 * fraction))
+    points = [(center, center)]
+    for index in range(point_count + 1):
+        angle = -math.pi / 2 + sweep * index / point_count
+        points.append(
+            (
+                round(center + radius * math.cos(angle)),
+                round(center + radius * math.sin(angle)),
+            )
+        )
+    pygame.gfxdraw.filled_polygon(surface, points, color)
+    pygame.gfxdraw.aapolygon(surface, points, color)
 
 
 def draw_special_indicator(screen, ship):
@@ -32,8 +60,31 @@ def draw_special_indicator(screen, ship):
         SPECIAL_INDICATOR_BORDER_COLOR,
     )
     inner_radius = radius - 1
-    pygame.gfxdraw.filled_circle(screen, center, center, inner_radius, color)
-    pygame.gfxdraw.aacircle(screen, center, center, inner_radius, color)
+    fraction = getattr(ship, "hud_indicator_fraction", None)
+    if fraction is None:
+        pygame.gfxdraw.filled_circle(screen, center, center, inner_radius, color)
+        pygame.gfxdraw.aacircle(screen, center, center, inner_radius, color)
+    else:
+        negative_color = getattr(
+            ship,
+            "hud_indicator_negative_color",
+            SPECIAL_INDICATOR_NEGATIVE_COLOR,
+        )
+        pygame.gfxdraw.filled_circle(
+            screen,
+            center,
+            center,
+            inner_radius,
+            negative_color,
+        )
+        pygame.gfxdraw.aacircle(
+            screen,
+            center,
+            center,
+            inner_radius,
+            negative_color,
+        )
+        _draw_indicator_fraction(screen, center, inner_radius, fraction, color)
 
 
 class StatusBar:
