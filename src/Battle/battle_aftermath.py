@@ -221,6 +221,34 @@ def release_dead_opponents(game_objects, dead_ships):
             obj.opponent = None
 
 
+def restore_reborn_opponents(game_objects, reborn_ships):
+    """Reconnect surviving abilities to ships that rejoined the same round."""
+    world = World.coerce(game_objects)
+    reborn_ships = tuple(reborn_ships)
+    tracked_ability_types = {"projectile", "laser", "special_object"}
+
+    for obj in world:
+        if (
+            getattr(obj, "type", None) not in tracked_ability_types
+            or not World.is_alive(obj)
+            or getattr(obj, "opponent", None) is not None
+        ):
+            continue
+
+        opponent = next(
+            (ship for ship in reborn_ships if ship.player != obj.player),
+            None,
+        )
+        if opponent is None:
+            continue
+
+        on_opponent_restored = getattr(obj, "on_opponent_restored", None)
+        if on_opponent_restored is not None:
+            on_opponent_restored(opponent)
+        else:
+            obj.opponent = opponent
+
+
 def create_ship_explosion_schedule(ship, start_frame, rng=None):
     rng = rng or random
     count = max(4, min(9, int(max(ship.size) / 35) + 3))

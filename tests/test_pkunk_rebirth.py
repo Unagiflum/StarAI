@@ -1,5 +1,6 @@
 import os
 import importlib
+import math
 import unittest
 from unittest import mock
 
@@ -18,8 +19,12 @@ from src.Battle.battle_aftermath import (
     AftermathState,
     PendingRebirth,
     aftermath_camera_targets,
+    release_dead_opponents,
+    restore_reborn_opponents,
 )
 from src.Battle.world import World
+from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.Chenjesu.A2.ChenjesuA2 import ChenjesuA2
 from src.Objects.Ships.registry import create_ship
 from src.audio import RecordingAudioService
 
@@ -31,6 +36,32 @@ class LongDurationRecordingAudioService(RecordingAudioService):
 
 
 class PkunkRebirthTests(unittest.TestCase):
+    def test_rebirth_restores_opponent_for_all_tracking_ability_types(self):
+        pkunk = create_ship("Pkunk", 1)
+        chenjesu = create_ship("Chenjesu", 2)
+        pkunk.opponent = chenjesu
+        chenjesu.opponent = pkunk
+        dogi = ChenjesuA2(chenjesu)
+        abilities = [
+            Ability("EarthlingA1", chenjesu),
+            Ability("ArilouA1", chenjesu),
+            Ability("KzerZaA2", chenjesu),
+            dogi,
+        ]
+        world = World([pkunk, chenjesu, *abilities])
+
+        release_dead_opponents(world, [pkunk])
+
+        self.assertTrue(all(ability.opponent is None for ability in abilities))
+
+        pkunk.complete_rebirth()
+        restore_reborn_opponents(world, [pkunk])
+
+        self.assertTrue(all(ability.opponent is pkunk for ability in abilities))
+        dogi.launch_frames_remaining = 0
+        dogi.update()
+        self.assertAlmostEqual(math.hypot(*dogi.velocity), dogi.speed)
+
     def test_rebirth_chance_uses_configured_decay_after_each_success(self):
         ship = create_ship("Pkunk", 1)
         self.assertEqual(ship.rebirth_chance_decay, 1.0)

@@ -346,6 +346,7 @@ class BattleSimulation:
         self.world.add_all(ready)
         self.player1.opponent = self.player2
         self.player2.opponent = self.player1
+        battle_aftermath.restore_reborn_opponents(self.world, ready)
 
         living_ships = [
             ship

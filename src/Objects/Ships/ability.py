@@ -374,6 +374,11 @@ class Ability(PlayerObject):
         if self.opponent is opponent:
             self.opponent = None
 
+    def on_opponent_restored(self, opponent):
+        """Reacquire an opponent that returned before the round ended."""
+        if self.opponent is None:
+            self.opponent = opponent
+
     def on_parent_removed(self):
         """Detach independent objects or silently remove ship-owned objects."""
         if self.survives_parent_cleanup:
