@@ -23,6 +23,8 @@ from src.persistence import (
 @dataclass(frozen=True)
 class GameSettings:
     bindings: Mapping[str, int]
+    asteroid_count: int = 5
+    ship_directions: int = 16
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "bindings", MappingProxyType(dict(self.bindings)))
@@ -35,8 +37,18 @@ class GameSettings:
 
 
 class GameSettingsCodec:
-    def __init__(self, defaults: Mapping[str, int]):
+    DEFAULT_GAMEPLAY = {
+        "asteroid_count": 5,
+        "ship_directions": 16,
+    }
+
+    def __init__(
+        self,
+        defaults: Mapping[str, int],
+        gameplay_defaults: Mapping[str, int] | None = None,
+    ):
         self.defaults = dict(defaults)
+        self.gameplay_defaults = dict(gameplay_defaults or self.DEFAULT_GAMEPLAY)
 
     @staticmethod
     def _key_code(label: str, value: Any) -> int:
@@ -49,9 +61,32 @@ class GameSettingsCodec:
     def decode(self, value: Any) -> GameSettings:
         loaded = require_object(value, "Game settings")
         bindings = merge_validated_defaults(self.defaults, loaded, self._key_code)
-        return GameSettings(bindings)
+        gameplay = merge_validated_defaults(
+            self.gameplay_defaults, loaded, self._gameplay_value
+        )
+        return GameSettings(bindings, **gameplay)
 
-    def from_key_names(self, values: Mapping[str, Any]) -> GameSettings:
+    @staticmethod
+    def _gameplay_value(name: str, value: Any) -> int:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise PersistenceValidationError(f"{name} must be an integer")
+        if name == "asteroid_count" and 1 <= value <= 20:
+            return value
+        if name == "ship_directions" and value in (16, 32, 64):
+            return value
+        if name == "asteroid_count":
+            raise PersistenceValidationError("asteroid_count must be from 1 to 20")
+        if name == "ship_directions":
+            raise PersistenceValidationError(
+                "ship_directions must be one of 16, 32, or 64"
+            )
+        raise PersistenceValidationError(f"Unknown game setting {name}")
+
+    def from_key_names(
+        self,
+        values: Mapping[str, Any],
+        current: GameSettings | None = None,
+    ) -> GameSettings:
         loaded: dict[str, Any] = {}
         for label in self.defaults:
             value = values.get(label, self.defaults[label])
@@ -63,7 +98,13 @@ class GameSettingsCodec:
                         f"{label} has an unknown Pygame key name"
                     ) from error
             loaded[label] = value
-        return self.decode(loaded)
+        current = current or self.decode({})
+        bindings = self.decode(loaded).bindings
+        return GameSettings(
+            bindings,
+            asteroid_count=current.asteroid_count,
+            ship_directions=current.ship_directions,
+        )
 
     def encode(self, settings: GameSettings) -> dict[str, int]:
         loaded = require_object(settings.bindings, "Game settings")
@@ -72,13 +113,24 @@ class GameSettingsCodec:
             if label not in loaded:
                 raise PersistenceValidationError(f"Game settings is missing {label}")
             encoded[label] = self._key_code(label, loaded[label])
+        encoded["asteroid_count"] = self._gameplay_value(
+            "asteroid_count", settings.asteroid_count
+        )
+        encoded["ship_directions"] = self._gameplay_value(
+            "ship_directions", settings.ship_directions
+        )
         return encoded
 
 
 class GameSettingsRepository:
-    def __init__(self, path: Path, defaults: Mapping[str, int]):
+    def __init__(
+        self,
+        path: Path,
+        defaults: Mapping[str, int],
+        gameplay_defaults: Mapping[str, int] | None = None,
+    ):
         self.path = Path(path)
-        self.codec = GameSettingsCodec(defaults)
+        self.codec = GameSettingsCodec(defaults, gameplay_defaults)
 
     def default(self) -> GameSettings:
         return self.codec.decode({})

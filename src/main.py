@@ -10,7 +10,7 @@ import pygame
 from src.Menus import display_settings, game_settings, pick_fleet
 from src.UI import ui, ui_button
 from src.audio import initialize_pygame_audio
-from src.configuration import DisplaySettingsRepository
+from src.configuration import DisplaySettingsRepository, GameSettingsRepository
 from src.frame_timing import PresentationClock
 from src.resources import default_assets
 import src.const as const
@@ -28,9 +28,18 @@ def apply_saved_display_settings():
     return settings
 
 
+def apply_saved_game_settings():
+    settings = GameSettingsRepository(
+        const.GAME_JSON_PATH, const.DEFAULT_KEYS, const.DEFAULT_GAMEPLAY
+    ).load()
+    const.apply_game_settings(settings)
+    return settings
+
+
 def package_smoke_test():
     """Exercise packaged resources and dynamic imports without opening a window."""
     const.initialize_user_data()
+    apply_saved_game_settings()
     apply_saved_display_settings()
     log_path = const.USER_DATA_ROOT / "smoke-test-error.log"
     try:
@@ -130,6 +139,7 @@ def handle_menu_selection(
 def main():
     # Create writable per-user copies of the bundled configuration defaults.
     const.initialize_user_data()
+    apply_saved_game_settings()
     apply_saved_display_settings()
 
     # Initialize Pygame

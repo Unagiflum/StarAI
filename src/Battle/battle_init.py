@@ -10,7 +10,9 @@ from src.Battle.world import World
 
 
 def load_settings():
-    repository = GameSettingsRepository(const.GAME_JSON_PATH, const.DEFAULT_KEYS)
+    repository = GameSettingsRepository(
+        const.GAME_JSON_PATH, const.DEFAULT_KEYS, const.DEFAULT_GAMEPLAY
+    )
     return repository.load().key_codes()
 
 

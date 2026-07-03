@@ -3,8 +3,8 @@ import sys
 import pygame
 
 import src.const as const
-from src.UI import ui, ui_button
-from src.configuration import GameSettingsRepository
+from src.UI import ui, ui_button, ui_slider
+from src.configuration import GameSettings, GameSettingsRepository
 from src.frame_timing import PresentationClock
 from src.persistence import PersistenceValidationError
 
@@ -14,7 +14,9 @@ SETTINGS_FILE = const.GAME_JSON_PATH
 
 
 def _settings_repository():
-    return GameSettingsRepository(SETTINGS_FILE, const.DEFAULT_KEYS)
+    return GameSettingsRepository(
+        SETTINGS_FILE, const.DEFAULT_KEYS, const.DEFAULT_GAMEPLAY
+    )
 
 
 def load_settings():
@@ -26,7 +28,9 @@ def save_settings(settings):
     """Save key bindings to file."""
     try:
         repository = _settings_repository()
-        typed_settings = repository.codec.from_key_names(settings)
+        typed_settings = repository.codec.from_key_names(
+            settings, current=repository.load()
+        )
         repository.save(typed_settings)
         print("Settings saved successfully.")
     except (OSError, PersistenceValidationError) as error:
@@ -154,12 +158,80 @@ def run_input_keys(screen, menu_sound_manager=None, audio_service=None):
 
 
 def run_game_play(screen, menu_sound_manager=None, audio_service=None):
-    """Show the placeholder game-play settings screen."""
+    """Edit settings that control battle gameplay."""
     _ = audio_service
     clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
     font = pygame.font.SysFont(None, int(0.03 * const.SCREEN_HEIGHT))
+    settings = _settings_repository().load()
     background = _background()
     finished = [False]
+
+    panel_left = int(const.SCREEN_WIDTH * 0.24)
+    panel_width = int(const.SCREEN_WIDTH * 0.52)
+    panel_gap = int(const.SCREEN_HEIGHT * 0.012)
+    panel_height = int(const.SCREEN_HEIGHT * 0.12)
+    panel_rects = tuple(
+        pygame.Rect(
+            panel_left,
+            int(const.SCREEN_HEIGHT * 0.25)
+            + index * (panel_height + panel_gap),
+            panel_width,
+            panel_height,
+        )
+        for index in range(2)
+    )
+    panel_surfaces = []
+    for panel_rect in panel_rects:
+        panel_surface = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(
+            panel_surface,
+            ui.SETTINGS_PANEL,
+            panel_surface.get_rect(),
+            border_radius=5,
+        )
+        panel_surfaces.append(panel_surface)
+
+    control_left = int(const.SCREEN_WIDTH * 0.25)
+    control_width = int(const.SCREEN_WIDTH * 0.5)
+    asteroid_count = ui_slider.Slider(
+        control_left,
+        panel_rects[0].y + int(const.SCREEN_HEIGHT * 0.02),
+        control_width,
+        1,
+        20,
+        settings.asteroid_count,
+        "Asteroid Count",
+        is_int=True,
+        bg_color=ui.MENU_BUTTON_COLOR,
+        hover_color=ui.MENU_BUTTON_COLOR_HI,
+    )
+    ship_directions = ui_slider.Slider(
+        control_left,
+        panel_rects[1].y + int(const.SCREEN_HEIGHT * 0.02),
+        control_width,
+        16,
+        64,
+        settings.ship_directions,
+        "Ship Directions",
+        is_int=True,
+        bg_color=ui.MENU_BUTTON_COLOR,
+        hover_color=ui.MENU_BUTTON_COLOR_HI,
+        values=(16, 32, 64),
+    )
+
+    def save_and_exit():
+        new_settings = GameSettings(
+            settings.bindings,
+            asteroid_count=int(asteroid_count.value),
+            ship_directions=int(ship_directions.value),
+        )
+        try:
+            _settings_repository().save(new_settings)
+        except (OSError, PersistenceValidationError) as error:
+            print(f"Error saving game-play settings: {error}")
+            return
+        const.apply_game_settings(new_settings)
+        finished[0] = True
 
     save_button = ui_button.Button(
         ui.ok_button_left,
@@ -167,12 +239,10 @@ def run_game_play(screen, menu_sound_manager=None, audio_service=None):
         ui.ok_button_width,
         ui.ok_button_height,
         "Save",
-        lambda: finished.__setitem__(0, True),
+        save_and_exit,
         ui.OK_GREEN,
         ui.OK_GREEN_HI,
     )
-    # There are currently no editable values, hence there can be no changes.
-    save_button.enabled = False
     cancel_button = ui_button.Button(
         ui.can_button_left,
         ui.ok_button_top,
@@ -188,6 +258,8 @@ def run_game_play(screen, menu_sound_manager=None, audio_service=None):
         clock.tick()
         for event in pygame.event.get():
             _exit_on_quit(event)
+            asteroid_count.handle_event(event, menu_sound_manager)
+            ship_directions.handle_event(event, menu_sound_manager)
             save_button.handle_event(event, menu_sound_manager)
             cancel_button.handle_event(event, menu_sound_manager)
 
@@ -195,6 +267,10 @@ def run_game_play(screen, menu_sound_manager=None, audio_service=None):
         ui.draw_title(
             screen, "Game Play", TITLE_FONT_SIZE, int(0.1 * const.SCREEN_HEIGHT)
         )
+        for panel_rect, panel_surface in zip(panel_rects, panel_surfaces):
+            screen.blit(panel_surface, panel_rect)
+        asteroid_count.draw(screen, font)
+        ship_directions.draw(screen, font)
         save_button.draw(screen, font)
         cancel_button.draw(screen, font)
         pygame.display.flip()

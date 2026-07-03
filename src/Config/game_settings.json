@@ -8,5 +8,7 @@
     "Player 2: Right": 1073741903,
     "Player 2: Forward": 1073741906,
     "Player 2: Action 1": 1073742052,
-    "Player 2: Action 2": 1073742053
+    "Player 2: Action 2": 1073742053,
+    "asteroid_count": 5,
+    "ship_directions": 16
 }

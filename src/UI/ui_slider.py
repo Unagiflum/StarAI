@@ -17,6 +17,7 @@ class Slider:
         step=1,
         bg_color=ui.SLIDER_BG,
         hover_color=ui.SLIDER_BG_HI,
+        values=None,
     ):
         self.bg_rect_height = int(0.08 * Const.SCREEN_HEIGHT)
         self.rect = pygame.Rect(x, y, width, self.bg_rect_height)
@@ -41,6 +42,10 @@ class Slider:
         self.label = label
         self.is_int = is_int
         self.step = step
+        self.values = tuple(values) if values is not None else None
+        if self.values is not None:
+            if len(self.values) < 2 or start_val not in self.values:
+                raise ValueError("Slider values must contain the starting value")
 
         self.dragging = False
         self.bg_color = (*bg_color, 255) if len(bg_color) == 3 else bg_color
@@ -52,16 +57,29 @@ class Slider:
         self.handle_x = self.value_to_position(self.value)
 
     def value_to_position(self, value):
+        if self.values is not None:
+            ratio = self.values.index(value) / (len(self.values) - 1)
+            return self.line_rect.x + int(ratio * self.line_rect.width)
         ratio = (value - self.min_val) / (self.max_val - self.min_val)
         return self.line_rect.x + int(ratio * self.line_rect.width)
 
     def position_to_value(self, pos_x):
         ratio = (pos_x - self.line_rect.x) / self.line_rect.width
+        if self.values is not None:
+            index = round(ratio * (len(self.values) - 1))
+            index = max(0, min(len(self.values) - 1, index))
+            return self.values[index]
         value = self.min_val + ratio * (self.max_val - self.min_val)
         value = round(value / self.step) * self.step
         return max(self.min_val, min(self.max_val, value))
 
     def adjust_value(self, increment):
+        if self.values is not None:
+            index = self.values.index(self.value) + (1 if increment else -1)
+            index = max(0, min(len(self.values) - 1, index))
+            self.value = self.values[index]
+            self.handle_x = self.value_to_position(self.value)
+            return
         new_value = self.value + (self.step if increment else -self.step)
         self.value = max(self.min_val, min(self.max_val, new_value))
         self.handle_x = self.value_to_position(self.value)

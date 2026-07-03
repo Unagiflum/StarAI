@@ -31,6 +31,8 @@ class GameSettingsPersistenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             settings = self.repository(directory).load()
         self.assertEqual(settings.key_codes(), const.DEFAULT_KEYS)
+        self.assertEqual(settings.asteroid_count, 5)
+        self.assertEqual(settings.ship_directions, 16)
 
     def test_malformed_json_uses_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -64,8 +66,63 @@ class GameSettingsPersistenceTests(unittest.TestCase):
             loaded = repository.load()
 
         self.assertEqual(saved["Player 1: Left"], pygame.K_z)
-        self.assertEqual(list(saved), list(const.DEFAULT_KEYS))
+        self.assertEqual(
+            list(saved),
+            [*const.DEFAULT_KEYS, "asteroid_count", "ship_directions"],
+        )
         self.assertEqual(loaded.key_names()["Player 1: Left"], "z")
+
+    def test_gameplay_values_round_trip_and_invalid_fields_use_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repository = self.repository(directory)
+            path = repository.path
+            path.write_text(json.dumps({
+                "asteroid_count": 20,
+                "ship_directions": 64,
+            }), encoding="utf-8")
+            settings = repository.load()
+            repository.save(settings)
+            loaded = repository.load()
+
+            self.assertEqual(loaded.asteroid_count, 20)
+            self.assertEqual(loaded.ship_directions, 64)
+
+            path.write_text(json.dumps({
+                "asteroid_count": 0,
+                "ship_directions": 48,
+            }), encoding="utf-8")
+            invalid = repository.load()
+
+        self.assertEqual(invalid.asteroid_count, 5)
+        self.assertEqual(invalid.ship_directions, 16)
+
+    def test_changing_bindings_preserves_gameplay_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repository = self.repository(directory)
+            current = repository.codec.decode({
+                "asteroid_count": 12,
+                "ship_directions": 32,
+            })
+            names = current.key_names()
+            names["Player 1: Left"] = "z"
+            changed = repository.codec.from_key_names(names, current=current)
+
+        self.assertEqual(changed.asteroid_count, 12)
+        self.assertEqual(changed.ship_directions, 32)
+
+    def test_only_asteroid_count_is_applied_to_runtime(self):
+        original_count = const.ASTEROID_COUNT
+        original_directions = const.SHIP_DIRECTIONS
+        settings = self.repository(".").codec.decode({
+            "asteroid_count": 11,
+            "ship_directions": 64,
+        })
+        try:
+            const.apply_game_settings(settings)
+            self.assertEqual(const.ASTEROID_COUNT, 11)
+            self.assertEqual(const.SHIP_DIRECTIONS, original_directions)
+        finally:
+            const.ASTEROID_COUNT = original_count
 
 
 class FleetPersistenceTests(unittest.TestCase):

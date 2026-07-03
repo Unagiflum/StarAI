@@ -107,8 +107,8 @@ STAR_DEPTHS = 3
 PLANET_WEIGHTS = [25, 25, 25, 25]  # Gas, Ice, Life, Rocky
 STAR_ALPHA = 200
 
-# Asteroids
-ASTEROID_COUNT = 5  # Asteroid placing function will get stuck if you have too many
+# Asteroids. ASTEROID_COUNT is updated from persisted game settings at startup.
+ASTEROID_COUNT = 5
 ASTEROID_PATH = source_path("Objects/Space/Asteroid")
 ASTEROID_MIN_SPEED = 16
 ASTEROID_MAX_SPEED = 44
@@ -208,6 +208,18 @@ DEFAULT_DISPLAY = {
     "ship_crosshairs": "always",
     "show_planet_gravity_marker": True,
 }
+
+DEFAULT_GAMEPLAY = {
+    "asteroid_count": 5,
+    "ship_directions": 16,
+}
+
+
+def apply_game_settings(settings):
+    """Apply game settings that currently affect runtime behavior."""
+    global ASTEROID_COUNT
+
+    ASTEROID_COUNT = settings.asteroid_count
 
 
 def apply_display_settings(settings):
