@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 import math
 
 import pygame
@@ -9,23 +8,17 @@ from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.toroidal import wrapped_delta
 
 
-@dataclass
-class LightningSession:
-    suppressed: bool = False
-
-
 class SlylandroA1(Ability):
-    """One independently colored bolt in a shared lightning discharge."""
+    """The current frame's chain in one UQM-style lightning discharge."""
 
     DIRECTION_COUNT = const.ASSET_SPRITE_DIRECTIONS
     DIRECTION_ANGLE = 360 / DIRECTION_COUNT
 
-    def __init__(self, parent, session=None, bolt_index=0):
+    def __init__(self, parent):
         super().__init__("SlylandroA1", parent)
         definition = ABILITY_DEFINITIONS["SlylandroA1"]
-        self.session = session or LightningSession()
-        self.bolt_index = bolt_index
-        self.cooldown = round(parent.a1_wait)
+        self.weapon_wait = round(parent.a1_wait)
+        self.weapon_counter = self.weapon_wait
         self.segment_length_min = definition.segment_length_min
         self.segment_length_max = definition.segment_length_max
         self.bolt_colors = definition.colors
@@ -33,6 +26,7 @@ class SlylandroA1(Ability):
         self.color = self.bolt_colors[0]
         self.points = []
         self.frame_number = 0
+        self._first_update = True
         self.position = self.configured_gun_position()
         self.previous_position = self.position.copy()
         self.start_position = self.position.copy()
@@ -40,9 +34,16 @@ class SlylandroA1(Ability):
 
     @staticmethod
     def segment_count(frame_number, cooldown):
-        if frame_number <= 0 or frame_number >= cooldown:
+        return SlylandroA1.counter_segment_count(
+            cooldown - frame_number,
+            cooldown,
+        )
+
+    @staticmethod
+    def counter_segment_count(weapon_counter, weapon_wait):
+        if weapon_counter <= 0 or weapon_counter >= weapon_wait:
             return 0
-        return min(frame_number + 1, cooldown - frame_number + 1)
+        return min(weapon_counter, weapon_wait - weapon_counter) + 1
 
     def update(self):
         if not self.currently_alive:
@@ -50,18 +51,28 @@ class SlylandroA1(Ability):
 
         self.previous_position = self.position.copy()
         self.position = self.configured_gun_position()
+
+        # UQM creates the initial zero-length laser during ship postprocess.
+        # The first damaging chain is generated on the following frame.
+        if self._first_update:
+            self._first_update = False
+            self.points = []
+            return True
+
+        if self.weapon_counter > 0:
+            self.weapon_counter -= 1
         self.frame_number += 1
-        if self.frame_number >= self.cooldown:
+        if self.weapon_counter <= 0:
             self.points = []
             self.currently_alive = False
             return False
 
-        if self.session.suppressed:
-            self.points = []
-        else:
-            self._generate_bolt(
-                self.segment_count(self.frame_number, self.cooldown)
+        self._generate_bolt(
+            self.counter_segment_count(
+                self.weapon_counter,
+                self.weapon_wait,
             )
+        )
         return True
 
     def _generate_bolt(self, segment_count):
@@ -141,9 +152,29 @@ class SlylandroA1(Ability):
         )
 
     def on_laser_hit(self, target, contact, segment_index):
-        self.session.suppressed = True
         if segment_index is None or not self.points:
             return
+
+        segment_total = len(self.points) - 1
+        remaining_extensions = max(0, segment_total - 1 - segment_index)
+        shortened_counter = self.weapon_counter
+        if shortened_counter > self.weapon_wait >> 1:
+            shortened_counter = self.weapon_wait - shortened_counter
+        self.weapon_counter = max(
+            0,
+            shortened_counter - remaining_extensions,
+        )
+
+        # StarAI's action timer includes the frame on which a zero counter may
+        # fire again; UQM's weapon_counter does not. Keep the two synchronized
+        # so root hits can permit an early new discharge while tip hits retain
+        # the shortened decay.
+        if self.parent.action1_timer > 0:
+            self.parent.action1_timer = min(
+                self.parent.action1_timer,
+                self.weapon_counter + 1,
+            )
+
         self.points = self.points[: segment_index + 1] + [list(contact)]
         self.calculate_end_position()
 

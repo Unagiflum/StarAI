@@ -284,8 +284,8 @@ class SyreenA2(Ability):
         if getattr(target, "player", None) == self.parent.player:
             return 0
 
-        raw_damage = max(
-            1, round(self.damages[0] * (1.0 - distance / self.range))
+        raw_damage = 1 + math.floor(
+            self.damages[0] * (1.0 - distance / self.range)
         )
         max_allowed = max(0, target.current_hp - 1)
         return min(raw_damage, max_allowed)

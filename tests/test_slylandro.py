@@ -40,7 +40,7 @@ class SlylandroTests(unittest.TestCase):
         self.assertTrue(definition.immune_to_psychic)
         self.assertTrue(self.ship.durability_capabilities.immune_to_psychic)
         self.assertEqual(self.ship.crew_bar_color, const.HUD_NONSENTIENT_HP_COLOR)
-        self.assertEqual(ABILITY_DEFINITIONS["SlylandroA1"].number_of_bolts, 2)
+        self.assertEqual(ABILITY_DEFINITIONS["SlylandroA1"].number_of_bolts, 1)
 
     def test_status_bar_draws_probe_crew_in_gray(self):
         hp_bar = mock.Mock(height=20)
@@ -68,47 +68,76 @@ class SlylandroTests(unittest.TestCase):
         )
 
         plan = self.ship.plan_action1()
-        self.assertEqual(len(plan.spawned_objects), 2)
+        self.assertEqual(len(plan.spawned_objects), 1)
         bolt = plan.spawned_objects[0]
+        self.assertTrue(bolt.update())
+        self.assertEqual(bolt.collision_segments(), ())
         for expected_segments in (2, 3, 4):
             self.assertTrue(bolt.update())
             self.assertEqual(len(bolt.collision_segments()), expected_segments)
             self.assertEqual(bolt.points[0], self.ship.position)
 
-    def test_first_interception_suppresses_subsequent_generations(self):
-        bolts = self.ship.plan_action1().spawned_objects
-        for bolt in bolts:
+    def test_interception_continues_next_frame_at_shortened_length(self):
+        bolt = self.ship.perform_action1()
+        self.assertTrue(bolt.update())
+        for _ in range(8):
+            self.ship.update_timers()
             bolt.update()
-        first = bolts[0]
-        contact = first.points[1]
+        self.assertEqual(bolt.weapon_counter, 9)
+        self.assertEqual(len(bolt.collision_segments()), 9)
+        contact = bolt.points[5]
 
         collision_responses.resolve_laser_hit(
-            first,
+            bolt,
             self.target,
             [],
             [0.0, 1.0],
             contact,
             lambda *args: None,
+            segment_index=4,
+        )
+
+        self.assertEqual(bolt.weapon_counter, 4)
+        self.assertEqual(self.ship.action1_timer, 5)
+        self.ship.update_timers()
+        self.assertTrue(bolt.update())
+        self.assertEqual(bolt.weapon_counter, 3)
+        self.assertEqual(len(bolt.collision_segments()), 4)
+
+    def test_root_interception_can_end_discharge_and_release_weapon_timer(self):
+        bolt = self.ship.perform_action1()
+        self.assertTrue(bolt.update())
+        for _ in range(8):
+            self.ship.update_timers()
+            bolt.update()
+
+        collision_responses.resolve_laser_hit(
+            bolt,
+            self.target,
+            [],
+            [0.0, 1.0],
+            bolt.points[1],
+            lambda *args: None,
             segment_index=0,
         )
 
-        self.assertTrue(first.session.suppressed)
-        self.assertTrue(bolts[1].session.suppressed)
-        for bolt in bolts:
-            self.assertTrue(bolt.update())
-            self.assertEqual(bolt.points, [])
+        self.assertEqual(bolt.weapon_counter, 0)
+        self.assertEqual(self.ship.action1_timer, 1)
+        self.ship.action1_active = True
+        next_discharge = self.ship.process_controls(frame_id=20)
+        self.assertEqual(len(next_discharge), 1)
+        self.assertIsInstance(next_discharge[0], SlylandroA1)
 
-    def test_each_bolt_can_damage_the_same_intercepting_target(self):
+    def test_single_bolt_damages_an_intercepting_target_once(self):
         self.ship.position = [100.0, 500.0]
         self.target.position = [200.0, 500.0]
-        bolts = self.ship.plan_action1().spawned_objects
-        for bolt in bolts:
-            bolt.points = [[100.0, 500.0], [300.0, 500.0]]
-            bolt.calculate_end_position()
+        bolt = self.ship.plan_action1().spawned_objects[0]
+        bolt.points = [[100.0, 500.0], [300.0, 500.0]]
+        bolt.calculate_end_position()
         starting_hp = self.target.current_hp
 
         collisions._handle_laser_collisions(
-            list(bolts),
+            [bolt],
             [self.ship, self.target],
             [],
             [],
@@ -117,8 +146,7 @@ class SlylandroTests(unittest.TestCase):
             [],
         )
 
-        self.assertEqual(self.target.current_hp, starting_hp - 2)
-        self.assertTrue(bolts[0].session.suppressed)
+        self.assertEqual(self.target.current_hp, starting_hp - 1)
 
     def test_dead_or_cloaked_target_uses_random_segment_directions(self):
         bolt = self.ship.plan_action1().spawned_objects[0]
@@ -129,6 +157,7 @@ class SlylandroTests(unittest.TestCase):
         self.target.cloaked = True
         self.target.trackable = False
 
+        bolt.update()
         bolt.update()
 
         first_delta = (

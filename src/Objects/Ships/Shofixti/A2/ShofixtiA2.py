@@ -25,7 +25,9 @@ class ShofixtiA2(Ability):
             return 0
 
         maximum_damage = self.damages[0]
-        return max(1, math.ceil(maximum_damage * (1.0 - distance / self.range)))
+        return 1 + math.floor(
+            maximum_damage * (1.0 - distance / self.range)
+        )
 
     def update(self):
         if not self.currently_alive:

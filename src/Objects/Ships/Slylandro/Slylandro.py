@@ -7,10 +7,7 @@ from src.Battle.collision_geometry import ship_shape_change_blocked
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.space_ship import SpaceShip
-from src.Objects.Ships.Slylandro.A1.SlylandroA1 import (
-    LightningSession,
-    SlylandroA1,
-)
+from src.Objects.Ships.Slylandro.A1.SlylandroA1 import SlylandroA1
 from src.Objects.Ships.Slylandro.A2.SlylandroA2 import SlylandroA2
 from src.Objects.object import PlayerObject
 from src.toroidal import wrapped_distance
@@ -231,13 +228,7 @@ class Slylandro(SpaceShip):
     def plan_action1(self):
         if not self.can_action1():
             return ActionPlan.invalid(1)
-        definition = ABILITY_DEFINITIONS["SlylandroA1"]
-        session = LightningSession()
-        bolts = [
-            SlylandroA1(self, session, index)
-            for index in range(definition.number_of_bolts)
-        ]
-        return self.prepare_action_plan(1, bolts)
+        return self.prepare_action_plan(1, SlylandroA1(self))
 
     def plan_action2(self):
         if not self.can_action2():

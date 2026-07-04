@@ -1094,7 +1094,7 @@
         "omnidirectional": true,
         "file_path": "Objects/Ships/Slylandro/A1/",
         "has_sprites": false,
-        "number_of_bolts": 2,
+        "number_of_bolts": 1,
         "stroke_width": 6,
         "segment_length_min": 16,
         "segment_length_max": 128,
@@ -1325,7 +1325,7 @@
             0
         ],
         "speed": 5,
-        "life_time": 384,
+        "life_time": 300,
         "inertia": false,
         "radius": 3,
         "colors": [

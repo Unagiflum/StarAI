@@ -954,10 +954,31 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         ship.turn_left_active = True
         ship.input_pressed_frames = {"thrust": 1, "turn_left": 2}
         self.assertFalse(ship.turn_input_enabled())
-        self.assertEqual(ship.get_active_thrust_angles(True, True, True), [-90])
+        self.assertEqual(ship.get_active_thrust_angles(True, True, True), [-135])
         initial_energy = ship.current_energy
         self.assertIsNone(ship.perform_action2())
         self.assertEqual(ship.current_energy, initial_energy)
+
+    def test_supox_secondary_uses_latest_lateral_input_for_diagonal_reverse(self):
+        ship = create_ship("Supox", 1)
+        ship.action2_active = True
+        ship.thrust_active = True
+        ship.turn_left_active = True
+        ship.turn_right_active = True
+
+        ship.input_pressed_frames = {
+            "thrust": 1,
+            "turn_right": 2,
+            "turn_left": 3,
+        }
+        self.assertEqual(ship.get_active_thrust_angles(True, True, True), [-135])
+
+        ship.input_pressed_frames = {
+            "thrust": 1,
+            "turn_left": 2,
+            "turn_right": 3,
+        }
+        self.assertEqual(ship.get_active_thrust_angles(True, True, True), [135])
 
     def test_supox_lateral_thrust_marker_uses_opaque_ship_width(self):
         ship = create_ship("Supox", 1)
@@ -1007,6 +1028,15 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         ship.process_controls(11)
         self.assertEqual(ship.shofixti_arming_stage, ship.ARMED)
         self.assertEqual(ship.current_hp, ship.start_hp)
+
+    def test_shofixti_glory_device_uses_uqm_damage_bands(self):
+        ship = create_ship("Shofixti", 1)
+        explosion = create_ability("ShofixtiA2", ship)
+
+        self.assertEqual(explosion.damage_at_distance(0), 19)
+        self.assertEqual(explosion.damage_at_distance(explosion.range / 2), 10)
+        self.assertEqual(explosion.damage_at_distance(explosion.range), 1)
+        self.assertEqual(explosion.damage_at_distance(explosion.range + 1), 0)
 
     def test_druuge_primary_recoils_and_secondary_converts_crew_to_energy(self):
         ship = create_ship("Druuge", 1)

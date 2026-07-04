@@ -52,8 +52,20 @@ class SyreenCrewMotionTests(unittest.TestCase):
 
         self.assertEqual(crew.position, self.parent.position)
         self.assertIsNot(crew.position, self.parent.position)
+        self.assertEqual(crew.expiration_timer, 300)
         self.assertEqual(crew.size, [6, 6])
         self.assertEqual(crew.get_sprite().get_size(), (6, 6))
+
+    def test_crew_immune_slylandro_consumes_crew_without_recovering_it(self):
+        crew = SyreenCrew(self.parent)
+        slylandro = create_ship("Slylandro", 2)
+        slylandro.current_hp -= 1
+        starting_hp = slylandro.current_hp
+
+        crew.handle_ship_contact(slylandro, None)
+
+        self.assertEqual(slylandro.current_hp, starting_hp)
+        self.assertFalse(crew.currently_alive)
 
     def test_configured_colors_cycle_each_physics_frame(self):
         crew = SyreenCrew(self.parent)
@@ -190,6 +202,16 @@ class SyreenSongTests(unittest.TestCase):
         self.assertFalse(
             collisions.AREA_TARGET_REGISTRY.is_eligible(song, projectile)
         )
+
+    def test_song_uses_uqm_crew_loss_bands(self):
+        song = SyreenA2(self.parent)
+        target = create_ship("Earthling", 2)
+        target.current_hp = target.max_hp = 20
+
+        self.assertEqual(song.area_damage_for_target(target, 0), 9)
+        self.assertEqual(song.area_damage_for_target(target, song.range / 2), 5)
+        self.assertEqual(song.area_damage_for_target(target, song.range), 1)
+        self.assertEqual(song.area_damage_for_target(target, song.range + 1), 0)
 
     def test_psychic_immunity_uses_durability_capability(self):
         song = SyreenA2(self.parent)

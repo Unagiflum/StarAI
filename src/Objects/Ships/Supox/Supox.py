@@ -20,25 +20,48 @@ class Supox(SpaceShip):
                 thrust_ready, turn_left_ready, turn_right_ready
             )
 
-        directions = {
-            "thrust": (self.thrust_active, thrust_ready, 180),
-            "turn_left": (self.turn_left_active, turn_left_ready, -90),
-            "turn_right": (self.turn_right_active, turn_right_ready, 90),
+        controls = {
+            "thrust": (self.thrust_active, thrust_ready),
+            "turn_left": (self.turn_left_active, turn_left_ready),
+            "turn_right": (self.turn_right_active, turn_right_ready),
         }
 
-        # Pressed controls retain insertion order. Walking that order backwards
-        # selects the most recently pressed direction, and releasing it removes
-        # it so the next-most-recent held direction takes over.
+        # Pressed controls retain insertion order. Use the most recent active
+        # control for repeat readiness, and the most recent lateral control to
+        # resolve left+right. Forward+lateral produces UQM's diagonal reverse
+        # thrust rather than discarding either component.
+        active_controls = []
         for control_name in reversed(self.input_pressed_frames):
-            active, ready, angle = directions.get(control_name, (False, False, 0))
+            active, ready = controls.get(control_name, (False, False))
             if active:
-                return [angle] if ready else []
+                active_controls.append((control_name, ready))
 
         # Keep this method safe for callers that set control state directly.
-        for active, ready, angle in reversed(tuple(directions.values())):
-            if active:
-                return [angle] if ready else []
-        return []
+        if not active_controls:
+            active_controls = [
+                (control_name, ready)
+                for control_name, (active, ready) in reversed(tuple(controls.items()))
+                if active
+            ]
+        if not active_controls:
+            return []
+
+        if not active_controls[0][1]:
+            return []
+
+        lateral = next(
+            (
+                control_name
+                for control_name, _ in active_controls
+                if control_name in ("turn_left", "turn_right")
+            ),
+            None,
+        )
+        if lateral == "turn_left":
+            return [-135 if self.thrust_active else -90]
+        if lateral == "turn_right":
+            return [135 if self.thrust_active else 90]
+        return [180] if self.thrust_active else []
 
     def get_thrust_marker_position(self, thrust_angle=0):
         if abs(thrust_angle) != 90:

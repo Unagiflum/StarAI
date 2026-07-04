@@ -64,9 +64,11 @@ class SyreenCrew(Ability):
         )
 
     def handle_ship_contact(self, ship, normal):
-        # Either ship, if it collides with the crew, will recover them and gain hit points.
-        # "Either ship can recover the crew even if at full health, but doing so will not increase crew at that point."
-        if ship.current_hp < ship.max_hp:
+        # Any non-crew-immune ship can recover abandoned crew. Contact still
+        # consumes the crew when the ship is immune or already at full crew.
+        durability = getattr(ship, "durability_capabilities", None)
+        crew_immune = bool(durability and durability.immune_to_psychic)
+        if not crew_immune and ship.current_hp < ship.max_hp:
             ship.current_hp += 1
         self.current_hp = 0
         self.currently_alive = False
