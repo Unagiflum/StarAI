@@ -781,6 +781,31 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(ship.action2_timer, const.cooldown_frames(ship.a2_wait))
         insult.play_insult.assert_called_once_with()
 
+    def test_pkunk_secondary_does_not_repeat_the_previous_insult(self):
+        ship = create_ship("Pkunk", 1)
+        insult = create_ability("PkunkA2", ship)
+        sounds = (mock.Mock(), mock.Mock(), mock.Mock())
+        insult.insult_indices = (0, 1, 2)
+        insult.insults = sounds
+        insult.rng = mock.Mock()
+        insult.rng.choice.side_effect = lambda choices: choices[0]
+        ship.last_insult_index = 0
+
+        insult.play_insult()
+        self.assertEqual(ship.last_insult_index, 1)
+        sounds[1].play.assert_called_once_with()
+
+        insult.play_insult()
+        self.assertEqual(ship.last_insult_index, 0)
+        sounds[0].play.assert_called_once_with()
+        self.assertEqual(
+            insult.rng.choice.call_args_list,
+            [
+                mock.call([(1, sounds[1]), (2, sounds[2])]),
+                mock.call([(0, sounds[0]), (2, sounds[2])]),
+            ],
+        )
+
     def test_ilwrath_cloak_costs_energy_while_uncloak_is_free(self):
         ship = create_ship("Ilwrath", 1)
         initial_energy = ship.current_energy

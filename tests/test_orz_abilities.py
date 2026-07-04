@@ -214,6 +214,21 @@ class OrzAbilityTests(unittest.TestCase):
         self.assertEqual(self.ship.current_hp, self.ship.max_hp - 1)
         self.assertIn(marine, self.ship.active_marines)
 
+    def test_a3_starts_stationary_and_tracks_on_its_first_update(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+
+        marine, _ = self.ship.perform_action3()
+
+        self.assertEqual(marine.mode, OrzA3.OUTBOUND)
+        self.assertEqual(marine.velocity, [0.0, 0.0])
+        marine.update()
+        self.assertAlmostEqual(
+            math.hypot(*marine.velocity),
+            marine.thrust_increment,
+        )
+
     def test_a3_boards_after_immediate_crew_kill_and_registers_hud_icon(self):
         enemy = create_ship("Earthling", 2)
         enemy.initialize_in_battle([700, 500], 0)

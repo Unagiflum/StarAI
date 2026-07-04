@@ -138,15 +138,10 @@ class OrzA3(Ability):
         self.size = list(self.red_flight_sprite.get_size())
 
     def _place_at_parent_rear(self):
-        self.launch_from_gun()
-        if self.speed:
-            scale = self.max_thrust / self.speed
-            inherited_x = self.parent.velocity[0] * self.parent_vel
-            inherited_y = self.parent.velocity[1] * self.parent_vel
-            self.velocity = [
-                (self.velocity[0] - inherited_x) * scale + inherited_x,
-                (self.velocity[1] - inherited_y) * scale + inherited_y,
-            ]
+        self.launch_from_gun(inherit_parent_velocity=False)
+        # UQM allocates the marine as a zeroed element and does not assign a
+        # launch velocity. Its tracking preprocess starts on the next update.
+        self.velocity = [0.0, 0.0]
 
     def update(self):
         if not self.currently_alive:

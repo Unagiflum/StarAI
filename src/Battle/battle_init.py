@@ -32,16 +32,90 @@ def validate_ship_positions(pos1, pos2):
     return wrapped_distance(pos1, pos2) >= const.MIN_SHIP_SEPARATION
 
 
-def get_valid_ship_positions(rng=None):
+def validate_ship_position(position, arena_objects=()):
+    """Return whether a ship spawn is clear of the supplied arena objects."""
+    return all(
+        wrapped_distance(position, obj.position) >= const.MIN_SHIP_SEPARATION
+        for obj in arena_objects
+        if getattr(obj, "position", None) is not None
+    )
+
+
+def validate_vux_start_position(position, vux, arena_objects=()):
+    """Validate the Vux close-start exception without using normal clearance."""
+    planets = [obj for obj in arena_objects if isinstance(obj, Planet)]
+    gravity_centers = (
+        [planet.position for planet in planets]
+        if planets
+        else [const.PLANET_POSITION]
+    )
+    if any(
+        wrapped_distance(position, center) < const.GRAVITY_RANGE
+        for center in gravity_centers
+    ):
+        return False
+
+    vux_player = getattr(vux, "player", None)
+    for obj in arena_objects:
+        if getattr(obj, "type", None) not in ("projectile", "special_object"):
+            continue
+        if not getattr(obj, "currently_alive", True):
+            continue
+        if getattr(obj, "player", vux_player) == vux_player:
+            continue
+        if (
+            wrapped_distance(position, obj.position)
+            < const.VUX_OBJECT_SPAWN_CLEARANCE
+        ):
+            return False
+    return True
+
+
+def fallback_ship_positions():
+    """Yield deterministic candidates outside the arena's center buffer."""
+    step = max(1, const.MIN_SHIP_SEPARATION // 4)
+    center = const.ARENA_SIZE // 2
+    for x in range(0, const.ARENA_SIZE, step):
+        for y in range(0, const.ARENA_SIZE, step):
+            if (
+                abs(x - center) > const.CENTER_BUFFER
+                or abs(y - center) > const.CENTER_BUFFER
+            ):
+                yield x, y
+
+
+def get_valid_ship_positions(rng=None, arena_objects=()):
     rng = rng or random
-    while True:
+    for _ in range(1000):
         pos1 = get_random_position(rng)
         pos2 = get_random_position(rng)
-        if validate_ship_positions(pos1, pos2):
+        if (
+            validate_ship_positions(pos1, pos2)
+            and validate_ship_position(pos1, arena_objects)
+            and validate_ship_position(pos2, arena_objects)
+        ):
             return pos1, pos2
 
+    clear_positions = [
+        position
+        for position in fallback_ship_positions()
+        if validate_ship_position(position, arena_objects)
+    ]
+    for index, pos1 in enumerate(clear_positions):
+        for pos2 in clear_positions[index + 1 :]:
+            if validate_ship_positions(pos1, pos2):
+                return pos1, pos2
 
-def apply_vux_starting_conditions(player1, player2, preserved_ships=None, rng=None):
+    raise RuntimeError("Unable to find clear ship positions")
+
+
+def apply_vux_starting_conditions(
+    player1,
+    player2,
+    preserved_ships=None,
+    rng=None,
+    arena_objects=(),
+):
     import math
     from src.Objects.Ships.catalog import ABILITIES_DATA
     from src.toroidal import wrapped_delta
@@ -51,25 +125,50 @@ def apply_vux_starting_conditions(player1, player2, preserved_ships=None, rng=No
 
     for p, opponent in [(player1, player2), (player2, player1)]:
         if p.name == "Vux" and p.battles_fought == 1 and p not in preserved_ships:
-            if opponent in preserved_ships:
-                anchor = opponent
-                mover = p
-            else:
-                anchor = p
-                mover = opponent
+            # The Vux is the ship receiving the close-start exception. Keep the
+            # opponent fixed so only the Vux bypasses normal spawn clearance.
+            anchor = opponent
+            mover = p
 
             laser_range = ABILITIES_DATA.get("VuxA1", {}).get("range", 644)
             min_dist = min(300, laser_range - 50) if laser_range > 300 else 0
-            dist = rng.randint(min_dist, laser_range)
-            angle = rng.uniform(0, 2 * math.pi)
+            new_pos = None
+            phase = rng.uniform(0, 2 * math.pi)
+            max_dist = math.ceil(const.ARENA_SIZE / math.sqrt(2))
+            first_dist = math.ceil(min_dist / const.VUX_SPAWN_SEARCH_STEP)
+            first_dist *= const.VUX_SPAWN_SEARCH_STEP
+            for dist in range(
+                first_dist,
+                max_dist + const.VUX_SPAWN_SEARCH_STEP,
+                const.VUX_SPAWN_SEARCH_STEP,
+            ):
+                sample_count = max(
+                    32,
+                    math.ceil(
+                        2
+                        * math.pi
+                        * max(dist, 1)
+                        / const.VUX_SPAWN_ANGULAR_SPACING
+                    ),
+                )
+                for index in range(sample_count):
+                    angle = phase + index * 2 * math.pi / sample_count
+                    candidate = [
+                        (anchor.position[0] + math.sin(angle) * dist)
+                        % const.ARENA_SIZE,
+                        (anchor.position[1] - math.cos(angle) * dist)
+                        % const.ARENA_SIZE,
+                    ]
+                    if validate_vux_start_position(candidate, p, arena_objects):
+                        new_pos = candidate
+                        break
+                if new_pos is not None:
+                    break
 
-            new_pos = [
-                (anchor.position[0] + math.sin(angle) * dist) % const.ARENA_SIZE,
-                (anchor.position[1] - math.cos(angle) * dist) % const.ARENA_SIZE,
-            ]
-            mover.position = new_pos
-            if hasattr(mover, "previous_position"):
-                mover.previous_position = new_pos.copy()
+            if new_pos is not None:
+                mover.position = new_pos
+                if hasattr(mover, "previous_position"):
+                    mover.previous_position = new_pos.copy()
 
             dx, dy = wrapped_delta(p.position, opponent.position)
             target_angle = math.degrees(math.atan2(dx, -dy))

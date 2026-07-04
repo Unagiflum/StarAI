@@ -15,6 +15,7 @@ class Pkunk(SpaceShip):
     def __init__(self, ship_name, player_num, resources=None, audio_service=None):
         super().__init__(ship_name, player_num, resources, audio_service)
         self.rebirth_count = 0
+        self.last_insult_index = None
 
     @property
     def current_rebirth_chance(self):

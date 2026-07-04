@@ -4,6 +4,7 @@ import random
 
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.ability import Ability
+from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.object import ThrustMarker
 from src.Battle.battle_init import initialize_battle
 from src.Battle.collisions import handle_collisions
@@ -376,12 +377,19 @@ class BattleSimulation:
         self.aftermath.victory_notified = True
 
     def _reenter_reborn_ships(self, ships):
+        obstacles = ship_spawn_obstacles(self.world, excluding=ships)
         if len(ships) == 2:
-            positions = random_ship_positions(self.rng)
+            positions = random_ship_positions(self.rng, obstacles)
         else:
             ship = ships[0]
             opponent = self.player2 if ship is self.player1 else self.player1
-            positions = (random_position_away_from(opponent.position, self.rng),)
+            positions = (
+                random_position_away_from(
+                    opponent.position,
+                    self.rng,
+                    obstacles,
+                ),
+            )
 
         for ship, position in zip(ships, positions):
             ship.initialize_in_battle(
@@ -693,7 +701,11 @@ def reset_round_objects(
     planet = planets[0] if planets else None
 
     entering_ships = initialize_new_round_ships(
-        selected_ships, preserved_ships, planet, rng=rng
+        selected_ships,
+        preserved_ships,
+        planet,
+        rng=rng,
+        arena_objects=ship_spawn_obstacles(world),
     )
 
     player1.opponent = player2
@@ -702,7 +714,13 @@ def reset_round_objects(
 
     from src.Battle.battle_init import apply_vux_starting_conditions
 
-    apply_vux_starting_conditions(player1, player2, preserved_ships, rng=rng)
+    apply_vux_starting_conditions(
+        player1,
+        player2,
+        preserved_ships,
+        rng=rng,
+        arena_objects=ship_spawn_obstacles(world, excluding=selected_ships),
+    )
 
     world.add_all(selected_ships)
     return entering_ships
@@ -714,15 +732,28 @@ def stop_tracking_projectiles(game_objects):
             obj.stop_and_track()
 
 
-def initialize_new_round_ships(selected_ships, preserved_ships, planet, *, rng=None):
+def initialize_new_round_ships(
+    selected_ships,
+    preserved_ships,
+    planet,
+    *,
+    rng=None,
+    arena_objects=(),
+):
     rng = rng or random
     new_ships = [ship for ship in selected_ships if ship not in preserved_ships]
     preserved_list = list(preserved_ships)
 
     if len(new_ships) == 2:
-        positions = list(random_ship_positions(rng))
+        positions = list(random_ship_positions(rng, arena_objects))
     elif len(new_ships) == 1 and preserved_list:
-        positions = [random_position_away_from(preserved_list[0].position, rng)]
+        positions = [
+            random_position_away_from(
+                preserved_list[0].position,
+                rng,
+                arena_objects,
+            )
+        ]
     else:
         positions = []
 
@@ -750,23 +781,62 @@ def update_preserved_abilities(abilities, player1, player2, planet):
             ability.planet = planet
 
 
-def random_position_away_from(position, rng=None):
-    from src.Battle.battle_init import get_random_position, validate_ship_positions
+def random_position_away_from(position, rng=None, arena_objects=()):
+    from src.Battle.battle_init import (
+        fallback_ship_positions,
+        get_random_position,
+        validate_ship_position,
+        validate_ship_positions,
+    )
 
     rng = rng or random
 
     for _ in range(1000):
         candidate = get_random_position(rng)
-        if validate_ship_positions(position, candidate):
+        if validate_ship_positions(position, candidate) and validate_ship_position(
+            candidate, arena_objects
+        ):
             return candidate
 
-    return get_random_position(rng)
+    # A mocked or pathological RNG must not force an unsafe placement. Search a
+    # deterministic lattice before reporting that the arena has no clear spot.
+    for candidate in fallback_ship_positions():
+        if validate_ship_positions(position, candidate) and validate_ship_position(
+            candidate, arena_objects
+        ):
+            return candidate
+
+    raise RuntimeError("Unable to find a clear ship position")
 
 
-def random_ship_positions(rng=None):
+def random_ship_positions(rng=None, arena_objects=()):
     from src.Battle.battle_init import get_valid_ship_positions
 
-    return get_valid_ship_positions(rng or random)
+    return get_valid_ship_positions(rng or random, arena_objects)
+
+
+def ship_spawn_obstacles(game_objects, excluding=()):
+    """Return live arena bodies that a newly placed ship must avoid."""
+    world = World.coerce(game_objects)
+    excluded_ids = {id(obj) for obj in excluding}
+    candidates = [
+        obj
+        for obj in world
+        if isinstance(obj, (SpaceShip, Planet, Asteroid))
+        or (
+            isinstance(obj, Ability)
+            and getattr(obj, "type", None) in ("projectile", "special_object")
+        )
+    ]
+    return [
+        obj
+        for obj in candidates
+        if (
+            id(obj) not in excluded_ids
+            and getattr(obj, "currently_alive", True)
+            and getattr(obj, "current_hp", 1) > 0
+        )
+    ]
 
 
 def reset_key_states(key_states):
