@@ -39,7 +39,7 @@ class YehatA2Tests(unittest.TestCase):
         self.assertIs(self.ship.get_collision_mask(), original_mask)
 
         duration = int(ABILITY_DEFINITIONS["YehatA2"].life_time)
-        for _ in range(duration - 1):
+        for _ in range(duration):
             self.assertTrue(shield.update())
             self.assertTrue(self.ship.damage_shield_is_active())
         self.assertFalse(shield.update())
@@ -81,6 +81,30 @@ class YehatA2Tests(unittest.TestCase):
 
         self.assertIs(shield.launch_sound, sound)
         sound.play.assert_called_once_with()
+
+    def test_held_shield_refreshes_on_uqm_two_frame_counter(self):
+        self.ship.set_control_state("action2", True, 0)
+
+        first = self.ship.process_controls(0)[0]
+        self.assertEqual(self.ship.current_energy, 7)
+        self.assertEqual(self.ship.action2_timer, 2)
+
+        self.assertEqual(self.ship.process_controls(1), [])
+        second = self.ship.process_controls(2)[0]
+
+        self.assertFalse(first.currently_alive)
+        self.assertIs(self.ship._active_damage_shield, second)
+        self.assertEqual(self.ship.current_energy, 4)
+
+    def test_releasing_special_does_not_end_fixed_duration_shield(self):
+        self.ship.set_control_state("action2", True, 0)
+        shield = self.ship.process_controls(0)[0]
+
+        self.ship.set_control_state("action2", False, 1)
+        self.ship.process_controls(1)
+
+        self.assertTrue(shield.currently_alive)
+        self.assertTrue(self.ship.damage_shield_is_active())
 
 
 if __name__ == "__main__":

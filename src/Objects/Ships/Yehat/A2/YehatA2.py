@@ -13,6 +13,7 @@ class YehatA2(Ability):
         self.can_expire = True
         self.can_collide = False
         self._active = False
+        self._activation_frame_pending = True
 
     def activate(self):
         previous = self.parent._active_damage_shield
@@ -35,6 +36,12 @@ class YehatA2(Ability):
         self.position = self.parent.position.copy()
         self.heading = self.parent.heading
         self.rotation = self.parent.rotation
+        if self._activation_frame_pending:
+            # UQM installs SHIELD_LIFE after its lifespan decrement, so the
+            # activation frame counts as the first protected frame without
+            # consuming one of the ten remaining ticks.
+            self._activation_frame_pending = False
+            return True
         self.expiration_timer -= 1
         if self.expiration_timer <= 0:
             self.deactivate()

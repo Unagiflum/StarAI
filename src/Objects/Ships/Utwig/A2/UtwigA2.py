@@ -31,6 +31,11 @@ class UtwigA2(Ability):
             previous._active = False
         self.parent._active_damage_shield = self
         self._active = True
+        # UQM sets the counter to 12 and decrements it later in the activation
+        # frame, so the next preprocess observes 11.
+        self.parent._shield_drain_timer = self.parent.SHIELD_COUNTER_RESET - 1
+        # UQM's shield has no activation cooldown after it is released.
+        self.parent.action2_timer = 0
 
     def deactivate(self):
         self.currently_alive = False
@@ -45,10 +50,6 @@ class UtwigA2(Ability):
         self.position = self.parent.position.copy()
         self.heading = self.parent.heading
         self.rotation = self.parent.rotation
-        self.expiration_timer -= 1
-        if self.expiration_timer <= 0:
-            self.deactivate()
-            return False
         return True
 
     def is_alive(self):
@@ -63,8 +64,4 @@ class UtwigA2(Ability):
     def absorb_damage(self, damage):
         if damage <= 0:
             return
-
-        self.parent.change_energy(damage)
-
-        if self.gain_sound:
-            self.gain_sound.play()
+        self.parent.queue_shield_energy(damage, self.gain_sound)

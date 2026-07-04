@@ -72,6 +72,12 @@ class Umgah(SpaceShip):
             side_effects=(self._activate_reverse_burst,),
         )
 
+    def can_action2(self):
+        # UQM only starts retropropulsion when the ship's thrust wait has
+        # expired. ``thrust_timer`` is StarAI's per-instance equivalent of
+        # ELEMENT.thrust_wait.
+        return self.thrust_timer == 0 and super().can_action2()
+
     def _activate_reverse_burst(self):
         angle = math.radians(self.rotation)
         speed = ABILITY_DEFINITIONS["UmgahA2"].backup_speed

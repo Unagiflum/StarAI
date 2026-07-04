@@ -336,6 +336,17 @@ class UmgahTests(CollisionTestCase):
         collisions.handle_collisions([self.ship])
         self.assertEqual(self.ship.velocity, [0.0, 0.0])
 
+    def test_a2_requires_expired_thrust_wait(self):
+        initial_energy = self.ship.current_energy
+        self.ship.thrust_timer = 1
+
+        self.assertIsNone(self.ship.perform_action2())
+        self.assertEqual(self.ship.current_energy, initial_energy)
+
+        self.ship.update_timers()
+        self.assertIsInstance(self.ship.perform_action2(), UmgahA2)
+        self.assertEqual(self.ship.current_energy, initial_energy - 1)
+
     def test_a2_elastic_collision_moves_other_body_then_stops_at_contact(self):
         other = self.make_ship()
         other.position = [500.0, 600.0]
