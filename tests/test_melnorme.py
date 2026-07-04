@@ -194,24 +194,26 @@ class MelnormeTests(unittest.TestCase):
         self.assertEqual(pulse.current_hp, starting_hp - projectile.current_damage)
         self.assertTrue(projectile.currently_alive)
 
-    def test_a2_confuses_for_480_frames_forces_right_and_blocks_a2(self):
+    def test_a2_confuses_for_400_frames_forces_selected_turn_and_blocks_a2(self):
         pulse = self.make_ship().perform_action2()
+        pulse.rng = SimpleNamespace(choice=lambda directions: -1)
         target = create_ship("Earthling", 2, resources=self.resources)
         target.initialize_in_battle([800, 800], 0)
 
         pulse.handle_ship_contact(target)
         self.assertTrue(target.is_confused)
-        self.assertEqual(target.confused_timer, 480)
+        self.assertEqual(target.confused_timer, 400)
+        self.assertEqual(target.confused_turn_direction, -1)
         self.assertEqual(len(target.confused_frames), 8)
 
         target.set_control_state("action2", True, frame_id=1)
         energy = target.current_energy
         spawned = target.process_controls(frame_id=1)
-        self.assertEqual(target.heading, 1)
+        self.assertEqual(target.heading, 15)
         self.assertEqual(spawned, [])
         self.assertEqual(target.current_energy, energy)
 
-        for _ in range(479):
+        for _ in range(399):
             target.update()
         self.assertTrue(target.is_confused)
         target.update()

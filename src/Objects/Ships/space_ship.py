@@ -125,6 +125,7 @@ class SpaceShip(PlayerObject):
         self.confused_timer = 0
         self.confused_frames = ()
         self.confused_frame = 0
+        self.confused_turn_direction = 0
         self._laser_color_cycles = {}
 
     def initialize_in_battle(self, position, heading):
@@ -307,7 +308,10 @@ class SpaceShip(PlayerObject):
                 return list(result.spawned_objects)
 
         if self.is_confused:
-            self.turn_right(const.DIRECTIONS_MULTIPLIER)
+            if self.confused_turn_direction < 0:
+                self.turn_left(const.DIRECTIONS_MULTIPLIER)
+            else:
+                self.turn_right(const.DIRECTIONS_MULTIPLIER)
         else:
             turned = 0
             if self.turn_left_active and turn_left_ready and self.turn_input_enabled():
@@ -549,15 +553,17 @@ class SpaceShip(PlayerObject):
     def is_confused(self):
         return getattr(self, "confused_timer", 0) > 0
 
-    def apply_confused(self, frames, duration):
+    def apply_confused(self, frames, duration, *, turn_direction=1):
         self.confused_frames = tuple(frames)
         self.confused_timer = max(0, int(duration))
         self.confused_frame = 0
+        self.confused_turn_direction = -1 if turn_direction < 0 else 1
 
     def clear_confused(self):
         self.confused_timer = 0
         self.confused_frames = ()
         self.confused_frame = 0
+        self.confused_turn_direction = 0
 
     def _update_confused(self):
         if not self.is_confused:

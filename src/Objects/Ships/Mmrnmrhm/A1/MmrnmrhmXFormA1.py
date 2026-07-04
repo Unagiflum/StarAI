@@ -8,28 +8,14 @@ from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.launch_geometry import gun_world_position
 from src.toroidal import wrapped_delta
 
-
-class _LaserVolley:
-    def __init__(self):
-        self._damaged_target_ids = set()
-
-    def claim_damage(self, target):
-        target_id = id(target)
-        if target_id in self._damaged_target_ids:
-            return False
-        self._damaged_target_ids.add(target_id)
-        return True
-
-
 class MmrnmrhmXFormA1(Ability):
-    def __init__(self, parent, gun_location=None, volley=None):
+    def __init__(self, parent, gun_location=None):
         super().__init__("MmrnmrhmXFormA1", parent)
         definition = ABILITY_DEFINITIONS["MmrnmrhmXFormA1"]
         self.LASER_RANGE = definition.range
         self.configure_laser_colors(definition.colors)
         self.LASER_WIDTH = definition.stroke_width
         self.gun_location = gun_location or definition.gun_locations[0]
-        self.volley = volley or _LaserVolley()
         self.start_position = parent.position.copy()
         self.end_position = parent.position.copy()
         self.calculate_end_position()
@@ -37,8 +23,7 @@ class MmrnmrhmXFormA1(Ability):
     @classmethod
     def create_beams(cls, ship):
         locations = ABILITY_DEFINITIONS["MmrnmrhmXFormA1"].gun_locations or ()
-        volley = _LaserVolley()
-        return [cls(ship, location, volley) for location in locations]
+        return [cls(ship, location) for location in locations]
 
     def calculate_end_position(self):
         self.start_position = gun_world_position(
@@ -52,9 +37,6 @@ class MmrnmrhmXFormA1(Ability):
         ]
         self.heading = self.parent.heading
         self.rotation = self.parent.rotation
-
-    def should_damage_target(self, target):
-        return self.volley.claim_damage(target)
 
     def visual_end_position(self, start, parent_position, rotation):
         angle = math.radians(rotation)

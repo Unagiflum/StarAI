@@ -52,7 +52,12 @@ class MelnormeA2(Ability):
         return True
 
     def handle_ship_contact(self, ship, normal=None):
-        ship.apply_confused(self.effect_frames, self.effect_duration)
+        direction = self.rng.choice((-1, 1))
+        ship.apply_confused(
+            self.effect_frames,
+            self.effect_duration,
+            turn_direction=direction,
+        )
         self.current_hp = 0
         self.currently_alive = False
         return True

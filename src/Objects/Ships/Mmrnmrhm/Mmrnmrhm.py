@@ -57,6 +57,9 @@ class Mmrnmrhm(SpaceShip):
         if ship_shape_change_blocked(self, assets.masks, assets.size):
             return False
         self._activate_form(next_form)
+        # UQM clears weapon_counter after a successful transformation, so the
+        # outgoing form's primary cooldown does not carry into the new form.
+        self.action1_timer = 0
         return True
 
     def _activate_form(self, form_name):

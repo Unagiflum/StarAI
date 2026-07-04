@@ -684,7 +684,7 @@
             1
         ],
         "damage": [
-            2
+            1
         ],
         "parent_vel": 1.0,
         "speed": 120,
@@ -824,13 +824,14 @@
             0.0
         ],
         "effect_frames": 8,
-        "effect_duration": 480
+        "effect_duration": 400
     },
     "MyconA1": {
         "ship_name": "Mycon",
         "type": "projectile",
         "action": "A1",
         "start_hp": [
+            10,
             10,
             9,
             8,
@@ -843,6 +844,7 @@
             1
         ],
         "damage": [
+            10,
             10,
             9,
             8,
@@ -861,7 +863,7 @@
         "inertia": true,
         "hit_parent": true,
         "omnidirectional": true,
-        "frames": 10,
+        "frames": 11,
         "frame_delay": 13,
         "file_path": "Objects/Ships/Mycon/A1/",
         "end_anim": 8,

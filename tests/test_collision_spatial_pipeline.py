@@ -285,7 +285,12 @@ class CollisionSpatialPipelineTests(CollisionTestCase):
                     parent.opponent = None
                     parent.planet = None
                     projectile = create_ability(ability_name, parent)
-                    projectile.frame_timer = 1
+                    if ability_name == "MyconA1":
+                        # Mycon plasma derives its frame directly from its
+                        # remaining lifetime, matching UQM plasma_preprocess.
+                        projectile.expiration_timer = 130
+                    else:
+                        projectile.frame_timer = 1
                     self.assertTrue(projectile.update())
                     self.assertEqual(projectile.current_frame, 1)
                     self.assertIs(

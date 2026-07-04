@@ -52,6 +52,9 @@ class MmrnmrhmTests(unittest.TestCase):
         self.assertEqual(right.start_position, [1048.0, 985.0])
         self.assertEqual(left.end_position, [1000.0, 436.0])
         self.assertEqual(right.end_position, [1000.0, 436.0])
+        self.assertEqual((left.current_damage, right.current_damage), (1, 1))
+        self.assertFalse(hasattr(left, "volley"))
+        self.assertFalse(hasattr(right, "volley"))
 
     def test_xform_beam_draw_geometry_uses_short_wrapped_segment(self):
         self.ship.position = [1000.0, 10.0]
@@ -103,6 +106,24 @@ class MmrnmrhmTests(unittest.TestCase):
         self.assertEqual(self.ship.turn_wait, 14)
         self.assertEqual(self.ship.a1_wait, 20)
         self.assertEqual(self.ship.size, [77, 79])
+
+    def test_transform_clears_outgoing_forms_primary_cooldown(self):
+        self.assertTrue(self.ship._try_transform())
+        self.ship.current_energy = self.ship.max_energy
+        fire_result = self.ship.commit_action(self.ship.plan_action1())
+
+        self.assertTrue(fire_result.valid)
+        self.assertGreater(self.ship.action1_timer, 0)
+
+        self.ship.current_energy = self.ship.max_energy
+        transform_result = self.ship.commit_action(self.ship.plan_action2())
+
+        self.assertTrue(transform_result.valid)
+        self.assertEqual(self.ship.form, self.ship.XFORM)
+        self.assertEqual(self.ship.action1_timer, 0)
+
+        self.ship.current_energy = 1
+        self.assertTrue(self.ship.plan_action1().valid)
 
     def test_blocked_transform_spends_energy_but_keeps_current_form(self):
         target = create_ship("Earthling", 2, resources=self.resources)
