@@ -12,7 +12,11 @@ import pygame
 pygame.init()
 pygame.display.set_mode((1, 1))
 
-from src.Battle.status_bar import draw_limpet_count, draw_special_indicator
+from src.Battle.status_bar import (
+    _draw_indicator_fraction,
+    draw_limpet_count,
+    draw_special_indicator,
+)
 
 
 class LimpetStatusTests(unittest.TestCase):
@@ -58,6 +62,34 @@ class LimpetStatusTests(unittest.TestCase):
 
 
 class SpecialIndicatorTests(unittest.TestCase):
+    def test_fraction_changes_keep_existing_arc_vertices_fixed(self):
+        panel = pygame.Surface((40, 40))
+
+        with mock.patch(
+            "src.Battle.status_bar.pygame.gfxdraw.filled_polygon"
+        ) as filled_polygon, mock.patch(
+            "src.Battle.status_bar.pygame.gfxdraw.aapolygon"
+        ):
+            _draw_indicator_fraction(panel, 20, 16, 0.25, (0, 255, 0))
+            quarter_points = filled_polygon.call_args.args[1]
+            _draw_indicator_fraction(panel, 20, 16, 0.26, (0, 255, 0))
+            later_points = filled_polygon.call_args.args[1]
+
+        self.assertEqual(later_points[: len(quarter_points)], quarter_points)
+
+    def test_subpixel_fraction_does_not_draw_a_degenerate_polygon(self):
+        panel = pygame.Surface((40, 40))
+
+        with mock.patch(
+            "src.Battle.status_bar.pygame.gfxdraw.filled_polygon"
+        ) as filled_polygon, mock.patch(
+            "src.Battle.status_bar.pygame.gfxdraw.aapolygon"
+        ) as aapolygon:
+            _draw_indicator_fraction(panel, 20, 16, 0.0001, (0, 255, 0))
+
+        filled_polygon.assert_not_called()
+        aapolygon.assert_not_called()
+
     def test_draws_antialiased_light_with_one_pixel_panel_inset(self):
         panel = pygame.Surface((20, 20))
         panel.fill((12, 34, 56))

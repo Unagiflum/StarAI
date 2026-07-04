@@ -8,6 +8,7 @@ import src.const as const
 
 SPECIAL_INDICATOR_BORDER_COLOR = (0, 0, 0)
 SPECIAL_INDICATOR_NEGATIVE_COLOR = (0, 0, 0)
+SPECIAL_INDICATOR_SEGMENTS = 128
 
 
 def _draw_indicator_fraction(surface, center, radius, fraction, color):
@@ -20,17 +21,31 @@ def _draw_indicator_fraction(surface, center, radius, fraction, color):
         pygame.gfxdraw.aacircle(surface, center, center, radius, color)
         return
 
-    sweep = math.tau * fraction
-    point_count = max(2, math.ceil(32 * fraction))
+    # Keep completed arc vertices fixed as the endpoint advances.
+    step_position = SPECIAL_INDICATOR_SEGMENTS * fraction
+    whole_steps = math.floor(step_position)
     points = [(center, center)]
-    for index in range(point_count + 1):
-        angle = -math.pi / 2 + sweep * index / point_count
-        points.append(
-            (
-                round(center + radius * math.cos(angle)),
-                round(center + radius * math.sin(angle)),
-            )
+    for index in range(whole_steps + 1):
+        angle = -math.pi / 2 + math.tau * index / SPECIAL_INDICATOR_SEGMENTS
+        point = (
+            round(center + radius * math.cos(angle)),
+            round(center + radius * math.sin(angle)),
         )
+        if point != points[-1]:
+            points.append(point)
+
+    if not math.isclose(step_position, whole_steps, abs_tol=1e-12):
+        end_angle = -math.pi / 2 + math.tau * fraction
+        end_point = (
+            round(center + radius * math.cos(end_angle)),
+            round(center + radius * math.sin(end_angle)),
+        )
+        if end_point != points[-1]:
+            points.append(end_point)
+
+    if len(points) < 3:
+        return
+
     pygame.gfxdraw.filled_polygon(surface, points, color)
     pygame.gfxdraw.aapolygon(surface, points, color)
 
