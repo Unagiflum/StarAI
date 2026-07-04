@@ -379,7 +379,7 @@ class BattleSimulation:
     def _reenter_reborn_ships(self, ships):
         obstacles = ship_spawn_obstacles(self.world, excluding=ships)
         if len(ships) == 2:
-            positions = random_ship_positions(self.rng, obstacles)
+            positions = random_ship_positions(self.rng, obstacles, ships)
         else:
             ship = ships[0]
             opponent = self.player2 if ship is self.player1 else self.player1
@@ -388,6 +388,7 @@ class BattleSimulation:
                     opponent.position,
                     self.rng,
                     obstacles,
+                    ship,
                 ),
             )
 
@@ -745,13 +746,14 @@ def initialize_new_round_ships(
     preserved_list = list(preserved_ships)
 
     if len(new_ships) == 2:
-        positions = list(random_ship_positions(rng, arena_objects))
+        positions = list(random_ship_positions(rng, arena_objects, new_ships))
     elif len(new_ships) == 1 and preserved_list:
         positions = [
             random_position_away_from(
                 preserved_list[0].position,
                 rng,
                 arena_objects,
+                new_ships[0],
             )
         ]
     else:
@@ -781,7 +783,7 @@ def update_preserved_abilities(abilities, player1, player2, planet):
             ability.planet = planet
 
 
-def random_position_away_from(position, rng=None, arena_objects=()):
+def random_position_away_from(position, rng=None, arena_objects=(), ship=None):
     from src.Battle.battle_init import (
         fallback_ship_positions,
         get_random_position,
@@ -794,7 +796,7 @@ def random_position_away_from(position, rng=None, arena_objects=()):
     for _ in range(1000):
         candidate = get_random_position(rng)
         if validate_ship_positions(position, candidate) and validate_ship_position(
-            candidate, arena_objects
+            candidate, arena_objects, ship
         ):
             return candidate
 
@@ -802,17 +804,17 @@ def random_position_away_from(position, rng=None, arena_objects=()):
     # deterministic lattice before reporting that the arena has no clear spot.
     for candidate in fallback_ship_positions():
         if validate_ship_positions(position, candidate) and validate_ship_position(
-            candidate, arena_objects
+            candidate, arena_objects, ship
         ):
             return candidate
 
     raise RuntimeError("Unable to find a clear ship position")
 
 
-def random_ship_positions(rng=None, arena_objects=()):
+def random_ship_positions(rng=None, arena_objects=(), ships=()):
     from src.Battle.battle_init import get_valid_ship_positions
 
-    return get_valid_ship_positions(rng or random, arena_objects)
+    return get_valid_ship_positions(rng or random, arena_objects, ships)
 
 
 def ship_spawn_obstacles(game_objects, excluding=()):

@@ -26,11 +26,22 @@ from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
 
 
-def arena_object(object_type, position, *, ability_type=None, alive=True):
+def arena_object(
+    object_type,
+    position,
+    *,
+    ability_type=None,
+    alive=True,
+    player=None,
+    size=(100, 100),
+):
     obj = object_type.__new__(object_type)
     obj.position = list(position)
     obj.currently_alive = alive
     obj.current_hp = 1 if alive else 0
+    obj.size = list(size)
+    if player is not None:
+        obj.player = player
     if ability_type is not None:
         obj.type = ability_type
     return obj
@@ -39,9 +50,53 @@ def arena_object(object_type, position, *, ability_type=None, alive=True):
 class ShipPlacementTests(unittest.TestCase):
     def test_position_validation_uses_toroidal_distance_from_arena_objects(self):
         obstacle = arena_object(Asteroid, [50, 100])
+        ship = SimpleNamespace(player=1, size=[100, 100])
 
-        self.assertFalse(validate_ship_position([7950, 100], [obstacle]))
-        self.assertTrue(validate_ship_position([4000, 4000], [obstacle]))
+        self.assertFalse(validate_ship_position([7975, 100], [obstacle], ship))
+        self.assertTrue(validate_ship_position([7000, 4000], [obstacle], ship))
+
+    def test_normal_position_stays_outside_circular_gravity_well(self):
+        self.assertTrue(validate_ship_position([5020, 4000]))
+        self.assertFalse(validate_ship_position([5019, 4000]))
+
+    def test_normal_position_uses_clearance_by_object_type(self):
+        ship = SimpleNamespace(player=1, size=[100, 100])
+        other_ship = arena_object(SpaceShip, [1000, 1000], player=2)
+        enemy_projectile = arena_object(
+            Ability,
+            [1000, 1000],
+            ability_type="projectile",
+            player=2,
+        )
+        friendly_projectile = arena_object(
+            Ability,
+            [1000, 1000],
+            ability_type="projectile",
+            player=1,
+        )
+        asteroid = arena_object(Asteroid, [1000, 1000], size=(100, 100))
+
+        ship_boundary = 1000 + const.SHIP_SPAWN_SEPARATION
+        self.assertFalse(
+            validate_ship_position([ship_boundary - 1, 1000], [other_ship], ship)
+        )
+        self.assertTrue(
+            validate_ship_position([ship_boundary, 1000], [other_ship], ship)
+        )
+        object_boundary = 1000 + const.OBJECT_SPAWN_SEPARATION
+        self.assertFalse(
+            validate_ship_position(
+                [object_boundary - 1, 1000], [enemy_projectile], ship
+            )
+        )
+        self.assertTrue(
+            validate_ship_position([object_boundary, 1000], [enemy_projectile], ship)
+        )
+        self.assertTrue(
+            validate_ship_position([1000, 1000], [friendly_projectile], ship)
+        )
+        self.assertFalse(validate_ship_position([1099, 1000], [asteroid], ship))
+        self.assertTrue(validate_ship_position([1100, 1000], [asteroid], ship))
 
     def test_random_position_retries_when_candidate_is_near_arena_object(self):
         obstacle = arena_object(Planet, [3100, 0])

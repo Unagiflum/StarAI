@@ -109,7 +109,7 @@ class ToroidalMechanicsTests(unittest.TestCase):
 
     def test_ship_position_validation_uses_wrapped_distance(self):
         near_edge_pair = ([const.ARENA_SIZE - 100, 0], [100, 0])
-        far_pair = ([0, 0], [const.MIN_SHIP_SEPARATION, 0])
+        far_pair = ([0, 0], [const.SHIP_SPAWN_SEPARATION, 0])
 
         self.assertFalse(validate_ship_positions(*near_edge_pair))
         self.assertTrue(validate_ship_positions(*far_pair))

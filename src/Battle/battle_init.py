@@ -18,27 +18,56 @@ def load_settings():
 
 def get_random_position(rng=None):
     rng = rng or random
-    while True:
-        x = rng.randint(0, const.ARENA_SIZE)
-        y = rng.randint(0, const.ARENA_SIZE)
-        center = const.ARENA_SIZE // 2
-        dx = abs(x - center)
-        dy = abs(y - center)
-        if dx > const.CENTER_BUFFER or dy > const.CENTER_BUFFER:
-            return x, y
+    return (
+        rng.randint(0, const.ARENA_SIZE),
+        rng.randint(0, const.ARENA_SIZE),
+    )
 
 
 def validate_ship_positions(pos1, pos2):
-    return wrapped_distance(pos1, pos2) >= const.MIN_SHIP_SEPARATION
+    return wrapped_distance(pos1, pos2) >= const.SHIP_SPAWN_SEPARATION
 
 
-def validate_ship_position(position, arena_objects=()):
+def _placement_radius(obj):
+    size = getattr(obj, "size", None)
+    return max(size) / 2 if size else 0
+
+
+def validate_ship_position(position, arena_objects=(), ship=None):
     """Return whether a ship spawn is clear of the supplied arena objects."""
-    return all(
-        wrapped_distance(position, obj.position) >= const.MIN_SHIP_SEPARATION
-        for obj in arena_objects
-        if getattr(obj, "position", None) is not None
+    objects = tuple(arena_objects)
+    planets = [obj for obj in objects if isinstance(obj, Planet)]
+    gravity_centers = (
+        [planet.position for planet in planets]
+        if planets
+        else [const.PLANET_POSITION]
     )
+    if any(
+        wrapped_distance(position, center) < const.GRAVITY_RANGE
+        for center in gravity_centers
+    ):
+        return False
+
+    ship_player = getattr(ship, "player", None)
+    ship_radius = _placement_radius(ship)
+    for obj in objects:
+        if getattr(obj, "position", None) is None or isinstance(obj, Planet):
+            continue
+        distance = wrapped_distance(position, obj.position)
+        if isinstance(obj, SpaceShip):
+            if distance < const.SHIP_SPAWN_SEPARATION:
+                return False
+            continue
+        if isinstance(obj, Asteroid):
+            if distance < ship_radius + _placement_radius(obj):
+                return False
+            continue
+        if getattr(obj, "type", None) in ("projectile", "special_object"):
+            if ship is not None and getattr(obj, "player", ship_player) == ship_player:
+                continue
+            if distance < const.OBJECT_SPAWN_SEPARATION:
+                return False
+    return True
 
 
 def validate_vux_start_position(position, vux, arena_objects=()):
@@ -72,38 +101,38 @@ def validate_vux_start_position(position, vux, arena_objects=()):
 
 
 def fallback_ship_positions():
-    """Yield deterministic candidates outside the arena's center buffer."""
-    step = max(1, const.MIN_SHIP_SEPARATION // 4)
-    center = const.ARENA_SIZE // 2
+    """Yield deterministic candidates throughout the arena."""
+    step = max(1, const.SHIP_SPAWN_SEPARATION // 4)
     for x in range(0, const.ARENA_SIZE, step):
         for y in range(0, const.ARENA_SIZE, step):
-            if (
-                abs(x - center) > const.CENTER_BUFFER
-                or abs(y - center) > const.CENTER_BUFFER
-            ):
-                yield x, y
+            yield x, y
 
 
-def get_valid_ship_positions(rng=None, arena_objects=()):
+def get_valid_ship_positions(rng=None, arena_objects=(), ships=()):
     rng = rng or random
+    ships = tuple(ships)
+    ship1 = ships[0] if len(ships) > 0 else None
+    ship2 = ships[1] if len(ships) > 1 else None
     for _ in range(1000):
         pos1 = get_random_position(rng)
         pos2 = get_random_position(rng)
         if (
             validate_ship_positions(pos1, pos2)
-            and validate_ship_position(pos1, arena_objects)
-            and validate_ship_position(pos2, arena_objects)
+            and validate_ship_position(pos1, arena_objects, ship1)
+            and validate_ship_position(pos2, arena_objects, ship2)
         ):
             return pos1, pos2
 
     clear_positions = [
         position
         for position in fallback_ship_positions()
-        if validate_ship_position(position, arena_objects)
+        if validate_ship_position(position, arena_objects, ship1)
     ]
     for index, pos1 in enumerate(clear_positions):
         for pos2 in clear_positions[index + 1 :]:
-            if validate_ship_positions(pos1, pos2):
+            if validate_ship_positions(pos1, pos2) and validate_ship_position(
+                pos2, arena_objects, ship2
+            ):
                 return pos1, pos2
 
     raise RuntimeError("Unable to find clear ship positions")
@@ -203,9 +232,9 @@ def initialize_battle(
 
     # Initialize ships
     pos1, pos2 = (
-        get_valid_ship_positions(rng)
+        get_valid_ship_positions(rng, ships=(ship1, ship2))
         if explicit_runtime
-        else get_valid_ship_positions()
+        else get_valid_ship_positions(ships=(ship1, ship2))
     )
 
     player1 = ship1
