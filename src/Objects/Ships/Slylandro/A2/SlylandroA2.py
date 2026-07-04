@@ -7,7 +7,7 @@ class SlylandroA2(Ability):
     def __init__(self, parent):
         super().__init__("SlylandroA2", parent)
         definition = ABILITY_DEFINITIONS["SlylandroA2"]
-        self.range = definition.effect_range
+        self.range = definition.range
         self.position = self.configured_gun_position()
         self.previous_position = self.position.copy()
         self.velocity = [0.0, 0.0]

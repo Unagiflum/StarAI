@@ -6,7 +6,7 @@ class PkunkA2(Ability):
     def __init__(self, parent):
         super().__init__("PkunkA2", parent)
         ability_data = ABILITIES_DATA["PkunkA2"]
-        self.ENERGY_GAIN = ability_data.get("ENERGY_GAIN", 2)
+        self.ENERGY_GAIN = ability_data.get("energy_gain", 2)
         self.file_path = ability_data.get("file_path")
         sound_dir = const.source_path(ability_data["file_path"])
         self.insults = tuple(

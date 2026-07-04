@@ -51,7 +51,11 @@ class ChmmrTests(unittest.TestCase):
         self.assertEqual(ship.ship_type, "Avatar")
         self.assertEqual(ship.satellite_count, 3)
         self.assertEqual(ship.satellite_period, 64)
-        self.assertEqual(ship.satellite_laser_color, (0, 0, 255))
+        satellite_laser = ABILITY_DEFINITIONS["ChmmrSatelliteLaser"]
+        self.assertEqual(satellite_laser.range, 256)
+        self.assertEqual(satellite_laser.colors, ((0, 0, 255, 255),))
+        self.assertEqual(satellite_laser.stroke_width, 4)
+        self.assertEqual(satellite_laser.weapon_wait, 2)
         self.assertEqual(tractor.base_speed, 12)
         self.assertEqual(tractor.silhouette_count, 5)
         self.assertEqual(
@@ -148,15 +152,15 @@ class ChmmrTests(unittest.TestCase):
 
     def test_primary_cycles_through_configured_laser_colors(self):
         expected = (
-            (189, 0, 0),
-            (255, 24, 0),
-            (255, 140, 0),
-            (255, 24, 0),
+            (189, 0, 0, 255),
+            (255, 24, 0, 255),
+            (255, 140, 0, 255),
+            (255, 24, 0, 255),
         )
 
         beams = [self.chmmr.plan_action1().spawned_objects[0] for _ in expected]
 
-        self.assertEqual(ABILITY_DEFINITIONS["ChmmrA1"].laser_color, expected)
+        self.assertEqual(ABILITY_DEFINITIONS["ChmmrA1"].colors, expected)
         self.assertEqual(tuple(beam.LASER_COLOR for beam in beams), expected)
 
     def test_primary_overlay_uses_ship_direction_only_while_beam_exists(self):

@@ -1,4 +1,5 @@
 import json
+import re
 import unittest
 from dataclasses import FrozenInstanceError
 
@@ -40,6 +41,19 @@ class CatalogDefinitionTests(unittest.TestCase):
             ship.cost = 0
         with self.assertRaises(TypeError):
             SHIP_DEFINITIONS["Earthling"] = ship
+
+    def test_configuration_field_names_use_lower_snake_case(self):
+        field_name = re.compile(r"^[a-z][a-z0-9_]*$")
+        for catalog in (self.raw_ships, self.raw_abilities):
+            for entry_name, entry in catalog.items():
+                for key in entry:
+                    with self.subTest(entry=entry_name, key=key):
+                        self.assertRegex(key, field_name)
+        for ship_name, ship in self.raw_ships.items():
+            for form_name, form in ship.get("forms", {}).items():
+                for key in form:
+                    with self.subTest(ship=ship_name, form=form_name, key=key):
+                        self.assertRegex(key, field_name)
 
     def test_definitions_preserve_the_existing_json_shape_and_values(self):
         self.assertEqual(
@@ -147,7 +161,7 @@ class CatalogDefinitionTests(unittest.TestCase):
 
     def test_silhouette_colors_require_rgba_channels(self):
         ability_data = dict(self.raw_abilities["ChmmrA2"])
-        ability_data["SILHOUETTE_COLORS"] = [[0, 0, 200]] * 5
+        ability_data["silhouette_colors"] = [[0, 0, 200]] * 5
 
         with self.assertRaisesRegex(CatalogValidationError, "must contain 4 values"):
             parse_ability_definition("BrokenAbility", ability_data)
@@ -156,21 +170,21 @@ class CatalogDefinitionTests(unittest.TestCase):
         ability_data = dict(self.raw_abilities["SyreenA2"])
         definition = parse_ability_definition("SyreenA2", ability_data)
 
-        self.assertEqual(definition.anim_length, ability_data["ANIM_LENGTH"])
+        self.assertEqual(definition.anim_length, ability_data["anim_length"])
         self.assertEqual(
-            definition.circle_thickness,
-            ability_data["CIRCLE_THICKNESS"],
+            definition.stroke_width,
+            ability_data["stroke_width"],
         )
         self.assertEqual(
-            definition.circle_colors,
-            tuple(tuple(color) for color in ability_data["CIRCLE_COLOR"]),
+            definition.colors,
+            tuple(tuple(color) for color in ability_data["colors"]),
         )
 
         invalid_cases = (
-            ("CIRCLE_COLOR", [[255, 100, 255, 128]], "must contain 2 colors"),
-            ("CIRCLE_COLOR", [[255, 100, 255, 256]] * 2, "between 0 and 255"),
-            ("ANIM_LENGTH", 0, "anim_length must be positive"),
-            ("CIRCLE_THICKNESS", 0, "circle_thickness must be positive"),
+            ("colors", [[255, 100, 255, 128]], "must contain 2 colors"),
+            ("colors", [[255, 100, 255, 256]] * 2, "between 0 and 255"),
+            ("anim_length", 0, "anim_length must be positive"),
+            ("stroke_width", 0, "stroke_width must be positive"),
         )
         for field, value, message in invalid_cases:
             with self.subTest(field=field, value=value):
@@ -189,11 +203,11 @@ class CatalogDefinitionTests(unittest.TestCase):
                 ):
                     parse_ability_definition("BrokenAbility", invalid)
 
-    def test_laser_colors_require_an_array_of_rgb_colors(self):
+    def test_laser_colors_require_an_array_of_rgba_colors(self):
         ability_data = dict(self.raw_abilities["ChmmrA1"])
-        ability_data["LASER_COLOR"] = [255, 0, 0]
+        ability_data["colors"] = [[255, 0, 0]]
 
-        with self.assertRaisesRegex(CatalogValidationError, r"LASER_COLOR\[0\].*3 values"):
+        with self.assertRaisesRegex(CatalogValidationError, r"colors\[0\].*4 values"):
             parse_ability_definition("BrokenAbility", ability_data)
 
     def test_syreen_crew_colors_are_rgba_arrays(self):
@@ -202,7 +216,7 @@ class CatalogDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             definition.colors,
-            tuple(tuple(color) for color in ability_data["COLOR"]),
+            tuple(tuple(color) for color in ability_data["colors"]),
         )
 
         for color, message in (
@@ -211,7 +225,7 @@ class CatalogDefinitionTests(unittest.TestCase):
         ):
             with self.subTest(color=color):
                 invalid = dict(ability_data)
-                invalid["COLOR"] = [color]
+                invalid["colors"] = [color]
                 with self.assertRaisesRegex(CatalogValidationError, message):
                     parse_ability_definition("BrokenAbility", invalid)
 

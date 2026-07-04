@@ -28,7 +28,7 @@ class UtwigShieldTests(unittest.TestCase):
 
     def test_missing_setting_preserves_previous_recharge_behavior(self):
         raw_definition = dict(ABILITIES_DATA["UtwigA2"])
-        raw_definition.pop("RECHARGE_ON_PLANET")
+        raw_definition.pop("recharge_on_planet")
 
         definition = parse_ability_definition("UtwigA2", raw_definition)
 

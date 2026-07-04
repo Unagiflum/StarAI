@@ -8,6 +8,7 @@ from src.Objects.Ships.ability import (
     Ability,
     outward_visual_laser_start,
 )
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.toroidal import wrapped_delta
 
 
@@ -15,11 +16,12 @@ class KzerZaA2Laser(Ability):
     def __init__(self, parent, target=None):
         super().__init__("KzerZaA2Laser", parent)
         data = ABILITIES_DATA["KzerZaA2"]
+        definition = ABILITY_DEFINITIONS["KzerZaA2Laser"]
         self.target = None
         self.aim_target = target or parent
-        self.LASER_COLOR = (255, 255, 0)
-        self.LASER_WIDTH = 2
-        self.LASER_RANGE = data["range"]
+        self.LASER_COLOR = definition.colors[0]
+        self.LASER_WIDTH = definition.stroke_width
+        self.LASER_RANGE = definition.range
         self.track_directions = data["track_directions"]
         self.start_position = parent.position.copy()
         self.end_position = parent.position.copy()

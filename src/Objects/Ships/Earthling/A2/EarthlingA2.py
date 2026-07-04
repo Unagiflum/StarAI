@@ -9,9 +9,9 @@ class EarthlingA2(Ability):
     def __init__(self, parent, target=None):
         super().__init__("EarthlingA2", parent)
         definition = ABILITY_DEFINITIONS["EarthlingA2"]
-        self.LASER_RANGE = definition.laser_range
-        self.configure_laser_colors(definition.laser_color)
-        self.LASER_WIDTH = definition.laser_width
+        self.LASER_RANGE = definition.range
+        self.configure_laser_colors(definition.colors)
+        self.LASER_WIDTH = definition.stroke_width
         self.target = target
         self.end_position = [0, 0]
         self.position = self.configured_gun_position()

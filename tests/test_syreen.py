@@ -240,7 +240,7 @@ class SyreenSongTests(unittest.TestCase):
         song.update()
 
         self.assertEqual(song.position, song.configured_gun_position())
-        self.assertEqual(song.range, ABILITY_DEFINITIONS["SyreenA2"].effect_range)
+        self.assertEqual(song.range, ABILITY_DEFINITIONS["SyreenA2"].range)
 
     def test_crew_spawn_outside_cloaked_ilwrath_hull_and_move_away(self):
         target = create_ship("Ilwrath", 2)
@@ -290,7 +290,7 @@ class SyreenSongTests(unittest.TestCase):
 
         self.assertAlmostEqual(
             effect.starting_radius,
-            farthest + definition.circle_thickness / 2.0,
+            farthest + definition.stroke_width / 2.0,
         )
         self.assertGreater(effect.starting_radius, farthest)
 

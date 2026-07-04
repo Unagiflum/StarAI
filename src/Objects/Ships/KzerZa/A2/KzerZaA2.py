@@ -12,10 +12,12 @@ from src.Objects.Ships.ability import (
     SPECIAL_OBJECT_AREA_IMMUNITIES,
 )
 from src.Objects.Ships.KzerZa.A2.KzerZaA2Laser import KzerZaA2Laser
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.toroidal import wrapped_delta
 
 
 class KzerZaA2(Ability):
+    survives_parent_cleanup = True
     LAUNCHING = "launching"
     ATTACKING = "attacking"
     RETURNING = "returning"
@@ -42,6 +44,7 @@ class KzerZaA2(Ability):
             is_fragile=True,
         )
         data = ABILITIES_DATA["KzerZaA2"]
+        laser_definition = ABILITY_DEFINITIONS["KzerZaA2Laser"]
         fighter_sounds = self._load_fighter_sounds(data["file_path"])
         self.launch_sound = fighter_sounds["launch"]
         self.laser_sound = fighter_sounds["laser"]
@@ -52,7 +55,7 @@ class KzerZaA2(Ability):
         self.mass = data.get("mass", 0)
         self.weapon_wait = data["weapon_wait"]
         self.laser_offset = data["offset"]
-        self.laser_range = data["range"]
+        self.laser_range = laser_definition.range
         self.track_directions = data["track_directions"]
 
         configured_location, configured_direction = self.configured_gun()
@@ -66,7 +69,9 @@ class KzerZaA2(Ability):
         self.mode = self.LAUNCHING
         self.launch_timer = self.launch_time
         self.attack_elapsed = 0
-        self.weapon_timer = 0
+        # UQM reuses its initial tracking delay as the fighter's initial
+        # weapon cooldown, then advances that cooldown every active frame.
+        self.weapon_timer = self.launch_time
         self.formation_index = formation_index
         self.spawned_objects = []
         self.planet_avoidance = None
@@ -77,11 +82,10 @@ class KzerZaA2(Ability):
         if not self.currently_alive:
             return False
 
-        self.previous_position = self.position.copy()
-        self.expiration_timer -= 1
         if self.expiration_timer <= 0 or self.current_hp <= 0:
             self.currently_alive = False
             return False
+        self.previous_position = self.position.copy()
 
         if self.mode == self.LAUNCHING:
             if self.planet_avoidance is not None:
@@ -98,9 +102,11 @@ class KzerZaA2(Ability):
             if self.launch_timer <= 0:
                 target = self._live_trackable_opponent()
                 self.mode = self.ATTACKING if target else self.RETURNING
-            return self.currently_alive
+            return self._finish_active_frame()
 
         self.attack_elapsed += 1
+        if self.weapon_timer > 0:
+            self.weapon_timer -= 1
         if self.rng.random() < 0.20:
             if self.rng.choice([True, False]):
                 self.jitter_angle_toggle = not self.jitter_angle_toggle
@@ -115,8 +121,8 @@ class KzerZaA2(Ability):
                 self.mode = self.ATTACKING
             else:
                 self.velocity = [0.0, 0.0]
-                return True
-        elif self.attack_elapsed >= 2 * self.one_way_flight:
+                return self._finish_active_frame()
+        elif self.expiration_timer < self.one_way_flight:
             self.mode = self.RETURNING
         elif target:
             self.mode = self.ATTACKING
@@ -126,7 +132,7 @@ class KzerZaA2(Ability):
         destination = self._destination(target)
         if destination is None:
             self.velocity = [0.0, 0.0]
-            return True
+            return self._finish_active_frame()
 
         if self.planet_avoidance is not None:
             self._move_around_planet(destination)
@@ -135,7 +141,11 @@ class KzerZaA2(Ability):
 
         if self.mode == self.ATTACKING and target and self._is_at_position(destination):
             self._update_weapon(target)
-        return True
+        return self._finish_active_frame()
+
+    def _finish_active_frame(self):
+        self.expiration_timer -= 1
+        return self.currently_alive and self.current_hp > 0
 
     def _destination(self, target):
         if self.mode == self.RETURNING:
@@ -258,9 +268,7 @@ class KzerZaA2(Ability):
             self.spawned_objects.append(KzerZaA2Laser(self, target))
             if self.laser_sound:
                 self.laser_sound.play()
-            self.weapon_timer = const.cooldown_frames(self.weapon_wait)
-        else:
-            self.weapon_timer -= 1
+            self.weapon_timer = self.weapon_wait
 
     def drain_spawned_objects(self):
         result = self.spawned_objects
@@ -268,7 +276,7 @@ class KzerZaA2(Ability):
         return result
 
     def can_recover_with_parent(self):
-        return self.mode == self.RETURNING
+        return self.mode == self.RETURNING and self._parent_alive()
 
     def on_opponent_lost(self, opponent):
         super().on_opponent_lost(opponent)
@@ -299,13 +307,18 @@ class KzerZaA2(Ability):
         }
 
     def _parent_alive(self):
-        return self.parent.currently_alive and self.parent.current_hp > 0
+        return (
+            self.parent is not None
+            and self.parent.currently_alive
+            and self.parent.current_hp > 0
+        )
 
     def _set_velocity_for_angle(self, angle_degrees, speed):
         angle = math.radians(angle_degrees)
+        parent_velocity = self.parent.velocity if self.parent is not None else (0, 0)
         self.velocity = [
-            math.sin(angle) * speed + self.parent.velocity[0] * self.parent_vel,
-            -math.cos(angle) * speed + self.parent.velocity[1] * self.parent_vel,
+            math.sin(angle) * speed + parent_velocity[0] * self.parent_vel,
+            -math.cos(angle) * speed + parent_velocity[1] * self.parent_vel,
         ]
         self._update_rotation_from_vector(*self.velocity)
 

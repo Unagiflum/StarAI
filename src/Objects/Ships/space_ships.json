@@ -52,7 +52,7 @@
                 "sprite_scale": 1.0,
                 "inertia": false,
                 "mass": 1,
-                "COLLISION_DAMAGE": 3
+                "collision_damage": 3
             }
         }
     },
@@ -127,20 +127,11 @@
         "inertia": true,
         "sprite_path": "Objects/Ships/Chmmr/",
         "sprite_scale": 1.0,
-        "SATELLITE_HP": 10,
-        "SATELLITE_SPEED": 80,
-        "SATELLITE_COUNT": 3,
-        "SATELLITE_PERIOD": 64,
-        "SATELLITE_DISTANCE": 256,
-        "SATELLITE_LASER_RANGE": 256,
-        "SATELLITE_LASER_DAMAGE": 1,
-        "SATELLITE_LASER_WAIT": 2,
-        "SATELLITE_LASER_COLOR": [
-            0,
-            0,
-            255
-        ],
-        "SATELLITE_LASER_WIDTH": 4
+        "satellite_hp": 10,
+        "satellite_speed": 80,
+        "satellite_count": 3,
+        "satellite_period": 64,
+        "satellite_distance": 256
     },
     "Druuge": {
         "ship_type": "Mauler",
@@ -212,8 +203,7 @@
         "mass": 7,
         "inertia": true,
         "sprite_path": "Objects/Ships/Ilwrath/",
-        "sprite_scale": 1.0,
-        "FADE_DURATION": 10
+        "sprite_scale": 1.0
     },
     "KohrAh": {
         "ship_type": "Marauder",
@@ -238,8 +228,8 @@
         "inertia": true,
         "sprite_path": "Objects/Ships/KohrAh/",
         "sprite_scale": 1.0,
-        "SAW_COUNT": 8,
-        "GAS_COUNT": 16
+        "saw_count": 8,
+        "gas_count": 16
     },
     "KzerZa": {
         "ship_type": "Dreadnought",

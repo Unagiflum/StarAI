@@ -5,7 +5,7 @@ import pygame
 
 import src.const as const
 from src.Objects.Ships.ability import Ability, SPECIAL_OBJECT_AREA_IMMUNITIES
-from src.Objects.Ships.catalog import SHIP_DEFINITIONS
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 from src.collision_capabilities import ProjectileContactPolicy
 from src.toroidal import wrapped_delta, wrapped_distance
 
@@ -14,6 +14,7 @@ class ChmmrSatellite(Ability):
     def __init__(self, parent, orbit_index=0):
         super().__init__("ChmmrSatellite", parent)
         definition = SHIP_DEFINITIONS[parent.name]
+        laser_definition = ABILITY_DEFINITIONS["ChmmrSatelliteLaser"]
         self.orbit_index = orbit_index
         self.orbit_phase = orbit_index * definition.satellite_period / definition.satellite_count
         self.current_hp = definition.satellite_hp
@@ -21,8 +22,8 @@ class ChmmrSatellite(Ability):
         self.speed = definition.satellite_speed
         self.orbit_period = definition.satellite_period
         self.orbit_distance = definition.satellite_distance
-        self.laser_range = definition.satellite_laser_range
-        self.laser_wait = definition.satellite_laser_wait
+        self.laser_range = laser_definition.range
+        self.laser_wait = laser_definition.weapon_wait
         self.laser_timer = 0
         self.animation_frame = 0
         self._spawned_objects = []

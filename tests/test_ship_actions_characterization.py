@@ -17,6 +17,7 @@ pygame.display.set_mode((1, 1))
 import src.const as const
 from src.Battle import collisions
 from src.Battle.battle import BattleSimulation
+from src.Battle.battle_aftermath import hide_dead_ship
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, ActionResult
 from src.Objects.Ships.catalog import ABILITIES_DATA, ABILITY_DEFINITIONS, SHIPS_DATA
@@ -692,6 +693,49 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         saw.stop_and_track.assert_called_once_with()
         self.assertFalse(ship.last_action1_state)
 
+    def test_kohr_ah_saw_decelerates_before_tracking(self):
+        ship = create_ship("KohrAh", 1)
+        opponent = create_ship("Earthling", 2)
+        ship.opponent = opponent
+        saw = create_ability("KohrAhA1", ship)
+        saw.position = [1000.0, 1000.0]
+        saw.velocity = [64.0, 0.0]
+        opponent.position = [1500.0, 1000.0]
+
+        saw.stop_and_track()
+        saw.update()
+        self.assertEqual(saw.velocity, [32.0, 0.0])
+        self.assertGreater(saw.deceleration_timer, 0)
+
+        for _ in range(saw.DECELERATION_TIME - 1):
+            saw.update()
+        self.assertEqual(saw.velocity, [0, 0])
+
+        saw.update()
+        self.assertAlmostEqual(math.hypot(*saw.velocity), 8.0)
+        self.assertEqual(saw.track_timer, 4)
+
+    def test_kohr_ah_saw_reaims_every_five_tracking_frames(self):
+        ship = create_ship("KohrAh", 1)
+        opponent = create_ship("Earthling", 2)
+        ship.opponent = opponent
+        saw = create_ability("KohrAhA1", ship)
+        saw.position = [1000.0, 1000.0]
+        saw.is_moving = False
+        saw.deceleration_timer = 0
+        opponent.position = [1500.0, 1000.0]
+
+        saw.update()
+        initial_velocity = saw.velocity.copy()
+        opponent.position = [1000.0, 500.0]
+        for _ in range(4):
+            saw.update()
+            self.assertEqual(saw.velocity, initial_velocity)
+
+        saw.update()
+        self.assertNotEqual(saw.velocity, initial_velocity)
+        self.assertAlmostEqual(math.hypot(*saw.velocity), 8.0)
+
     def test_kohr_ah_primary_replaces_oldest_saw_at_the_limit(self):
         ship = create_ship("KohrAh", 1)
         ship.SAW_COUNT = 1
@@ -745,20 +789,37 @@ class ShipActionCharacterizationTests(unittest.TestCase):
             "src.Objects.Ships.Ilwrath.Ilwrath.IlwrathA2", return_value=cloak_effect
         ):
             ship.perform_action2()
-        self.assertTrue(ship.cloaked)
-        self.assertFalse(ship.trackable)
+        self.assertEqual(ship.FADE_DURATION, 5)
+        self.assertFalse(ship.cloaked)
+        self.assertTrue(ship.trackable)
+        self.assertEqual(ship.fade_direction, 1)
+        self.assertEqual(ship.action2_timer, 0)
         self.assertEqual(ship.current_energy, initial_energy - ship.a2_cost)
         cloak_effect.launch_sound.play.assert_called_once_with()
 
-        ship.action2_timer = 0
+        for _ in range(ship.FADE_DURATION - 1):
+            ship.update()
+            self.assertTrue(ship.trackable)
+        ship.update()
+        self.assertTrue(ship.cloaked)
+        self.assertFalse(ship.trackable)
+
         uncloak_sound = mock.Mock()
         ship._uncloak_sound = uncloak_sound
         with mock.patch.object(Ability, "sound_enabled", True):
             ship.perform_action2()
         self.assertFalse(ship.cloaked)
         self.assertTrue(ship.trackable)
+        self.assertEqual(ship.fade_direction, -1)
+        self.assertEqual(ship.fade_timer, ship.FADE_DURATION)
+        self.assertEqual(ship.action2_timer, 0)
         self.assertEqual(ship.current_energy, initial_energy - ship.a2_cost)
         uncloak_sound.play.assert_called_once_with()
+
+        for _ in range(ship.FADE_DURATION):
+            ship.update()
+        self.assertEqual(ship.fade_timer, 0)
+        self.assertEqual(ship.fade_direction, 0)
 
     def test_ilwrath_primary_faces_opponent_and_uncloaks_before_firing(self):
         ship = create_ship("Ilwrath", 1)
@@ -767,7 +828,8 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         opponent.position = [100, 0]
         ship.opponent = opponent
         ship.cloak()
-        ship.fade_timer = ship.FADE_DURATION
+        for _ in range(ship.FADE_DURATION):
+            ship.update()
         flame = SimpleNamespace(launch_sound=mock.Mock())
         with mock.patch(
             "src.Objects.Ships.Ilwrath.Ilwrath.IlwrathA1", return_value=flame
@@ -777,17 +839,88 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(ship.heading, 4)
         self.assertFalse(ship.cloaked)
         self.assertTrue(ship.trackable)
+        self.assertEqual(ship.fade_timer, ship.FADE_DURATION)
+        self.assertEqual(ship.fade_direction, -1)
         flame.launch_sound.play.assert_called_once_with()
+
+    def test_ilwrath_cloaked_autoaim_predicts_both_ships(self):
+        ship = create_ship("Ilwrath", 1)
+        opponent = create_ship("Earthling", 2)
+        ship.position = [1000.0, 1000.0]
+        ship.velocity = [20.0, 0.0]
+        opponent.position = [1100.0, 1100.0]
+        opponent.velocity = [0.0, 0.0]
+        ship.opponent = opponent
+
+        heading, _ = ship._opponent_facing()
+
+        self.assertEqual(heading, 7)
 
     def test_ilwrath_cloak_fade_renders_a_blended_sprite(self):
         ship = create_ship("Ilwrath", 1)
         ship.cloak()
+        ship.update()
 
         sprite = ship.set_sprite()
 
         self.assertIsInstance(sprite, pygame.Surface)
         self.assertEqual(sprite.get_size(), ship.sprites[ship.heading].get_size())
         self.assertGreaterEqual(ship.fade_timer, 0)
+
+    def test_kzerza_fighter_cooldown_advances_while_repositioning(self):
+        carrier = create_ship("KzerZa", 1)
+        target = create_ship("Earthling", 2)
+        carrier.opponent = target
+        fighter = create_ability("KzerZaA2", carrier)
+        fighter.mode = fighter.ATTACKING
+        fighter.weapon_timer = 8
+        fighter.position = [1000.0, 1000.0]
+        target.position = [2000.0, 2000.0]
+
+        fighter.update()
+
+        self.assertEqual(fighter.weapon_timer, 7)
+
+    def test_kzerza_fighter_uses_uqm_launch_return_and_lifetime_timing(self):
+        carrier = create_ship("KzerZa", 1)
+        target = create_ship("Earthling", 2)
+        carrier.opponent = target
+        fighter = create_ability("KzerZaA2", carrier)
+
+        for _ in range(6):
+            self.assertTrue(fighter.update())
+            self.assertEqual(fighter.mode, fighter.LAUNCHING)
+        self.assertTrue(fighter.update())
+        self.assertEqual(fighter.mode, fighter.ATTACKING)
+        self.assertEqual(fighter.weapon_timer, 7)
+
+        fighter.expiration_timer = 125
+        fighter.mode = fighter.ATTACKING
+        fighter.update()
+        self.assertEqual(fighter.mode, fighter.ATTACKING)
+        fighter.update()
+        self.assertEqual(fighter.mode, fighter.RETURNING)
+
+        carrier.currently_alive = False
+        fighter.opponent = None
+        fighter.mode = fighter.ATTACKING
+        fighter.expiration_timer = 2
+        self.assertTrue(fighter.update())
+        self.assertTrue(fighter.update())
+        self.assertFalse(fighter.update())
+
+    def test_kzerza_fighter_survives_carrier_cleanup_until_round_cleanup(self):
+        carrier = create_ship("KzerZa", 1)
+        fighter = create_ability("KzerZaA2", carrier)
+        carrier.current_hp = 0
+        carrier.currently_alive = False
+        game_objects = [carrier, fighter]
+
+        hide_dead_ship(carrier, game_objects)
+
+        self.assertTrue(fighter.currently_alive)
+        self.assertIsNone(fighter.parent)
+        self.assertIn(fighter, game_objects)
 
     def test_supox_secondary_changes_movement_controls_without_action_cost(self):
         ship = create_ship("Supox", 1)

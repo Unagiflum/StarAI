@@ -79,7 +79,7 @@ class ShipFormDefinition(_DefinitionMapping):
         "sprite_prefix": "sprite_prefix",
         "inertia": "inertia",
         "mass": "mass",
-        "COLLISION_DAMAGE": "collision_damage",
+        "collision_damage": "collision_damage",
     }
 
 
@@ -126,11 +126,6 @@ class ShipDefinition(_DefinitionMapping):
     satellite_count: int | None = None
     satellite_period: int | None = None
     satellite_distance: float | None = None
-    satellite_laser_range: float | None = None
-    satellite_laser_damage: int | None = None
-    satellite_laser_wait: int | None = None
-    satellite_laser_color: tuple[int, int, int] | None = None
-    satellite_laser_width: int | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -157,9 +152,9 @@ class ShipDefinition(_DefinitionMapping):
         "sprite_path": "sprite_path",
         "sprite_scale": "sprite_scale",
         "menu_overlay_path": "menu_overlay_path",
-        "FADE_DURATION": "fade_duration",
-        "SAW_COUNT": "saw_count",
-        "GAS_COUNT": "gas_count",
+        "fade_duration": "fade_duration",
+        "saw_count": "saw_count",
+        "gas_count": "gas_count",
         "initial_rebirth_chance": "initial_rebirth_chance",
         "rebirth_chance_decay": "rebirth_chance_decay",
         "reset_rebirth_chance": "reset_rebirth_chance",
@@ -168,16 +163,11 @@ class ShipDefinition(_DefinitionMapping):
         "circle_gap": "circle_gap",
         "default_form": "default_form",
         "forms": "forms",
-        "SATELLITE_HP": "satellite_hp",
-        "SATELLITE_SPEED": "satellite_speed",
-        "SATELLITE_COUNT": "satellite_count",
-        "SATELLITE_PERIOD": "satellite_period",
-        "SATELLITE_DISTANCE": "satellite_distance",
-        "SATELLITE_LASER_RANGE": "satellite_laser_range",
-        "SATELLITE_LASER_DAMAGE": "satellite_laser_damage",
-        "SATELLITE_LASER_WAIT": "satellite_laser_wait",
-        "SATELLITE_LASER_COLOR": "satellite_laser_color",
-        "SATELLITE_LASER_WIDTH": "satellite_laser_width",
+        "satellite_hp": "satellite_hp",
+        "satellite_speed": "satellite_speed",
+        "satellite_count": "satellite_count",
+        "satellite_period": "satellite_period",
+        "satellite_distance": "satellite_distance",
     }
 
 
@@ -217,7 +207,7 @@ class AbilityDefinition(_DefinitionMapping):
     collide_enemy_ships: bool = True
     collide_friendly_ships: bool = False
     collide_fighters: bool = True
-    effect_range: float | None = None
+    range: float | None = None
     one_way_flight: float | None = None
     life_margin: float | None = None
     launch_time: float | None = None
@@ -225,9 +215,8 @@ class AbilityDefinition(_DefinitionMapping):
     offset: float | None = None
     track_directions: int | None = None
     weapon_wait: float | None = None
-    laser_range: float | None = None
-    laser_color: tuple[tuple[int, int, int], ...] | None = None
-    laser_width: int | None = None
+    colors: tuple[tuple[int, int, int, int], ...] | None = None
+    stroke_width: int | None = None
     max_recoil: float | None = None
     recoil_increment: float | None = None
     energy_gain: int | None = None
@@ -237,7 +226,8 @@ class AbilityDefinition(_DefinitionMapping):
     backup_speed: float | None = None
     track_speed: float | None = None
     track_range: float | None = None
-    damage_to_projectiles: int | None = None
+    deceleration_time: int | None = None
+    projectile_damage: int | None = None
     reunk_thrust: float | None = None
     reunk_increment: float | None = None
     spread_angle: float | None = None
@@ -245,6 +235,7 @@ class AbilityDefinition(_DefinitionMapping):
     thrust_increment: float | None = None
     thrust_wait: float | None = None
     look_ahead: int | None = None
+    fade_duration: int | None = None
     max_marines: int | None = None
     spiral_distance: float | None = None
     retraction_frames: int | None = None
@@ -260,7 +251,6 @@ class AbilityDefinition(_DefinitionMapping):
     number_of_bolts: int | None = None
     segment_length_min: int | None = None
     segment_length_max: int | None = None
-    bolt_colors: tuple[tuple[int, int, int], ...] | None = None
     battery_gain: int | None = None
     excluded_radius: int | None = None
     recharge_on_planet: bool = True
@@ -285,9 +275,6 @@ class AbilityDefinition(_DefinitionMapping):
     silhouette_colors: tuple[tuple[int, int, int, int], ...] | None = None
     silhouette_distances: tuple[float, ...] | None = None
     anim_length: int | None = None
-    circle_thickness: int | None = None
-    circle_colors: tuple[tuple[int, int, int, int], ...] | None = None
-    colors: tuple[tuple[int, int, int, int], ...] | None = None
     _source_keys: tuple[str, ...] = field(default=(), repr=False, compare=False)
 
     _json_key_to_attribute = {
@@ -325,7 +312,7 @@ class AbilityDefinition(_DefinitionMapping):
         "collide_enemy_ships": "collide_enemy_ships",
         "collide_friendly_ships": "collide_friendly_ships",
         "collide_fighters": "collide_fighters",
-        "range": "effect_range",
+        "range": "range",
         "one_way_flight": "one_way_flight",
         "life_margin": "life_margin",
         "launch_time": "launch_time",
@@ -333,26 +320,27 @@ class AbilityDefinition(_DefinitionMapping):
         "offset": "offset",
         "track_directions": "track_directions",
         "weapon_wait": "weapon_wait",
-        "LASER_RANGE": "laser_range",
-        "LASER_COLOR": "laser_color",
-        "LASER_WIDTH": "laser_width",
-        "MAX_RECOIL": "max_recoil",
-        "RECOIL_INCREMENT": "recoil_increment",
-        "ENERGY_GAIN": "energy_gain",
-        "HP_GAIN": "hp_gain",
+        "colors": "colors",
+        "stroke_width": "stroke_width",
+        "max_recoil": "max_recoil",
+        "recoil_increment": "recoil_increment",
+        "energy_gain": "energy_gain",
+        "hp_gain": "hp_gain",
         "is_psychic": "is_psychic",
         "ignores_shields": "ignores_shields",
-        "BACKUP_SPEED": "backup_speed",
-        "TRACK_SPEED": "track_speed",
-        "TRACK_RANGE": "track_range",
-        "DMG_TO_PROJ": "damage_to_projectiles",
-        "REUNK_THRUST": "reunk_thrust",
-        "REUNK_INCREMENT": "reunk_increment",
-        "SPREAD_ANGLE": "spread_angle",
+        "backup_speed": "backup_speed",
+        "track_speed": "track_speed",
+        "track_range": "track_range",
+        "deceleration_time": "deceleration_time",
+        "projectile_damage": "projectile_damage",
+        "reunk_thrust": "reunk_thrust",
+        "reunk_increment": "reunk_increment",
+        "spread_angle": "spread_angle",
         "max_thrust": "max_thrust",
         "thrust_increment": "thrust_increment",
         "thrust_wait": "thrust_wait",
         "look_ahead": "look_ahead",
+        "fade_duration": "fade_duration",
         "max_marines": "max_marines",
         "spiral_distance": "spiral_distance",
         "retraction_frames": "retraction_frames",
@@ -365,38 +353,33 @@ class AbilityDefinition(_DefinitionMapping):
         "radius": "radius",
         "separation_distance": "separation_distance",
         "spawn_angle_increment": "spawn_angle_increment",
-        "NUMBER_OF_BOLTS": "number_of_bolts",
-        "SEGMENT_LENGTH_MIN": "segment_length_min",
-        "SEGMENT_LENGTH_MAX": "segment_length_max",
-        "BOLT_COLORS": "bolt_colors",
-        "BATTERY_GAIN": "battery_gain",
-        "EXCLUDED_RADIUS": "excluded_radius",
-        "RECHARGE_ON_PLANET": "recharge_on_planet",
-        "GUN_LEVELS": "gun_levels",
-        "GUN_LEVEL_MULT": "gun_level_mult",
-        "GUN_LEVEL_TIMER": "gun_level_timer",
-        "EFFECT_FRAMES": "effect_frames",
-        "EFFECT_DURATION": "effect_duration",
-        "FRAGMENT_COUNT": "fragment_count",
-        "FRAGMENT_LIFE_TIME": "fragment_life_time",
-        "FRAGMENT_SPEED": "fragment_speed",
-        "FRAGMENT_DAMAGE": "fragment_damage",
-        "FRAGMENT_HP": "fragment_hp",
-        "MAX_COUNT": "max_count",
-        "JITTER": "jitter",
-        "DRAIN": "drain",
-        "AVOID_ANGLE": "avoid_angle",
-        "COLLISION_WAIT": "collision_wait",
-        "SHIP_COLLISION_WAIT": "ship_collision_wait",
-        "MASS": "mass",
-        "BASE_SPEED": "base_speed",
-        "SILHOUETTE_COUNT": "silhouette_count",
-        "SILHOUETTE_COLORS": "silhouette_colors",
-        "SILHOUETTE_DIST": "silhouette_distances",
-        "ANIM_LENGTH": "anim_length",
-        "CIRCLE_THICKNESS": "circle_thickness",
-        "CIRCLE_COLOR": "circle_colors",
-        "COLOR": "colors",
+        "number_of_bolts": "number_of_bolts",
+        "segment_length_min": "segment_length_min",
+        "segment_length_max": "segment_length_max",
+        "battery_gain": "battery_gain",
+        "excluded_radius": "excluded_radius",
+        "recharge_on_planet": "recharge_on_planet",
+        "gun_levels": "gun_levels",
+        "gun_level_mult": "gun_level_mult",
+        "gun_level_timer": "gun_level_timer",
+        "effect_frames": "effect_frames",
+        "effect_duration": "effect_duration",
+        "fragment_count": "fragment_count",
+        "fragment_life_time": "fragment_life_time",
+        "fragment_speed": "fragment_speed",
+        "fragment_damage": "fragment_damage",
+        "fragment_hp": "fragment_hp",
+        "max_count": "max_count",
+        "jitter": "jitter",
+        "drain": "drain",
+        "avoid_angle": "avoid_angle",
+        "collision_wait": "collision_wait",
+        "ship_collision_wait": "ship_collision_wait",
+        "base_speed": "base_speed",
+        "silhouette_count": "silhouette_count",
+        "silhouette_colors": "silhouette_colors",
+        "silhouette_distances": "silhouette_distances",
+        "anim_length": "anim_length",
     }
 
 
@@ -478,30 +461,6 @@ def _int_pair_tuple(kind, name, data, field_name):
     return tuple(result)
 
 
-def _rgb_tuple(kind, name, data, field_name):
-    value = data[field_name]
-    if not isinstance(value, list) or not value:
-        raise CatalogValidationError(
-            f"{kind} '{name}' field '{field_name}' must be a non-empty array"
-        )
-    result = []
-    for index, item in enumerate(value):
-        if not isinstance(item, list) or len(item) != 3:
-            raise CatalogValidationError(
-                f"{kind} '{name}' field '{field_name}[{index}]' must contain 3 values"
-            )
-        color = tuple(
-            _typed(kind, name, f"{field_name}[{index}][{channel}]", value, int)
-            for channel, value in enumerate(item)
-        )
-        if any(channel < 0 or channel > 255 for channel in color):
-            raise CatalogValidationError(
-                f"{kind} '{name}' {field_name} channels must be between 0 and 255"
-            )
-        result.append(color)
-    return tuple(result)
-
-
 def _rgba_tuple(kind, name, data, field_name, *, length=None):
     value = data[field_name]
     if not isinstance(value, list) or not value:
@@ -553,7 +512,7 @@ def parse_ship_form_definition(ship_name, form_name, data):
         "sprite_prefix",
         "inertia",
         "mass",
-        "COLLISION_DAMAGE",
+        "collision_damage",
     }
     _check_keys(kind, name, data, allowed, required)
 
@@ -578,7 +537,7 @@ def parse_ship_form_definition(ship_name, form_name, data):
         "inertia": _optional_typed(kind, name, data, "inertia", bool, None),
         "mass": _optional_typed(kind, name, data, "mass", float, None),
         "collision_damage": _optional_typed(
-            kind, name, data, "COLLISION_DAMAGE", float, 0.0
+            kind, name, data, "collision_damage", float, 0.0
         ),
         "_source_keys": tuple(data),
     }
@@ -597,9 +556,9 @@ def parse_ship_definition(name, data):
     required = allowed - {
         "sprite_scale",
         "menu_overlay_path",
-        "FADE_DURATION",
-        "SAW_COUNT",
-        "GAS_COUNT",
+        "fade_duration",
+        "saw_count",
+        "gas_count",
         "initial_rebirth_chance",
         "rebirth_chance_decay",
         "reset_rebirth_chance",
@@ -608,16 +567,11 @@ def parse_ship_definition(name, data):
         "circle_gap",
         "default_form",
         "forms",
-        "SATELLITE_HP",
-        "SATELLITE_SPEED",
-        "SATELLITE_COUNT",
-        "SATELLITE_PERIOD",
-        "SATELLITE_DISTANCE",
-        "SATELLITE_LASER_RANGE",
-        "SATELLITE_LASER_DAMAGE",
-        "SATELLITE_LASER_WAIT",
-        "SATELLITE_LASER_COLOR",
-        "SATELLITE_LASER_WIDTH",
+        "satellite_hp",
+        "satellite_speed",
+        "satellite_count",
+        "satellite_period",
+        "satellite_distance",
     }
     _check_keys(kind, name, data, allowed, required)
 
@@ -658,9 +612,9 @@ def parse_ship_definition(name, data):
     values["menu_overlay_path"] = _optional_typed(
         kind, name, data, "menu_overlay_path", str, None
     )
-    values["fade_duration"] = _optional_typed(kind, name, data, "FADE_DURATION", int, 8)
-    values["saw_count"] = _optional_typed(kind, name, data, "SAW_COUNT", int, 8)
-    values["gas_count"] = _optional_typed(kind, name, data, "GAS_COUNT", int, 16)
+    values["fade_duration"] = _optional_typed(kind, name, data, "fade_duration", int, 8)
+    values["saw_count"] = _optional_typed(kind, name, data, "saw_count", int, 8)
+    values["gas_count"] = _optional_typed(kind, name, data, "gas_count", int, 16)
     values["initial_rebirth_chance"] = _optional_typed(
         kind, name, data, "initial_rebirth_chance", float, None
     )
@@ -683,33 +637,16 @@ def parse_ship_definition(name, data):
         kind, name, data, "default_form", str, None
     )
     satellite_fields = {
-        "SATELLITE_HP": ("satellite_hp", int),
-        "SATELLITE_SPEED": ("satellite_speed", float),
-        "SATELLITE_COUNT": ("satellite_count", int),
-        "SATELLITE_PERIOD": ("satellite_period", int),
-        "SATELLITE_DISTANCE": ("satellite_distance", float),
-        "SATELLITE_LASER_RANGE": ("satellite_laser_range", float),
-        "SATELLITE_LASER_DAMAGE": ("satellite_laser_damage", int),
-        "SATELLITE_LASER_WAIT": ("satellite_laser_wait", int),
-        "SATELLITE_LASER_WIDTH": ("satellite_laser_width", int),
+        "satellite_hp": ("satellite_hp", int),
+        "satellite_speed": ("satellite_speed", float),
+        "satellite_count": ("satellite_count", int),
+        "satellite_period": ("satellite_period", int),
+        "satellite_distance": ("satellite_distance", float),
     }
     for json_key, (attribute, expected_type) in satellite_fields.items():
         values[attribute] = _optional_typed(
             kind, name, data, json_key, expected_type, None
         )
-    if "SATELLITE_LASER_COLOR" in data:
-        values["satellite_laser_color"] = _int_tuple(
-            kind, name, data, "SATELLITE_LASER_COLOR", length=3
-        )
-        if any(
-            channel < 0 or channel > 255
-            for channel in values["satellite_laser_color"]
-        ):
-            raise CatalogValidationError(
-                f"Ship '{name}' SATELLITE_LASER_COLOR channels must be between 0 and 255"
-            )
-    else:
-        values["satellite_laser_color"] = None
     forms_data = data.get("forms", {})
     if not isinstance(forms_data, Mapping):
         raise CatalogValidationError(f"Ship '{name}' field 'forms' must be an object")
@@ -736,17 +673,12 @@ def parse_ship_definition(name, data):
         values["satellite_count"],
         values["satellite_period"],
         values["satellite_distance"],
-        values["satellite_laser_range"],
-        values["satellite_laser_damage"],
-        values["satellite_laser_wait"],
-        values["satellite_laser_color"],
-        values["satellite_laser_width"],
     )
     if any(value is not None for value in satellite_values) and any(
         value is None for value in satellite_values
     ):
         raise CatalogValidationError(
-            f"Ship '{name}' must define the complete SATELLITE_* configuration"
+            f"Ship '{name}' must define the complete satellite configuration"
         )
     for field_name in (
         "satellite_hp",
@@ -754,18 +686,11 @@ def parse_ship_definition(name, data):
         "satellite_count",
         "satellite_period",
         "satellite_distance",
-        "satellite_laser_range",
-        "satellite_laser_damage",
-        "satellite_laser_width",
     ):
         if values[field_name] is not None and values[field_name] <= 0:
             raise CatalogValidationError(
                 f"Ship '{name}' {field_name} must be positive"
             )
-    if values["satellite_laser_wait"] is not None and values["satellite_laser_wait"] < 0:
-        raise CatalogValidationError(
-            f"Ship '{name}' satellite_laser_wait cannot be negative"
-        )
     if values["forms"]:
         if values["default_form"] is None:
             raise CatalogValidationError(
@@ -838,29 +763,30 @@ def parse_ability_definition(name, data):
         "offset",
         "track_directions",
         "weapon_wait",
-        "LASER_RANGE",
-        "LASER_COLOR",
-        "LASER_WIDTH",
-        "MAX_RECOIL",
-        "RECOIL_INCREMENT",
-        "ENERGY_GAIN",
+        "colors",
+        "stroke_width",
+        "max_recoil",
+        "recoil_increment",
+        "energy_gain",
         "is_psychic",
         "ignores_shields",
-        "HP_GAIN",
-        "BACKUP_SPEED",
+        "hp_gain",
+        "backup_speed",
         "radius",
         "separation_distance",
         "spawn_angle_increment",
-        "TRACK_SPEED",
-        "TRACK_RANGE",
-        "DMG_TO_PROJ",
-        "REUNK_THRUST",
-        "REUNK_INCREMENT",
-        "SPREAD_ANGLE",
+        "track_speed",
+        "track_range",
+        "deceleration_time",
+        "projectile_damage",
+        "reunk_thrust",
+        "reunk_increment",
+        "spread_angle",
         "max_thrust",
         "thrust_increment",
         "thrust_wait",
         "look_ahead",
+        "fade_duration",
         "max_marines",
         "spiral_distance",
         "retraction_frames",
@@ -870,38 +796,33 @@ def parse_ability_definition(name, data):
         "area_length",
         "gun_locations",
         "gun_directions",
-        "NUMBER_OF_BOLTS",
-        "SEGMENT_LENGTH_MIN",
-        "SEGMENT_LENGTH_MAX",
-        "BOLT_COLORS",
-        "BATTERY_GAIN",
-        "EXCLUDED_RADIUS",
-        "RECHARGE_ON_PLANET",
-        "GUN_LEVELS",
-        "GUN_LEVEL_MULT",
-        "GUN_LEVEL_TIMER",
-        "EFFECT_FRAMES",
-        "EFFECT_DURATION",
-        "FRAGMENT_COUNT",
-        "FRAGMENT_LIFE_TIME",
-        "FRAGMENT_SPEED",
-        "FRAGMENT_DAMAGE",
-        "FRAGMENT_HP",
-        "MAX_COUNT",
-        "JITTER",
-        "DRAIN",
-        "AVOID_ANGLE",
-        "COLLISION_WAIT",
-        "SHIP_COLLISION_WAIT",
-        "MASS",
-        "BASE_SPEED",
-        "SILHOUETTE_COUNT",
-        "SILHOUETTE_COLORS",
-        "SILHOUETTE_DIST",
-        "ANIM_LENGTH",
-        "CIRCLE_THICKNESS",
-        "CIRCLE_COLOR",
-        "COLOR",
+        "number_of_bolts",
+        "segment_length_min",
+        "segment_length_max",
+        "battery_gain",
+        "excluded_radius",
+        "recharge_on_planet",
+        "gun_levels",
+        "gun_level_mult",
+        "gun_level_timer",
+        "effect_frames",
+        "effect_duration",
+        "fragment_count",
+        "fragment_life_time",
+        "fragment_speed",
+        "fragment_damage",
+        "fragment_hp",
+        "max_count",
+        "jitter",
+        "drain",
+        "avoid_angle",
+        "collision_wait",
+        "ship_collision_wait",
+        "base_speed",
+        "silhouette_count",
+        "silhouette_colors",
+        "silhouette_distances",
+        "anim_length",
     }
     _check_keys(kind, name, data, allowed, allowed - optional)
 
@@ -950,11 +871,11 @@ def parse_ability_definition(name, data):
     for key, (expected_type, default) in defaults.items():
         values[key] = _optional_typed(kind, name, data, key, expected_type, default)
     values["recharge_on_planet"] = _optional_typed(
-        kind, name, data, "RECHARGE_ON_PLANET", bool, True
+        kind, name, data, "recharge_on_planet", bool, True
     )
 
     optional_fields = {
-        "range": ("effect_range", float),
+        "range": ("range", float),
         "one_way_flight": ("one_way_flight", float),
         "life_margin": ("life_margin", float),
         "launch_time": ("launch_time", float),
@@ -962,23 +883,24 @@ def parse_ability_definition(name, data):
         "offset": ("offset", float),
         "track_directions": ("track_directions", int),
         "weapon_wait": ("weapon_wait", float),
-        "LASER_RANGE": ("laser_range", float),
-        "LASER_WIDTH": ("laser_width", int),
-        "MAX_RECOIL": ("max_recoil", float),
-        "RECOIL_INCREMENT": ("recoil_increment", float),
-        "ENERGY_GAIN": ("energy_gain", int),
-        "HP_GAIN": ("hp_gain", int),
-        "BACKUP_SPEED": ("backup_speed", float),
-        "TRACK_SPEED": ("track_speed", float),
-        "TRACK_RANGE": ("track_range", float),
-        "DMG_TO_PROJ": ("damage_to_projectiles", int),
-        "REUNK_THRUST": ("reunk_thrust", float),
-        "REUNK_INCREMENT": ("reunk_increment", float),
-        "SPREAD_ANGLE": ("spread_angle", float),
+        "stroke_width": ("stroke_width", int),
+        "max_recoil": ("max_recoil", float),
+        "recoil_increment": ("recoil_increment", float),
+        "energy_gain": ("energy_gain", int),
+        "hp_gain": ("hp_gain", int),
+        "backup_speed": ("backup_speed", float),
+        "track_speed": ("track_speed", float),
+        "track_range": ("track_range", float),
+        "deceleration_time": ("deceleration_time", int),
+        "projectile_damage": ("projectile_damage", int),
+        "reunk_thrust": ("reunk_thrust", float),
+        "reunk_increment": ("reunk_increment", float),
+        "spread_angle": ("spread_angle", float),
         "max_thrust": ("max_thrust", float),
         "thrust_increment": ("thrust_increment", float),
         "thrust_wait": ("thrust_wait", float),
         "look_ahead": ("look_ahead", int),
+        "fade_duration": ("fade_duration", int),
         "max_marines": ("max_marines", int),
         "spiral_distance": ("spiral_distance", float),
         "retraction_frames": ("retraction_frames", int),
@@ -989,46 +911,38 @@ def parse_ability_definition(name, data):
         "radius": ("radius", int),
         "separation_distance": ("separation_distance", int),
         "spawn_angle_increment": ("spawn_angle_increment", float),
-        "NUMBER_OF_BOLTS": ("number_of_bolts", int),
-        "SEGMENT_LENGTH_MIN": ("segment_length_min", int),
-        "SEGMENT_LENGTH_MAX": ("segment_length_max", int),
-        "BATTERY_GAIN": ("battery_gain", int),
-        "EXCLUDED_RADIUS": ("excluded_radius", int),
-        "GUN_LEVELS": ("gun_levels", int),
-        "GUN_LEVEL_MULT": ("gun_level_mult", int),
-        "GUN_LEVEL_TIMER": ("gun_level_timer", int),
-        "EFFECT_FRAMES": ("effect_frames", int),
-        "EFFECT_DURATION": ("effect_duration", int),
-        "FRAGMENT_COUNT": ("fragment_count", int),
-        "FRAGMENT_LIFE_TIME": ("fragment_life_time", int),
-        "FRAGMENT_SPEED": ("fragment_speed", float),
-        "FRAGMENT_DAMAGE": ("fragment_damage", int),
-        "FRAGMENT_HP": ("fragment_hp", int),
-        "MAX_COUNT": ("max_count", int),
-        "JITTER": ("jitter", float),
-        "DRAIN": ("drain", int),
-        "AVOID_ANGLE": ("avoid_angle", float),
-        "COLLISION_WAIT": ("collision_wait", int),
-        "SHIP_COLLISION_WAIT": ("ship_collision_wait", int),
-        "BASE_SPEED": ("base_speed", float),
-        "SILHOUETTE_COUNT": ("silhouette_count", int),
-        "ANIM_LENGTH": ("anim_length", int),
-        "CIRCLE_THICKNESS": ("circle_thickness", int),
+        "number_of_bolts": ("number_of_bolts", int),
+        "segment_length_min": ("segment_length_min", int),
+        "segment_length_max": ("segment_length_max", int),
+        "battery_gain": ("battery_gain", int),
+        "excluded_radius": ("excluded_radius", int),
+        "gun_levels": ("gun_levels", int),
+        "gun_level_mult": ("gun_level_mult", int),
+        "gun_level_timer": ("gun_level_timer", int),
+        "effect_frames": ("effect_frames", int),
+        "effect_duration": ("effect_duration", int),
+        "fragment_count": ("fragment_count", int),
+        "fragment_life_time": ("fragment_life_time", int),
+        "fragment_speed": ("fragment_speed", float),
+        "fragment_damage": ("fragment_damage", int),
+        "fragment_hp": ("fragment_hp", int),
+        "max_count": ("max_count", int),
+        "jitter": ("jitter", float),
+        "drain": ("drain", int),
+        "avoid_angle": ("avoid_angle", float),
+        "collision_wait": ("collision_wait", int),
+        "ship_collision_wait": ("ship_collision_wait", int),
+        "base_speed": ("base_speed", float),
+        "silhouette_count": ("silhouette_count", int),
+        "anim_length": ("anim_length", int),
     }
     for json_key, (attribute, expected_type) in optional_fields.items():
         values[attribute] = _optional_typed(
             kind, name, data, json_key, expected_type, None
         )
-    if "MASS" in data:
-        if "mass" in data:
-            raise CatalogValidationError(
-                f"Ability '{name}' cannot define both 'mass' and 'MASS'"
-            )
-        values["mass"] = _typed(kind, name, "MASS", data["MASS"], float)
-    if "LASER_COLOR" in data:
-        values["laser_color"] = _rgb_tuple(kind, name, data, "LASER_COLOR")
-    else:
-        values["laser_color"] = None
+    values["colors"] = (
+        _rgba_tuple(kind, name, data, "colors") if "colors" in data else None
+    )
     if "gun_locations" in data:
         values["gun_locations"] = _int_pair_tuple(kind, name, data, "gun_locations")
     else:
@@ -1055,48 +969,14 @@ def parse_ability_definition(name, data):
             raise CatalogValidationError(
                 f"Ability '{name}' gun_directions must be in [0, 360)"
             )
-    if "BOLT_COLORS" in data:
-        value = data["BOLT_COLORS"]
-        if not isinstance(value, list) or not value:
-            raise CatalogValidationError(
-                f"Ability '{name}' field 'BOLT_COLORS' must be a non-empty array"
-            )
-        colors = []
-        for index, color in enumerate(value):
-            if not isinstance(color, list) or len(color) != 3:
-                raise CatalogValidationError(
-                    f"Ability '{name}' field 'BOLT_COLORS[{index}]' must contain 3 values"
-                )
-            parsed = tuple(
-                _typed(kind, name, f"BOLT_COLORS[{index}][{channel}]", item, int)
-                for channel, item in enumerate(color)
-            )
-            if any(channel < 0 or channel > 255 for channel in parsed):
-                raise CatalogValidationError(
-                    f"Ability '{name}' BOLT_COLORS channels must be between 0 and 255"
-                )
-            colors.append(parsed)
-        values["bolt_colors"] = tuple(colors)
-    else:
-        values["bolt_colors"] = None
     values["silhouette_colors"] = (
-        _rgba_tuple(kind, name, data, "SILHOUETTE_COLORS")
-        if "SILHOUETTE_COLORS" in data
+        _rgba_tuple(kind, name, data, "silhouette_colors")
+        if "silhouette_colors" in data
         else None
     )
     values["silhouette_distances"] = (
-        _number_tuple(kind, name, data, "SILHOUETTE_DIST")
-        if "SILHOUETTE_DIST" in data
-        else None
-    )
-    values["circle_colors"] = (
-        _rgba_tuple(kind, name, data, "CIRCLE_COLOR", length=2)
-        if "CIRCLE_COLOR" in data
-        else None
-    )
-    values["colors"] = (
-        _rgba_tuple(kind, name, data, "COLOR")
-        if "COLOR" in data
+        _number_tuple(kind, name, data, "silhouette_distances")
+        if "silhouette_distances" in data
         else None
     )
     values["_source_keys"] = tuple(data)
@@ -1132,7 +1012,7 @@ def parse_ability_definition(name, data):
         "collision_wait",
         "ship_collision_wait",
         "anim_length",
-        "circle_thickness",
+        "stroke_width",
     ):
         if values[field_name] is not None and values[field_name] <= 0:
             raise CatalogValidationError(
@@ -1152,7 +1032,7 @@ def parse_ability_definition(name, data):
     if any(value is not None for value in silhouette_values):
         if any(value is None for value in silhouette_values):
             raise CatalogValidationError(
-                f"Ability '{name}' must define the complete SILHOUETTE_* configuration"
+                f"Ability '{name}' must define the complete silhouette configuration"
             )
         if values["silhouette_count"] <= 0:
             raise CatalogValidationError(
@@ -1164,21 +1044,25 @@ def parse_ability_definition(name, data):
             == len(values["silhouette_distances"])
         ):
             raise CatalogValidationError(
-                f"Ability '{name}' SILHOUETTE_* lengths must match"
+                f"Ability '{name}' silhouette configuration lengths must match"
             )
-    circle_values = (
-        values["anim_length"],
-        values["circle_thickness"],
-        values["circle_colors"],
-    )
-    if any(value is not None for value in circle_values) and any(
-        value is None for value in circle_values
-    ):
-        raise CatalogValidationError(
-            f"Ability '{name}' must define the complete circle effect configuration"
-        )
-    if all(value is not None for value in circle_values):
-        if values["effect_range"] is None:
+    if values["range"] is not None and values["range"] <= 0:
+        raise CatalogValidationError(f"Ability '{name}' range must be positive")
+    if values["ability_type"] == "laser":
+        if values["colors"] is None or values["stroke_width"] is None:
+            raise CatalogValidationError(
+                f"Ability '{name}' laser requires colors and stroke_width"
+            )
+    if values["anim_length"] is not None:
+        if values["colors"] is None or values["stroke_width"] is None:
+            raise CatalogValidationError(
+                f"Ability '{name}' circle effect requires colors and stroke_width"
+            )
+        if len(values["colors"]) != 2:
+            raise CatalogValidationError(
+                f"Ability '{name}' circle effect colors must contain 2 colors"
+            )
+        if values["range"] is None:
             raise CatalogValidationError(
                 f"Ability '{name}' circle effect requires range"
             )
@@ -1192,7 +1076,7 @@ def parse_ability_definition(name, data):
         and values["segment_length_min"] > values["segment_length_max"]
     ):
         raise CatalogValidationError(
-            f"Ability '{name}' SEGMENT_LENGTH_MIN exceeds SEGMENT_LENGTH_MAX"
+            f"Ability '{name}' segment_length_min exceeds segment_length_max"
         )
     return AbilityDefinition(**values)
 

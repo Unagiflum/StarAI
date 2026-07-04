@@ -58,7 +58,7 @@ def apply_vux_starting_conditions(player1, player2, preserved_ships=None, rng=No
                 anchor = p
                 mover = opponent
 
-            laser_range = ABILITIES_DATA.get("VuxA1", {}).get("LASER_RANGE", 644)
+            laser_range = ABILITIES_DATA.get("VuxA1", {}).get("range", 644)
             min_dist = min(300, laser_range - 50) if laser_range > 300 else 0
             dist = rng.randint(min_dist, laser_range)
             angle = rng.uniform(0, 2 * math.pi)

@@ -9,7 +9,7 @@ class ZoqFotPikA1(Ability):
     def __init__(self, parent):
         super().__init__("ZoqFotPikA1", parent)
         ability_data = ABILITIES_DATA["ZoqFotPikA1"]
-        self.SPREAD_ANGLE = ability_data.get("SPREAD_ANGLE", 3)
+        self.SPREAD_ANGLE = ability_data.get("spread_angle", 3)
         self.variant_index = self.rng.randrange(len(self.masks))
         self.size = list(self.sizes[self.variant_index])
         # These configured frames are independent visual variants, not an

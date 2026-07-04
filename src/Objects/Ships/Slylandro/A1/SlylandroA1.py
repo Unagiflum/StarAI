@@ -28,8 +28,8 @@ class SlylandroA1(Ability):
         self.cooldown = round(parent.a1_wait)
         self.segment_length_min = definition.segment_length_min
         self.segment_length_max = definition.segment_length_max
-        self.bolt_colors = definition.bolt_colors
-        self.LASER_WIDTH = definition.laser_width or 1
+        self.bolt_colors = definition.colors
+        self.LASER_WIDTH = definition.stroke_width or 1
         self.color = self.bolt_colors[0]
         self.points = []
         self.frame_number = 0

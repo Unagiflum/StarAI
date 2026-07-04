@@ -7,7 +7,7 @@ class KohrAhA2(Ability):
     def __init__(self, parent, angle_offset=0):
         super().__init__("KohrAhA2", parent)
         ability_data = ABILITIES_DATA["KohrAhA2"]
-        self.DMG_TO_PROJ = ability_data.get("DMG_TO_PROJ", 50)
+        self.DMG_TO_PROJ = ability_data.get("projectile_damage", 50)
         self.place_self(angle_offset)
 
     def place_self(self, angle_offset):

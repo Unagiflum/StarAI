@@ -9,8 +9,8 @@ class KohrAh(SpaceShip):
     def __init__(self, ship_name, player_num, resources=None, audio_service=None):
         super().__init__(ship_name, player_num, resources, audio_service)
         ship_data = SHIPS_DATA[ship_name]
-        self.SAW_COUNT = ship_data.get("SAW_COUNT", 8)
-        self.GAS_COUNT = ship_data.get("GAS_COUNT", 16)
+        self.SAW_COUNT = ship_data.get("saw_count", 8)
+        self.GAS_COUNT = ship_data.get("gas_count", 16)
         self.angle_increment = 360 / self.GAS_COUNT
         self.active_projectiles = []
         self.last_action1_state = False

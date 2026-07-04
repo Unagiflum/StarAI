@@ -246,7 +246,7 @@ class Slylandro(SpaceShip):
         if not any(
             asteroid.currently_alive
             and wrapped_distance(self.position, asteroid.position)
-            <= ability_definition.effect_range
+            <= ability_definition.range
             for asteroid in self.asteroids
         ):
             return ActionPlan.invalid(2)

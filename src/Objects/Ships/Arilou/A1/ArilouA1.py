@@ -14,9 +14,9 @@ class ArilouA1(Ability):
     def __init__(self, parent):
         super().__init__("ArilouA1", parent)
         definition = ABILITY_DEFINITIONS["ArilouA1"]
-        self.LASER_RANGE = definition.laser_range
-        self.configure_laser_colors(definition.laser_color)
-        self.LASER_WIDTH = definition.laser_width
+        self.LASER_RANGE = definition.range
+        self.configure_laser_colors(definition.colors)
+        self.LASER_WIDTH = definition.stroke_width
         self.end_position = [0, 0]
         self.calculate_end_position()
 

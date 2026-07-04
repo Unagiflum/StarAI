@@ -2,21 +2,20 @@ import pygame
 
 import src.const as const
 from src.Objects.Ships.ability import Ability
-from src.Objects.Ships.catalog import SHIP_DEFINITIONS
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.toroidal import wrapped_delta
 
 
 class ChmmrSatelliteLaser(Ability):
     def __init__(self, parent, target=None):
         super().__init__("ChmmrSatelliteLaser", parent)
-        owner = getattr(parent, "parent", parent)
-        definition = SHIP_DEFINITIONS[owner.name]
+        definition = ABILITY_DEFINITIONS["ChmmrSatelliteLaser"]
         self.target = target
-        self.current_damage = definition.satellite_laser_damage
+        self.current_damage = definition.damage[0]
         self.damages = (self.current_damage,)
-        self.LASER_RANGE = definition.satellite_laser_range
-        self.LASER_COLOR = definition.satellite_laser_color
-        self.LASER_WIDTH = definition.satellite_laser_width
+        self.LASER_RANGE = definition.range
+        self.LASER_COLOR = definition.colors[0]
+        self.LASER_WIDTH = definition.stroke_width
         self.position = parent.position.copy()
         self.previous_position = self.position.copy()
         self.end_position = self.position.copy()

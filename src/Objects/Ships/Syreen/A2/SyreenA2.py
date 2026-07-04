@@ -220,8 +220,8 @@ class SyreenA2(Ability):
             gun_y * ship_definition.sprite_scale,
         )
         farthest_radius = _farthest_alpha_radius(ship_sprite, gun_origin)
-        starting_radius = farthest_radius + definition.circle_thickness / 2.0
-        if starting_radius >= definition.effect_range:
+        starting_radius = farthest_radius + definition.stroke_width / 2.0
+        if starting_radius >= definition.range:
             raise ValueError(
                 f"Ability '{ability_name}' circle starts outside its configured range"
             )
@@ -231,7 +231,7 @@ class SyreenA2(Ability):
     def __init__(self, parent):
         super().__init__("SyreenA2", parent)
         definition = ABILITY_DEFINITIONS["SyreenA2"]
-        self.range = definition.effect_range
+        self.range = definition.range
         self.separation_distance = (
             definition.separation_distance
             if definition.separation_distance is not None
@@ -253,8 +253,8 @@ class SyreenA2(Ability):
                 position=self.position,
                 starting_radius=self._starting_radius_cache[resources],
                 target_radius=self.range,
-                thickness=definition.circle_thickness,
-                colors=definition.circle_colors,
+                thickness=definition.stroke_width,
+                colors=definition.colors,
                 total_frames=definition.anim_length,
             )
         )
