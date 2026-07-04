@@ -539,8 +539,12 @@ class Ability(PlayerObject):
         py = nx
 
         half_width = width / 2.0
+        # Pygame rasterizes the filled polygon and AA edge lines separately.
+        # Give the fill a quarter-pixel overlap under each edge so fractional beam
+        # angles cannot leave isolated background pixels between them.
+        fill_half_width = half_width + 0.25
 
-        # Rectangle base points
+        # Nominal edge points determine the beam's anti-aliased outline.
         p1 = (start_pos[0] + px * half_width, start_pos[1] + py * half_width)
         p2 = (start_pos[0] - px * half_width, start_pos[1] - py * half_width)
 
@@ -548,9 +552,26 @@ class Ability(PlayerObject):
         p3 = (end_pos[0] - px * half_width, end_pos[1] - py * half_width)
         p4 = (end_pos[0] + px * half_width, end_pos[1] + py * half_width)
 
+        fill_p1 = (
+            start_pos[0] + px * fill_half_width,
+            start_pos[1] + py * fill_half_width,
+        )
+        fill_p2 = (
+            start_pos[0] - px * fill_half_width,
+            start_pos[1] - py * fill_half_width,
+        )
+        fill_p3 = (
+            end_pos[0] - px * fill_half_width,
+            end_pos[1] - py * fill_half_width,
+        )
+        fill_p4 = (
+            end_pos[0] + px * fill_half_width,
+            end_pos[1] + py * fill_half_width,
+        )
+
         # Draw the cap first so the body covers its inward half without leaving a seam.
         pygame.draw.aacircle(screen, color, end_pos, half_width)
-        pygame.draw.polygon(screen, color, (p1, p2, p3, p4))
+        pygame.draw.polygon(screen, color, (fill_p1, fill_p2, fill_p3, fill_p4))
 
         # Full-color AA edges provide coverage blending without a dark alpha fringe.
         pygame.draw.aaline(screen, color, p1, p4)
