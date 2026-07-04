@@ -35,8 +35,17 @@ class LoadingScreenTests(unittest.TestCase):
         self.assertEqual(surface.get_at((outer.left, outer.centery))[:3], WHITE)
         self.assertEqual(surface.get_at((inner.left, inner.centery))[:3], GREEN)
         self.assertEqual(surface.get_at((inner.right - 1, inner.centery))[:3], BLACK)
+        self.assertEqual(GREEN, (0, 128, 0))
 
-    def test_preload_redraws_for_each_reported_ship_count(self):
+    def test_loading_bar_has_rounded_corners(self):
+        surface = pygame.Surface((400, 200))
+
+        outer, _ = draw_loading_screen(surface, 1, 2)
+
+        self.assertEqual(surface.get_at(outer.topleft)[:3], BLACK)
+        self.assertEqual(surface.get_at((outer.left, outer.centery))[:3], WHITE)
+
+    def test_preload_redraws_for_each_reported_work_update(self):
         class FakeResources:
             def preload_all(self, progress_callback):
                 progress_callback(0, 2)
@@ -55,7 +64,7 @@ class LoadingScreenTests(unittest.TestCase):
         self.assertEqual(pump.call_count, 3)
         self.assertEqual(flip.call_count, 3)
 
-    def test_asset_manager_reports_ship_progress_after_each_ship(self):
+    def test_asset_manager_reports_weighted_progress_through_all_phases(self):
         manager = AssetManager()
         definitions = {
             "First": SimpleNamespace(forms={}),
@@ -76,12 +85,18 @@ class LoadingScreenTests(unittest.TestCase):
             mock.patch.object(manager, "background"),
         ):
             manager.preload_all(
-                progress_callback=lambda loaded, total: progress.append(
-                    (loaded, total)
+                progress_callback=lambda completed, total: progress.append(
+                    (completed, total)
                 )
             )
 
-        self.assertEqual(progress, [(0, 2), (1, 2), (2, 2)])
+        completed = [value for value, _ in progress]
+        totals = {total for _, total in progress}
+        self.assertEqual(completed[0], 0)
+        self.assertEqual(len(totals), 1)
+        self.assertEqual(completed, sorted(completed))
+        self.assertLess(completed[2], progress[2][1])
+        self.assertEqual(completed[-1], progress[-1][1])
 
 
 if __name__ == "__main__":

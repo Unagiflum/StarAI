@@ -14,6 +14,50 @@ from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 
 _PLACEHOLDER_COLOR = (255, 0, 255, 200)
 
+# Relative costs measured from a representative preload. Each phase divides
+# its budget evenly across its top-level items; these are intentionally stable
+# estimates rather than timings collected during every startup.
+_PRELOAD_PHASE_WEIGHTS = (
+    ("ships", 50),
+    ("abilities", 205),
+    ("asteroids", 3),
+    ("planets", 5),
+    ("stars", 1),
+    ("battle_effects", 2),
+    ("battle_sounds", 1),
+    ("backgrounds", 5),
+    ("validations", 1),
+    ("menu_sound", 1),
+)
+
+
+class _PreloadProgress:
+    """Translate preload phase completion into static weighted work units."""
+
+    def __init__(self, callback):
+        self.callback = callback
+        self.total_work = sum(weight for _, weight in _PRELOAD_PHASE_WEIGHTS)
+        offset = 0
+        self.phases = {}
+        for name, weight in _PRELOAD_PHASE_WEIGHTS:
+            self.phases[name] = (offset, weight)
+            offset += weight
+
+    def start(self):
+        if self.callback is not None:
+            self.callback(0, self.total_work)
+
+    def update(self, phase, completed_steps, total_steps):
+        if self.callback is None:
+            return
+        offset, weight = self.phases[phase]
+        fraction = 1.0 if total_steps == 0 else completed_steps / total_steps
+        fraction = max(0.0, min(1.0, fraction))
+        self.callback(offset + weight * fraction, self.total_work)
+
+    def complete(self, phase):
+        self.update(phase, 1, 1)
+
 
 @dataclass(frozen=True)
 class AssetError:
@@ -678,25 +722,29 @@ class AssetManager:
         Returns a list of :class:`AssetError` for every asset that could not
         be loaded.  Failed assets are replaced by colored placeholders so the
         game can continue.  ``progress_callback``, when provided, receives
-        ``(loaded_ships, total_ships)`` as each ship finishes loading.
+        ``(completed_work, total_work)`` as weighted preload work finishes.
         """
         self._asset_errors = []
+        progress = _PreloadProgress(progress_callback)
+        progress.start()
 
         # Ships and their menu sprites.
         total_ships = len(SHIP_DEFINITIONS)
-        if progress_callback is not None:
-            progress_callback(0, total_ships)
         for loaded_ships, ship_name in enumerate(SHIP_DEFINITIONS, start=1):
             self.ship(ship_name)
             self.menu_ship_sprite(ship_name)
             definition = SHIP_DEFINITIONS[ship_name]
             for form_name in definition.forms:
                 self.ship_form(ship_name, form_name)
-            if progress_callback is not None:
-                progress_callback(loaded_ships, total_ships)
+            progress.update("ships", loaded_ships, total_ships)
+        if total_ships == 0:
+            progress.complete("ships")
 
         # Abilities, their sounds, and retraction assets.
-        for ability_name, definition in ABILITY_DEFINITIONS.items():
+        total_abilities = len(ABILITY_DEFINITIONS)
+        for loaded_abilities, (ability_name, definition) in enumerate(
+            ABILITY_DEFINITIONS.items(), start=1
+        ):
             self.ability(ability_name)
             self.ability_sound(ability_name)
             if (
@@ -714,21 +762,31 @@ class AssetManager:
                             str(error),
                         )
                     )
+            progress.update("abilities", loaded_abilities, total_abilities)
+        if total_abilities == 0:
+            progress.complete("abilities")
 
         # Asteroids.
         self.asteroid()
+        progress.complete("asteroids")
 
         # Planets — iterate the JSON to preload every image.
         try:
             with open(const.PLANETS_JSON_PATH, "r") as fh:
                 planet_data = json.load(fh)
-            for planet_name, planet_info in planet_data.items():
+            total_planets = len(planet_data)
+            for loaded_planets, (planet_name, planet_info) in enumerate(
+                planet_data.items(), start=1
+            ):
                 diameter = planet_info.get("Diameter", 300)
                 self.image(
                     planet_info["Image"],
                     (diameter, diameter),
                     with_mask=True,
                 )
+                progress.update("planets", loaded_planets, total_planets)
+            if total_planets == 0:
+                progress.complete("planets")
         except (OSError, json.JSONDecodeError, KeyError) as error:
             self._asset_errors.append(
                 AssetError(
@@ -738,13 +796,20 @@ class AssetManager:
                     str(error),
                 )
             )
+            progress.complete("planets")
 
         # Stars — iterate the JSON to preload every image.
         try:
             with open(const.STARS_JSON_PATH, "r") as fh:
                 star_data = json.load(fh)
-            for star_name, star_info in star_data.items():
+            total_stars = len(star_data)
+            for loaded_stars, (star_name, star_info) in enumerate(
+                star_data.items(), start=1
+            ):
                 self.image(star_info["Image"])
+                progress.update("stars", loaded_stars, total_stars)
+            if total_stars == 0:
+                progress.complete("stars")
         except (OSError, json.JSONDecodeError, KeyError) as error:
             self._asset_errors.append(
                 AssetError(
@@ -754,6 +819,7 @@ class AssetManager:
                     str(error),
                 )
             )
+            progress.complete("stars")
 
         # Battle effect sprites (explosions, blasts).
         battle_path = const.source_path("Objects/Battle")
@@ -763,26 +829,32 @@ class AssetManager:
             interpolated=True,
             fade_to_transparent=True
         )
+        progress.update("battle_effects", 1, 2)
         self.animation(
             "battle-blasts",
             tuple(battle_path / f"blast-{i:03d}.png" for i in range(8)),
             interpolated=False
         )
+        progress.complete("battle_effects")
 
         # Battle sounds.
-        for sound_name in (
+        battle_sound_names = (
             "boom1.wav",
             "boom2.wav",
             "boom4.wav",
             "boom6.wav",
             "shipdies.wav",
-        ):
+        )
+        for loaded_sounds, sound_name in enumerate(battle_sound_names, start=1):
             self.sound(battle_path / sound_name, const.SOUND_EFFECT_VOLUME)
+            progress.update("battle_sounds", loaded_sounds, len(battle_sound_names))
 
         # Backgrounds.
         screen_size = (const.SCREEN_WIDTH, const.SCREEN_HEIGHT)
         self.background(const.MAIN_BG_PATH, screen_size)
+        progress.update("backgrounds", 1, 2)
         self.background(const.MENU_BG_PATH, screen_size)
+        progress.complete("backgrounds")
 
         # Battle music — verify file exists (streamed, not decoded).
         battle_music = const.source_path(const.BATTLE_MUSIC_PATH)
@@ -796,8 +868,11 @@ class AssetManager:
                 )
             )
 
+        total_validations = len(SHIP_DEFINITIONS) + 1
+        progress.update("validations", 1, total_validations)
+
         # Victory ditties — verify each file exists.
-        for ship_name in SHIP_DEFINITIONS:
+        for checked_ditties, ship_name in enumerate(SHIP_DEFINITIONS, start=2):
             ditty_path = self.ship(ship_name).ditty_path
             if not Path(ditty_path).exists():
                 self._asset_errors.append(
@@ -808,9 +883,11 @@ class AssetManager:
                         "file not found",
                     )
                 )
+            progress.update("validations", checked_ditties, total_validations)
 
         # Menu sound.
         self.sound(const.MENU_WAV_PATH, 1.0)
+        progress.complete("menu_sound")
 
         return list(self._asset_errors)
 
