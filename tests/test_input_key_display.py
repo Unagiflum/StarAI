@@ -34,7 +34,7 @@ class InputKeyDisplayTests(unittest.TestCase):
             (pygame.K_LCTRL, pygame.K_a),
             panel,
             font,
-            label="Key Tester",
+            label="Keys Pressed",
         )
 
         self.assertEqual(len(keycaps), 2)

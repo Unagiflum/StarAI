@@ -177,7 +177,7 @@ def run_input_keys(screen, menu_sound_manager=None, audio_service=None):
             pressed_keys,
             pressed_key_panel,
             pressed_key_font,
-            label="Key Tester",
+            label="Keys Pressed",
         )
         save_button.draw(screen, font)
         cancel_button.draw(screen, font)
