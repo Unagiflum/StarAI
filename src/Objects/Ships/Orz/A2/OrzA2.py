@@ -4,6 +4,8 @@ import src.const as const
 class OrzA2:
     """Persistent visual and direction state for the Orz turret."""
 
+    FACING_COUNT = const.ASSET_SPRITE_DIRECTIONS
+
     def __init__(self, parent):
         self.name = "OrzA2"
         self.relative_heading = 0
@@ -13,7 +15,8 @@ class OrzA2:
 
     @property
     def absolute_heading(self):
-        return (self.parent.heading + self.relative_heading) % const.SHIP_DIRECTIONS
+        relative_offset = self.relative_heading * const.DIRECTIONS_MULTIPLIER
+        return (self.parent.heading + relative_offset) % const.SHIP_DIRECTIONS
 
     def reset(self):
         self.relative_heading = 0
@@ -21,13 +24,14 @@ class OrzA2:
     def turn(self, direction):
         self.relative_heading = (
             self.relative_heading + direction
-        ) % const.SHIP_DIRECTIONS
+        ) % self.FACING_COUNT
 
     @property
     def previous_absolute_heading(self):
         prev_parent = getattr(self.parent, "previous_heading", self.parent.heading)
         prev_rel = getattr(self, "previous_relative_heading", self.relative_heading)
-        return (prev_parent + prev_rel) % const.SHIP_DIRECTIONS
+        relative_offset = prev_rel * const.DIRECTIONS_MULTIPLIER
+        return (prev_parent + relative_offset) % const.SHIP_DIRECTIONS
 
     def get_sprite(self, interp_t=0.0):
         if const.VIDEO_FPS_MULTIPLIER <= 1:

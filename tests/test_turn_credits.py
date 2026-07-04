@@ -128,6 +128,46 @@ class TurnCreditTests(unittest.TestCase):
             const.TOTAL_SPRITE_DIRECTIONS,
         )
 
+    def test_orz_turret_keeps_16_facings_relative_to_fine_ship_heading(self):
+        ship = self.make_ship("Orz")
+        ship.heading = 1
+        ship.rotation = ship.heading * const.TURN_ANGLE
+
+        ship.turret.turn(1)
+
+        self.assertEqual(ship.turret.relative_heading, 1)
+        self.assertEqual(
+            ship.turret_heading,
+            ship.heading + const.DIRECTIONS_MULTIPLIER,
+        )
+
+        for _ in range(const.ASSET_SPRITE_DIRECTIONS - 1):
+            ship.turret.turn(1)
+
+        self.assertEqual(ship.turret.relative_heading, 0)
+        self.assertEqual(ship.turret_heading, ship.heading)
+
+    def test_slylandro_lightning_uses_only_16_quantized_directions(self):
+        ship = self.make_ship("Slylandro")
+        target = self.make_ship("Earthling")
+        ship.opponent = target
+        target.opponent = ship
+        target.trackable = False
+        bolt = ship.plan_action1().spawned_objects[0]
+        bolt.rng = mock.Mock()
+        bolt.rng.choice.side_effect = lambda values: values[0]
+        bolt.rng.randrange.side_effect = [1, 15]
+        bolt.rng.uniform.return_value = 20
+
+        bolt._generate_bolt(2)
+
+        bolt.rng.randrange.assert_has_calls([mock.call(16), mock.call(16)])
+        for start, end in bolt.collision_segments():
+            dx, dy = end[0] - start[0], end[1] - start[1]
+            angle = math.degrees(math.atan2(dx, -dy)) % 360
+            quantized = angle / (360 / const.ASSET_SPRITE_DIRECTIONS)
+            self.assertAlmostEqual(quantized, round(quantized))
+
 
 if __name__ == "__main__":
     unittest.main()

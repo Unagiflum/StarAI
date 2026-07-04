@@ -17,6 +17,9 @@ class LightningSession:
 class SlylandroA1(Ability):
     """One independently colored bolt in a shared lightning discharge."""
 
+    DIRECTION_COUNT = const.ASSET_SPRITE_DIRECTIONS
+    DIRECTION_ANGLE = 360 / DIRECTION_COUNT
+
     def __init__(self, parent, session=None, bolt_index=0):
         super().__init__("SlylandroA1", parent)
         definition = ABILITY_DEFINITIONS["SlylandroA1"]
@@ -70,20 +73,20 @@ class SlylandroA1(Ability):
         self.points = [point]
         target_available = self._target_is_available()
         relative_direction = self.configured_gun()[1] or 0
-        direction = (
-            self.parent.heading + round(relative_direction / const.TURN_ANGLE)
-        ) % const.SHIP_DIRECTIONS
+        direction = round(
+            (self.parent.rotation + relative_direction) / self.DIRECTION_ANGLE
+        ) % self.DIRECTION_COUNT
 
         for segment_index in range(segment_count):
             if not target_available:
-                direction = self.rng.randrange(const.SHIP_DIRECTIONS)
+                direction = self.rng.randrange(self.DIRECTION_COUNT)
             elif segment_index > 0:
                 direction = self._next_direction(direction, point)
 
             length = self.rng.uniform(
                 self.segment_length_min, self.segment_length_max
             )
-            angle = math.radians(direction * const.TURN_ANGLE)
+            angle = math.radians(direction * self.DIRECTION_ANGLE)
             point = [
                 (point[0] + math.sin(angle) * length) % const.ARENA_SIZE,
                 (point[1] - math.cos(angle) * length) % const.ARENA_SIZE,
@@ -105,12 +108,12 @@ class SlylandroA1(Ability):
         dx, dy = wrapped_delta(point, self.opponent.position)
         target_angle = math.degrees(math.atan2(dx, -dy)) % 360
         target_direction = (
-            round(target_angle / const.TURN_ANGLE) % const.SHIP_DIRECTIONS
+            round(target_angle / self.DIRECTION_ANGLE) % self.DIRECTION_COUNT
         )
-        half_turn = const.SHIP_DIRECTIONS // 2
+        half_turn = self.DIRECTION_COUNT // 2
         difference = (
             (target_direction - previous_direction + half_turn)
-            % const.SHIP_DIRECTIONS
+            % self.DIRECTION_COUNT
         ) - half_turn
 
         if abs(difference) > 1:
@@ -118,7 +121,7 @@ class SlylandroA1(Ability):
             turn *= 1 if difference > 0 else -1
         else:
             turn = self.rng.choice((-1, 1))
-        return (previous_direction + turn) % const.SHIP_DIRECTIONS
+        return (previous_direction + turn) % self.DIRECTION_COUNT
 
     def calculate_end_position(self):
         if len(self.points) < 2:
