@@ -7,7 +7,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import pygame
-from src.Menus import display_settings, game_settings, pick_fleet
+from src.Menus import display_settings, game_settings, pick_fleet, train_ai
 from src.UI import ui, ui_button
 from src.UI.loading_screen import preload_assets
 from src.audio import initialize_pygame_audio
@@ -181,6 +181,7 @@ def main():
 
     menu_items = [
         ("Play Game", pick_fleet.run),
+        ("Train AI", train_ai.run),
         ("Game Settings", game_settings.run),
         ("Display Settings", display_settings.run),
         ("Quit", None),

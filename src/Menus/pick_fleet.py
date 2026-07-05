@@ -58,12 +58,21 @@ def fleet_control_rects(column_start, top, width, height, gap):
 
 
 class ShipPickerModal:
-    """Centered, fixed 5x5 catalog used for direct or bulk fleet additions."""
+    """Centered, fixed 5x5 catalog used by ship-selection screens."""
 
-    def __init__(self, player, slot_index, ships_data, sprites, quantity=1):
+    def __init__(
+        self,
+        player,
+        slot_index,
+        ships_data,
+        sprites,
+        quantity=1,
+        title_label=None,
+    ):
         self.player = player
         self.slot_index = slot_index
         self.quantity = quantity
+        self.title_label = title_label
         self.color = const.P1_COLOR if player == 1 else const.P2_COLOR
         if len(ships_data) > PICKER_CAPACITY:
             raise ValueError(
@@ -172,7 +181,9 @@ class ShipPickerModal:
         pygame.draw.rect(screen, self.color, self.rect)
         pygame.draw.rect(screen, PICKER_BOX_COLOR, self.content_rect)
 
-        if self.slot_index is not None:
+        if self.title_label is not None:
+            title_label = self.title_label
+        elif self.slot_index is not None:
             title_label = f"Player {self.player}: Select a Ship"
         elif self.quantity is None:
             title_label = f"Player {self.player}: Select a Ship to Fill"

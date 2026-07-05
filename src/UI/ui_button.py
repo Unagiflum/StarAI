@@ -34,11 +34,12 @@ class Button:
                     sound_manager.play_sound("menu")
                 self.callback()
 
-    def draw(self, surface, font):
+    def draw(self, surface, font, mouse_pos=None):
         if not self.enabled:
             color = (*ui.DARK_GREY, 255)
         else:
-            mouse_pos = pygame.mouse.get_pos()
+            if mouse_pos is None:
+                mouse_pos = pygame.mouse.get_pos()
             color = (
                 self.hover_color if self.rect.collidepoint(mouse_pos) else self.bg_color
             )
@@ -178,8 +179,8 @@ class RadioButton(Button):
         )
         self.selected = selected
 
-    def draw(self, surface, font):
-        super().draw(surface, font)
+    def draw(self, surface, font, mouse_pos=None):
+        super().draw(surface, font, mouse_pos)
         center = (self.rect.x + 20, self.rect.centery)
         pygame.draw.circle(surface, ui.WHITE, center, 9, 2)
         if self.selected:
@@ -195,13 +196,15 @@ class Checkbox(Button):
         self.is_checked = initial_state
 
     def handle_event(self, event, sound_manager=None):
+        if not self.enabled:
+            return
         if event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos):
             if sound_manager:
                 sound_manager.play_sound("menu")
             self.is_checked = not self.is_checked
 
-    def draw(self, surface, font):
-        super().draw(surface, font)
+    def draw(self, surface, font, mouse_pos=None):
+        super().draw(surface, font, mouse_pos)
         box = pygame.Rect(self.rect.x + 11, self.rect.centery - 9, 18, 18)
         pygame.draw.rect(surface, ui.WHITE, box, 2)
         if self.is_checked:
