@@ -27,16 +27,16 @@ REWARD_VALUES = tuple(
 
 REWARD_LABELS = (
     "Point at enemy",
-    "Move toward enemy",
-    "Spawn object",
-    "Attack enemy",
-    "Attack enemy object",
-    "Self inflicted damage",
-    "Attacked by enemy",
+    "Get in weapon range",
+    "Spawn an object",
+    "Harm enemy",
+    "Harm enemy object",
+    "Harm self",
+    "Harmed by enemy",
     "Enemy loses crew",
     "Gain crew",
     "Gain battery",
-    "Get high speed",
+    "Get to high speed",
     "Lose crew",
     "Lose battery",
     "Die",
@@ -402,10 +402,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         maximum=28,
     )
     tab_font = largest_fitting_font(
-        ("Trainee", "Opponent", "Regimen"),
-        (CONTROL_WIDTH - 4 * TAB_MARGIN) // 3 - 16,
+        ("Trainee", "Opponent", "Rewards", "Regimen"),
+        (CONTROL_WIDTH - 5 * TAB_MARGIN) // 4 - 16,
         max_height=34,
         maximum=32,
+    )
+    rewards_font = largest_fitting_font(
+        REWARD_LABELS,
+        270,
+        max_height=26,
+        maximum=24,
     )
     small_font = pygame.font.SysFont(None, 24)
     arena_font = pygame.font.SysFont(None, 32)
@@ -422,7 +428,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     selector_sprites = fit_ship_sprites(source_sprites, 188)
 
-    tab_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 2 * TAB_GAP) // 3
+    tab_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 3 * TAB_GAP) // 4
     tab_height = TAB_HEIGHT + TAB_GAP
     trainee_tab = TabButton(
         TAB_MARGIN,
@@ -440,8 +446,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         "Opponent",
         lambda: setattr(state, "active_tab", "opponent"),
     )
-    regimen_tab = TabButton(
+    rewards_tab = TabButton(
         TAB_MARGIN + 2 * (tab_width + TAB_GAP),
+        TAB_MARGIN,
+        tab_width,
+        tab_height,
+        "Rewards",
+        lambda: setattr(state, "active_tab", "rewards"),
+    )
+    regimen_tab = TabButton(
+        TAB_MARGIN + 3 * (tab_width + TAB_GAP),
         TAB_MARGIN,
         tab_width,
         tab_height,
@@ -449,13 +463,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         lambda: setattr(state, "active_tab", "regimen"),
     )
 
-    ship_tile = pygame.Rect(16, 48, 200, 200)
+    ship_tile = pygame.Rect((CONTROL_WIDTH - 200) // 2, 48, 200, 200)
     slot_rows = tuple(
-        pygame.Rect(232, 58 + index * 46, CONTROL_WIDTH - 248, 40)
+        pygame.Rect(16, 290 + index * 46, CONTROL_WIDTH - 32, 40)
         for index in range(4)
     )
     slot_fields = [
-        TextField((296, row.y + 3, CONTROL_WIDTH - 312 - 40, row.height - 6))
+        TextField((row.x + 64, row.y + 3, row.width - 64 - 40, row.height - 6))
         for row in slot_rows
     ]
     delete_buttons = [
@@ -466,15 +480,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         for row in slot_rows
     ]
-    reward_top = max(ship_tile.bottom, slot_rows[-1].bottom) + 50
+    trainee_content_height = max(ship_tile.bottom, slot_rows[-1].bottom) + 12
+    trainee_scroll_y = 0
+
+    rewards_top = 8
     reward_sliders = [
         RewardSlider(
-            (12, reward_top + index * 44, CONTROL_WIDTH - 24, 40), label
+            (12, rewards_top + index * 34, CONTROL_WIDTH - 24, 30), label
         )
         for index, label in enumerate(REWARD_LABELS)
     ]
-    trainee_content_height = reward_sliders[-1].rect.bottom + 12
-    trainee_scroll_y = 0
+    rewards_content_height = reward_sliders[-1].rect.bottom + 8
+    rewards_scroll_y = 0
     selected_opponent_mode = [state.opponent_mode]
     opponent_mode_buttons = []
     opponent_panels = (
@@ -687,27 +704,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
             trainee_tab.handle_event(event, menu_sound_manager)
             opponent_tab.handle_event(event, menu_sound_manager)
+            rewards_tab.handle_event(event, menu_sound_manager)
             regimen_tab.handle_event(event, menu_sound_manager)
             display_checkbox.handle_event(event, menu_sound_manager)
             start_stop_button.handle_event(event, menu_sound_manager)
             back_button.handle_event(event, menu_sound_manager)
 
             if state.active_tab == "trainee":
-                if (
-                    event.type == pygame.MOUSEBUTTONDOWN
-                    and event.button in (4, 5)
-                    and layout.content_rect.collidepoint(event.pos)
-                ):
-                    direction = -1 if event.button == 4 else 1
-                    max_scroll = max(
-                        0, trainee_content_height - layout.content_rect.height
-                    )
-                    trainee_scroll_y = max(
-                        0,
-                        min(max_scroll, trainee_scroll_y + direction * 54),
-                    )
-                    continue
-
                 translated = _translated_event(
                     event, layout.content_rect, trainee_scroll_y
                 )
@@ -731,6 +734,25 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     field.handle_event(translated)
                 for delete_btn in delete_buttons:
                     delete_btn.handle_event(translated, menu_sound_manager)
+            elif state.active_tab == "rewards":
+                if (
+                    event.type == pygame.MOUSEBUTTONDOWN
+                    and event.button in (4, 5)
+                    and layout.content_rect.collidepoint(event.pos)
+                ):
+                    direction = -1 if event.button == 4 else 1
+                    max_scroll = max(
+                        0, rewards_content_height - layout.content_rect.height
+                    )
+                    rewards_scroll_y = max(
+                        0,
+                        min(max_scroll, rewards_scroll_y + direction * 54),
+                    )
+                    continue
+
+                translated = _translated_event(
+                    event, layout.content_rect, rewards_scroll_y
+                )
                 for slider in reward_sliders:
                     slider.handle_event(translated, menu_sound_manager)
             elif state.active_tab == "opponent":
@@ -784,11 +806,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         trainee_tab.active = state.active_tab == "trainee"
         opponent_tab.active = state.active_tab == "opponent"
+        rewards_tab.active = state.active_tab == "rewards"
         regimen_tab.active = state.active_tab == "regimen"
 
         if state.active_tab == "trainee":
             content = pygame.Surface(
-                (CONTROL_WIDTH, trainee_content_height), pygame.SRCALPHA
+                (CONTROL_WIDTH, max(trainee_content_height, layout.content_rect.height)), pygame.SRCALPHA
             )
             content.fill((0, 0, 0, 155))
             heading = body_font.render("Trainee Ship", True, ui.WHITE)
@@ -803,7 +826,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 content.blit(sprite, sprite.get_rect(center=ship_tile.center))
 
             slot_heading = body_font.render("AI Slot", True, ui.WHITE)
-            content.blit(slot_heading, (slot_rows[0].x, 18))
+            content.blit(slot_heading, (slot_rows[0].x, slot_rows[0].y - 30))
             
             mouse_pos = pygame.mouse.get_pos()
             content_mouse_pos = (
@@ -825,11 +848,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 field.draw(content, body_font)
                 delete_buttons[index].draw(content, body_font, content_mouse_pos)
 
-            rewards_heading = body_font.render("Rewards / Penalties", True, ui.WHITE)
-            content.blit(rewards_heading, (16, reward_top - 42))
-            for slider in reward_sliders:
-                slider.draw(content, body_font, content_mouse_pos)
-
             source = pygame.Rect(
                 0,
                 trainee_scroll_y,
@@ -837,11 +855,32 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 layout.content_rect.height,
             )
             screen.blit(content, layout.content_rect, source)
+        elif state.active_tab == "rewards":
+            content = pygame.Surface(
+                (CONTROL_WIDTH, max(rewards_content_height, layout.content_rect.height)), pygame.SRCALPHA
+            )
+            content.fill((0, 0, 0, 155))
+            mouse_pos = pygame.mouse.get_pos()
+            content_mouse_pos = (
+                mouse_pos[0] - layout.content_rect.x,
+                mouse_pos[1] - layout.content_rect.y + rewards_scroll_y,
+            )
+
+            for slider in reward_sliders:
+                slider.draw(content, rewards_font, content_mouse_pos)
+
+            source = pygame.Rect(
+                0,
+                rewards_scroll_y,
+                layout.content_rect.width,
+                layout.content_rect.height,
+            )
+            screen.blit(content, layout.content_rect, source)
             _draw_scrollbar(
                 screen,
                 layout.content_rect,
-                trainee_content_height,
-                trainee_scroll_y,
+                rewards_content_height,
+                rewards_scroll_y,
             )
         elif state.active_tab == "opponent":
             content = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)
@@ -872,6 +911,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         # Draw inactive tabs behind the content window border
         if not trainee_tab.active: trainee_tab.draw(screen, tab_font)
         if not opponent_tab.active: opponent_tab.draw(screen, tab_font)
+        if not rewards_tab.active: rewards_tab.draw(screen, tab_font)
         if not regimen_tab.active: regimen_tab.draw(screen, tab_font)
 
         pygame.draw.rect(screen, ui.BLACK, layout.content_rect, 2)
@@ -879,6 +919,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         # Draw active tab in front to merge seamlessly
         if trainee_tab.active: trainee_tab.draw(screen, tab_font)
         if opponent_tab.active: opponent_tab.draw(screen, tab_font)
+        if rewards_tab.active: rewards_tab.draw(screen, tab_font)
         if regimen_tab.active: regimen_tab.draw(screen, tab_font)
 
         display_checkbox.draw(screen, body_font)
