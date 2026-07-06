@@ -150,10 +150,12 @@ def apply_vux_starting_conditions(
     from src.toroidal import wrapped_delta
 
     rng = rng or random
-    preserved_ships = preserved_ships or set()
+    preserved_ships = tuple(preserved_ships or ())
+    close_start_vux = []
 
     for p, opponent in [(player1, player2), (player2, player1)]:
         if p.name == "Vux" and p.battles_fought == 1 and p not in preserved_ships:
+            close_start_vux.append((p, opponent))
             # The Vux is the ship receiving the close-start exception. Keep the
             # opponent fixed so only the Vux bypasses normal spawn clearance.
             anchor = opponent
@@ -199,13 +201,18 @@ def apply_vux_starting_conditions(
                 if hasattr(mover, "previous_position"):
                     mover.previous_position = new_pos.copy()
 
-            dx, dy = wrapped_delta(p.position, opponent.position)
-            target_angle = math.degrees(math.atan2(dx, -dy))
-            if target_angle < 0:
-                target_angle += 360
-            direction_step = 360 / const.SHIP_DIRECTIONS
-            p.heading = round(target_angle / direction_step) % const.SHIP_DIRECTIONS
-            p.rotation = p.heading * const.TURN_ANGLE
+    # Aim after every close-start ship has been moved. When both ships are Vux,
+    # aiming inside the placement loop makes the first Vux face the opponent's
+    # old position before the second Vux receives its own close-start move.
+    for p, opponent in close_start_vux:
+        dx, dy = wrapped_delta(p.position, opponent.position)
+        target_angle = math.degrees(math.atan2(dx, -dy))
+        if target_angle < 0:
+            target_angle += 360
+        direction_step = 360 / const.SHIP_DIRECTIONS
+        p.heading = round(target_angle / direction_step) % const.SHIP_DIRECTIONS
+        p.previous_heading = p.heading
+        p.rotation = p.heading * const.TURN_ANGLE
 
 
 def initialize_battle(

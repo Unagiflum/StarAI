@@ -24,6 +24,7 @@ from src.Battle.world import World
 from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
+from src.toroidal import wrapped_delta
 
 
 def arena_object(
@@ -45,6 +46,12 @@ def arena_object(
     if ability_type is not None:
         obj.type = ability_type
     return obj
+
+
+def heading_toward(source, target):
+    dx, dy = wrapped_delta(source.position, target.position)
+    target_angle = math.degrees(math.atan2(dx, -dy)) % 360
+    return round(target_angle / const.TURN_ANGLE) % const.SHIP_DIRECTIONS
 
 
 class ShipPlacementTests(unittest.TestCase):
@@ -248,6 +255,32 @@ class ShipPlacementTests(unittest.TestCase):
         self.assertLess(distance_to_kohr_ah, 1000)
         for disk in disks:
             self.assertGreaterEqual(math.dist(vux.position, disk.position), 500)
+
+    def test_simultaneous_vux_close_starts_face_final_opponent_positions(self):
+        player1 = SimpleNamespace(
+            name="Vux",
+            battles_fought=1,
+            player=1,
+            position=[1000, 1000],
+            previous_position=[1000, 1000],
+        )
+        player2 = SimpleNamespace(
+            name="Vux",
+            battles_fought=1,
+            player=2,
+            position=[4000, 1000],
+            previous_position=[4000, 1000],
+        )
+        rng = mock.Mock()
+        rng.uniform.return_value = 0
+
+        apply_vux_starting_conditions(player1, player2, rng=rng)
+
+        self.assertEqual(player1.heading, heading_toward(player1, player2))
+        self.assertEqual(player2.heading, heading_toward(player2, player1))
+        self.assertEqual(player1.previous_heading, player1.heading)
+        self.assertEqual(player2.previous_heading, player2.heading)
+        self.assertLessEqual(math.dist(player1.position, player2.position), 600)
 
 
 if __name__ == "__main__":
