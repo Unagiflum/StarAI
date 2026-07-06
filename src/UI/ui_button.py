@@ -51,7 +51,8 @@ class Button:
             button_surface, color, button_surface.get_rect(), border_radius=5
         )
 
-        text_surf = font.render(self.text, True, self.text_color)
+        text_color = self.text_color if self.enabled else ui.LIGHT_GREY
+        text_surf = font.render(self.text, True, text_color)
         text_rect = text_surf.get_rect(center=button_surface.get_rect().center)
         button_surface.blit(text_surf, text_rect)
 
@@ -182,9 +183,11 @@ class RadioButton(Button):
     def draw(self, surface, font, mouse_pos=None):
         super().draw(surface, font, mouse_pos)
         center = (self.rect.x + 20, self.rect.centery)
-        pygame.draw.circle(surface, ui.WHITE, center, 9, 2)
+        color = ui.WHITE if self.enabled else ui.GREY
+        selected_color = ui.BRIGHT_GREEN if self.enabled else ui.GREY
+        pygame.draw.circle(surface, color, center, 9, 2)
         if self.selected:
-            pygame.draw.circle(surface, ui.BRIGHT_GREEN, center, 5)
+            pygame.draw.circle(surface, selected_color, center, 5)
 
 
 class Checkbox(Button):
@@ -206,11 +209,13 @@ class Checkbox(Button):
     def draw(self, surface, font, mouse_pos=None):
         super().draw(surface, font, mouse_pos)
         box = pygame.Rect(self.rect.x + 11, self.rect.centery - 9, 18, 18)
-        pygame.draw.rect(surface, ui.WHITE, box, 2)
+        color = ui.WHITE if self.enabled else ui.GREY
+        checked_color = ui.BRIGHT_GREEN if self.enabled else ui.GREY
+        pygame.draw.rect(surface, color, box, 2)
         if self.is_checked:
             pygame.draw.lines(
                 surface,
-                ui.BRIGHT_GREEN,
+                checked_color,
                 False,
                 [(box.left + 3, box.centery), (box.centerx - 1, box.bottom - 4),
                  (box.right - 3, box.top + 3)],

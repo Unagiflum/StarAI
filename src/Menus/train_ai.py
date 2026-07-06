@@ -304,7 +304,11 @@ class TextField:
         text = font.render(self.text, True, ui.WHITE)
         clip = self.rect.inflate(-12, -4)
         surface.set_clip(clip)
-        surface.blit(text, text.get_rect(midleft=(self.rect.left + 6, self.rect.centery)))
+        text_rect = text.get_rect(midleft=(self.rect.left + 6, self.rect.centery))
+        surface.blit(text, text_rect)
+        if self.active and pygame.time.get_ticks() % 1000 < 500:
+            cursor_x = text_rect.right + 2
+            pygame.draw.line(surface, ui.WHITE, (cursor_x, self.rect.centery - font.get_linesize() // 2 + 2), (cursor_x, self.rect.centery + font.get_linesize() // 2 - 2), 2)
         surface.set_clip(None)
 
 
@@ -360,9 +364,12 @@ def _draw_hud_placeholders(screen, hud_rects, font):
         screen.blit(text, text.get_rect(center=rect.center))
 
 
-def _draw_group_panel(surface, rect):
+def _draw_group_panel(surface, rect, hovered=False, enabled=True):
     panel = pygame.Surface(rect.size, pygame.SRCALPHA)
-    panel.fill((100, 100, 100, 128))
+    if not enabled:
+        panel.fill((*ui.DARK_GREY, 255))
+    else:
+        panel.fill(ui.SLIDER_BG_HI if hovered else ui.SLIDER_BG)
     surface.blit(panel, rect)
     pygame.draw.rect(surface, ui.BLACK, rect, 3)
 
@@ -448,7 +455,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         for index in range(4)
     )
     slot_fields = [
-        TextField((296, row.y + 3, CONTROL_WIDTH - 312, row.height - 6))
+        TextField((296, row.y + 3, CONTROL_WIDTH - 312 - 40, row.height - 6))
+        for row in slot_rows
+    ]
+    delete_buttons = [
+        ui_button.Button(
+            row.right - 36, row.y + 3, 34, row.height - 6, "X",
+            lambda: None,
+            bg_color=ui.CAN_RED, hover_color=ui.CAN_RED_HI
+        )
         for row in slot_rows
     ]
     reward_top = max(ship_tile.bottom, slot_rows[-1].bottom) + 50
@@ -714,6 +729,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                                 break
                 for field in slot_fields:
                     field.handle_event(translated)
+                for delete_btn in delete_buttons:
+                    delete_btn.handle_event(translated, menu_sound_manager)
                 for slider in reward_sliders:
                     slider.handle_event(translated, menu_sound_manager)
             elif state.active_tab == "opponent":
@@ -787,6 +804,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
             slot_heading = body_font.render("AI Slot", True, ui.WHITE)
             content.blit(slot_heading, (slot_rows[0].x, 18))
+            
+            mouse_pos = pygame.mouse.get_pos()
+            content_mouse_pos = (
+                mouse_pos[0] - layout.content_rect.x,
+                mouse_pos[1] - layout.content_rect.y + trainee_scroll_y,
+            )
+            
             for index, (row, field) in enumerate(zip(slot_rows, slot_fields)):
                 pygame.draw.rect(content, ui.SLIDER_BG, row)
                 circle_center = (row.x + 18, row.centery)
@@ -799,14 +823,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     number.get_rect(midleft=(row.x + 36, row.centery)),
                 )
                 field.draw(content, body_font)
+                delete_buttons[index].draw(content, body_font, content_mouse_pos)
 
             rewards_heading = body_font.render("Rewards / Penalties", True, ui.WHITE)
             content.blit(rewards_heading, (16, reward_top - 42))
-            mouse_pos = pygame.mouse.get_pos()
-            content_mouse_pos = (
-                mouse_pos[0] - layout.content_rect.x,
-                mouse_pos[1] - layout.content_rect.y + trainee_scroll_y,
-            )
             for slider in reward_sliders:
                 slider.draw(content, body_font, content_mouse_pos)
 
@@ -826,13 +846,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         elif state.active_tab == "opponent":
             content = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)
             content.fill((0, 0, 0, 155))
-            for panel in opponent_panels:
-                _draw_group_panel(content, panel)
             mouse_pos = pygame.mouse.get_pos()
             content_mouse_pos = (
                 mouse_pos[0] - layout.content_rect.x,
                 mouse_pos[1] - layout.content_rect.y,
             )
+            for i, panel in enumerate(opponent_panels):
+                hovered = panel.collidepoint(content_mouse_pos)
+                enabled = not (i > 0 and not state.simple_behavior_controls_enabled)
+                _draw_group_panel(content, panel, hovered, enabled)
             for button in opponent_mode_buttons:
                 button.draw(content, opponent_font, content_mouse_pos)
             for checkbox in movement_checkboxes:
