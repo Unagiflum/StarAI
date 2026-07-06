@@ -66,8 +66,8 @@ CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
 TAB_MARGIN = 8
 TAB_GAP = 8
 TAB_HEIGHT = 48
-TAB_COLOR = (255, 0, 205, 75)
-TAB_COLOR_HI = (255, 0, 205, 255)
+TAB_COLOR = (155, 0, 105, 75)
+TAB_COLOR_HI = (155, 0, 105, 255)
 TAB_HEADER_COLOR = (100, 100, 100)
 CONTENT_TOP = TAB_MARGIN + TAB_HEIGHT + TAB_GAP
 DISPLAY_TOP = 614
@@ -795,6 +795,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             screen.blit(panel, layout.content_rect)
             for slider in regimen_sliders:
                 slider.draw(screen, body_font)
+
+        pygame.draw.rect(screen, ui.BLACK, layout.content_rect, 2)
 
         display_checkbox.draw(screen, body_font)
         start_stop_button.draw(screen, body_font)
