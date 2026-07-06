@@ -61,6 +61,8 @@ ROUNDS_PER_EPOCH_VALUES = (1, 2, 5, 10, 20, 50)
 MATCH_TIME_LIMIT_VALUES = (240, 480, 1200, 2400, 4800, 12000)
 LEARNING_RATE_VALUES = (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01)
 EPSILON_VALUES = (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5)
+HIDDEN_LAYER_SIZE_VALUES = (30, 100, 300, 1000, 3000)
+HIDDEN_LAYER_COUNT_VALUES = (1, 2, 4, 8, 16)
 
 CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
 TAB_MARGIN = 8
@@ -95,6 +97,8 @@ class TrainingUIState:
     match_time_limit: int = 2400
     learning_rate: float = 0.001
     epsilon: float = 0.1
+    hidden_layer_size: int = 100
+    hidden_layer_count: int = 2
     display_on: bool = False
     running: bool = False
 
@@ -535,7 +539,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     regimen_left = 16
     regimen_width = CONTROL_WIDTH - 32
     regimen_top = CONTENT_TOP + 14
-    regimen_spacing = 126
+    regimen_spacing = 84
     regimen_sliders = (
         ui_slider.Slider(
             regimen_left,
@@ -580,6 +584,28 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Epsilon",
             step=0.0001,
             values=EPSILON_VALUES,
+        ),
+        ui_slider.Slider(
+            regimen_left,
+            regimen_top + 4 * regimen_spacing,
+            regimen_width,
+            HIDDEN_LAYER_SIZE_VALUES[0],
+            HIDDEN_LAYER_SIZE_VALUES[-1],
+            state.hidden_layer_size,
+            "Hidden layer size",
+            is_int=True,
+            values=HIDDEN_LAYER_SIZE_VALUES,
+        ),
+        ui_slider.Slider(
+            regimen_left,
+            regimen_top + 5 * regimen_spacing,
+            regimen_width,
+            HIDDEN_LAYER_COUNT_VALUES[0],
+            HIDDEN_LAYER_COUNT_VALUES[-1],
+            state.hidden_layer_count,
+            "Hidden layer count",
+            is_int=True,
+            values=HIDDEN_LAYER_COUNT_VALUES,
         ),
     )
 
@@ -719,6 +745,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.match_time_limit = int(regimen_sliders[1].value)
         state.learning_rate = regimen_sliders[2].value
         state.epsilon = regimen_sliders[3].value
+        state.hidden_layer_size = int(regimen_sliders[4].value)
+        state.hidden_layer_count = int(regimen_sliders[5].value)
         controls_enabled = state.simple_behavior_controls_enabled
         for checkbox in movement_checkboxes:
             checkbox.enabled = controls_enabled
