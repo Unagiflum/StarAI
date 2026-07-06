@@ -136,6 +136,54 @@ def training_layout():
     )
 
 
+class TabButton(ui_button.Button):
+    def __init__(self, x, y, width, height, text, callback):
+        super().__init__(
+            x, y, width, height, text, callback,
+            bg_color=(*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_NORMAL_ALPHA), 
+            hover_color=(*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_HOVER_ALPHA)
+        )
+        self.active = False
+
+    def draw(self, surface, font, mouse_pos=None):
+        if not self.enabled:
+            color = (*ui.DARK_GREY, 255)
+        else:
+            if mouse_pos is None:
+                mouse_pos = pygame.mouse.get_pos()
+            color = (
+                self.hover_color if self.rect.collidepoint(mouse_pos) and not self.active else self.bg_color
+            )
+            if self.active:
+                color = (*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_SELECTED_ALPHA)
+
+        button_surface = pygame.Surface(
+            (self.rect.width, self.rect.height), pygame.SRCALPHA
+        )
+        
+        # Fill button with color
+        pygame.draw.rect(
+            button_surface, color, button_surface.get_rect(), 
+            border_top_left_radius=5, border_top_right_radius=5
+        )
+
+        # Draw black border on all sides
+        pygame.draw.rect(
+            button_surface, const.TAB_BUTTON_BORDER_COLOR, button_surface.get_rect(), width=2,
+            border_top_left_radius=5, border_top_right_radius=5
+        )
+
+        # Remove the bottom 2 pixels of the black border (replace with color)
+        # We start at x=2 and width is width-4 to preserve the left and right borders
+        button_surface.fill(color, pygame.Rect(2, self.rect.height - 2, self.rect.width - 4, 2))
+
+        text_surf = font.render(self.text, True, self.text_color)
+        text_rect = text_surf.get_rect(center=button_surface.get_rect().center)
+        button_surface.blit(text_surf, text_rect)
+
+        surface.blit(button_surface, self.rect)
+
+
 def largest_fitting_font(texts, max_width, max_height=36, maximum=36, minimum=16):
     """Return the largest system font fitting every supplied label."""
     for size in range(maximum, minimum - 1, -1):
@@ -364,35 +412,30 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     selector_sprites = fit_ship_sprites(source_sprites, 188)
 
     tab_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 2 * TAB_GAP) // 3
-    trainee_tab = ui_button.Button(
+    tab_height = TAB_HEIGHT + TAB_GAP
+    trainee_tab = TabButton(
         TAB_MARGIN,
         TAB_MARGIN,
         tab_width,
-        TAB_HEIGHT,
+        tab_height,
         "Trainee",
         lambda: setattr(state, "active_tab", "trainee"),
-        TAB_COLOR,
-        TAB_COLOR_HI,
     )
-    opponent_tab = ui_button.Button(
+    opponent_tab = TabButton(
         TAB_MARGIN + tab_width + TAB_GAP,
         TAB_MARGIN,
         tab_width,
-        TAB_HEIGHT,
+        tab_height,
         "Opponent",
         lambda: setattr(state, "active_tab", "opponent"),
-        TAB_COLOR,
-        TAB_COLOR_HI,
     )
-    regimen_tab = ui_button.Button(
+    regimen_tab = TabButton(
         TAB_MARGIN + 2 * (tab_width + TAB_GAP),
         TAB_MARGIN,
         tab_width,
-        TAB_HEIGHT,
+        tab_height,
         "Regimen",
         lambda: setattr(state, "active_tab", "regimen"),
-        TAB_COLOR,
-        TAB_COLOR_HI,
     )
 
     ship_tile = pygame.Rect(16, 48, 200, 200)
@@ -693,30 +736,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             screen.fill(ui.BG_COLOR)
         _draw_arena_placeholder(screen, layout.arena_rect, state, arena_font)
-        pygame.draw.rect(
-            screen,
-            TAB_HEADER_COLOR,
-            (0, 0, CONTROL_WIDTH, CONTENT_TOP),
-        )
 
-        trainee_tab.bg_color = (
-            TAB_COLOR_HI
-            if state.active_tab == "trainee"
-            else TAB_COLOR
-        )
-        opponent_tab.bg_color = (
-            TAB_COLOR_HI
-            if state.active_tab == "opponent"
-            else TAB_COLOR
-        )
-        regimen_tab.bg_color = (
-            TAB_COLOR_HI
-            if state.active_tab == "regimen"
-            else TAB_COLOR
-        )
-        trainee_tab.draw(screen, tab_font)
-        opponent_tab.draw(screen, tab_font)
-        regimen_tab.draw(screen, tab_font)
+        trainee_tab.active = state.active_tab == "trainee"
+        opponent_tab.active = state.active_tab == "opponent"
+        regimen_tab.active = state.active_tab == "regimen"
 
         if state.active_tab == "trainee":
             content = pygame.Surface(
@@ -796,7 +819,17 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             for slider in regimen_sliders:
                 slider.draw(screen, body_font)
 
+        # Draw inactive tabs behind the content window border
+        if not trainee_tab.active: trainee_tab.draw(screen, tab_font)
+        if not opponent_tab.active: opponent_tab.draw(screen, tab_font)
+        if not regimen_tab.active: regimen_tab.draw(screen, tab_font)
+
         pygame.draw.rect(screen, ui.BLACK, layout.content_rect, 2)
+
+        # Draw active tab in front to merge seamlessly
+        if trainee_tab.active: trainee_tab.draw(screen, tab_font)
+        if opponent_tab.active: opponent_tab.draw(screen, tab_font)
+        if regimen_tab.active: regimen_tab.draw(screen, tab_font)
 
         display_checkbox.draw(screen, body_font)
         start_stop_button.draw(screen, body_font)
