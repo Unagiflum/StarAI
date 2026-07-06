@@ -8,9 +8,13 @@ import pygame
 
 import src.const as const
 from src.Menus.train_ai import (
+    EPSILON_VALUES,
+    LEARNING_RATE_VALUES,
+    MATCH_TIME_LIMIT_VALUES,
     MOVEMENT_BEHAVIORS,
     REWARD_LABELS,
     REWARD_VALUES,
+    ROUNDS_PER_EPOCH_VALUES,
     RewardSlider,
     TrainingUIState,
     training_layout,
@@ -28,6 +32,10 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.opponent_mode, "simple")
         self.assertEqual(state.movement_behaviors, set())
         self.assertEqual(state.turning_behavior, "none")
+        self.assertEqual(state.rounds_per_epoch, 10)
+        self.assertEqual(state.match_time_limit, 2400)
+        self.assertEqual(state.learning_rate, 0.001)
+        self.assertEqual(state.epsilon, 0.1)
         self.assertFalse(state.display_on)
         self.assertFalse(state.running)
 
@@ -82,6 +90,23 @@ class RewardSliderTests(unittest.TestCase):
         self.assertEqual(slider.value, 0.0)
         slider.set_from_x(slider.line_rect.right)
         self.assertEqual(slider.value, 10.24)
+
+
+class RegimenSliderTests(unittest.TestCase):
+    def test_regimen_sliders_expose_the_requested_discrete_values(self):
+        self.assertEqual(ROUNDS_PER_EPOCH_VALUES, (1, 2, 5, 10, 20, 50))
+        self.assertEqual(
+            MATCH_TIME_LIMIT_VALUES,
+            (240, 480, 1200, 2400, 4800, 12000),
+        )
+        self.assertEqual(
+            LEARNING_RATE_VALUES,
+            (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01),
+        )
+        self.assertEqual(
+            EPSILON_VALUES,
+            (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5),
+        )
 
 
 class DisabledCheckboxTests(unittest.TestCase):

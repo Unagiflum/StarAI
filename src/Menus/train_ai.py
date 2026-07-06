@@ -14,7 +14,7 @@ from src.Menus.pick_fleet import (
     ShipPickerModal,
 )
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS
-from src.UI import ui, ui_button
+from src.UI import ui, ui_button, ui_slider
 from src.UI.ship_sprites import fit_ship_sprites, load_menu_ship_sprites
 from src.frame_timing import PresentationClock
 
@@ -57,10 +57,18 @@ TURNING_BEHAVIORS = (
     ("Turn left continuously", "turn_left"),
 )
 
+ROUNDS_PER_EPOCH_VALUES = (1, 2, 5, 10, 20, 50)
+MATCH_TIME_LIMIT_VALUES = (240, 480, 1200, 2400, 4800, 12000)
+LEARNING_RATE_VALUES = (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01)
+EPSILON_VALUES = (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5)
+
 CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
 TAB_MARGIN = 8
 TAB_GAP = 8
 TAB_HEIGHT = 48
+TAB_COLOR = (255, 0, 205, 75)
+TAB_COLOR_HI = (255, 0, 205, 255)
+TAB_HEADER_COLOR = (100, 100, 100)
 CONTENT_TOP = TAB_MARGIN + TAB_HEIGHT + TAB_GAP
 DISPLAY_TOP = 614
 FOOTER_CONTROL_HEIGHT = 46
@@ -83,6 +91,10 @@ class TrainingUIState:
     opponent_mode: str = "simple"
     movement_behaviors: set[str] = field(default_factory=set)
     turning_behavior: str = "none"
+    rounds_per_epoch: int = 10
+    match_time_limit: int = 2400
+    learning_rate: float = 0.001
+    epsilon: float = 0.1
     display_on: bool = False
     running: bool = False
 
@@ -296,6 +308,13 @@ def _draw_hud_placeholders(screen, hud_rects, font):
         screen.blit(text, text.get_rect(center=rect.center))
 
 
+def _draw_group_panel(surface, rect):
+    panel = pygame.Surface(rect.size, pygame.SRCALPHA)
+    panel.fill((100, 100, 100, 128))
+    surface.blit(panel, rect)
+    pygame.draw.rect(surface, ui.BLACK, rect, 3)
+
+
 def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     """Show the AI-training configuration UI without starting training yet."""
     _ = audio_service
@@ -307,14 +326,25 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
 
     body_font = largest_fitting_font(
-        REWARD_LABELS + MOVEMENT_BEHAVIORS + tuple(x[0] for x in TURNING_BEHAVIORS),
+        REWARD_LABELS,
         270,
         max_height=34,
         maximum=32,
     )
+    opponent_font = largest_fitting_font(
+        MOVEMENT_BEHAVIORS
+        + tuple(x[0] for x in TURNING_BEHAVIORS)
+        + (
+            "Train against all existing AIs",
+            "Train against simple behaviors",
+        ),
+        CONTROL_WIDTH - 80,
+        max_height=30,
+        maximum=28,
+    )
     tab_font = largest_fitting_font(
-        ("Trainee Settings", "Opponent Settings"),
-        (CONTROL_WIDTH - 3 * TAB_MARGIN) // 2 - 16,
+        ("Trainee", "Opponent", "Regimen"),
+        (CONTROL_WIDTH - 4 * TAB_MARGIN) // 3 - 16,
         max_height=34,
         maximum=32,
     )
@@ -333,38 +363,48 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     selector_sprites = fit_ship_sprites(source_sprites, 188)
 
-    tab_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - TAB_GAP) // 2
+    tab_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 2 * TAB_GAP) // 3
     trainee_tab = ui_button.Button(
         TAB_MARGIN,
         TAB_MARGIN,
         tab_width,
         TAB_HEIGHT,
-        "Trainee Settings",
+        "Trainee",
         lambda: setattr(state, "active_tab", "trainee"),
-        ui.MENU_BUTTON_COLOR,
-        ui.MENU_BUTTON_COLOR_HI,
+        TAB_COLOR,
+        TAB_COLOR_HI,
     )
     opponent_tab = ui_button.Button(
         TAB_MARGIN + tab_width + TAB_GAP,
         TAB_MARGIN,
         tab_width,
         TAB_HEIGHT,
-        "Opponent Settings",
+        "Opponent",
         lambda: setattr(state, "active_tab", "opponent"),
-        ui.MENU_BUTTON_COLOR,
-        ui.MENU_BUTTON_COLOR_HI,
+        TAB_COLOR,
+        TAB_COLOR_HI,
+    )
+    regimen_tab = ui_button.Button(
+        TAB_MARGIN + 2 * (tab_width + TAB_GAP),
+        TAB_MARGIN,
+        tab_width,
+        TAB_HEIGHT,
+        "Regimen",
+        lambda: setattr(state, "active_tab", "regimen"),
+        TAB_COLOR,
+        TAB_COLOR_HI,
     )
 
-    ship_tile = pygame.Rect((CONTROL_WIDTH - 200) // 2, 48, 200, 200)
+    ship_tile = pygame.Rect(16, 48, 200, 200)
     slot_rows = tuple(
-        pygame.Rect(16, 306 + index * 48, CONTROL_WIDTH - 32, 42)
+        pygame.Rect(232, 58 + index * 46, CONTROL_WIDTH - 248, 40)
         for index in range(4)
     )
     slot_fields = [
-        TextField((96, row.y + 3, CONTROL_WIDTH - 118, row.height - 6))
+        TextField((296, row.y + 3, CONTROL_WIDTH - 312, row.height - 6))
         for row in slot_rows
     ]
-    reward_top = slot_rows[-1].bottom + 62
+    reward_top = max(ship_tile.bottom, slot_rows[-1].bottom) + 50
     reward_sliders = [
         RewardSlider(
             (12, reward_top + index * 44, CONTROL_WIDTH - 24, 40), label
@@ -373,10 +413,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     ]
     trainee_content_height = reward_sliders[-1].rect.bottom + 12
     trainee_scroll_y = 0
-    opponent_scroll_y = 0
-
     selected_opponent_mode = [state.opponent_mode]
     opponent_mode_buttons = []
+    opponent_panels = (
+        pygame.Rect(12, 12, CONTROL_WIDTH - 24, 100),
+        pygame.Rect(12, 122, CONTROL_WIDTH - 24, 140),
+        pygame.Rect(12, 272, CONTROL_WIDTH - 24, 258),
+    )
 
     def select_opponent_mode(value):
         state.opponent_mode = value
@@ -387,18 +430,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     opponent_mode_buttons.extend(
         (
             ui_button.RadioButton(
-                16,
-                28,
-                CONTROL_WIDTH - 32,
-                52,
+                20,
+                18,
+                CONTROL_WIDTH - 40,
+                40,
                 "Train against all existing AIs",
                 lambda: select_opponent_mode("all"),
             ),
             ui_button.RadioButton(
-                16,
-                88,
-                CONTROL_WIDTH - 32,
-                52,
+                20,
+                64,
+                CONTROL_WIDTH - 40,
+                40,
                 "Train against simple behaviors",
                 lambda: select_opponent_mode("simple"),
                 selected=True,
@@ -407,10 +450,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     movement_checkboxes = [
         ui_button.Checkbox(
-            16,
-            186 + index * 58,
-            CONTROL_WIDTH - 32,
-            50,
+            20,
+            128 + index * 42,
+            CONTROL_WIDTH - 40,
+            38,
             label,
         )
         for index, label in enumerate(MOVEMENT_BEHAVIORS)
@@ -423,20 +466,79 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         for button, (_, option) in zip(turning_buttons, TURNING_BEHAVIORS):
             button.selected = option == value
 
-    turning_start = 386
+    turning_start = 280
     for index, (label, value) in enumerate(TURNING_BEHAVIORS):
         turning_buttons.append(
             ui_button.RadioButton(
-                16,
-                turning_start + index * 54,
-                CONTROL_WIDTH - 32,
-                48,
+                20,
+                turning_start + index * 48,
+                CONTROL_WIDTH - 40,
+                42,
                 label,
                 lambda selected=value: select_turning(selected),
                 selected=value == "none",
             )
         )
-    opponent_content_height = turning_buttons[-1].rect.bottom + 12
+
+    grouped_controls = (
+        *opponent_mode_buttons,
+        *movement_checkboxes,
+        *turning_buttons,
+    )
+    for control in grouped_controls:
+        control.bg_color = (0, 0, 0, 0)
+        control.hover_color = (45, 45, 45, 160)
+
+    regimen_left = 16
+    regimen_width = CONTROL_WIDTH - 32
+    regimen_top = CONTENT_TOP + 14
+    regimen_spacing = 126
+    regimen_sliders = (
+        ui_slider.Slider(
+            regimen_left,
+            regimen_top,
+            regimen_width,
+            ROUNDS_PER_EPOCH_VALUES[0],
+            ROUNDS_PER_EPOCH_VALUES[-1],
+            state.rounds_per_epoch,
+            "Rounds per epoch",
+            is_int=True,
+            values=ROUNDS_PER_EPOCH_VALUES,
+        ),
+        ui_slider.Slider(
+            regimen_left,
+            regimen_top + regimen_spacing,
+            regimen_width,
+            MATCH_TIME_LIMIT_VALUES[0],
+            MATCH_TIME_LIMIT_VALUES[-1],
+            state.match_time_limit,
+            "Match Time Limit (frames)",
+            is_int=True,
+            values=MATCH_TIME_LIMIT_VALUES,
+        ),
+        ui_slider.Slider(
+            regimen_left,
+            regimen_top + 2 * regimen_spacing,
+            regimen_width,
+            LEARNING_RATE_VALUES[0],
+            LEARNING_RATE_VALUES[-1],
+            state.learning_rate,
+            "Learning rate",
+            step=0.0001,
+            values=LEARNING_RATE_VALUES,
+        ),
+        ui_slider.Slider(
+            regimen_left,
+            regimen_top + 3 * regimen_spacing,
+            regimen_width,
+            EPSILON_VALUES[0],
+            EPSILON_VALUES[-1],
+            state.epsilon,
+            "Epsilon",
+            step=0.0001,
+            values=EPSILON_VALUES,
+        ),
+    )
 
     display_checkbox = ui_button.Checkbox(
         TAB_MARGIN,
@@ -501,6 +603,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
             trainee_tab.handle_event(event, menu_sound_manager)
             opponent_tab.handle_event(event, menu_sound_manager)
+            regimen_tab.handle_event(event, menu_sound_manager)
             display_checkbox.handle_event(event, menu_sound_manager)
             start_stop_button.handle_event(event, menu_sound_manager)
             back_button.handle_event(event, menu_sound_manager)
@@ -544,24 +647,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     field.handle_event(translated)
                 for slider in reward_sliders:
                     slider.handle_event(translated, menu_sound_manager)
-            else:
-                if (
-                    event.type == pygame.MOUSEBUTTONDOWN
-                    and event.button in (4, 5)
-                    and layout.content_rect.collidepoint(event.pos)
-                ):
-                    direction = -1 if event.button == 4 else 1
-                    max_scroll = max(
-                        0, opponent_content_height - layout.content_rect.height
-                    )
-                    opponent_scroll_y = max(
-                        0,
-                        min(max_scroll, opponent_scroll_y + direction * 54),
-                    )
-                    continue
-                translated = _translated_event(
-                    event, layout.content_rect, opponent_scroll_y
-                )
+            elif state.active_tab == "opponent":
+                translated = _translated_event(event, layout.content_rect, 0)
                 for button in opponent_mode_buttons:
                     button.handle_event(translated, menu_sound_manager)
                 enabled = state.simple_behavior_controls_enabled
@@ -571,6 +658,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 for button in turning_buttons:
                     button.enabled = enabled
                     button.handle_event(translated, menu_sound_manager)
+            else:
+                for slider in regimen_sliders:
+                    slider.handle_event(event, menu_sound_manager)
 
         state.display_on = display_checkbox.value
         state.slot_labels[:] = [field.text for field in slot_fields]
@@ -582,6 +672,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             for label, checkbox in zip(MOVEMENT_BEHAVIORS, movement_checkboxes)
             if checkbox.value
         }
+        state.rounds_per_epoch = int(regimen_sliders[0].value)
+        state.match_time_limit = int(regimen_sliders[1].value)
+        state.learning_rate = regimen_sliders[2].value
+        state.epsilon = regimen_sliders[3].value
         controls_enabled = state.simple_behavior_controls_enabled
         for checkbox in movement_checkboxes:
             checkbox.enabled = controls_enabled
@@ -599,19 +693,30 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             screen.fill(ui.BG_COLOR)
         _draw_arena_placeholder(screen, layout.arena_rect, state, arena_font)
+        pygame.draw.rect(
+            screen,
+            TAB_HEADER_COLOR,
+            (0, 0, CONTROL_WIDTH, CONTENT_TOP),
+        )
 
         trainee_tab.bg_color = (
-            ui.MENU_BUTTON_COLOR_HI
+            TAB_COLOR_HI
             if state.active_tab == "trainee"
-            else ui.MENU_BUTTON_COLOR
+            else TAB_COLOR
         )
         opponent_tab.bg_color = (
-            ui.MENU_BUTTON_COLOR_HI
+            TAB_COLOR_HI
             if state.active_tab == "opponent"
-            else ui.MENU_BUTTON_COLOR
+            else TAB_COLOR
+        )
+        regimen_tab.bg_color = (
+            TAB_COLOR_HI
+            if state.active_tab == "regimen"
+            else TAB_COLOR
         )
         trainee_tab.draw(screen, tab_font)
         opponent_tab.draw(screen, tab_font)
+        regimen_tab.draw(screen, tab_font)
 
         if state.active_tab == "trainee":
             content = pygame.Surface(
@@ -619,7 +724,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
             content.fill((0, 0, 0, 155))
             heading = body_font.render("Trainee Ship", True, ui.WHITE)
-            content.blit(heading, heading.get_rect(center=(CONTROL_WIDTH // 2, 25)))
+            content.blit(heading, heading.get_rect(center=(ship_tile.centerx, 25)))
             pygame.draw.rect(content, const.SHIP_PANEL_BACKGROUND_COLOR, ship_tile)
             pygame.draw.rect(content, const.P1_COLOR, ship_tile, 3)
             if state.selected_ship is None:
@@ -630,15 +735,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 content.blit(sprite, sprite.get_rect(center=ship_tile.center))
 
             slot_heading = body_font.render("AI Slot", True, ui.WHITE)
-            content.blit(slot_heading, (16, 270))
+            content.blit(slot_heading, (slot_rows[0].x, 18))
             for index, (row, field) in enumerate(zip(slot_rows, slot_fields)):
                 pygame.draw.rect(content, ui.SLIDER_BG, row)
-                circle_center = (36, row.centery)
+                circle_center = (row.x + 18, row.centery)
                 pygame.draw.circle(content, ui.WHITE, circle_center, 9, 2)
                 if state.selected_slot == index + 1:
                     pygame.draw.circle(content, ui.BRIGHT_GREEN, circle_center, 5)
                 number = body_font.render(str(index + 1), True, ui.WHITE)
-                content.blit(number, number.get_rect(midleft=(54, row.centery)))
+                content.blit(
+                    number,
+                    number.get_rect(midleft=(row.x + 36, row.centery)),
+                )
                 field.draw(content, body_font)
 
             rewards_heading = body_font.render("Rewards / Penalties", True, ui.WHITE)
@@ -664,39 +772,29 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 trainee_content_height,
                 trainee_scroll_y,
             )
-        else:
-            content = pygame.Surface(
-                (CONTROL_WIDTH, opponent_content_height), pygame.SRCALPHA
-            )
+        elif state.active_tab == "opponent":
+            content = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)
             content.fill((0, 0, 0, 155))
+            for panel in opponent_panels:
+                _draw_group_panel(content, panel)
             mouse_pos = pygame.mouse.get_pos()
             content_mouse_pos = (
                 mouse_pos[0] - layout.content_rect.x,
-                mouse_pos[1] - layout.content_rect.y + opponent_scroll_y,
+                mouse_pos[1] - layout.content_rect.y,
             )
             for button in opponent_mode_buttons:
-                button.draw(content, body_font, content_mouse_pos)
-            behavior_heading = body_font.render("Movement / Actions", True, ui.WHITE)
-            content.blit(behavior_heading, (16, 154))
+                button.draw(content, opponent_font, content_mouse_pos)
             for checkbox in movement_checkboxes:
-                checkbox.draw(content, body_font, content_mouse_pos)
-            turning_heading = body_font.render("Turning", True, ui.WHITE)
-            content.blit(turning_heading, (16, turning_start - 34))
+                checkbox.draw(content, opponent_font, content_mouse_pos)
             for button in turning_buttons:
-                button.draw(content, body_font, content_mouse_pos)
-            source = pygame.Rect(
-                0,
-                opponent_scroll_y,
-                layout.content_rect.width,
-                layout.content_rect.height,
-            )
-            screen.blit(content, layout.content_rect, source)
-            _draw_scrollbar(
-                screen,
-                layout.content_rect,
-                opponent_content_height,
-                opponent_scroll_y,
-            )
+                button.draw(content, opponent_font, content_mouse_pos)
+            screen.blit(content, layout.content_rect)
+        else:
+            panel = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)
+            panel.fill((0, 0, 0, 155))
+            screen.blit(panel, layout.content_rect)
+            for slider in regimen_sliders:
+                slider.draw(screen, body_font)
 
         display_checkbox.draw(screen, body_font)
         start_stop_button.draw(screen, body_font)
