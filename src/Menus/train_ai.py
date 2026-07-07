@@ -58,10 +58,10 @@ TURNING_BEHAVIORS = (
 )
 
 ROUNDS_PER_EPOCH_VALUES = (1, 2, 5, 10, 20, 50)
-MATCH_TIME_LIMIT_VALUES = (240, 480, 1200, 2400, 4800, 12000)
+MATCH_TIME_LIMIT_VALUES = (120, 240, 480, 1200, 2400, 4800, 12000)
 LEARNING_RATE_VALUES = (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01)
 EPSILON_VALUES = (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5)
-HIDDEN_LAYER_SIZE_VALUES = (30, 100, 300, 1000, 3000)
+HIDDEN_LAYER_SIZE_VALUES = (32, 64, 128, 256, 512, 1024, 2048)
 HIDDEN_LAYER_COUNT_VALUES = (1, 2, 4, 8, 16)
 
 CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
@@ -97,7 +97,7 @@ class TrainingUIState:
     match_time_limit: int = 2400
     learning_rate: float = 0.001
     epsilon: float = 0.1
-    hidden_layer_size: int = 100
+    hidden_layer_size: int = 128
     hidden_layer_count: int = 2
     display_on: bool = False
     running: bool = False
