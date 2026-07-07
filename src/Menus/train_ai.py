@@ -28,19 +28,19 @@ REWARD_VALUES = tuple(
 REWARD_LABELS = (
     "Point at enemy",
     "Get in weapon range",
+    "Get to high speed",
     "Spawn an object",
-    "Harm enemy",
-    "Harm enemy object",
-    "Harm self",
-    "Harmed by enemy",
     "Enemy loses crew",
+    "Debuff enemy",
+    "Kill enemy object",
+    "Kill enemy",
     "Gain crew",
     "Gain battery",
-    "Get to high speed",
     "Lose crew",
     "Lose battery",
+    "Battery at zero",
+    "Get debuff",
     "Die",
-    "Kill enemy",
 )
 
 MOVEMENT_BEHAVIORS = (
@@ -407,11 +407,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         max_height=34,
         maximum=32,
     )
+    available_height = CONTENT_VIEW_HEIGHT - 16
+    step = min(34, (available_height - 30) // max(1, len(REWARD_LABELS) - 1)) if len(REWARD_LABELS) > 1 else 34
     rewards_font = largest_fitting_font(
         REWARD_LABELS,
         270,
-        max_height=26,
-        maximum=24,
+        max_height=min(26, step),
+        maximum=min(24, step - 4),
     )
     small_font = pygame.font.SysFont(None, 24)
     arena_font = pygame.font.SysFont(None, 32)
@@ -486,7 +488,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     rewards_top = 8
     reward_sliders = [
         RewardSlider(
-            (12, rewards_top + index * 34, CONTROL_WIDTH - 24, 30), label
+            (12, rewards_top + index * step, CONTROL_WIDTH - 24, 30), label
         )
         for index, label in enumerate(REWARD_LABELS)
     ]
