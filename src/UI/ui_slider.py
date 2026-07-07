@@ -19,7 +19,7 @@ class Slider:
         hover_color=ui.SLIDER_BG_HI,
         values=None,
     ):
-        self.bg_rect_height = int(0.08 * Const.SCREEN_HEIGHT)
+        self.bg_rect_height = int(0.07 * Const.SCREEN_HEIGHT)
         self.rect = pygame.Rect(x, y, width, self.bg_rect_height)
         self.line_width = int(self.bg_rect_height / 15)
         self.padding_x = int(self.bg_rect_height / 5)
