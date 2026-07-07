@@ -7,7 +7,12 @@ build/
 dist/
 *.spec.bak
 
-# Machine Learning Models
-models/
+# Local/generated machine learning models
+/models/
 *.pt
 *.pth
+
+# Bundled default models are curated source assets.
+!src/Models/
+!src/Models/**/*.json
+!src/Models/**/*.pth
