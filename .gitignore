@@ -6,3 +6,8 @@ __pycache__/
 build/
 dist/
 *.spec.bak
+
+# Machine Learning Models
+models/
+*.pt
+*.pth
