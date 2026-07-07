@@ -35,10 +35,13 @@ REWARD_VALUES = tuple(
 )
 
 REWARD_LABELS = (
-    "Point at enemy",
-    "Get in weapon range",
+    "Point A1 at enemy",
+    "Get in A1 weapon range",
+    "Spawn A1 object",
+    "Point A2 at enemy",
+    "Get in A2 weapon range",
+    "Spawn A2 object",
     "Get to high speed",
-    "Spawn an object",
     "Enemy loses crew",
     "Debuff enemy",
     "Kill enemy object",
@@ -48,7 +51,7 @@ REWARD_LABELS = (
     "Lose crew",
     "Lose battery",
     "Battery at zero",
-    "Get debuff",
+    "Get debuffed",
     "Die",
 )
 
@@ -612,7 +615,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     rewards_top = 8
     reward_sliders = [
         RewardSlider(
-            (12, rewards_top + index * step, CONTROL_WIDTH - 24, 30), label
+            (12, rewards_top + index * step, CONTROL_WIDTH - 24, min(30, step - 2)), label
         )
         for index, label in enumerate(REWARD_LABELS)
     ]
