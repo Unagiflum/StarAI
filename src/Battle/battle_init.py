@@ -162,36 +162,53 @@ def apply_vux_starting_conditions(
             mover = p
 
             laser_range = ABILITIES_DATA.get("VuxA1", {}).get("range", 644)
-            min_dist = min(300, laser_range - 50) if laser_range > 300 else 0
+            min_dist = laser_range * 0.75
+            preferred_max_dist = laser_range * 1.2
             new_pos = None
             phase = rng.uniform(0, 2 * math.pi)
-            max_dist = math.ceil(const.ARENA_SIZE / math.sqrt(2))
+            arena_max_dist = math.ceil(const.ARENA_SIZE / math.sqrt(2))
             first_dist = math.ceil(min_dist / const.VUX_SPAWN_SEARCH_STEP)
             first_dist *= const.VUX_SPAWN_SEARCH_STEP
-            for dist in range(
-                first_dist,
-                max_dist + const.VUX_SPAWN_SEARCH_STEP,
-                const.VUX_SPAWN_SEARCH_STEP,
-            ):
-                sample_count = max(
-                    32,
-                    math.ceil(
-                        2
-                        * math.pi
-                        * max(dist, 1)
-                        / const.VUX_SPAWN_ANGULAR_SPACING
-                    ),
-                )
-                for index in range(sample_count):
-                    angle = phase + index * 2 * math.pi / sample_count
-                    candidate = [
-                        (anchor.position[0] + math.sin(angle) * dist)
-                        % const.ARENA_SIZE,
-                        (anchor.position[1] - math.cos(angle) * dist)
-                        % const.ARENA_SIZE,
-                    ]
-                    if validate_vux_start_position(candidate, p, arena_objects):
-                        new_pos = candidate
+            preferred_last_dist = (
+                math.floor(preferred_max_dist / const.VUX_SPAWN_SEARCH_STEP)
+                * const.VUX_SPAWN_SEARCH_STEP
+            )
+            distance_ranges = [
+                (first_dist, preferred_last_dist),
+                (
+                    preferred_last_dist + const.VUX_SPAWN_SEARCH_STEP,
+                    arena_max_dist,
+                ),
+            ]
+            for range_start, range_end in distance_ranges:
+                if range_start > range_end:
+                    continue
+                for dist in range(
+                    range_start,
+                    range_end + const.VUX_SPAWN_SEARCH_STEP,
+                    const.VUX_SPAWN_SEARCH_STEP,
+                ):
+                    sample_count = max(
+                        32,
+                        math.ceil(
+                            2
+                            * math.pi
+                            * max(dist, 1)
+                            / const.VUX_SPAWN_ANGULAR_SPACING
+                        ),
+                    )
+                    for index in range(sample_count):
+                        angle = phase + index * 2 * math.pi / sample_count
+                        candidate = [
+                            (anchor.position[0] + math.sin(angle) * dist)
+                            % const.ARENA_SIZE,
+                            (anchor.position[1] - math.cos(angle) * dist)
+                            % const.ARENA_SIZE,
+                        ]
+                        if validate_vux_start_position(candidate, p, arena_objects):
+                            new_pos = candidate
+                            break
+                    if new_pos is not None:
                         break
                 if new_pos is not None:
                     break
@@ -209,8 +226,14 @@ def apply_vux_starting_conditions(
         target_angle = math.degrees(math.atan2(dx, -dy))
         if target_angle < 0:
             target_angle += 360
-        direction_step = 360 / const.SHIP_DIRECTIONS
-        p.heading = round(target_angle / direction_step) % const.SHIP_DIRECTIONS
+        asset_direction_step = 360 / const.ASSET_SPRITE_DIRECTIONS
+        asset_heading = (
+            round(target_angle / asset_direction_step)
+            % const.ASSET_SPRITE_DIRECTIONS
+        )
+        p.heading = (asset_heading * const.DIRECTIONS_MULTIPLIER) % (
+            const.SHIP_DIRECTIONS
+        )
         p.previous_heading = p.heading
         p.rotation = p.heading * const.TURN_ANGLE
 

@@ -21,8 +21,10 @@ from src.Battle.battle_init import (
     validate_ship_position,
 )
 from src.Battle.world import World
+from src.configuration import GameSettingsCodec
 from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.Ships.ability import Ability
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.space_ship import SpaceShip
 from src.toroidal import wrapped_delta
 
@@ -52,6 +54,44 @@ def heading_toward(source, target):
     dx, dy = wrapped_delta(source.position, target.position)
     target_angle = math.degrees(math.atan2(dx, -dy)) % 360
     return round(target_angle / const.TURN_ANGLE) % const.SHIP_DIRECTIONS
+
+
+def asset_quantized_heading_toward(source, target):
+    dx, dy = wrapped_delta(source.position, target.position)
+    target_angle = math.degrees(math.atan2(dx, -dy)) % 360
+    asset_step = 360 / const.ASSET_SPRITE_DIRECTIONS
+    asset_heading = round(target_angle / asset_step) % const.ASSET_SPRITE_DIRECTIONS
+    return (asset_heading * const.DIRECTIONS_MULTIPLIER) % const.SHIP_DIRECTIONS
+
+
+def apply_ship_directions(ship_directions):
+    codec = GameSettingsCodec(const.DEFAULT_KEYS, const.DEFAULT_GAMEPLAY)
+    settings = codec.decode(
+        {
+            "asteroid_count": const.ASTEROID_COUNT,
+            "ship_directions": ship_directions,
+            "repeat_key_delay": const.INPUT_REPEAT_DELAY_FRAMES,
+        }
+    )
+    const.apply_game_settings(settings)
+
+
+def vux_laser_range():
+    return ABILITY_DEFINITIONS["VuxA1"].range
+
+
+def stepped_vux_min_distance():
+    return (
+        math.ceil(vux_laser_range() * 0.75 / const.VUX_SPAWN_SEARCH_STEP)
+        * const.VUX_SPAWN_SEARCH_STEP
+    )
+
+
+def stepped_vux_preferred_max_distance():
+    return (
+        math.floor(vux_laser_range() * 1.2 / const.VUX_SPAWN_SEARCH_STEP)
+        * const.VUX_SPAWN_SEARCH_STEP
+    )
 
 
 class ShipPlacementTests(unittest.TestCase):
@@ -178,7 +218,7 @@ class ShipPlacementTests(unittest.TestCase):
 
         self.assertAlmostEqual(
             math.dist(vux.position, opponent.position),
-            300,
+            stepped_vux_min_distance(),
         )
         self.assertGreaterEqual(math.dist(vux.position, projectile.position), 500)
         self.assertEqual(opponent.position, [4000, 2000])
@@ -252,9 +292,84 @@ class ShipPlacementTests(unittest.TestCase):
         )
 
         distance_to_kohr_ah = math.dist(vux.position, opponent.position)
-        self.assertLess(distance_to_kohr_ah, 1000)
+        self.assertLess(distance_to_kohr_ah, 1200)
         for disk in disks:
             self.assertGreaterEqual(math.dist(vux.position, disk.position), 500)
+
+    def test_vux_close_start_prefers_configured_laser_range_band(self):
+        vux = SimpleNamespace(
+            name="Vux",
+            battles_fought=1,
+            player=1,
+            position=[7000, 7000],
+            previous_position=[7000, 7000],
+        )
+        opponent = SimpleNamespace(
+            name="Earthling",
+            battles_fought=1,
+            player=2,
+            position=[1000, 1000],
+            previous_position=[1000, 1000],
+        )
+        rng = mock.Mock()
+        rng.uniform.return_value = 0
+
+        apply_vux_starting_conditions(vux, opponent, rng=rng)
+
+        distance = math.dist(vux.position, opponent.position)
+        self.assertGreaterEqual(distance, vux_laser_range() * 0.75)
+        self.assertLessEqual(distance, vux_laser_range() * 1.2)
+        self.assertAlmostEqual(distance, stepped_vux_min_distance())
+
+    def test_vux_close_start_can_exceed_preferred_band_to_avoid_projectiles(self):
+        vux = SimpleNamespace(
+            name="Vux",
+            battles_fought=1,
+            player=1,
+            position=[7000, 7000],
+            previous_position=[7000, 7000],
+        )
+        opponent = SimpleNamespace(
+            name="KohrAh",
+            battles_fought=1,
+            player=2,
+            position=[1000, 1000],
+            previous_position=[1000, 1000],
+        )
+        blocking_distances = range(
+            stepped_vux_min_distance(),
+            stepped_vux_preferred_max_distance() + const.VUX_SPAWN_SEARCH_STEP,
+            const.VUX_SPAWN_SEARCH_STEP,
+        )
+        projectiles = [
+            SimpleNamespace(
+                type="projectile",
+                player=2,
+                position=[
+                    opponent.position[0] + math.sin(angle) * distance,
+                    opponent.position[1] - math.cos(angle) * distance,
+                ],
+                currently_alive=True,
+            )
+            for distance in blocking_distances
+            for angle in [index * math.pi / 8 for index in range(16)]
+        ]
+        rng = mock.Mock()
+        rng.uniform.return_value = 0
+
+        apply_vux_starting_conditions(
+            vux,
+            opponent,
+            rng=rng,
+            arena_objects=projectiles,
+        )
+
+        self.assertGreater(
+            math.dist(vux.position, opponent.position),
+            vux_laser_range() * 1.2,
+        )
+        for projectile in projectiles:
+            self.assertGreaterEqual(math.dist(vux.position, projectile.position), 500)
 
     def test_simultaneous_vux_close_starts_face_final_opponent_positions(self):
         player1 = SimpleNamespace(
@@ -281,6 +396,39 @@ class ShipPlacementTests(unittest.TestCase):
         self.assertEqual(player1.previous_heading, player1.heading)
         self.assertEqual(player2.previous_heading, player2.heading)
         self.assertLessEqual(math.dist(player1.position, player2.position), 600)
+
+    def test_vux_close_start_facing_is_limited_to_asset_directions(self):
+        original_directions = const.SHIP_DIRECTIONS
+        original_asteroid_count = const.ASTEROID_COUNT
+        original_repeat_delay = const.INPUT_REPEAT_DELAY_FRAMES
+        try:
+            apply_ship_directions(64)
+            vux = SimpleNamespace(
+                name="Vux",
+                battles_fought=1,
+                player=1,
+                position=[1000, 1000],
+                previous_position=[1000, 1000],
+            )
+            opponent = SimpleNamespace(
+                name="Earthling",
+                battles_fought=1,
+                player=2,
+                position=[4000, 2000],
+                previous_position=[4000, 2000],
+            )
+            rng = mock.Mock()
+            rng.uniform.return_value = math.radians(10)
+
+            apply_vux_starting_conditions(vux, opponent, rng=rng)
+
+            self.assertEqual(vux.heading, asset_quantized_heading_toward(vux, opponent))
+            self.assertNotEqual(vux.heading, heading_toward(vux, opponent))
+            self.assertEqual(vux.heading % const.DIRECTIONS_MULTIPLIER, 0)
+        finally:
+            apply_ship_directions(original_directions)
+            const.ASTEROID_COUNT = original_asteroid_count
+            const.INPUT_REPEAT_DELAY_FRAMES = original_repeat_delay
 
 
 if __name__ == "__main__":
