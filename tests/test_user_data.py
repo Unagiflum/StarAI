@@ -22,6 +22,7 @@ class UserDataInitializationTests(unittest.TestCase):
                 paths["fleets"].read_bytes(),
                 const.DEFAULT_FLEETS_JSON_PATH.read_bytes(),
             )
+            self.assertTrue(paths["models"].is_dir())
 
     def test_existing_user_configuration_is_not_overwritten(self):
         with tempfile.TemporaryDirectory() as directory:

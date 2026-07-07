@@ -14,6 +14,7 @@ from src.audio import initialize_pygame_audio
 from src.configuration import DisplaySettingsRepository, GameSettingsRepository
 from src.frame_timing import PresentationClock
 from src.resources import default_assets
+from src.training.torch_backend import TORCH_AVAILABLE
 import src.const as const
 
 _WARNING_VISIBLE_SECONDS = 5.0
@@ -137,6 +138,20 @@ def handle_menu_selection(
             presentation_clock.set_multiplier(const.VIDEO_FPS_MULTIPLIER)
 
 
+def main_menu_items(training_available=TORCH_AVAILABLE):
+    items = [("Play Game", pick_fleet.run)]
+    if training_available:
+        items.append(("Train AI", train_ai.run))
+    items.extend(
+        (
+            ("Game Settings", game_settings.run),
+            ("Display Settings", display_settings.run),
+            ("Quit", None),
+        )
+    )
+    return items
+
+
 def main():
     # Create writable per-user copies of the bundled configuration defaults.
     const.initialize_user_data()
@@ -179,13 +194,7 @@ def main():
     start_y = int(const.SCREEN_HEIGHT * 0.35)
     y_spacing = int(0.075 * const.SCREEN_HEIGHT)
 
-    menu_items = [
-        ("Play Game", pick_fleet.run),
-        ("Train AI", train_ai.run),
-        ("Game Settings", game_settings.run),
-        ("Display Settings", display_settings.run),
-        ("Quit", None),
-    ]
+    menu_items = main_menu_items()
 
     buttons = []
     for i, (text, menu_callable) in enumerate(menu_items):

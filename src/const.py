@@ -193,10 +193,12 @@ PROJ_GAP = 5
 DEFAULT_GAME_JSON_PATH = source_path("Config/game_settings.json")
 DEFAULT_DISPLAY_JSON_PATH = source_path("Config/display_settings.json")
 DEFAULT_FLEETS_JSON_PATH = source_path("Config/fleets.json")
+DEFAULT_MODELS_PATH = source_path("Models")
 
 GAME_JSON_PATH = USER_DATA_ROOT / "game_settings.json"
 DISPLAY_JSON_PATH = USER_DATA_ROOT / "display_settings.json"
 FLEETS_JSON_PATH = USER_DATA_ROOT / "fleets.json"
+MODELS_PATH = USER_DATA_ROOT / "models"
 
 SHIPS_JSON_PATH = source_path("Objects/Ships/space_ships.json")
 ABILITIES_JSON_PATH = source_path("Objects/Ships/abilities.json")
@@ -273,6 +275,7 @@ def initialize_user_data(user_data_root=None):
         "game_settings": root / "game_settings.json",
         "display_settings": root / "display_settings.json",
         "fleets": root / "fleets.json",
+        "models": root / "models",
     }
     defaults = {
         "game_settings": DEFAULT_GAME_JSON_PATH,
@@ -280,6 +283,9 @@ def initialize_user_data(user_data_root=None):
         "fleets": DEFAULT_FLEETS_JSON_PATH,
     }
     for name, destination in paths.items():
+        if name == "models":
+            destination.mkdir(parents=True, exist_ok=True)
+            continue
         if destination.exists():
             continue
         try:

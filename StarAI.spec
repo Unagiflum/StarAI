@@ -4,7 +4,7 @@ from PyInstaller.utils.hooks import collect_submodules
 
 
 project_root = Path(SPECPATH)
-asset_extensions = {".json", ".mp3", ".ogg", ".png", ".wav"}
+asset_extensions = {".json", ".mp3", ".ogg", ".png", ".pth", ".wav"}
 datas = [
     (str(path), str(path.parent.relative_to(project_root)))
     for path in (project_root / "src").rglob("*")

@@ -17,6 +17,15 @@ from src.Objects.Ships.catalog import SHIP_DEFINITIONS
 from src.UI import ui, ui_button, ui_slider
 from src.UI.ship_sprites import fit_ship_sprites, load_menu_ship_sprites
 from src.frame_timing import PresentationClock
+from src.training.model_registry import (
+    MODEL_SLOT_COUNT,
+    SLOT_BUNDLED,
+    SLOT_EMPTY,
+    SLOT_USER,
+    TrainingModelRepository,
+    TrainingModelSlot,
+    metadata_from_state,
+)
 
 
 REWARD_VALUES = tuple(
@@ -58,7 +67,7 @@ TURNING_BEHAVIORS = (
 )
 
 ROUNDS_PER_EPOCH_VALUES = (1, 2, 5, 10, 20, 50)
-MATCH_TIME_LIMIT_VALUES = (120, 240, 480, 1200, 2400, 4800, 12000)
+MATCH_TIME_LIMIT_VALUES = (240, 480, 1200, 2400, 4800, 12000)
 LEARNING_RATE_VALUES = (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01)
 EPSILON_VALUES = (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5)
 HIDDEN_LAYER_SIZE_VALUES = (32, 64, 128, 256, 512, 1024, 2048)
@@ -204,6 +213,37 @@ def _format_reward(value):
     return "0.00" if value == 0 else f"{value:+.2f}"
 
 
+def _wrap_text(text, font, max_width):
+    lines = []
+    current = ""
+    for word in text.split():
+        candidate = word if not current else f"{current} {word}"
+        if font.size(candidate)[0] <= max_width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def _draw_notice(screen, notice, font):
+    rendered = font.render(notice.text, True, ui.WHITE)
+    padding = 14
+    rect = rendered.get_rect()
+    rect.width += padding * 2
+    rect.height += padding
+    rect.center = (const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT - 68)
+    alpha = int(220 * min(1.0, max(0.0, notice.remaining_seconds / 0.75)))
+    surface = pygame.Surface(rect.size, pygame.SRCALPHA)
+    pygame.draw.rect(surface, (0, 0, 0, alpha), surface.get_rect(), border_radius=5)
+    pygame.draw.rect(surface, (*ui.LIGHT_GREY, alpha), surface.get_rect(), 1, border_radius=5)
+    surface.blit(rendered, rendered.get_rect(center=surface.get_rect().center))
+    screen.blit(surface, rect)
+
+
 class RewardSlider:
     """Compact discrete slider with its label and value on one row."""
 
@@ -280,8 +320,13 @@ class TextField:
         self.text = text
         self.max_length = max_length
         self.active = False
+        self.enabled = True
+        self.text_color = ui.WHITE
 
     def handle_event(self, event):
+        if not self.enabled:
+            self.active = False
+            return
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             self.active = self.rect.collidepoint(event.pos)
         elif event.type == pygame.KEYDOWN and self.active:
@@ -297,19 +342,86 @@ class TextField:
         pygame.draw.rect(surface, ui.BLACK, self.rect)
         pygame.draw.rect(
             surface,
-            ui.BRIGHT_GREEN if self.active else ui.LIGHT_GREY,
+            ui.BRIGHT_GREEN if self.active and self.enabled else ui.LIGHT_GREY,
             self.rect,
             2,
         )
-        text = font.render(self.text, True, ui.WHITE)
+        text = font.render(self.text, True, self.text_color)
         clip = self.rect.inflate(-12, -4)
         surface.set_clip(clip)
         text_rect = text.get_rect(midleft=(self.rect.left + 6, self.rect.centery))
         surface.blit(text, text_rect)
-        if self.active and pygame.time.get_ticks() % 1000 < 500:
+        if self.active and self.enabled and pygame.time.get_ticks() % 1000 < 500:
             cursor_x = text_rect.right + 2
             pygame.draw.line(surface, ui.WHITE, (cursor_x, self.rect.centery - font.get_linesize() // 2 + 2), (cursor_x, self.rect.centery + font.get_linesize() // 2 - 2), 2)
         surface.set_clip(None)
+
+
+@dataclass
+class TrainingNotice:
+    text: str
+    remaining_seconds: float = 2.5
+
+
+class ConfirmationPrompt:
+    def __init__(self, text, on_confirm):
+        self.text = text
+        self.on_confirm = on_confirm
+        width = min(640, const.SCREEN_WIDTH - 160)
+        height = 210
+        self.rect = pygame.Rect(0, 0, width, height)
+        self.rect.center = (const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT // 2)
+        button_width = 170
+        button_height = 48
+        gap = 18
+        top = self.rect.bottom - 68
+        self.yes_button = ui_button.Button(
+            self.rect.centerx - button_width - gap // 2,
+            top,
+            button_width,
+            button_height,
+            "Yes",
+            self.confirm,
+            ui.OK_GREEN,
+            ui.OK_GREEN_HI,
+        )
+        self.no_button = ui_button.Button(
+            self.rect.centerx + gap // 2,
+            top,
+            button_width,
+            button_height,
+            "No",
+            self.cancel,
+            ui.CAN_RED,
+            ui.CAN_RED_HI,
+        )
+        self.done = False
+
+    def confirm(self):
+        self.on_confirm()
+        self.done = True
+
+    def cancel(self):
+        self.done = True
+
+    def handle_event(self, event, sound_manager=None):
+        self.yes_button.handle_event(event, sound_manager)
+        self.no_button.handle_event(event, sound_manager)
+
+    def draw(self, screen, font, button_font):
+        shade = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        shade.fill((0, 0, 0, MODAL_SHADE_ALPHA))
+        screen.blit(shade, (0, 0))
+        pygame.draw.rect(screen, ui.BLACK, self.rect)
+        pygame.draw.rect(screen, ui.WHITE, self.rect, 2)
+        lines = _wrap_text(self.text, font, self.rect.width - 40)
+        y = self.rect.top + 34
+        for line in lines:
+            rendered = font.render(line, True, ui.WHITE)
+            screen.blit(rendered, rendered.get_rect(center=(self.rect.centerx, y)))
+            y += font.get_linesize()
+        self.yes_button.draw(screen, button_font)
+        self.no_button.draw(screen, button_font)
 
 
 def _translated_event(event, viewport, scroll_y):
@@ -380,6 +492,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
     layout = training_layout()
     state = TrainingUIState()
+    model_repository = TrainingModelRepository(
+        const.DEFAULT_MODELS_PATH,
+        const.MODELS_PATH,
+    )
+    slot_models = [
+        TrainingModelSlot("", slot, SLOT_EMPTY)
+        for slot in range(1, MODEL_SLOT_COUNT + 1)
+    ]
+    confirmation_prompt = [None]
+    notice = [None]
     background = ui.load_background(
         const.MENU_BG_PATH, const.SCREEN_WIDTH, const.SCREEN_HEIGHT
     )
@@ -652,8 +774,184 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     exited = [False]
 
-    def toggle_training():
-        state.running = not state.running
+    def architecture_metadata():
+        return {
+            "hidden_layer_size": state.hidden_layer_size,
+            "hidden_layer_count": state.hidden_layer_count,
+        }
+
+    def training_metadata():
+        return {
+            "opponent": {
+                "mode": state.opponent_mode,
+                "movement_behaviors": sorted(state.movement_behaviors),
+                "turning_behavior": state.turning_behavior,
+            },
+            "rewards": dict(state.rewards),
+            "regimen": {
+                "rounds_per_epoch": state.rounds_per_epoch,
+                "match_time_limit": state.match_time_limit,
+                "learning_rate": state.learning_rate,
+                "epsilon": state.epsilon,
+            },
+        }
+
+    def selected_model_slot():
+        if state.selected_ship is None:
+            return None
+        return slot_models[state.selected_slot - 1]
+
+    def show_notice(text):
+        notice[0] = TrainingNotice(text)
+
+    def refresh_slot_controls():
+        if state.selected_ship is None:
+            for field, delete_button in zip(slot_fields, delete_buttons):
+                field.text = ""
+                field.enabled = False
+                field.text_color = ui.GREY
+                delete_button.enabled = False
+            return
+
+        slot_models[:] = model_repository.slots_for_ship(state.selected_ship)
+        for field, delete_button, model_slot in zip(slot_fields, delete_buttons, slot_models):
+            field.text = model_slot.description
+            if model_slot.source == SLOT_BUNDLED:
+                field.enabled = False
+                field.text_color = (80, 160, 255)
+                delete_button.enabled = False
+            elif model_slot.source == SLOT_USER:
+                field.enabled = True
+                field.text_color = ui.BRIGHT_GREEN
+                delete_button.enabled = True
+            else:
+                field.enabled = True
+                field.text_color = ui.WHITE
+                delete_button.enabled = False
+
+    def update_field_colors():
+        if state.selected_ship is None:
+            return
+        for field, model_slot in zip(slot_fields, slot_models):
+            if model_slot.source == SLOT_BUNDLED:
+                field.text = "Default"
+                field.text_color = (80, 160, 255)
+            elif model_slot.source == SLOT_USER:
+                field.text_color = (
+                    ui.BRIGHT_GREEN
+                    if field.text == model_slot.description
+                    else ui.CAN_RED
+                )
+            else:
+                field.text_color = ui.CAN_RED if field.text else ui.WHITE
+
+    def set_selected_ship(ship):
+        state.selected_ship = ship
+        state.selected_slot = 1
+        refresh_slot_controls()
+
+    def clear_selected_ship():
+        state.selected_ship = None
+        state.selected_slot = 1
+        slot_models[:] = [
+            TrainingModelSlot("", slot, SLOT_EMPTY)
+            for slot in range(1, MODEL_SLOT_COUNT + 1)
+        ]
+        refresh_slot_controls()
+
+    def persist_selected_model():
+        model_slot = selected_model_slot()
+        if state.selected_ship is None or model_slot is None or model_slot.is_bundled:
+            return
+        metadata = metadata_from_state(
+            ship=state.selected_ship,
+            slot=state.selected_slot,
+            description=slot_fields[state.selected_slot - 1].text,
+            architecture=architecture_metadata(),
+            training=training_metadata(),
+        )
+        model_repository.create_or_update_user_model(metadata)
+        refresh_slot_controls()
+
+    def changed_training_groups(old_training, new_training):
+        return [
+            name
+            for name in ("opponent", "rewards", "regimen")
+            if old_training.get(name) != new_training.get(name)
+        ]
+
+    def describe_model(model_slot):
+        description = slot_fields[model_slot.slot - 1].text
+        suffix = f" ({description})" if description else ""
+        return f"{model_slot.ship} Model {model_slot.slot:02d}{suffix}"
+
+    def request_delete(slot):
+        model_slot = slot_models[slot - 1]
+        if not model_slot.is_user:
+            return
+
+        def delete_model():
+            model_repository.delete_user_model(model_slot.ship, model_slot.slot)
+            refresh_slot_controls()
+            show_notice(f"Deleted {describe_model(model_slot)}")
+
+        confirmation_prompt[0] = ConfirmationPrompt(
+            f"Do you want to delete {describe_model(model_slot)}?",
+            delete_model,
+        )
+
+    def start_selected_model():
+        model_slot = selected_model_slot()
+        if state.selected_ship is None or model_slot is None or model_slot.is_bundled:
+            return
+
+        new_architecture = architecture_metadata()
+        new_training = training_metadata()
+        current_description = slot_fields[state.selected_slot - 1].text
+
+        if model_slot.source == SLOT_EMPTY:
+            persist_selected_model()
+            show_notice(f"Created {describe_model(selected_model_slot())}")
+            return
+
+        metadata = model_slot.metadata if isinstance(model_slot.metadata, dict) else {}
+        old_architecture = metadata.get("architecture", {})
+        old_training = metadata.get("training", {})
+        old_description = metadata.get("description", model_slot.description)
+
+        if old_architecture and old_architecture != new_architecture:
+            confirmation_prompt[0] = ConfirmationPrompt(
+                f"Do you want to overwrite {describe_model(model_slot)}?",
+                lambda: (persist_selected_model(), show_notice(f"Updated {describe_model(model_slot)}")),
+            )
+            return
+
+        changed_groups = (
+            changed_training_groups(old_training, new_training)
+            if old_training
+            else []
+        )
+        if changed_groups:
+            if len(changed_groups) == 1:
+                changed_summary = changed_groups[0]
+            else:
+                changed_summary = ", ".join(changed_groups[:-1]) + f" and {changed_groups[-1]}"
+            confirmation_prompt[0] = ConfirmationPrompt(
+                f"Do you want to run {describe_model(model_slot)} with new {changed_summary} settings?",
+                lambda: (persist_selected_model(), show_notice(f"Updated {describe_model(model_slot)}")),
+            )
+            return
+
+        if current_description != old_description:
+            persist_selected_model()
+            show_notice(
+                f'Model description of {state.selected_ship} {state.selected_slot:02d} '
+                f'changed from "{old_description}" to "{current_description}"'
+            )
+            return
+
+        persist_selected_model()
+        show_notice(f"No changes for {describe_model(model_slot)}")
 
     action_gap = 10
     action_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - action_gap) // 2
@@ -663,7 +961,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         action_width,
         FOOTER_CONTROL_HEIGHT,
         "Start",
-        toggle_training,
+        start_selected_model,
         ui.OK_GREEN,
         ui.OK_GREEN_HI,
     )
@@ -678,13 +976,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ui.CAN_RED_HI,
     )
     ship_picker = None
+    for index, delete_button in enumerate(delete_buttons):
+        delete_button.callback = lambda slot=index + 1: request_delete(slot)
+    refresh_slot_controls()
 
     while not exited[0]:
-        clock.tick()
+        elapsed_seconds = clock.tick()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+
+            if confirmation_prompt[0] is not None:
+                confirmation_prompt[0].handle_event(event, menu_sound_manager)
+                if confirmation_prompt[0].done:
+                    confirmation_prompt[0] = None
+                continue
 
             if ship_picker is not None:
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -698,7 +1005,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     else:
                         selected = ship_picker.ship_at_pos(event.pos)
                         if selected is not None:
-                            state.selected_ship = selected[0]
+                            set_selected_ship(selected[0])
                             if menu_sound_manager:
                                 menu_sound_manager.play_sound("menu")
                             ship_picker = None
@@ -719,17 +1026,20 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if layout.content_rect.collidepoint(event.pos):
                         if ship_tile.collidepoint(translated.pos):
-                            ship_picker = ShipPickerModal(
-                                1,
-                                None,
-                                SHIP_DEFINITIONS,
-                                source_sprites,
-                                title_label="Select Trainee Ship",
-                            )
+                            if state.selected_ship is None:
+                                ship_picker = ShipPickerModal(
+                                    1,
+                                    None,
+                                    SHIP_DEFINITIONS,
+                                    source_sprites,
+                                    title_label="Select Trainee Ship",
+                                )
+                            else:
+                                clear_selected_ship()
                             if menu_sound_manager:
                                 menu_sound_manager.play_sound("menu")
                         for index, row in enumerate(slot_rows):
-                            if row.collidepoint(translated.pos):
+                            if state.selected_ship is not None and row.collidepoint(translated.pos):
                                 state.selected_slot = index + 1
                                 break
                 for field in slot_fields:
@@ -794,11 +1104,21 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         for button in turning_buttons:
             button.enabled = controls_enabled
 
-        start_stop_button.text = "Stop" if state.running else "Start"
-        start_stop_button.bg_color = ui.CAN_RED if state.running else ui.OK_GREEN
-        start_stop_button.hover_color = (
-            ui.CAN_RED_HI if state.running else ui.OK_GREEN_HI
+        update_field_colors()
+        selected_slot = selected_model_slot()
+        start_stop_button.enabled = (
+            state.selected_ship is not None
+            and selected_slot is not None
+            and not selected_slot.is_bundled
         )
+        start_stop_button.text = "Start"
+        start_stop_button.bg_color = ui.OK_GREEN
+        start_stop_button.hover_color = ui.OK_GREEN_HI
+
+        if notice[0] is not None:
+            notice[0].remaining_seconds -= elapsed_seconds
+            if notice[0].remaining_seconds <= 0:
+                notice[0] = None
 
         if background:
             screen.blit(background, (0, 0))
@@ -837,12 +1157,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
             
             for index, (row, field) in enumerate(zip(slot_rows, slot_fields)):
-                pygame.draw.rect(content, ui.SLIDER_BG, row)
+                enabled = state.selected_ship is not None
+                pygame.draw.rect(content, ui.SLIDER_BG if enabled else ui.DARK_GREY, row)
                 circle_center = (row.x + 18, row.centery)
-                pygame.draw.circle(content, ui.WHITE, circle_center, 9, 2)
-                if state.selected_slot == index + 1:
+                circle_color = ui.WHITE if enabled else ui.GREY
+                pygame.draw.circle(content, circle_color, circle_center, 9, 2)
+                if enabled and state.selected_slot == index + 1:
                     pygame.draw.circle(content, ui.BRIGHT_GREEN, circle_center, 5)
-                number = body_font.render(str(index + 1), True, ui.WHITE)
+                number = body_font.render(str(index + 1), True, circle_color)
                 content.blit(
                     number,
                     number.get_rect(midleft=(row.x + 36, row.centery)),
@@ -961,5 +1283,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             shade.fill((0, 0, 0, MODAL_SHADE_ALPHA))
             screen.blit(shade, (0, 0))
             ship_picker.draw(screen, picker_title_font, picker_tooltip_font)
+
+        if notice[0] is not None:
+            _draw_notice(screen, notice[0], small_font)
+
+        if confirmation_prompt[0] is not None:
+            confirmation_prompt[0].draw(screen, arena_font, body_font)
 
         pygame.display.flip()
