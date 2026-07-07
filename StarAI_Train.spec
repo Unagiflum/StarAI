@@ -26,7 +26,7 @@ a = Analysis(
     runtime_hooks=[],
     # Pygame can optionally use NumPy, but StarAI does not use those APIs. Do
     # not let unrelated packages in the development environment inflate builds.
-    excludes=["numpy", "torch", "torchvision", "torchaudio"],
+    excludes=["numpy"],
     noarchive=False,
     optimize=0,
 )
@@ -37,7 +37,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="StarAI",
+    name="StarAI_Train",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -57,5 +57,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="StarAI",
+    name="StarAI_Train",
 )

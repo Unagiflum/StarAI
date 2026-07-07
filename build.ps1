@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [string]$BuildName = "StarAI"
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,12 +32,12 @@ try {
         }
     }
 
-    & $Python -m PyInstaller --noconfirm --clean StarAI.spec
+    & $Python -m PyInstaller --noconfirm --clean "$BuildName.spec"
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller failed."
     }
 
-    $Executable = Join-Path $ProjectRoot "dist\StarAI\StarAI.exe"
+    $Executable = Join-Path $ProjectRoot "dist\$BuildName\$BuildName.exe"
     $SmokeData = Join-Path $ProjectRoot "build\smoke-data"
     $PreviousVideoDriver = $env:SDL_VIDEODRIVER
     $PreviousAudioDriver = $env:SDL_AUDIODRIVER
@@ -64,15 +65,15 @@ try {
         $env:STARAI_DATA_DIR = $PreviousDataDirectory
     }
 
-    $DistributionDirectory = Join-Path $ProjectRoot "dist\StarAI"
-    $Archive = Join-Path $ProjectRoot "dist\StarAI-windows-x64.zip"
+    $DistributionDirectory = Join-Path $ProjectRoot "dist\$BuildName"
+    $Archive = Join-Path $ProjectRoot "dist\$BuildName-windows-x64.zip"
     Compress-Archive `
         -Path $DistributionDirectory `
         -DestinationPath $Archive `
         -CompressionLevel Optimal `
         -Force
 
-    Write-Host "Build complete: $ProjectRoot\dist\StarAI\StarAI.exe"
+    Write-Host "Build complete: $ProjectRoot\dist\$BuildName\$BuildName.exe"
     Write-Host "Shareable archive: $Archive"
 } finally {
     Pop-Location
