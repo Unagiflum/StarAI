@@ -169,43 +169,43 @@ order:
 6. Current thrust timer / FPS
 7. Current `turn_wait` / FPS
 8. Current turn timer / FPS
-9. Current A1 wait / FPS
-10. Current A1 timer / FPS
-11. Current A2 wait / FPS
-12. Current A2 timer / FPS
-13. Current A3 wait / FPS
-14. Current A3 timer / FPS
-15. Current energy-wait timer / FPS
-16. Absolute angle / 360
-17. Absolute speed / 100
-18. Absolute x velocity / 100
-19. Absolute y velocity / 100
-20. Countdown to thrust repeat readiness
-21. Countdown to left repeat readiness
-22. Countdown to right repeat readiness
-23. Countdown to A1 repeat readiness
-24. Countdown to A2 repeat readiness
-25. Trackable, as 0 or 1
-26. Thrust currently held, as 0 or 1
-27. Left currently held, as 0 or 1
-28. Right currently held, as 0 or 1
-29. A1 currently held, as 0 or 1
-30. A2 currently held, as 0 or 1
-31. In Androsynth blazer form, as 0 or 1
-32. In the alternate Mmrnmrhm form, as 0 or 1
-33. Current limpet count / 64
-34. Currently protected by an active damage shield, as 0 or 1
-35. Currently in an Ilwrath cloak transition, as 0 or 1
-36. Cloak transition direction: `-1` uncloaking, `0` stable, `1` cloaking
-37. Sine of Orz turret angle relative to hull
-38. Cosine of Orz turret angle relative to hull
-39. Own Orz marines out and floating / 8
-40. Own Orz marines currently boarded on the opposing ship / 8
-41. Own Ur-Quan fighters out / 25
-42. Own Chmmr satellites alive / 3
-43. Own Chenjesu Dogis alive / 4
-44. Own Kohr-Ah saws alive / 8
-45. Current thrust increment / 10
+9. Current thrust increment / 10
+10. Current A1 wait / FPS
+11. Current A1 timer / FPS
+12. Current A2 wait / FPS
+13. Current A2 timer / FPS
+14. Current A3 wait / FPS
+15. Current A3 timer / FPS
+16. Current energy-wait timer / FPS
+17. Absolute angle / 360
+18. Absolute speed / 100
+19. Absolute x velocity / 100
+20. Absolute y velocity / 100
+21. Countdown to thrust repeat readiness
+22. Countdown to left repeat readiness
+23. Countdown to right repeat readiness
+24. Countdown to A1 repeat readiness
+25. Countdown to A2 repeat readiness
+26. Trackable, as 0 or 1
+27. Thrust currently held, as 0 or 1
+28. Left currently held, as 0 or 1
+29. Right currently held, as 0 or 1
+30. A1 currently held, as 0 or 1
+31. A2 currently held, as 0 or 1
+32. In Androsynth blazer form, as 0 or 1
+33. In the alternate Mmrnmrhm form, as 0 or 1
+34. Current limpet count / 64
+35. Currently protected by an active damage shield, as 0 or 1
+36. Currently in an Ilwrath cloak transition, as 0 or 1
+37. Cloak transition direction: `-1` uncloaking, `0` stable, `1` cloaking
+38. Sine of Orz turret angle relative to hull
+39. Cosine of Orz turret angle relative to hull
+40. Own Orz marines out and floating / 8
+41. Own Orz marines currently boarded on the opposing ship / 8
+42. Own Ur-Quan fighters out / 25
+43. Own Chmmr satellites alive / 3
+44. Own Chenjesu Dogis alive / 4
+45. Own Kohr-Ah saws alive / 8
 
 For non-applicable ship-specific fields, encode zero. For the turret cosine,
 use zero rather than one when the ship has no turret so the two-field pair is
@@ -249,7 +249,7 @@ Object classification rules:
 - Include relevant projectiles, lasers, areas, persistent special objects,
   fighters, marines, Dogis, saws, and similar spatial ability instances when
   they fit the ownership/action group.
-- Natural engine objects such as the planet, asteroids, and Syreen crew remain
+- Natural engine objects such as the planet, asteroids, and Syreen crew remain 
   in their dedicated groups.
 
 Each slot contains:
