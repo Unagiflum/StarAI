@@ -108,8 +108,9 @@ return_t = sum of applicable rewards from frame t through
 Rules:
 
 - The return is undiscounted.
-- Death, round timeout, or any other terminal condition truncates every pending
-  window that crosses that terminal frame.
+- A resolved round end, round timeout, or any other terminal condition
+  truncates every pending window that crosses that terminal frame. A death
+  with a pending Pkunk rebirth is a reward event, not yet a terminal condition.
 - No reward after the terminal frame is included.
 - Pointing and range shaping are special normalized components described in
   section 5; other event rewards accumulate normally.
@@ -249,7 +250,7 @@ Object classification rules:
 - Include relevant projectiles, lasers, areas, persistent special objects,
   fighters, marines, Dogis, saws, and similar spatial ability instances when
   they fit the ownership/action group.
-- Natural engine objects such as the planet, asteroids, and Syreen crew remain 
+- Natural engine objects such as the planet, asteroids, and Syreen crew remain
   in their dedicated groups.
 
 Each slot contains:
@@ -427,6 +428,22 @@ Report incompatible or unloadable opponents and skip them safely.
 - Respect the UI match-time limit.
 - Reset battle state fully between rounds.
 - Fully arm every AI-controlled Shofixti before the first actionable frame.
+- Training must omit the initial two-ship warp-in phase completely. Both ships
+  begin in their normal spawned battle state, and the first training simulation
+  frame is immediately actionable. Omitting the entry must not advance the
+  simulation, consume RNG, change either ship's state or position, or create
+  reward events.
+- After the battle outcome is resolved, training may cap the ordinary
+  post-battle aftermath at `2 * FPS` simulation frames. It need not wait for
+  the victory ditty or other presentation-only aftermath timing.
+- Do not apply the ordinary aftermath cap while a Pkunk rebirth is pending.
+  Continue long enough to resolve the rebirth attempt and, on success, complete
+  the rebirth warp-in so combat can resume. A successful rebirth means the
+  round has not ended; apply the ordinary aftermath cap only after a later
+  outcome is resolved with no rebirth pending.
+- Transition shortening must not consume extra RNG or alter actionable combat
+  physics, reward events, or the resolved terminal frame used to truncate
+  pending reward windows.
 - Display-off mode must avoid rendering work while preserving identical
   simulation semantics.
 - Display-on mode may visualize the current training battle at normal UI
@@ -619,8 +636,8 @@ Scope:
 
 - Run full training rounds and epochs.
 - Implement both opponent modes.
-- Add Shofixti arming, timeout handling, terminal flushing, and display-off
-  simulation.
+- Add Shofixti arming, timeout handling, terminal flushing, training transition
+  shortening, and display-off simulation.
 - Perform the initial end-of-epoch replay updates.
 
 Acceptance:
@@ -629,6 +646,11 @@ Acceptance:
 - Existing-AI mode skips empty slots and uses the correct available count.
 - Every pending sample is flushed correctly at terminal state.
 - Shofixti requires one A2 press.
+- Initial two-ship warp-in takes zero simulation frames during training.
+- Ordinary resolved-battle aftermath takes no more than `2 * FPS` frames during
+  training.
+- Pending Pkunk rebirths are resolved even when that requires exceeding the
+  ordinary aftermath cap; successful rebirth returns the round to combat.
 - A short deterministic training regimen completes without rendering.
 
 ### Phase 8: UI integration and hardening
@@ -683,5 +705,11 @@ observation/action schemas unnecessarily.
 - Debuff reapplication counts.
 - Crew loss and crew gain are independently counted.
 - Pkunk reincarnation counts as death/kill but not crew gain.
+- A pending Pkunk rebirth delays terminal resolution and overrides the ordinary
+  training aftermath cap.
+- Training omits the initial two-ship warp-in without advancing or otherwise
+  changing the initialized simulation.
+- Training may limit ordinary resolved-battle aftermath to `2 * FPS` frames
+  without waiting for presentation-only ditty timing.
 - Current runtime movement values reflect limpets and form changes.
 - Model-setting mismatches warn the user.
