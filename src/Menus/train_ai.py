@@ -70,7 +70,7 @@ TURNING_BEHAVIORS = (
 )
 
 REPLAY_BUFFER_SIZE_VALUES = (1000, 2000, 5000, 10000, 20000, 50000)
-ROUNDS_PER_EPOCH_VALUES = (1, 2, 5, 10, 20, 50)
+ROUNDS_PER_BATCH_VALUES = (1, 2, 5, 10, 20, 50)
 PREDICTION_WINDOW_VALUES = (24, 48, 120, 240)
 MATCH_TIME_LIMIT_VALUES = (240, 480, 1200, 2400, 4800, 12000)
 LEARNING_RATE_VALUES = (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01)
@@ -107,7 +107,7 @@ class TrainingUIState:
     opponent_mode: str = "simple"
     movement_behaviors: set[str] = field(default_factory=set)
     turning_behavior: str = "none"
-    rounds_per_epoch: int = 10
+    rounds_per_batch: int = 10
     prediction_window: int = 120
     match_time_limit: int = 2400
     learning_rate: float = 0.001
@@ -720,12 +720,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_left,
             regimen_top + regimen_spacing,
             regimen_width,
-            ROUNDS_PER_EPOCH_VALUES[0],
-            ROUNDS_PER_EPOCH_VALUES[-1],
-            state.rounds_per_epoch,
-            "Rounds per epoch",
+            ROUNDS_PER_BATCH_VALUES[0],
+            ROUNDS_PER_BATCH_VALUES[-1],
+            state.rounds_per_batch,
+            "Rounds per batch",
             is_int=True,
-            values=ROUNDS_PER_EPOCH_VALUES,
+            values=ROUNDS_PER_BATCH_VALUES,
             height=58,
         ),
         ui_slider.Slider(
@@ -827,7 +827,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "rewards": dict(state.rewards),
             "regimen": {
                 "replay_buffer_size": state.replay_buffer_size,
-                "rounds_per_epoch": state.rounds_per_epoch,
+                "rounds_per_batch": state.rounds_per_batch,
                 "prediction_window": state.prediction_window,
                 "match_time_limit": state.match_time_limit,
                 "learning_rate": state.learning_rate,
@@ -1132,7 +1132,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             if checkbox.value
         }
         state.replay_buffer_size = int(regimen_sliders[0].value)
-        state.rounds_per_epoch = int(regimen_sliders[1].value)
+        state.rounds_per_batch = int(regimen_sliders[1].value)
         state.prediction_window = int(regimen_sliders[2].value)
         state.match_time_limit = int(regimen_sliders[3].value)
         state.learning_rate = regimen_sliders[4].value

@@ -400,7 +400,7 @@ Use the currently selected simple movement/turning/A1/A2 behavior settings.
 For each repetition, play that configuration against all 25 ship types:
 
 ```text
-rounds per epoch = UI rounds_per_epoch * 25
+rounds per batch = UI rounds_per_batch * 25
 ```
 
 Use a deterministic documented ship order before any optional shuffling.
@@ -414,7 +414,7 @@ Use a deterministic documented ship order before any optional shuffling.
 - Maximum is 100 opponent AIs per repetition.
 
 ```text
-rounds per epoch = UI rounds_per_epoch * available_AI_count
+rounds per batch = UI rounds_per_batch * available_AI_count
 ```
 
 Freeze the opponent list and loaded model snapshots at a safe boundary such as
@@ -472,7 +472,7 @@ Metadata must include at least:
 - Output count 24
 - Optimizer/loss identifiers
 - Training settings, including learning rate, epsilon, replay capacity,
-  prediction window, rounds per epoch, match-time limit, and opponent mode
+  prediction window, rounds per batch, match-time limit, and opponent mode
 - Reward names and weights
 - Ship-direction setting
 - Asteroid setting
@@ -499,7 +499,7 @@ Connect the existing Training UI without redesigning it unless required:
 - Opponent mode and simple behaviors.
 - Reward weights.
 - Replay-buffer size.
-- Rounds per epoch.
+- Rounds per batch.
 - Prediction window.
 - Match-time limit.
 - Learning rate.
@@ -642,7 +642,7 @@ Scope:
 
 Acceptance:
 
-- Simple mode schedules exactly `rounds_per_epoch * 25`.
+- Simple mode schedules exactly `rounds_per_batch * 25`.
 - Existing-AI mode skips empty slots and uses the correct available count.
 - Every pending sample is flushed correctly at terminal state.
 - Shofixti requires one A2 press.

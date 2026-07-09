@@ -48,7 +48,7 @@ class TrainingModelRepositoryTests(unittest.TestCase):
                 slot=2,
                 description="Aggressive",
                 architecture={"hidden_layer_size": 128},
-                training={"regimen": {"rounds_per_epoch": 10}},
+                training={"regimen": {"rounds_per_batch": 10}},
             )
 
             repository.create_or_update_user_model(metadata)
