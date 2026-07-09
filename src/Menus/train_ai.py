@@ -71,6 +71,7 @@ TURNING_BEHAVIORS = (
 
 REPLAY_BUFFER_SIZE_VALUES = (1000, 2000, 5000, 10000, 20000, 50000)
 ROUNDS_PER_BATCH_VALUES = (1, 2, 5, 10, 20, 50)
+BATCH_GROUPING_VALUES = (50, 100, 250, 500, 1000)
 PREDICTION_WINDOW_VALUES = (24, 48, 120, 240)
 MATCH_TIME_LIMIT_VALUES = (240, 480, 1200, 2400, 4800, 12000)
 LEARNING_RATE_VALUES = (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01)
@@ -108,6 +109,7 @@ class TrainingUIState:
     movement_behaviors: set[str] = field(default_factory=set)
     turning_behavior: str = "none"
     rounds_per_batch: int = 10
+    batch_grouping: int = 250
     prediction_window: int = 120
     match_time_limit: int = 2400
     learning_rate: float = 0.001
@@ -702,7 +704,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     regimen_left = 16
     regimen_width = CONTROL_WIDTH - 32
     regimen_top = CONTENT_TOP + 14
-    regimen_spacing = 64
+    regimen_spacing = 58
     regimen_sliders = (
         ui_slider.Slider(
             regimen_left,
@@ -714,7 +716,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Replay Buffer Size",
             is_int=True,
             values=REPLAY_BUFFER_SIZE_VALUES,
-            height=58,
+            height=52,
         ),
         ui_slider.Slider(
             regimen_left,
@@ -726,11 +728,23 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Rounds per batch",
             is_int=True,
             values=ROUNDS_PER_BATCH_VALUES,
-            height=58,
+            height=52,
         ),
         ui_slider.Slider(
             regimen_left,
             regimen_top + 2 * regimen_spacing,
+            regimen_width,
+            BATCH_GROUPING_VALUES[0],
+            BATCH_GROUPING_VALUES[-1],
+            state.batch_grouping,
+            "Batch grouping",
+            is_int=True,
+            values=BATCH_GROUPING_VALUES,
+            height=52,
+        ),
+        ui_slider.Slider(
+            regimen_left,
+            regimen_top + 3 * regimen_spacing,
             regimen_width,
             PREDICTION_WINDOW_VALUES[0],
             PREDICTION_WINDOW_VALUES[-1],
@@ -738,11 +752,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Prediction Window (Frames)",
             is_int=True,
             values=PREDICTION_WINDOW_VALUES,
-            height=58,
+            height=52,
         ),
         ui_slider.Slider(
             regimen_left,
-            regimen_top + 3 * regimen_spacing,
+            regimen_top + 4 * regimen_spacing,
             regimen_width,
             MATCH_TIME_LIMIT_VALUES[0],
             MATCH_TIME_LIMIT_VALUES[-1],
@@ -750,11 +764,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Match Time Limit (frames)",
             is_int=True,
             values=MATCH_TIME_LIMIT_VALUES,
-            height=58,
+            height=52,
         ),
         ui_slider.Slider(
             regimen_left,
-            regimen_top + 4 * regimen_spacing,
+            regimen_top + 5 * regimen_spacing,
             regimen_width,
             LEARNING_RATE_VALUES[0],
             LEARNING_RATE_VALUES[-1],
@@ -762,11 +776,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Learning rate",
             step=0.0001,
             values=LEARNING_RATE_VALUES,
-            height=58,
+            height=52,
         ),
         ui_slider.Slider(
             regimen_left,
-            regimen_top + 5 * regimen_spacing,
+            regimen_top + 6 * regimen_spacing,
             regimen_width,
             EPSILON_VALUES[0],
             EPSILON_VALUES[-1],
@@ -774,11 +788,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Epsilon",
             step=0.0001,
             values=EPSILON_VALUES,
-            height=58,
+            height=52,
         ),
         ui_slider.Slider(
             regimen_left,
-            regimen_top + 6 * regimen_spacing,
+            regimen_top + 7 * regimen_spacing,
             regimen_width,
             HIDDEN_LAYER_SIZE_VALUES[0],
             HIDDEN_LAYER_SIZE_VALUES[-1],
@@ -786,11 +800,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Hidden layer size",
             is_int=True,
             values=HIDDEN_LAYER_SIZE_VALUES,
-            height=58,
+            height=52,
         ),
         ui_slider.Slider(
             regimen_left,
-            regimen_top + 7 * regimen_spacing,
+            regimen_top + 8 * regimen_spacing,
             regimen_width,
             HIDDEN_LAYER_COUNT_VALUES[0],
             HIDDEN_LAYER_COUNT_VALUES[-1],
@@ -798,7 +812,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Hidden layer count",
             is_int=True,
             values=HIDDEN_LAYER_COUNT_VALUES,
-            height=58,
+            height=52,
         ),
     )
 
@@ -828,6 +842,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "regimen": {
                 "replay_buffer_size": state.replay_buffer_size,
                 "rounds_per_batch": state.rounds_per_batch,
+                "batch_grouping": state.batch_grouping,
                 "prediction_window": state.prediction_window,
                 "match_time_limit": state.match_time_limit,
                 "learning_rate": state.learning_rate,
@@ -1133,12 +1148,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         }
         state.replay_buffer_size = int(regimen_sliders[0].value)
         state.rounds_per_batch = int(regimen_sliders[1].value)
-        state.prediction_window = int(regimen_sliders[2].value)
-        state.match_time_limit = int(regimen_sliders[3].value)
-        state.learning_rate = regimen_sliders[4].value
-        state.epsilon = regimen_sliders[5].value
-        state.hidden_layer_size = int(regimen_sliders[6].value)
-        state.hidden_layer_count = int(regimen_sliders[7].value)
+        state.batch_grouping = int(regimen_sliders[2].value)
+        state.prediction_window = int(regimen_sliders[3].value)
+        state.match_time_limit = int(regimen_sliders[4].value)
+        state.learning_rate = regimen_sliders[5].value
+        state.epsilon = regimen_sliders[6].value
+        state.hidden_layer_size = int(regimen_sliders[7].value)
+        state.hidden_layer_count = int(regimen_sliders[8].value)
         controls_enabled = state.simple_behavior_controls_enabled
         for checkbox in movement_checkboxes:
             checkbox.enabled = controls_enabled

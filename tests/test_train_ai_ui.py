@@ -15,6 +15,7 @@ from src.Menus.train_ai import (
     REWARD_LABELS,
     REWARD_VALUES,
     ROUNDS_PER_BATCH_VALUES,
+    BATCH_GROUPING_VALUES,
     RewardSlider,
     TrainingUIState,
     training_layout,
@@ -33,6 +34,7 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.movement_behaviors, set())
         self.assertEqual(state.turning_behavior, "none")
         self.assertEqual(state.rounds_per_batch, 10)
+        self.assertEqual(state.batch_grouping, 250)
         self.assertEqual(state.match_time_limit, 2400)
         self.assertEqual(state.learning_rate, 0.001)
         self.assertEqual(state.epsilon, 0.1)
@@ -95,6 +97,7 @@ class RewardSliderTests(unittest.TestCase):
 class RegimenSliderTests(unittest.TestCase):
     def test_regimen_sliders_expose_the_requested_discrete_values(self):
         self.assertEqual(ROUNDS_PER_BATCH_VALUES, (1, 2, 5, 10, 20, 50))
+        self.assertEqual(BATCH_GROUPING_VALUES, (50, 100, 250, 500, 1000))
         self.assertEqual(
             MATCH_TIME_LIMIT_VALUES,
             (240, 480, 1200, 2400, 4800, 12000),
