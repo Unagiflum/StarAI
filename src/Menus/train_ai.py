@@ -27,6 +27,7 @@ from src.training.model_registry import (
     metadata_from_state,
     model_architecture_metadata,
 )
+from src.training.rewards import REWARD_COMPONENTS
 
 
 REWARD_VALUES = tuple(
@@ -35,26 +36,7 @@ REWARD_VALUES = tuple(
     + [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24]
 )
 
-REWARD_LABELS = (
-    "Point A1 at enemy",
-    "Get in A1 weapon range",
-    "Spawn A1 object",
-    "Point A2 at enemy",
-    "Get in A2 weapon range",
-    "Spawn A2 object",
-    "Get to high speed",
-    "Enemy loses crew",
-    "Debuff enemy",
-    "Kill enemy object",
-    "Kill enemy",
-    "Gain crew",
-    "Gain battery",
-    "Lose crew",
-    "Lose battery",
-    "Battery at zero",
-    "Get debuffed",
-    "Die",
-)
+REWARD_LABELS = REWARD_COMPONENTS
 
 MOVEMENT_BEHAVIORS = (
     "Move forward continuously",

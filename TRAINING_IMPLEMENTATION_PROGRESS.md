@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Phase 4: Pointing/range adapters and event ledger. Complete.
+Phase 5: Reward and rolling-return pipeline. Complete.
 
 ## Completed
 
@@ -47,6 +47,15 @@ Phase 4: Pointing/range adapters and event ledger. Complete.
 - Instrumented crew loss/gain, battery deltas, ship deaths, limpet applications, Orz marine boarding, Melnorme confusion applications, Chenjesu/Dogi drains, Syreen crew pickup, and Pkunk rebirth attempts/completions.
 - Added focused Phase 4 tests for representative pointing/range predicates, loss followed by healing, launched crew-unit transfer suppression, debuff refreshes, object spawn/removal typing, and Pkunk rebirth exclusion from crew gain.
 
+### Phase 5
+
+- Added canonical reward component constants in `src.training.rewards` and wired the Training UI reward labels to that shared contract.
+- Added read-only reward decision/outcome snapshots that capture observation, selected action, endpoint state, shaping predicates, and frame events.
+- Implemented all Phase 5 reward components, including normalized pointing/range shaping, spawn flags, high-speed endpoint detection, ledger-based crew/debuff/death/object-removal rewards, endpoint battery delta rewards, and battery-at-zero detection.
+- Added a rolling finite-horizon return pipeline that holds pending decisions until their prediction window matures or a terminal frame flushes them.
+- Mature samples now include the original observation/action, total weighted return, unweighted component totals, weighted component totals, actual window length, frame range, and terminal-truncation status.
+- Added focused Phase 5 tests for normalized shaping, endpoint-vs-ledger reward separation, natural expiration exclusion, exact window maturation, and terminal truncation.
+
 ## Verification
 
 - Passed: `python -m unittest tests.test_training_models tests.test_train_ai_ui`
@@ -70,7 +79,13 @@ Phase 4: Pointing/range adapters and event ledger. Complete.
   - 41 tests passed.
 - Passed: `python -m unittest discover tests`
   - 641 tests passed.
+- Passed: `python -m unittest tests.test_training_rewards`
+  - 6 tests passed.
+- Passed: `python -m unittest tests.test_training_rewards tests.test_training_phase4 tests.test_training_observation tests.test_training_models tests.test_train_ai_ui`
+  - 47 tests passed.
+- Passed: `python -m unittest discover tests`
+  - 647 tests passed.
 
 ## Next Phase
 
-Phase 5: Reward and rolling-return pipeline.
+Phase 6: Replay and optimization.
