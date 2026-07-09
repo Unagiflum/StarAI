@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Phase 5: Reward and rolling-return pipeline. Complete.
+Phase 6: Replay and optimization. Complete.
 
 ## Completed
 
@@ -56,6 +56,15 @@ Phase 5: Reward and rolling-return pipeline. Complete.
 - Mature samples now include the original observation/action, total weighted return, unweighted component totals, weighted component totals, actual window length, frame range, and terminal-truncation status.
 - Added focused Phase 5 tests for normalized shaping, endpoint-vs-ledger reward separation, natural expiration exclusion, exact window maturation, and terminal truncation.
 
+### Phase 6
+
+- Added `src.training.replay` with a capacity-bound FIFO replay buffer and validated replay sample contract.
+- Added deterministic minibatch sampling with injectable RNG for reproducible tests and future training orchestration.
+- Added epsilon-greedy action selection over the Phase 1 action-value network, including explicit exploration diagnostics.
+- Added replay-backed minibatch optimization using selected-action Huber regression.
+- Added atomic `.pth` training checkpoint saves and load validation for model weights, optimizer state, optional replay state, and small extra training state.
+- Added focused Phase 6 tests for replay eviction, seeded sampling, replay state round-tripping, epsilon-greedy action selection, synthetic loss reduction, and checkpoint prediction round-tripping.
+
 ## Verification
 
 - Passed: `python -m unittest tests.test_training_models tests.test_train_ai_ui`
@@ -85,7 +94,13 @@ Phase 5: Reward and rolling-return pipeline. Complete.
   - 47 tests passed.
 - Passed: `python -m unittest discover tests`
   - 647 tests passed.
+- Passed: `python -m unittest tests.test_training_replay`
+  - 7 tests passed.
+- Passed: `python -m unittest tests.test_training_replay tests.test_training_rewards tests.test_training_phase4 tests.test_training_observation tests.test_training_models tests.test_train_ai_ui`
+  - 54 tests passed.
+- Passed: `python -m unittest discover tests`
+  - 654 tests passed.
 
 ## Next Phase
 
-Phase 6: Replay and optimization.
+Phase 7: Training orchestration.
