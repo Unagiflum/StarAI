@@ -26,6 +26,7 @@ from src.training.orchestration import (
     MOVEMENT_FORWARD,
     OPPONENT_MODE_EXISTING_AI,
     OpponentSpec,
+    TrainingBatchAborted,
     TrainingOrchestrationConfig,
     _fully_arm_training_shofixti,
     _round_terminal_state,
@@ -147,6 +148,84 @@ class TrainingRoundTests(unittest.TestCase):
         self.assertEqual(result.frames, 2)
         self.assertEqual(result.terminal_reason, "timeout")
         self.assertEqual(len(replay), 2)
+
+    def test_display_toggle_does_not_change_headless_training_semantics(self):
+        results = []
+        replay_lengths = []
+        for display_on in (False, True):
+            replay = TrainingReplayBuffer(capacity=8)
+            config = TrainingOrchestrationConfig(
+                trainee_ship="Earthling",
+                prediction_window=2,
+                match_time_limit=2,
+                display_on=display_on,
+            )
+
+            results.append(
+                run_training_round(
+                    opponent=OpponentSpec("Earthling"),
+                    trainee_policy=FixedPolicy(0),
+                    replay_buffer=replay,
+                    config=config,
+                    rng=random.Random(8),
+                )
+            )
+            replay_lengths.append(len(replay))
+
+        self.assertEqual(results[0].frames, results[1].frames)
+        self.assertEqual(results[0].terminal_reason, results[1].terminal_reason)
+        self.assertEqual(results[0].total_return, results[1].total_return)
+        self.assertEqual(replay_lengths, [2, 2])
+
+    def test_training_round_publishes_battle_view_progress(self):
+        replay = TrainingReplayBuffer(capacity=8)
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            prediction_window=1,
+            match_time_limit=1,
+        )
+        events = []
+
+        run_training_round(
+            opponent=OpponentSpec("Earthling"),
+            trainee_policy=FixedPolicy(0),
+            replay_buffer=replay,
+            config=config,
+            rng=random.Random(9),
+            progress_callback=events.append,
+        )
+
+        views = [event["battle_view"] for event in events if "battle_view" in event]
+        self.assertTrue(views)
+        self.assertIn("game_objects", views[0])
+        self.assertIn("border_rect", views[0])
+        self.assertEqual(views[-1]["frame_id"], 1)
+
+    def test_training_round_aborts_when_stop_is_requested_mid_round(self):
+        replay = TrainingReplayBuffer(capacity=8)
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            prediction_window=1,
+            match_time_limit=10,
+        )
+        stop_requested = [False]
+
+        def on_progress(payload):
+            if payload.get("event") == "frame":
+                stop_requested[0] = True
+
+        with self.assertRaises(TrainingBatchAborted):
+            run_training_round(
+                opponent=OpponentSpec("Earthling"),
+                trainee_policy=FixedPolicy(0),
+                replay_buffer=replay,
+                config=config,
+                rng=random.Random(10),
+                progress_callback=on_progress,
+                stop_requested=lambda: stop_requested[0],
+            )
+
+        self.assertEqual(len(replay), 1)
 
 
 class ExistingAIOpponentTests(unittest.TestCase):

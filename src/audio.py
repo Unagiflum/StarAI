@@ -134,6 +134,68 @@ def initialize_pygame_audio(resources=None):
     return PygameAudioService(resources=resources)
 
 
+class DisplayGatedAudioService:
+    """Delegate audio operations only while the supplied predicate is true."""
+
+    def __init__(self, audio_service, enabled):
+        self.audio_service = audio_service or NullAudioService()
+        self._enabled = enabled
+
+    @property
+    def enabled(self):
+        return bool(getattr(self.audio_service, "enabled", False) and self._enabled())
+
+    def start_battle_music(self):
+        if self.enabled:
+            self.audio_service.start_battle_music()
+
+    def stop_music(self):
+        if getattr(self.audio_service, "enabled", False):
+            self.audio_service.stop_music()
+
+    def play_victory_ditty(self, ship):
+        if self.enabled:
+            self.audio_service.play_victory_ditty(ship)
+
+    def load_effect(self, path, volume=const.SOUND_EFFECT_VOLUME):
+        if not getattr(self.audio_service, "enabled", False):
+            return None
+        sound = self.audio_service.load_effect(path, volume)
+        if sound is None:
+            return None
+        return _GatedEffect(self, sound)
+
+    def play_effect(self, path, volume=const.SOUND_EFFECT_VOLUME):
+        if not self.enabled:
+            return 0.0
+        return self.audio_service.play_effect(path, volume)
+
+    def pause(self):
+        if self.enabled:
+            self.audio_service.pause()
+
+    def unpause(self):
+        if self.enabled:
+            self.audio_service.unpause()
+
+
+class _GatedEffect:
+    def __init__(self, service, sound):
+        self.service = service
+        self.sound = sound
+
+    def play(self):
+        if self.service.enabled:
+            return self.sound.play()
+        return None
+
+    def get_length(self):
+        return self.sound.get_length()
+
+    def __getattr__(self, name):
+        return getattr(self.sound, name)
+
+
 class RecordingAudioService(NullAudioService):
     """Pygame-free test adapter recording operation order and arguments."""
 

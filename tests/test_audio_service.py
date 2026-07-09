@@ -12,6 +12,7 @@ pygame.init()
 pygame.display.set_mode((1, 1))
 
 from src.audio import (
+    DisplayGatedAudioService,
     NullAudioService,
     PygameAudioService,
     RecordingAudioService,
@@ -24,6 +25,25 @@ from src.Objects.Ships.registry import create_ship
 
 
 class AudioServiceIntegrationTests(unittest.TestCase):
+    def test_display_gated_audio_only_plays_when_enabled(self):
+        enabled = [False]
+        base = RecordingAudioService()
+        audio = DisplayGatedAudioService(base, lambda: enabled[0])
+
+        effect = audio.load_effect("test.wav")
+        audio.start_battle_music()
+        effect.play()
+        enabled[0] = True
+        audio.start_battle_music()
+        effect.play()
+        enabled[0] = False
+        audio.stop_music()
+
+        self.assertEqual(
+            [operation[0] for operation in base.operations],
+            ["start_battle_music", "play_effect", "stop_music"],
+        )
+
     def test_audio_initialization_falls_back_to_null_service(self):
         with mock.patch(
             "pygame.mixer.init", side_effect=pygame.error("no audio device")

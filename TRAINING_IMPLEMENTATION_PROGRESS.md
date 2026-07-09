@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Phase 7: Training orchestration. Complete.
+Phase 8: UI integration and hardening. Complete.
 
 ## Completed
 
@@ -79,6 +79,19 @@ Phase 7: Training orchestration. Complete.
 - Added end-of-batch replay optimization scheduling.
 - Added focused Phase 7 tests for opponent scheduling, action-control mapping, terminal flushing, Shofixti arming, pending-rebirth non-terminal handling, headless deterministic rounds, existing-AI discovery, and existing-AI batch counts.
 
+### Phase 8
+
+- Added `src.training.session` to own UI-facing training sessions, worker-thread safe status snapshots, model/checkpoint loading, safe stop requests, progress persistence, batch metrics, bounded batch-log history, grouped CSV metrics export, and compatibility validation.
+- Connected the Training UI Start/Stop flow to real training batches for writable user slots while preserving bundled-slot protection.
+- Start now creates new user models, continues compatible existing models, warns on game-setting differences, reports structural incompatibilities, and resets stale weights when the user confirms an architecture overwrite.
+- Stop and Back request a documented safe stop after the current batch instead of abandoning an active worker.
+- Added live UI status for batch/round progress, current opponent, frame, replay occupancy, recent loss, exploration versus greedy action, weighted return, and top weighted reward component totals.
+- Added a display-off monospace scrollable batch log with selectable/copyable text and bounded recent history.
+- Added display-on battle visualization by publishing the latest training battle render snapshot from orchestration/session state and drawing the cropped battle arena through the existing battle renderer.
+- Added grouped CSV metrics beside the trainee model sidecar using the existing model filename convention, including header creation and rolling averages over the selected Batch grouping window.
+- Kept training display state presentation-only; training rounds now omit star creation regardless of display toggle so display-on/display-off settings do not alter simulation setup, RNG consumption, replay contents, or returns.
+- Added focused Phase 8 tests for metrics formatting, outcome aggregation, rolling averages, CSV append behavior, compatibility errors/warnings, session checkpoint/progress persistence, UI config adaptation, selectable log text, display-toggle simulation equivalence, battle-view snapshot publishing, and display-on arena drawing.
+
 ## Verification
 
 - Passed: `python -m unittest tests.test_training_models tests.test_train_ai_ui`
@@ -120,7 +133,15 @@ Phase 7: Training orchestration. Complete.
   - 62 tests passed.
 - Passed: `python -m unittest discover tests`
   - 662 tests passed.
+- Passed: `python -m unittest tests.test_training_session tests.test_training_orchestration tests.test_train_ai_ui`
+  - 27 tests passed.
+- Passed: `python -m unittest discover tests`
+  - 672 tests passed.
+- Passed: `python -m unittest tests.test_train_ai_ui tests.test_training_orchestration tests.test_training_session`
+  - 29 tests passed.
+- Passed: `python -m unittest discover tests`
+  - 674 tests passed.
 
 ## Next Phase
 
-Phase 8: UI integration and hardening.
+Initial implementation complete. Deferred work remains listed in `TRAINING_IMPLEMENTATION_SPEC.md`.

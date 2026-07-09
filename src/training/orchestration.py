@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 import math
 import random
+import time
 from typing import Any
 
 import src.const as const
@@ -33,6 +34,7 @@ from src.training.replay import (
 )
 from src.training.rewards import (
     MatureTrainingSample,
+    REWARD_COMPONENTS,
     RollingReturnPipeline,
     decision_frame_from_battle_state,
     frame_outcome_from_battle_state,
@@ -122,6 +124,7 @@ class TrainingRoundResult:
     win: bool
     loss: bool
     draw: bool
+    component_totals: Mapping[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -136,6 +139,10 @@ class TrainingBatchResult:
         if not self.optimization_losses:
             return None
         return sum(self.optimization_losses) / len(self.optimization_losses)
+
+
+class TrainingBatchAborted(RuntimeError):
+    """Raised when a requested stop abandons the active training batch."""
 
 
 class ValueNetworkPolicy:
@@ -212,6 +219,9 @@ def run_training_batch(
     rng: Any | None = None,
     model_repository: TrainingModelRepository | None = None,
     simulation_factory: Callable[..., BattleSimulation] = BattleSimulation,
+    audio_service: Any | None = None,
+    progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> TrainingBatchResult:
     """Run one complete Phase 7 batch and perform end-of-batch replay updates."""
 
@@ -230,7 +240,16 @@ def run_training_batch(
 
     trainee_policy = ValueNetworkPolicy(model, epsilon=config.epsilon, rng=rng)
     round_results: list[TrainingRoundResult] = []
-    for opponent in opponents:
+    total_rounds = len(opponents)
+    for index, opponent in enumerate(opponents, start=1):
+        _raise_if_stop_requested(stop_requested)
+        _emit_progress(
+            progress_callback,
+            event="round_start",
+            round_index=index,
+            total_rounds=total_rounds,
+            opponent=opponent,
+        )
         result = run_training_round(
             opponent=opponent,
             trainee_policy=trainee_policy,
@@ -238,11 +257,24 @@ def run_training_batch(
             config=config,
             rng=rng,
             simulation_factory=simulation_factory,
+            audio_service=audio_service,
+            progress_callback=progress_callback,
+            stop_requested=stop_requested,
         )
         round_results.append(result)
+        _raise_if_stop_requested(stop_requested)
+        _emit_progress(
+            progress_callback,
+            event="round_end",
+            round_index=index,
+            total_rounds=total_rounds,
+            opponent=opponent,
+            result=result,
+        )
 
     losses: list[float] = []
     for _ in range(config.replay_updates_per_batch):
+        _raise_if_stop_requested(stop_requested)
         result = optimize_from_replay(
             model,
             optimizer,
@@ -269,33 +301,46 @@ def run_training_round(
     config: TrainingOrchestrationConfig,
     rng: Any | None = None,
     simulation_factory: Callable[..., BattleSimulation] = BattleSimulation,
+    audio_service: Any | None = None,
+    progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
+    stop_requested: Callable[[], bool] | None = None,
 ) -> TrainingRoundResult:
     rng = rng or random.Random()
-    trainee = create_ship(config.trainee_ship, 1, audio_service=NullAudioService())
-    opponent_ship = create_ship(opponent.ship, 2, audio_service=NullAudioService())
+    audio = audio_service or NullAudioService()
+    trainee = create_ship(config.trainee_ship, 1, audio_service=audio)
+    opponent_ship = create_ship(opponent.ship, 2, audio_service=audio)
     ledger = event_ledger.BattleEventLedger()
     simulation = simulation_factory(
         None,
         trainee,
         opponent_ship,
-        audio_service=NullAudioService(),
+        audio_service=audio,
         rng=rng,
-        include_stars=bool(config.display_on),
+        include_stars=False,
         training_event_ledger=ledger,
     )
     _fully_arm_training_shofixti(simulation.player1)
     _fully_arm_training_shofixti(simulation.player2)
+    _emit_progress(
+        progress_callback,
+        event="battle_view",
+        opponent=opponent,
+        battle_view=_battle_view_from_simulation(simulation),
+    )
 
     pipeline = RollingReturnPipeline(
         prediction_window=config.prediction_window,
         reward_weights=config.reward_weights,
     )
     total_return = 0.0
+    component_totals = {component: 0.0 for component in REWARD_COMPONENTS}
     mature_count = 0
     terminal_reason = "timeout"
     terminal_seen = False
+    next_display_frame_time = time.perf_counter()
 
     for _ in range(config.match_time_limit):
+        _raise_if_stop_requested(stop_requested)
         self_ship = simulation.player1
         enemy_ship = simulation.player2
         observation = encode_observation(
@@ -335,6 +380,28 @@ def run_training_round(
         replay_buffer.extend(mature_samples)
         mature_count += len(mature_samples)
         total_return += sum(sample.return_value for sample in mature_samples)
+        _accumulate_weighted_components(component_totals, mature_samples)
+        _emit_progress(
+            progress_callback,
+            event="frame",
+            frame=state["frame_id"],
+            opponent=opponent,
+            action_index=selection.action_index,
+            exploratory=selection.exploratory,
+            replay_size=len(replay_buffer),
+            weighted_total_return=total_return,
+            component_totals=dict(component_totals),
+            battle_view=_battle_view_from_simulation(simulation),
+        )
+        _raise_if_stop_requested(stop_requested)
+        if config.display_on:
+            next_display_frame_time += 1.0 / const.FPS
+            sleep_seconds = next_display_frame_time - time.perf_counter()
+            if sleep_seconds > 0:
+                time.sleep(sleep_seconds)
+            else:
+                next_display_frame_time = time.perf_counter()
+            _raise_if_stop_requested(stop_requested)
         if terminal:
             terminal_seen = True
             break
@@ -349,6 +416,7 @@ def run_training_round(
         )
         mature_count += len(mature_samples)
         total_return += sum(sample.return_value for sample in mature_samples)
+        _accumulate_weighted_components(component_totals, mature_samples)
 
     win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
     return TrainingRoundResult(
@@ -360,6 +428,7 @@ def run_training_round(
         win=win,
         loss=loss,
         draw=draw,
+        component_totals=dict(component_totals),
     )
 
 
@@ -521,6 +590,40 @@ def _fully_arm_training_shofixti(ship) -> None:
         return
     armed = getattr(ship, "ARMED", 2)
     setattr(ship, "shofixti_arming_stage", armed)
+
+
+def _accumulate_weighted_components(
+    totals: dict[str, float],
+    samples: Sequence[MatureTrainingSample],
+) -> None:
+    for sample in samples:
+        for component, value in sample.weighted_components.items():
+            totals[component] = totals.get(component, 0.0) + float(value)
+
+
+def _emit_progress(
+    callback: Callable[[Mapping[str, Any]], None] | None,
+    **payload: Any,
+) -> None:
+    if callback is not None:
+        callback(payload)
+
+
+def _raise_if_stop_requested(callback: Callable[[], bool] | None) -> None:
+    if callback is not None and callback():
+        raise TrainingBatchAborted("training stop requested")
+
+
+def _battle_view_from_simulation(simulation) -> dict[str, Any]:
+    return {
+        "game_objects": tuple(simulation.world.snapshot()),
+        "border_rect": simulation.border_rect.copy(),
+        "border_color": tuple(simulation.border_color),
+        "frame_id": int(simulation.frame_id),
+        "original_ships": (simulation.player1, simulation.player2),
+        "camera_targets": (simulation.player1, simulation.player2),
+        "entry_state": None,
+    }
 
 
 def _load_opponent_model(slot: TrainingModelSlot):

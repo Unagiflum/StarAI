@@ -1,5 +1,7 @@
 import os
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -17,7 +19,13 @@ from src.Menus.train_ai import (
     ROUNDS_PER_BATCH_VALUES,
     BATCH_GROUPING_VALUES,
     RewardSlider,
+    TrainingBatchLogBox,
     TrainingUIState,
+    _display_off_console_lines,
+    _draw_training_huds,
+    _draw_training_battle,
+    _set_slider_value,
+    training_config_from_state,
     training_layout,
 )
 from src.UI.ui_button import Checkbox
@@ -93,6 +101,13 @@ class RewardSliderTests(unittest.TestCase):
         slider.set_from_x(slider.line_rect.right)
         self.assertEqual(slider.value, 10.24)
 
+    def test_saved_reward_value_loads_without_position_api(self):
+        slider = RewardSlider((0, 0, 550, 40), "Reward")
+
+        self.assertTrue(_set_slider_value(slider, 2.56))
+
+        self.assertEqual(slider.value, 2.56)
+
 
 class RegimenSliderTests(unittest.TestCase):
     def test_regimen_sliders_expose_the_requested_discrete_values(self):
@@ -123,6 +138,174 @@ class DisabledCheckboxTests(unittest.TestCase):
         checkbox.handle_event(event)
 
         self.assertFalse(checkbox.value)
+
+
+class TrainingConfigAdapterTests(unittest.TestCase):
+    def test_training_config_from_state_carries_ui_values(self):
+        state = TrainingUIState(selected_ship="Earthling")
+        state.rewards["Kill enemy"] = 2.56
+        state.movement_behaviors = {"Move forward continuously"}
+        state.rounds_per_batch = 2
+        state.hidden_layer_size = 64
+        state.hidden_layer_count = 1
+
+        config = training_config_from_state(state)
+
+        self.assertEqual(config.trainee_ship, "Earthling")
+        self.assertEqual(config.reward_weights["Kill enemy"], 2.56)
+        self.assertEqual(config.movement_behaviors, frozenset({"Move forward continuously"}))
+        self.assertEqual(config.rounds_per_batch, 2)
+        self.assertEqual(config.hidden_layer_width, 64)
+        self.assertEqual(config.hidden_layer_count, 1)
+
+
+class TrainingBatchLogBoxTests(unittest.TestCase):
+    def test_log_box_keeps_selectable_text(self):
+        box = TrainingBatchLogBox()
+        box.set_lines(["first", "second", "third"])
+        box.selection_anchor = 0
+        box.selection_focus = 1
+
+        self.assertEqual(box.selected_text, "first\nsecond")
+
+
+class TrainingConsoleTests(unittest.TestCase):
+    def _status(self, **overrides):
+        values = {
+            "running": True,
+            "stopping": False,
+            "completed_batches": 2,
+            "current_round": 3,
+            "total_rounds": 25,
+            "current_opponent": "Earthling",
+            "current_frame": 42,
+            "replay_size": 99,
+            "last_action_exploratory": True,
+            "weighted_total_return": 12.5,
+            "recent_loss": None,
+            "component_totals": {"Kill enemy": 2.0},
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def test_display_off_console_includes_batch_logs_before_live_status(self):
+        status = self._status()
+
+        lines = _display_off_console_lines(status, ("Batch      1 | summary",))
+
+        self.assertIn("Current batch", lines)
+        self.assertIn("Round:    3/  25", lines)
+        self.assertEqual(lines[0], "Completed batches")
+        self.assertLess(
+            lines.index("Batch      1 | summary"),
+            lines.index("Current batch"),
+        )
+        self.assertIn("Batch:      3", lines)
+        self.assertIn("Frame:       42 | Replay:     99", lines)
+        self.assertIn("Action: explore | Return:     12.50", lines)
+        self.assertIn("Loss:          -", lines)
+
+    def test_display_off_console_keeps_current_batch_block_height_stable(self):
+        lines_with_component = _display_off_console_lines(
+            self._status(), ("Batch      1 | summary",)
+        )
+        lines_without_components = _display_off_console_lines(
+            self._status(component_totals={}), ("Batch      1 | summary",)
+        )
+
+        self.assertEqual(len(lines_with_component), len(lines_without_components))
+        placeholder_rows = lines_without_components[-6:]
+        self.assertEqual(len(set(placeholder_rows)), 1)
+        self.assertTrue(placeholder_rows[0].startswith("-"))
+        self.assertTrue(placeholder_rows[0].endswith(":        -"))
+
+
+class TrainingBattleDisplayTests(unittest.TestCase):
+    def test_display_on_draws_cropped_battle_surface_into_arena(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        screen.fill((0, 0, 255))
+        battle_surface = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        rect = training_layout().arena_rect
+        status = SimpleNamespace(
+            battle_view={
+                "game_objects": (),
+                "border_rect": pygame.Rect(
+                    const.SCREEN_LEFT,
+                    0,
+                    const.SCREEN_HEIGHT,
+                    const.SCREEN_HEIGHT,
+                ),
+                "border_color": (50, 50, 50),
+                "frame_id": 1,
+                "original_ships": (),
+                "camera_targets": (),
+                "entry_state": None,
+            }
+        )
+
+        def fake_draw(surface, *args, **kwargs):
+            surface.fill((255, 0, 0))
+            source = pygame.Rect(
+                const.SCREEN_LEFT,
+                0,
+                const.SCREEN_HEIGHT,
+                const.SCREEN_HEIGHT,
+            )
+            pygame.draw.rect(surface, (0, 255, 0), source)
+
+        with (
+            mock.patch("src.Menus.train_ai.draw_battle_arena", side_effect=fake_draw),
+            mock.patch("pygame.display.flip") as display_flip,
+        ):
+            _draw_training_battle(screen, rect, status, battle_surface, object())
+
+        self.assertEqual(screen.get_at((rect.left + 10, rect.top + 10))[:3], (0, 255, 0))
+        self.assertEqual(screen.get_at((rect.left - 10, rect.top + 10))[:3], (0, 0, 255))
+        display_flip.assert_not_called()
+
+    def test_display_on_hud_draws_live_ship_values(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        screen.fill((0, 0, 0))
+        sprite = pygame.Surface((24, 24), pygame.SRCALPHA)
+        sprite.fill((255, 255, 255))
+        trainee = SimpleNamespace(
+            player=1,
+            name="Earthling",
+            sprites=(sprite,),
+            set_sprite=lambda: sprite,
+            current_hp=8,
+            max_hp=10,
+            current_energy=6,
+            max_energy=12,
+        )
+        opponent = SimpleNamespace(
+            player=2,
+            name="Chenjesu",
+            sprites=(sprite,),
+            set_sprite=lambda: sprite,
+            current_hp=4,
+            max_hp=10,
+            current_energy=2,
+            max_energy=8,
+        )
+        status = SimpleNamespace(
+            battle_view={
+                "original_ships": (trainee, opponent),
+                "game_objects": (),
+            }
+        )
+
+        _draw_training_huds(
+            screen,
+            training_layout().hud_rects,
+            status,
+            pygame.font.SysFont(None, 24),
+            pygame.font.SysFont(None, 18),
+        )
+
+        first, second = training_layout().hud_rects
+        self.assertEqual(screen.get_at((first.left + 1, first.top + 1))[:3], const.P1_COLOR)
+        self.assertEqual(screen.get_at((second.left + 1, second.top + 1))[:3], const.P2_COLOR)
 
 
 if __name__ == "__main__":

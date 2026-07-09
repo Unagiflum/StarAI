@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 import pygame
 
 import src.const as const
+from src.Battle.battle_draw import StarFieldRenderer, draw_battle_arena
 from src.Menus.pick_fleet import (
     MODAL_SHADE_ALPHA,
     PICKER_TOOLTIP_FONT_SIZE,
@@ -27,7 +28,13 @@ from src.training.model_registry import (
     metadata_from_state,
     model_architecture_metadata,
 )
+from src.training.orchestration import TrainingOrchestrationConfig
 from src.training.rewards import REWARD_COMPONENTS
+from src.training.session import (
+    TrainingSession,
+    TrainingSessionError,
+    validate_model_metadata,
+)
 
 
 REWARD_VALUES = tuple(
@@ -61,6 +68,17 @@ LEARNING_RATE_VALUES = (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01)
 EPSILON_VALUES = (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5)
 HIDDEN_LAYER_SIZE_VALUES = (32, 64, 128, 256, 512, 1024, 2048)
 HIDDEN_LAYER_COUNT_VALUES = (1, 2, 4, 8, 16)
+CURRENT_BATCH_REWARD_LINES = 6
+CURRENT_BATCH_STATE_WIDTH = len("stopped (stopping)")
+CURRENT_BATCH_BATCH_WIDTH = 6
+CURRENT_BATCH_ROUND_WIDTH = 4
+CURRENT_BATCH_FRAME_WIDTH = 8
+CURRENT_BATCH_REPLAY_WIDTH = 6
+CURRENT_BATCH_ACTION_WIDTH = len("explore")
+CURRENT_BATCH_RETURN_WIDTH = 9
+CURRENT_BATCH_LOSS_WIDTH = 10
+CURRENT_BATCH_REWARD_NAME_WIDTH = max(len(label) for label in REWARD_LABELS)
+CURRENT_BATCH_REWARD_VALUE_WIDTH = 8
 
 CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
 TAB_MARGIN = 8
@@ -203,6 +221,19 @@ def largest_fitting_font(texts, max_width, max_height=36, maximum=36, minimum=16
 
 def _format_reward(value):
     return "0.00" if value == 0 else f"{value:+.2f}"
+
+
+def _set_slider_value(slider, value):
+    if slider.values is not None and value not in slider.values:
+        return False
+    slider.value = value
+    if hasattr(slider, "value_to_position"):
+        slider.handle_x = slider.value_to_position(value)
+    return True
+
+
+def _set_checkbox_value(checkbox, value):
+    checkbox.is_checked = bool(value)
 
 
 def _wrap_text(text, font, max_width):
@@ -355,6 +386,111 @@ class TrainingNotice:
     remaining_seconds: float = 2.5
 
 
+class TrainingBatchLogBox:
+    """Scrollable selectable text view for completed-batch summaries."""
+
+    def __init__(self):
+        self.lines: tuple[str, ...] = ()
+        self.scroll_line = 0
+        self.dragging = False
+        self.selection_anchor: int | None = None
+        self.selection_focus: int | None = None
+
+    def set_lines(self, lines):
+        old_max = max(0, len(self.lines) - 1)
+        was_at_bottom = self.scroll_line >= old_max
+        self.lines = tuple(lines)
+        if was_at_bottom:
+            self.scroll_line = max(0, len(self.lines) - 1)
+        else:
+            self.scroll_line = min(self.scroll_line, max(0, len(self.lines) - 1))
+
+    @property
+    def selected_text(self):
+        if self.selection_anchor is None or self.selection_focus is None:
+            return ""
+        first = min(self.selection_anchor, self.selection_focus)
+        last = max(self.selection_anchor, self.selection_focus)
+        return "\n".join(self.lines[first:last + 1])
+
+    def handle_event(self, event, rect, font):
+        if event.type == pygame.MOUSEBUTTONDOWN and rect.collidepoint(event.pos):
+            if event.button in (4, 5):
+                direction = -1 if event.button == 4 else 1
+                self.scroll_line = max(
+                    0,
+                    min(
+                        max(0, len(self.lines) - 1),
+                        self.scroll_line + direction * 3,
+                    ),
+                )
+            elif event.button == 1:
+                line_index = self._line_at_pos(event.pos, rect, font)
+                if line_index is not None:
+                    self.dragging = True
+                    self.selection_anchor = line_index
+                    self.selection_focus = line_index
+        elif event.type == pygame.MOUSEMOTION and self.dragging:
+            line_index = self._line_at_pos(event.pos, rect, font)
+            if line_index is not None:
+                self.selection_focus = line_index
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self.dragging = False
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_c:
+            modifiers = pygame.key.get_mods()
+            if modifiers & (pygame.KMOD_CTRL | pygame.KMOD_META):
+                self._copy_selected_text()
+
+    def draw(self, surface, rect, font):
+        pygame.draw.rect(surface, ui.BLACK, rect)
+        pygame.draw.rect(surface, ui.GREY, rect, 2)
+        line_height = font.get_linesize()
+        visible_count = max(1, (rect.height - 16) // line_height)
+        start = max(0, min(self.scroll_line, max(0, len(self.lines) - visible_count)))
+        selected = self._selected_range()
+        y = rect.top + 8
+        clip = rect.inflate(-10, -8)
+        surface.set_clip(clip)
+        for index, line in enumerate(self.lines[start:start + visible_count], start=start):
+            if selected is not None and selected[0] <= index <= selected[1]:
+                highlight = pygame.Rect(rect.left + 6, y, rect.width - 12, line_height)
+                pygame.draw.rect(surface, (55, 80, 120), highlight)
+            rendered = font.render(line, True, ui.WHITE)
+            surface.blit(rendered, (rect.left + 8, y))
+            y += line_height
+        surface.set_clip(None)
+        _draw_scrollbar(surface, rect, max(len(self.lines), visible_count) * line_height, start * line_height)
+
+    def _line_at_pos(self, pos, rect, font):
+        if not self.lines:
+            return None
+        line_height = font.get_linesize()
+        visible_count = max(1, (rect.height - 16) // line_height)
+        start = max(0, min(self.scroll_line, max(0, len(self.lines) - visible_count)))
+        offset = (pos[1] - rect.top - 8) // line_height
+        if offset < 0:
+            return None
+        return max(0, min(len(self.lines) - 1, start + int(offset)))
+
+    def _selected_range(self):
+        if self.selection_anchor is None or self.selection_focus is None:
+            return None
+        return (
+            min(self.selection_anchor, self.selection_focus),
+            max(self.selection_anchor, self.selection_focus),
+        )
+
+    def _copy_selected_text(self):
+        text = self.selected_text
+        if not text:
+            return
+        try:
+            pygame.scrap.init()
+            pygame.scrap.put(pygame.SCRAP_TEXT, text.encode("utf-8"))
+        except pygame.error:
+            pass
+
+
 class ConfirmationPrompt:
     def __init__(self, text, on_confirm):
         self.text = text
@@ -456,6 +592,252 @@ def _draw_arena_placeholder(screen, rect, state, font):
         y += font.get_linesize() + 8
 
 
+def _draw_training_status(screen, rect, status, font, small_font):
+    pygame.draw.rect(screen, ui.BLACK, rect)
+    pygame.draw.rect(screen, ui.GREY, rect, 2)
+    action_mode = (
+        "explore"
+        if status.last_action_exploratory
+        else "greedy"
+        if status.last_action_exploratory is not None
+        else "-"
+    )
+    lines = (
+        "Training running" if status.running else "Training stopped",
+        f"Batch {status.completed_batches + 1} | Round {status.current_round}/{status.total_rounds}",
+        f"Opponent: {status.current_opponent or '-'}",
+        f"Frame: {status.current_frame} | Replay: {status.replay_size}",
+        f"Action: {action_mode} | Return: {status.weighted_total_return:.2f}",
+        f"Loss: {status.recent_loss:.4f}" if status.recent_loss is not None else "Loss: -",
+    )
+    y = rect.top + 40
+    for index, line in enumerate(lines):
+        rendered = (font if index == 0 else small_font).render(line, True, ui.WHITE)
+        screen.blit(rendered, rendered.get_rect(midtop=(rect.centerx, y)))
+        y += rendered.get_height() + 14
+    component_lines = [
+        f"{name}: {value:.2f}"
+        for name, value in sorted(
+            status.component_totals.items(),
+            key=lambda item: abs(item[1]),
+            reverse=True,
+        )
+        if value
+    ][:6]
+    for line in component_lines:
+        rendered = small_font.render(line, True, ui.LIGHT_GREY)
+        screen.blit(rendered, rendered.get_rect(midtop=(rect.centerx, y)))
+        y += rendered.get_height() + 6
+
+
+def _current_batch_console_lines(status):
+    action_mode = (
+        "explore"
+        if status.last_action_exploratory
+        else "greedy"
+        if status.last_action_exploratory is not None
+        else "-"
+    )
+    state_label = "running" if status.running else "stopped"
+    if status.stopping:
+        state_label += " (stopping)"
+    total_round_width = max(
+        CURRENT_BATCH_ROUND_WIDTH,
+        len(str(status.current_round)),
+        len(str(status.total_rounds)),
+    )
+    lines = [
+        "Current batch",
+        f"State: {state_label:<{CURRENT_BATCH_STATE_WIDTH}}",
+        f"Batch: {status.completed_batches + 1:>{CURRENT_BATCH_BATCH_WIDTH}d}",
+        f"Round: {status.current_round:>{total_round_width}d}/{status.total_rounds:>{total_round_width}d}",
+        f"Opponent: {status.current_opponent or '-':<{CURRENT_BATCH_REWARD_NAME_WIDTH}}",
+        f"Frame: {status.current_frame:>{CURRENT_BATCH_FRAME_WIDTH}d} | Replay: {status.replay_size:>{CURRENT_BATCH_REPLAY_WIDTH}d}",
+        f"Action: {action_mode:<{CURRENT_BATCH_ACTION_WIDTH}} | Return: {status.weighted_total_return:>{CURRENT_BATCH_RETURN_WIDTH}.2f}",
+        f"Loss: {status.recent_loss:>{CURRENT_BATCH_LOSS_WIDTH}.4f}"
+        if status.recent_loss is not None
+        else f"Loss: {'-':>{CURRENT_BATCH_LOSS_WIDTH}}",
+        "",
+        "Reward components",
+    ]
+    component_lines = [
+        f"{name:<{CURRENT_BATCH_REWARD_NAME_WIDTH}}: {value:>{CURRENT_BATCH_REWARD_VALUE_WIDTH}.2f}"
+        for name, value in sorted(
+            status.component_totals.items(),
+            key=lambda item: abs(item[1]),
+            reverse=True,
+        )
+        if value
+    ][:CURRENT_BATCH_REWARD_LINES]
+    component_lines.extend(
+        [
+            f"{'-':<{CURRENT_BATCH_REWARD_NAME_WIDTH}}: {'-':>{CURRENT_BATCH_REWARD_VALUE_WIDTH}}"
+        ]
+        * (CURRENT_BATCH_REWARD_LINES - len(component_lines))
+    )
+    lines.extend(component_lines)
+    return tuple(lines)
+
+
+def _display_off_console_lines(status, log_lines):
+    lines = []
+    if log_lines:
+        lines.append("Completed batches")
+        lines.extend(log_lines)
+    elif status is None:
+        lines.append("Completed batch summaries will appear here.")
+    elif status.running:
+        lines.append("Waiting for the first completed batch summary...")
+    else:
+        lines.append("No completed batch summaries yet.")
+    if status is not None:
+        lines.extend(("", *_current_batch_console_lines(status)))
+    return tuple(lines)
+
+
+def _ship_for_player(battle_view, player_id):
+    for ship in battle_view.get("original_ships") or ():
+        if getattr(ship, "player", None) == player_id:
+            return ship
+    for obj in battle_view.get("game_objects") or ():
+        if getattr(obj, "player", None) == player_id and hasattr(obj, "current_hp"):
+            return obj
+    return None
+
+
+def _draw_value_bar(surface, rect, current, maximum, fill_color):
+    maximum = max(1, int(maximum or 1))
+    current = max(0, min(maximum, int(current or 0)))
+    pygame.draw.rect(surface, const.HUD_BAR_BG, rect)
+    filled = rect.copy()
+    filled.width = round(rect.width * current / maximum)
+    if filled.width > 0:
+        pygame.draw.rect(surface, fill_color, filled)
+    pygame.draw.rect(surface, const.HUD_BAR_BORDER, rect, 1)
+
+
+def _draw_ship_icon(surface, ship, rect):
+    sprites = getattr(ship, "sprites", ())
+    if not sprites:
+        return
+    try:
+        sprite = ship.set_sprite()
+    except Exception:
+        sprite = sprites[0]
+    max_width = max(1, rect.width - 10)
+    max_height = max(1, rect.height - 10)
+    scale = min(max_width / sprite.get_width(), max_height / sprite.get_height(), 1.0)
+    size = (
+        max(1, round(sprite.get_width() * scale)),
+        max(1, round(sprite.get_height() * scale)),
+    )
+    icon = pygame.transform.smoothscale(sprite, size)
+    surface.blit(icon, icon.get_rect(center=rect.center))
+
+
+def _draw_training_hud_panel(screen, rect, ship, label, color, font, small_font):
+    pygame.draw.rect(screen, ui.BLACK, rect)
+    overlay = pygame.Surface(rect.size, pygame.SRCALPHA)
+    overlay.fill((*color, const.HUD_PANEL_ALPHA))
+    screen.blit(overlay, rect)
+    pygame.draw.rect(screen, color, rect, 2)
+
+    title = font.render(label, True, color)
+    screen.blit(title, title.get_rect(midtop=(rect.centerx, rect.top + 8)))
+    if ship is None:
+        text = small_font.render("No ship", True, ui.LIGHT_GREY)
+        screen.blit(text, text.get_rect(center=rect.center))
+        return
+
+    ship_name = small_font.render(getattr(ship, "name", "-"), True, ui.WHITE)
+    screen.blit(ship_name, ship_name.get_rect(midtop=(rect.centerx, rect.top + 34)))
+
+    view_rect = pygame.Rect(rect.left + 12, rect.top + 58, rect.width - 24, 86)
+    pygame.draw.rect(screen, ui.BLACK, view_rect)
+    pygame.draw.rect(screen, const.HUD_VIEWPORT_BORDER, view_rect, 1)
+    _draw_ship_icon(screen, ship, view_rect)
+
+    bar_left = rect.left + 14
+    value_left = rect.right - 54
+    hp_rect = pygame.Rect(bar_left, view_rect.bottom + 14, rect.width - 84, 14)
+    energy_rect = pygame.Rect(bar_left, hp_rect.bottom + 12, rect.width - 84, 14)
+    _draw_value_bar(
+        screen,
+        hp_rect,
+        getattr(ship, "current_hp", 0),
+        getattr(ship, "max_hp", 1),
+        getattr(ship, "crew_bar_color", const.HUD_HP_COLOR),
+    )
+    _draw_value_bar(
+        screen,
+        energy_rect,
+        getattr(ship, "current_energy", 0),
+        getattr(ship, "max_energy", 1),
+        const.HUD_ENERGY_COLOR,
+    )
+    for tag, bar_rect, current, maximum in (
+        ("HP", hp_rect, getattr(ship, "current_hp", 0), getattr(ship, "max_hp", 1)),
+        (
+            "EN",
+            energy_rect,
+            getattr(ship, "current_energy", 0),
+            getattr(ship, "max_energy", 1),
+        ),
+    ):
+        tag_text = small_font.render(tag, True, ui.WHITE)
+        value_text = small_font.render(f"{int(current)}/{int(maximum)}", True, ui.WHITE)
+        screen.blit(tag_text, tag_text.get_rect(midright=(bar_rect.left - 5, bar_rect.centery)))
+        screen.blit(value_text, value_text.get_rect(midleft=(value_left, bar_rect.centery)))
+
+
+def _draw_training_huds(screen, hud_rects, status, font, small_font):
+    battle_view = status.battle_view if status is not None else None
+    if not battle_view:
+        _draw_hud_placeholders(screen, hud_rects, font)
+        return
+    for rect, player_id, label, color in zip(
+        hud_rects,
+        (1, 2),
+        ("Trainee HUD", "Opponent HUD"),
+        (const.P1_COLOR, const.P2_COLOR),
+    ):
+        _draw_training_hud_panel(
+            screen,
+            rect,
+            _ship_for_player(battle_view, player_id),
+            label,
+            color,
+            font,
+            small_font,
+        )
+
+
+def _draw_training_battle(screen, rect, status, battle_surface, star_field_renderer):
+    battle_view = status.battle_view
+    if not battle_view:
+        pygame.draw.rect(screen, ui.BLACK, rect)
+        pygame.draw.rect(screen, ui.GREY, rect, 2)
+        return
+    draw_battle_arena(
+        battle_surface,
+        battle_view["game_objects"],
+        battle_view["border_rect"],
+        battle_view["border_color"],
+        star_field_renderer,
+        camera_targets=battle_view.get("camera_targets"),
+        entry_state=battle_view.get("entry_state"),
+        frame_id=battle_view.get("frame_id", 0),
+        original_ships=battle_view.get("original_ships"),
+        interp_t=0.0,
+    )
+    source = pygame.Rect(const.SCREEN_LEFT, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT)
+    previous_clip = screen.get_clip()
+    screen.set_clip(rect)
+    screen.blit(battle_surface, rect, source)
+    screen.set_clip(previous_clip)
+    pygame.draw.rect(screen, battle_view["border_color"], rect, 2)
+
+
 def _draw_hud_placeholders(screen, hud_rects, font):
     for rect, label, color in zip(
         hud_rects,
@@ -478,9 +860,27 @@ def _draw_group_panel(surface, rect, hovered=False, enabled=True):
     pygame.draw.rect(surface, ui.BLACK, rect, 3)
 
 
+def training_config_from_state(state: TrainingUIState) -> TrainingOrchestrationConfig:
+    return TrainingOrchestrationConfig(
+        trainee_ship=str(state.selected_ship),
+        reward_weights=dict(state.rewards),
+        opponent_mode=state.opponent_mode,
+        movement_behaviors=frozenset(state.movement_behaviors),
+        turning_behavior=state.turning_behavior,
+        rounds_per_batch=state.rounds_per_batch,
+        prediction_window=state.prediction_window,
+        match_time_limit=state.match_time_limit,
+        replay_capacity=state.replay_buffer_size,
+        learning_rate=state.learning_rate,
+        epsilon=state.epsilon,
+        hidden_layer_width=state.hidden_layer_size,
+        hidden_layer_count=state.hidden_layer_count,
+        display_on=state.display_on,
+    )
+
+
 def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     """Show the AI-training configuration UI without starting training yet."""
-    _ = audio_service
     clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
     layout = training_layout()
     state = TrainingUIState()
@@ -531,8 +931,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     small_font = pygame.font.SysFont(None, 24)
     arena_font = pygame.font.SysFont(None, 32)
+    log_font = pygame.font.SysFont("Consolas", 11)
     picker_title_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.042))
     picker_tooltip_font = pygame.font.SysFont(None, PICKER_TOOLTIP_FONT_SIZE)
+    battle_surface = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+    training_battle_renderer = StarFieldRenderer()
 
     def fallback_ship_sprite(_ship_name):
         surface = pygame.Surface((188, 188), pygame.SRCALPHA)
@@ -596,7 +999,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         for row in slot_rows
     ]
-    trainee_content_height = max(ship_tile.bottom, slot_rows[-1].bottom) + 12
+    load_button_rect = pygame.Rect(
+        16,
+        slot_rows[-1].bottom + 10,
+        CONTROL_WIDTH - 32,
+        42,
+    )
+    trainee_content_height = max(ship_tile.bottom, load_button_rect.bottom) + 12
     trainee_scroll_y = 0
 
     rewards_top = 8
@@ -807,6 +1216,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         "Display On",
     )
     exited = [False]
+    training_session = [None]
+    last_session_running = [False]
+    batch_log_box = TrainingBatchLogBox()
 
     def architecture_metadata():
         return model_architecture_metadata(
@@ -896,10 +1308,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ]
         refresh_slot_controls()
 
-    def persist_selected_model():
+    def persist_selected_model(progress=None, *, reset_checkpoint=False):
         model_slot = selected_model_slot()
         if state.selected_ship is None or model_slot is None or model_slot.is_bundled:
-            return
+            return None
         description = slot_fields[state.selected_slot - 1].text.strip()
         metadata = metadata_from_state(
             ship=state.selected_ship,
@@ -907,9 +1319,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             description=description,
             architecture=architecture_metadata(),
             training=training_metadata(),
+            progress=progress,
         )
-        model_repository.create_or_update_user_model(metadata)
+        updated_slot = model_repository.create_or_update_user_model(metadata)
+        if reset_checkpoint and updated_slot.pth_path is not None:
+            updated_slot.pth_path.write_bytes(b"")
         refresh_slot_controls()
+        return updated_slot
 
     def changed_training_groups(old_training, new_training):
         return [
@@ -938,7 +1354,154 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             delete_model,
         )
 
+    def load_selected_model_conditions():
+        model_slot = selected_model_slot()
+        if model_slot is None or not model_slot.is_user:
+            return
+        metadata = model_slot.metadata if isinstance(model_slot.metadata, dict) else {}
+        if not metadata:
+            show_notice("Selected AI has no saved conditions")
+            return
+
+        skipped = []
+        architecture = metadata.get("architecture", {})
+        training = metadata.get("training", {})
+
+        if isinstance(training, dict):
+            opponent = training.get("opponent", {})
+            if isinstance(opponent, dict):
+                mode = opponent.get("mode")
+                if mode in {"all", "simple"}:
+                    select_opponent_mode(mode)
+                behaviors = set(opponent.get("movement_behaviors", ()))
+                for label, checkbox in zip(MOVEMENT_BEHAVIORS, movement_checkboxes):
+                    _set_checkbox_value(checkbox, label in behaviors)
+                turning = opponent.get("turning_behavior")
+                if turning in {value for _, value in TURNING_BEHAVIORS}:
+                    select_turning(turning)
+
+            rewards = training.get("rewards", {})
+            if isinstance(rewards, dict):
+                for slider in reward_sliders:
+                    if slider.label not in rewards:
+                        continue
+                    try:
+                        value = float(rewards[slider.label])
+                    except (TypeError, ValueError):
+                        skipped.append(slider.label)
+                        continue
+                    if not _set_slider_value(slider, value):
+                        skipped.append(slider.label)
+
+            regimen = training.get("regimen", {})
+            if isinstance(regimen, dict):
+                regimen_fields = (
+                    ("replay_buffer_size", regimen_sliders[0], int),
+                    ("rounds_per_batch", regimen_sliders[1], int),
+                    ("batch_grouping", regimen_sliders[2], int),
+                    ("prediction_window", regimen_sliders[3], int),
+                    ("match_time_limit", regimen_sliders[4], int),
+                    ("learning_rate", regimen_sliders[5], float),
+                    ("epsilon", regimen_sliders[6], float),
+                )
+                for key, slider, caster in regimen_fields:
+                    if key not in regimen:
+                        continue
+                    try:
+                        value = caster(regimen[key])
+                    except (TypeError, ValueError):
+                        skipped.append(key.replace("_", " "))
+                        continue
+                    if not _set_slider_value(slider, value):
+                        skipped.append(key.replace("_", " "))
+
+        if isinstance(architecture, dict):
+            architecture_fields = (
+                (
+                    architecture.get(
+                        "hidden_layer_width",
+                        architecture.get("hidden_layer_size"),
+                    ),
+                    regimen_sliders[7],
+                    "hidden layer size",
+                ),
+                (
+                    architecture.get("hidden_layer_count"),
+                    regimen_sliders[8],
+                    "hidden layer count",
+                ),
+            )
+            for raw_value, slider, label in architecture_fields:
+                if raw_value is None:
+                    continue
+                try:
+                    value = int(raw_value)
+                except (TypeError, ValueError):
+                    skipped.append(label)
+                    continue
+                if not _set_slider_value(slider, value):
+                    skipped.append(label)
+
+        if skipped:
+            show_notice(f"Loaded AI; skipped unsupported {skipped[0]}")
+        else:
+            show_notice(f"Loaded {describe_model(model_slot)} conditions")
+
+    def request_back():
+        if training_session[0] is not None and training_session[0].status.running:
+            training_session[0].request_stop()
+            show_notice("Training stopping; current batch will be abandoned")
+        else:
+            exited[0] = True
+
+    def begin_training():
+        model_slot = selected_model_slot()
+        if state.selected_ship is None or model_slot is None or model_slot.is_bundled:
+            return
+        if model_slot.source == SLOT_EMPTY:
+            model_slot = persist_selected_model()
+            if model_slot is None:
+                return
+
+        metadata = model_slot.metadata if isinstance(model_slot.metadata, dict) else {}
+        if not metadata:
+            metadata = metadata_from_state(
+                ship=state.selected_ship,
+                slot=state.selected_slot,
+                description=slot_fields[state.selected_slot - 1].text.strip(),
+                architecture=architecture_metadata(),
+                training=training_metadata(),
+            )
+        report = validate_model_metadata(metadata, architecture=architecture_metadata())
+        if report.errors:
+            show_notice(report.errors[0])
+            return
+        if report.warnings:
+            show_notice(report.warnings[0])
+
+        try:
+            session = TrainingSession(
+                repository=model_repository,
+                slot=model_slot,
+                metadata=metadata,
+                config=training_config_from_state(state),
+                batch_grouping=state.batch_grouping,
+                audio_service=audio_service,
+            )
+            training_session[0] = session
+            last_session_running[0] = True
+            state.running = True
+            session.start()
+            show_notice(f"Training {describe_model(model_slot)}")
+        except (TrainingSessionError, RuntimeError, ValueError) as exc:
+            show_notice(str(exc))
+
     def start_selected_model():
+        if training_session[0] is not None and training_session[0].status.running:
+            training_session[0].request_stop()
+            show_notice("Training stopping; current batch will be abandoned")
+            return
+
         model_slot = selected_model_slot()
         if state.selected_ship is None or model_slot is None or model_slot.is_bundled:
             return
@@ -952,7 +1515,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 show_notice("Enter a model description before creating a new AI")
                 return
             persist_selected_model()
-            show_notice(f"Created {describe_model(selected_model_slot())}")
+            refresh_slot_controls()
+            begin_training()
             return
 
         metadata = model_slot.metadata if isinstance(model_slot.metadata, dict) else {}
@@ -963,7 +1527,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if old_architecture and old_architecture != new_architecture:
             confirmation_prompt[0] = ConfirmationPrompt(
                 f"Do you want to overwrite {describe_model(model_slot)}?",
-                lambda: (persist_selected_model(), show_notice(f"Updated {describe_model(model_slot)}")),
+                lambda: (persist_selected_model(reset_checkpoint=True), begin_training()),
             )
             return
 
@@ -979,20 +1543,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 changed_summary = ", ".join(changed_groups[:-1]) + f" and {changed_groups[-1]}"
             confirmation_prompt[0] = ConfirmationPrompt(
                 f"Do you want to run {describe_model(model_slot)} with new {changed_summary} settings?",
-                lambda: (persist_selected_model(), show_notice(f"Updated {describe_model(model_slot)}")),
+                lambda: (persist_selected_model(), begin_training()),
             )
             return
 
         if current_description != old_description:
             persist_selected_model()
-            show_notice(
-                f'Model description of {state.selected_ship} {state.selected_slot:02d} '
-                f'changed from "{old_description}" to "{current_description}"'
-            )
+            begin_training()
             return
 
-        persist_selected_model()
-        show_notice(f"No changes for {describe_model(model_slot)}")
+        begin_training()
 
     action_gap = 10
     action_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - action_gap) // 2
@@ -1012,10 +1572,21 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         action_width,
         FOOTER_CONTROL_HEIGHT,
         "Back",
-        lambda: exited.__setitem__(0, True),
+        request_back,
         ui.CAN_RED,
         ui.CAN_RED_HI,
     )
+    load_button = ui_button.Button(
+        load_button_rect.x,
+        load_button_rect.y,
+        load_button_rect.width,
+        load_button_rect.height,
+        "Load",
+        load_selected_model_conditions,
+        ui.MENU_BUTTON_COLOR,
+        ui.MENU_BUTTON_COLOR_HI,
+    )
+    load_button.enabled = False
     ship_picker = None
     for index, delete_button in enumerate(delete_buttons):
         delete_button.callback = lambda slot=index + 1: request_delete(slot)
@@ -1059,6 +1630,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             display_checkbox.handle_event(event, menu_sound_manager)
             start_stop_button.handle_event(event, menu_sound_manager)
             back_button.handle_event(event, menu_sound_manager)
+            if not display_checkbox.value:
+                batch_log_box.handle_event(event, layout.arena_rect, log_font)
 
             if state.active_tab == "trainee":
                 translated = _translated_event(
@@ -1087,6 +1660,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     field.handle_event(translated)
                 for delete_btn in delete_buttons:
                     delete_btn.handle_event(translated, menu_sound_manager)
+                load_button.handle_event(translated, menu_sound_manager)
             elif state.active_tab == "rewards":
                 if (
                     event.type == pygame.MOUSEBUTTONDOWN
@@ -1148,6 +1722,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         for button in turning_buttons:
             button.enabled = controls_enabled
 
+        active_session = training_session[0]
+        session_status = active_session.status if active_session is not None else None
+        if active_session is not None:
+            active_session.set_display_on(state.display_on)
+            batch_log_box.set_lines(
+                _display_off_console_lines(session_status, active_session.log_lines)
+            )
+            state.running = session_status.running
+            if last_session_running[0] and not session_status.running:
+                if session_status.error:
+                    show_notice(session_status.error)
+                else:
+                    show_notice("Training stopped")
+                refresh_slot_controls()
+            last_session_running[0] = session_status.running
+
         update_field_colors()
         selected_slot = selected_model_slot()
         start_stop_button.enabled = (
@@ -1155,9 +1745,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             and selected_slot is not None
             and not selected_slot.is_bundled
         )
-        start_stop_button.text = "Start"
-        start_stop_button.bg_color = ui.OK_GREEN
-        start_stop_button.hover_color = ui.OK_GREEN_HI
+        load_button.enabled = selected_slot is not None and selected_slot.is_user
+        if session_status is not None and session_status.running:
+            start_stop_button.text = "Stopping" if session_status.stopping else "Stop"
+            start_stop_button.bg_color = ui.CAN_RED
+            start_stop_button.hover_color = ui.CAN_RED_HI
+        else:
+            start_stop_button.text = "Start"
+            start_stop_button.bg_color = ui.OK_GREEN
+            start_stop_button.hover_color = ui.OK_GREEN_HI
 
         if notice[0] is not None:
             notice[0].remaining_seconds -= elapsed_seconds
@@ -1168,7 +1764,19 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             screen.blit(background, (0, 0))
         else:
             screen.fill(ui.BG_COLOR)
-        _draw_arena_placeholder(screen, layout.arena_rect, state, arena_font)
+        if session_status is not None:
+            if state.display_on:
+                _draw_training_battle(
+                    screen,
+                    layout.arena_rect,
+                    session_status,
+                    battle_surface,
+                    training_battle_renderer,
+                )
+            else:
+                batch_log_box.draw(screen, layout.arena_rect, log_font)
+        else:
+            _draw_arena_placeholder(screen, layout.arena_rect, state, arena_font)
 
         trainee_tab.active = state.active_tab == "trainee"
         opponent_tab.active = state.active_tab == "opponent"
@@ -1215,6 +1823,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 )
                 field.draw(content, body_font)
                 delete_buttons[index].draw(content, body_font, content_mouse_pos)
+
+            load_button.draw(content, body_font, content_mouse_pos)
 
             source = pygame.Rect(
                 0,
@@ -1293,7 +1903,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         display_checkbox.draw(screen, body_font)
         start_stop_button.draw(screen, body_font)
         back_button.draw(screen, body_font)
-        _draw_hud_placeholders(screen, layout.hud_rects, small_font)
+        if state.display_on and session_status is not None:
+            _draw_training_huds(
+                screen, layout.hud_rects, session_status, small_font, log_font
+            )
+        else:
+            _draw_hud_placeholders(screen, layout.hud_rects, small_font)
 
         if (
             state.active_tab == "trainee"
