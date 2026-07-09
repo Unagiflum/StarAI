@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Phase 6: Replay and optimization. Complete.
+Phase 7: Training orchestration. Complete.
 
 ## Completed
 
@@ -65,6 +65,20 @@ Phase 6: Replay and optimization. Complete.
 - Added atomic `.pth` training checkpoint saves and load validation for model weights, optimizer state, optional replay state, and small extra training state.
 - Added focused Phase 6 tests for replay eviction, seeded sampling, replay state round-tripping, epsilon-greedy action selection, synthetic loss reduction, and checkpoint prediction round-tripping.
 
+### Phase 7
+
+- Added `src.training.orchestration` for headless training rounds and batches.
+- Added deterministic simple-opponent scheduling with exactly `rounds_per_batch * 25` matches in the stable ship-catalog order.
+- Added existing-AI opponent discovery that freezes loadable model snapshots at batch start, skips empty/unloadable slots, and reports skipped entries.
+- Added one-frame action application through the normal battle control API using the Phase 1 action table.
+- Added simple-opponent behavior controls for continuous thrust, A1, A2, fixed turning, and face/face-away turning.
+- Wired training rounds to `BattleSimulation(None, ...)` so initial two-ship entry is omitted without consuming simulation frames or rendering work.
+- Bound the Phase 4 event ledger, Phase 2/3 observation encoder, Phase 5 rolling-return pipeline, and Phase 6 replay buffer into the round loop.
+- Added terminal flushing for pending rolling-return windows on resolved outcomes and timeouts, while pending Pkunk rebirths keep the round non-terminal.
+- Fully armed AI-controlled Shofixti ships before the first actionable training frame.
+- Added end-of-batch replay optimization scheduling.
+- Added focused Phase 7 tests for opponent scheduling, action-control mapping, terminal flushing, Shofixti arming, pending-rebirth non-terminal handling, headless deterministic rounds, existing-AI discovery, and existing-AI batch counts.
+
 ## Verification
 
 - Passed: `python -m unittest tests.test_training_models tests.test_train_ai_ui`
@@ -100,7 +114,13 @@ Phase 6: Replay and optimization. Complete.
   - 54 tests passed.
 - Passed: `python -m unittest discover tests`
   - 654 tests passed.
+- Passed: `python -m unittest tests.test_training_orchestration`
+  - 8 tests passed.
+- Passed: `python -m unittest tests.test_training_orchestration tests.test_training_replay tests.test_training_rewards tests.test_training_phase4 tests.test_training_observation tests.test_training_models tests.test_train_ai_ui`
+  - 62 tests passed.
+- Passed: `python -m unittest discover tests`
+  - 662 tests passed.
 
 ## Next Phase
 
-Phase 7: Training orchestration.
+Phase 8: UI integration and hardening.
