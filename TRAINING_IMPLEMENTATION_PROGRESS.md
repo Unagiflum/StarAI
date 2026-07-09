@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Phase 2: Base observation encoder. Complete.
+Phase 3: Ship-specific state and object observations. Complete.
 
 ## Completed
 
@@ -29,6 +29,15 @@ Phase 2: Base observation encoder. Complete.
 - Left the Phase 3 object-slot section explicitly zero-filled behind the canonical object-slot boundary.
 - Added focused tests for exact observation size, finite values, object-slot zero fill, one-hot enemy type, cooldown/timer/velocity fields, held-key repeat countdowns, form/limpet-adjusted movement values, and missing-state defaults.
 
+### Phase 3
+
+- Completed the ship-specific observation fields for live Orz marines, boarded Orz marines, Ur-Quan fighters, Chmmr satellites, Chenjesu Dogis, and Kohr-Ah saws.
+- Extended the read-only observation encoder with optional `game_objects` input while preserving the existing no-world call path.
+- Added canonical object-slot population for enemy ship, planet, enemy/friendly A1 and non-A1 ability objects, asteroids, and Syreen crew.
+- Added toroidal nearest-object ordering, deterministic tie-breaking, relative bearing, inverse-distance, relative-velocity, expiration, and contact-effect encoding.
+- Added explicit object classification rules for A1 versus non-A1 objects, Syreen crew, asteroids, planets, and Chmmr satellite positional-slot exclusion.
+- Added focused Phase 3 tests for object slot ordering, zero masking, toroidal boundary geometry, expiration encoding, contact effects, satellite exclusion, Syreen crew slots, and ship-specific live counters.
+
 ## Verification
 
 - Passed: `python -m unittest tests.test_training_models tests.test_train_ai_ui`
@@ -42,7 +51,13 @@ Phase 2: Base observation encoder. Complete.
   - 18 tests passed.
 - Passed: `python -m unittest discover tests`
   - 627 tests passed.
+- Passed: `python -m unittest tests.test_training_observation`
+  - 10 tests passed.
+- Passed: `python -m unittest tests.test_training_observation tests.test_training_models tests.test_train_ai_ui`
+  - 32 tests passed.
+- Passed: `python -m unittest discover tests`
+  - 632 tests passed.
 
 ## Next Phase
 
-Phase 3: Ship-specific state and object observations.
+Phase 4: Pointing/range adapters and event ledger.

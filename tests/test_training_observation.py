@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import src.const as const
 from src.training.contracts import (
     ENEMY_SHIP_BLOCK_OFFSET,
+    OBJECT_SLOT_FIELDS,
+    OBJECT_SLOT_GROUPS,
     OBJECT_SLOT_OFFSET,
     OBSERVATION_FIELD_NAMES,
     OBSERVATION_INPUT_SIZE,
@@ -17,6 +19,10 @@ from src.training.observation import encode_observation
 
 def _field(prefix, name):
     return OBSERVATION_FIELD_NAMES.index(f"{prefix}.{name}")
+
+
+def _object_field(group, slot, name):
+    return OBSERVATION_FIELD_NAMES.index(f"object.{group}.{slot}.{name}")
 
 
 def _ship(name="Earthling", **overrides):
@@ -50,6 +56,22 @@ def _ship(name="Earthling", **overrides):
         "newly_pressed_controls": set(),
         "limpets_attached": 0,
         "boarded_marines": [],
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _obj(name, **overrides):
+    values = {
+        "name": name,
+        "position": [0.0, 0.0],
+        "velocity": [0.0, 0.0],
+        "currently_alive": True,
+        "current_hp": 1,
+        "current_damage": 0,
+        "can_expire": False,
+        "expiration_timer": 0,
+        "type": "projectile",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -159,6 +181,177 @@ class TrainingObservationTests(unittest.TestCase):
         self.assertEqual(observation[_field("self", "maximum_crew")], 0.0)
         self.assertEqual(observation[_field("self", "trackable")], 1.0)
         self.assertEqual(observation[_field("self", "orz_turret_relative_cosine")], 0.0)
+
+    def test_object_slots_encode_enemy_planet_and_toroidal_geometry(self):
+        trainee = _ship(
+            "Earthling",
+            position=[const.ARENA_SIZE - 10.0, 500.0],
+            rotation=90,
+            velocity=[2.0, 0.0],
+        )
+        enemy = _ship("Mycon", position=[10.0, 500.0], velocity=[2.0, 5.0])
+        planet = _obj(
+            "Planet",
+            position=[const.ARENA_SIZE - 10.0, 480.0],
+            gravity=1,
+            diameter=100,
+        )
+
+        observation = encode_observation(
+            trainee,
+            enemy,
+            game_objects=[trainee, enemy, planet],
+        )
+
+        self.assertEqual(observation[_object_field("enemy_ship", 0, "present")], 1.0)
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_ship", 0, "relative_bearing_sine")],
+            0.0,
+        )
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_ship", 0, "relative_bearing_cosine")],
+            1.0,
+        )
+        self.assertEqual(observation[_object_field("enemy_ship", 0, "inverse_distance")], 5.0)
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_ship", 0, "relative_velocity_sine")],
+            0.0,
+        )
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_ship", 0, "relative_velocity_cosine")],
+            -1.0,
+        )
+        self.assertEqual(observation[_object_field("planet", 0, "present")], 1.0)
+        self.assertEqual(observation[_object_field("planet", 0, "remaining_timer")], 5.0)
+
+    def test_object_slot_groups_order_and_zero_masking_are_stable(self):
+        trainee = _ship(
+            "Earthling",
+            player=1,
+            position=[const.ARENA_SIZE - 10.0, 500.0],
+            rotation=90,
+        )
+        enemy = _ship("Mycon", player=2, position=[500.0, 500.0])
+        beta = _obj(
+            "BetaA1",
+            parent=enemy,
+            player=2,
+            position=[const.ARENA_SIZE - 20.0, 500.0],
+        )
+        alpha = _obj("AlphaA1", parent=enemy, player=2, position=[0.0, 500.0])
+        friendly = _obj(
+            "FriendlyA1",
+            parent=trainee,
+            player=1,
+            position=[const.ARENA_SIZE - 10.0, 520.0],
+            current_damage=3,
+            can_expire=True,
+            expiration_timer=30,
+        )
+
+        observation = encode_observation(
+            trainee,
+            enemy,
+            game_objects=[trainee, enemy, beta, alpha, friendly],
+        )
+
+        self.assertEqual(observation[_object_field("enemy_a1", 0, "present")], 1.0)
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_a1", 0, "relative_bearing_cosine")],
+            1.0,
+        )
+        self.assertEqual(observation[_object_field("enemy_a1", 1, "present")], 1.0)
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_a1", 1, "relative_bearing_cosine")],
+            -1.0,
+        )
+        self.assertEqual(observation[_object_field("friendly_a1", 0, "expires")], 1.0)
+        self.assertEqual(
+            observation[_object_field("friendly_a1", 0, "remaining_timer")],
+            30 / const.FPS,
+        )
+        self.assertEqual(observation[_object_field("friendly_a1", 0, "expected_crew_effect")], -0.3)
+        self.assertTrue(
+            all(
+                observation[_object_field("friendly_a1", 1, field)] == 0.0
+                for field in OBJECT_SLOT_FIELDS
+            )
+        )
+
+    def test_special_object_classification_excludes_satellite_and_keeps_laser(self):
+        trainee = _ship("Earthling", player=1, position=[100.0, 100.0])
+        enemy = _ship("Chmmr", player=2, position=[500.0, 500.0])
+        satellite = _obj(
+            "ChmmrSatellite",
+            parent=enemy,
+            player=2,
+            type="special_object",
+            position=[110.0, 100.0],
+        )
+        satellite_laser = _obj(
+            "ChmmrSatelliteLaser",
+            parent=satellite,
+            player=2,
+            type="laser",
+            position=[120.0, 100.0],
+            current_damage=2,
+        )
+        syreen_crew = _obj(
+            "SyreenCrew",
+            parent=enemy,
+            player=2,
+            type="special_object",
+            position=[130.0, 100.0],
+        )
+
+        observation = encode_observation(
+            trainee,
+            enemy,
+            game_objects=[trainee, enemy, satellite, satellite_laser, syreen_crew],
+        )
+
+        self.assertEqual(observation[_object_field("enemy_non_a1", 0, "present")], 1.0)
+        self.assertEqual(observation[_object_field("enemy_non_a1", 0, "expected_crew_effect")], -0.2)
+        self.assertEqual(observation[_object_field("enemy_non_a1", 1, "present")], 0.0)
+        self.assertEqual(observation[_object_field("syreen_crew", 0, "present")], 1.0)
+        self.assertEqual(observation[_object_field("syreen_crew", 0, "expected_crew_effect")], 0.1)
+
+    def test_ship_specific_live_counts_use_world_objects(self):
+        trainee = _ship(
+            "Orz",
+            player=1,
+            position=[100.0, 100.0],
+            rotation=0,
+            turret_heading=90,
+        )
+        enemy = _ship("Mycon", player=2, position=[200.0, 100.0], boarded_marines=[])
+        floating_marine = _obj("OrzA3", parent=trainee, player=1, mode="outbound")
+        boarded_marine = _obj("OrzA3", parent=trainee, player=1, mode="boarded")
+        enemy.boarded_marines.append(boarded_marine)
+        objects = [
+            trainee,
+            enemy,
+            floating_marine,
+            boarded_marine,
+            _obj("KzerZaA2", parent=trainee, player=1),
+            _obj("ChmmrSatellite", parent=trainee, player=1),
+            _obj("ChenjesuA2", parent=trainee, player=1),
+            _obj("KohrAhA1", parent=trainee, player=1),
+        ]
+
+        observation = encode_observation(trainee, enemy, game_objects=objects)
+
+        self.assertAlmostEqual(observation[_field("self", "orz_turret_relative_sine")], 1.0)
+        self.assertAlmostEqual(observation[_field("self", "orz_turret_relative_cosine")], 0.0)
+        self.assertEqual(observation[_field("self", "orz_marines_floating")], 1 / 8)
+        self.assertEqual(observation[_field("self", "orz_marines_boarded_on_enemy")], 1 / 8)
+        self.assertEqual(observation[_field("self", "ur_quan_fighters")], 1 / 25)
+        self.assertEqual(observation[_field("self", "chmmr_satellites")], 1 / 3)
+        self.assertEqual(observation[_field("self", "chenjesu_dogis")], 1 / 4)
+        self.assertEqual(observation[_field("self", "kohr_ah_saws")], 1 / 8)
+
+    def test_object_slot_group_contract_still_totals_38_slots(self):
+        self.assertEqual(sum(count for _, count in OBJECT_SLOT_GROUPS), 38)
 
 
 if __name__ == "__main__":
