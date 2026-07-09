@@ -13,6 +13,7 @@ from src.collision_capabilities import (
 from src.Objects.Ships.ability import Ability, SPECIAL_OBJECT_AREA_IMMUNITIES
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.toroidal import wrapped_delta
+from src.training import event_ledger
 
 
 class ChenjesuA2(Ability):
@@ -156,6 +157,12 @@ class ChenjesuA2(Ability):
         self._delay_ship_controls(ship)
         if ship.player != self.player:
             ship.change_energy(-min(ship.current_energy, self.drain))
+            event_ledger.record_debuff_applied(
+                ship,
+                event_ledger.DEBUFF_DOGI_DRAIN,
+                actor=self.parent,
+                source=self,
+            )
             if self.hit_sound:
                 self.hit_sound.play()
         return True

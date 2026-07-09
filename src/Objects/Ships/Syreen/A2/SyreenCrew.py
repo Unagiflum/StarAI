@@ -13,6 +13,7 @@ from src.collision_capabilities import (
     SpecialObjectCollisionCapabilities,
 )
 from src.toroidal import wrapped_delta
+from src.training import event_ledger
 
 
 class SyreenCrew(Ability):
@@ -70,6 +71,12 @@ class SyreenCrew(Ability):
         crew_immune = bool(durability and durability.immune_to_psychic)
         if not crew_immune and ship.current_hp < ship.max_hp:
             ship.current_hp += 1
+            event_ledger.record_crew_changed(
+                ship,
+                1,
+                actor=self.parent,
+                source=self,
+            )
         self.current_hp = 0
         self.currently_alive = False
 

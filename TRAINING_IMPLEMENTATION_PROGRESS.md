@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Phase 3: Ship-specific state and object observations. Complete.
+Phase 4: Pointing/range adapters and event ledger. Complete.
 
 ## Completed
 
@@ -38,6 +38,15 @@ Phase 3: Ship-specific state and object observations. Complete.
 - Added explicit object classification rules for A1 versus non-A1 objects, Syreen crew, asteroids, planets, and Chmmr satellite positional-slot exclusion.
 - Added focused Phase 3 tests for object slot ordering, zero masking, toroidal boundary geometry, expiration encoding, contact effects, satellite exclusion, Syreen crew slots, and ship-specific live counters.
 
+### Phase 4
+
+- Added read-only A1/A2 pointing and effective-range predicates in `src.training.combat_adapters`.
+- Characterized conventional directional weapons, tracking/omnidirectional abilities, configured laser/area ranges, toroidal bearing, projectile lifetime/speed range, and unsupported actions.
+- Added an opt-in typed training battle event ledger in `src.training.event_ledger`.
+- Wired `BattleSimulation` and `World` to bind an optional ledger, stamp frame IDs, and record spawned ability objects, destruction, and natural expiration without changing behavior when no ledger is attached.
+- Instrumented crew loss/gain, battery deltas, ship deaths, limpet applications, Orz marine boarding, Melnorme confusion applications, Chenjesu/Dogi drains, Syreen crew pickup, and Pkunk rebirth attempts/completions.
+- Added focused Phase 4 tests for representative pointing/range predicates, loss followed by healing, launched crew-unit transfer suppression, debuff refreshes, object spawn/removal typing, and Pkunk rebirth exclusion from crew gain.
+
 ## Verification
 
 - Passed: `python -m unittest tests.test_training_models tests.test_train_ai_ui`
@@ -57,7 +66,11 @@ Phase 3: Ship-specific state and object observations. Complete.
   - 32 tests passed.
 - Passed: `python -m unittest discover tests`
   - 632 tests passed.
+- Passed: `python -m unittest tests.test_training_phase4 tests.test_training_observation tests.test_training_models tests.test_train_ai_ui`
+  - 41 tests passed.
+- Passed: `python -m unittest discover tests`
+  - 641 tests passed.
 
 ## Next Phase
 
-Phase 4: Pointing/range adapters and event ledger.
+Phase 5: Reward and rolling-return pipeline.

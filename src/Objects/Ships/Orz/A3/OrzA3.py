@@ -12,6 +12,7 @@ from src.Objects.object import ThrustMarker
 from src.Objects.Ships.ability import Ability, SPECIAL_OBJECT_AREA_IMMUNITIES
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.toroidal import wrapped_delta
+from src.training import event_ledger
 
 
 class OrzA3(Ability):
@@ -451,6 +452,12 @@ class OrzA3(Ability):
         )
         if self not in ship.boarded_marines:
             ship.boarded_marines.append(self)
+            event_ledger.record_debuff_applied(
+                ship,
+                event_ledger.DEBUFF_BOARDING_MARINE,
+                actor=self.parent,
+                source=self,
+            )
         if self.alarm_sound:
             self.alarm_sound.play()
         return True

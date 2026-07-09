@@ -10,6 +10,7 @@ from src.Objects.object import Object, ThrustMarker
 from src.Objects.Space.space_obj import Asteroid, Planet, Star
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
+from src.training import event_ledger
 
 T = TypeVar("T")
 
@@ -54,10 +55,13 @@ class World:
     def __init__(self, objects: Iterable[Any] | None = None):
         if isinstance(objects, World):
             self._objects = objects.objects
+            self.training_event_ledger = objects.training_event_ledger
         elif isinstance(objects, list):
             self._objects = objects
+            self.training_event_ledger = None
         else:
             self._objects = list(objects or [])
+            self.training_event_ledger = None
 
     @classmethod
     def coerce(cls, objects: "World | list[Any]") -> "World":
@@ -128,14 +132,24 @@ class World:
     def add(self, obj: Any) -> None:
         if hasattr(obj, "position") and hasattr(obj, "previous_position"):
             obj.previous_position = obj.position.copy()
+        event_ledger.bind_ledger(obj, self.training_event_ledger)
         self._objects.append(obj)
+        event_ledger.record_spawned(obj)
 
     def add_all(self, objects: Iterable[Any]) -> None:
         objects_list = list(objects)
         for obj in objects_list:
             if hasattr(obj, "position") and hasattr(obj, "previous_position"):
                 obj.previous_position = obj.position.copy()
+            event_ledger.bind_ledger(obj, self.training_event_ledger)
         self._objects.extend(objects_list)
+        for obj in objects_list:
+            event_ledger.record_spawned(obj)
+
+    def set_training_event_ledger(self, ledger) -> None:
+        self.training_event_ledger = ledger
+        for obj in self._objects:
+            event_ledger.bind_ledger(obj, ledger)
 
     def remove(self, obj: Any) -> None:
         self._objects.remove(obj)
@@ -305,6 +319,7 @@ class World:
             alive = obj.update()
             spawned_objects.extend(self._drain_spawned_objects(obj))
             if not alive:
+                self._record_removed_after_update(obj)
                 self.remove(obj)
         self.add_all(spawned_objects)
 
@@ -318,6 +333,17 @@ class World:
         return drain() if drain is not None else ()
 
     def remove_dead_collision_objects(self) -> None:
+        for obj in self._objects:
+            if isinstance(obj, (Ability, Asteroid)) and not obj.currently_alive:
+                event_ledger.record_removed(
+                    obj,
+                    destroyed=getattr(obj, "current_hp", 1) <= 0,
+                    reason=(
+                        "destruction"
+                        if getattr(obj, "current_hp", 1) <= 0
+                        else "natural_expiration"
+                    ),
+                )
         self.remove_where(
             lambda obj: (
                 isinstance(obj, (Ability, Asteroid)) and not obj.currently_alive
@@ -336,3 +362,23 @@ class World:
             spawned_objects.extend(self._drain_spawned_objects(obj))
         self.remove_dead_collision_objects()
         self.add_all(spawned_objects)
+
+    @staticmethod
+    def _record_removed_after_update(obj: Any) -> None:
+        if not isinstance(obj, Ability) and getattr(obj, "type", None) not in {
+            "projectile",
+            "special_object",
+            "laser",
+            "area",
+        }:
+            return
+        destroyed = getattr(obj, "current_hp", 1) <= 0 or not getattr(
+            obj,
+            "currently_alive",
+            True,
+        )
+        event_ledger.record_removed(
+            obj,
+            destroyed=destroyed,
+            reason="destruction" if destroyed else "natural_expiration",
+        )

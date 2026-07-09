@@ -23,6 +23,7 @@ from src.turn_credits import (
     initialize_turn_credits,
     spend_turn_credits,
 )
+from src.training import event_ledger
 
 CONTROL_STATE_ATTRIBUTES = {
     "thrust": "thrust_active",
@@ -161,6 +162,10 @@ class SpaceShip(PlayerObject):
         start_thrust_wait = ship_definition.thrust_wait
 
         self.limpets_attached += 1
+        event_ledger.record_debuff_applied(
+            self,
+            event_ledger.DEBUFF_LIMPET,
+        )
 
         # Calculate new stats based on number of limpets
         self.turn_wait = min(255, start_turn_wait + self.limpets_attached)
@@ -455,7 +460,9 @@ class SpaceShip(PlayerObject):
         previous_hp = self.current_hp
         min_hp = 1 if non_lethal else 0
         self.current_hp = max(min_hp, self.current_hp - damage)
-        return previous_hp - self.current_hp
+        applied = previous_hp - self.current_hp
+        event_ledger.record_crew_changed(self, -applied)
+        return applied
 
     def update(self):
         self.previous_position = self.position.copy()
@@ -541,9 +548,14 @@ class SpaceShip(PlayerObject):
         if delta < 0 and -delta > self.current_energy:
             return False
 
+        previous_energy = self.current_energy
         self.current_energy = max(
             0,
             min(self.max_energy, self.current_energy + delta),
+        )
+        event_ledger.record_battery_changed(
+            self,
+            self.current_energy - previous_energy,
         )
         if reset_wait:
             self.energy_timer = 0
@@ -558,6 +570,10 @@ class SpaceShip(PlayerObject):
         self.confused_timer = max(0, int(duration))
         self.confused_frame = 0
         self.confused_turn_direction = -1 if turn_direction < 0 else 1
+        event_ledger.record_debuff_applied(
+            self,
+            event_ledger.DEBUFF_CONFUSION,
+        )
 
     def clear_confused(self):
         self.confused_timer = 0
@@ -670,7 +686,10 @@ class SpaceShip(PlayerObject):
             reset_wait=plan.resets_energy_wait,
         ):
             return ActionResult.invalid()
-        self.current_hp += plan.crew_change
+        if plan.crew_change:
+            self.current_hp += plan.crew_change
+            if not self._crew_change_is_launched_unit_transfer(plan):
+                event_ledger.record_crew_changed(self, plan.crew_change)
         cooldown_action = None
         if plan.cooldown_committed:
             cooldown_action = plan.action_number
@@ -703,6 +722,17 @@ class SpaceShip(PlayerObject):
     def execute_action_result(self, action_number, factory=None) -> ActionResult:
         """Validate and commit a common action, returning its typed result."""
         return self.commit_action(self.validate_action(action_number, factory))
+
+    def _crew_change_is_launched_unit_transfer(self, plan: ActionPlan) -> bool:
+        if plan.crew_change >= 0:
+            return False
+        crew_unit_names = {"OrzA3", "KzerZaA2"}
+        unit_count = sum(
+            1
+            for action_object in plan.spawned_objects
+            if getattr(action_object, "name", None) in crew_unit_names
+        )
+        return unit_count == abs(plan.crew_change)
 
     def execute_action(self, action_number, factory=None):
         """Compatibility wrapper returning the historical raw action value."""

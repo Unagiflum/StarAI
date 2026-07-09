@@ -29,6 +29,7 @@ from src.collision_capabilities import (
 )
 from src.Objects.Ships.ability import Ability
 from src.toroidal import view_center_and_size, wrapped_delta
+from src.training import event_ledger
 
 PLANET_CONTACT_EXIT_MARGIN = 4.0
 
@@ -1280,6 +1281,11 @@ def destroy_projectile(projectile, effects, direction, damage, contact_position=
 
     projectile.current_hp = 0
     projectile.currently_alive = False
+    event_ledger.record_removed(
+        projectile,
+        destroyed=True,
+        reason="destruction",
+    )
     on_destroyed = getattr(projectile, "on_destroyed", None)
     if on_destroyed is not None:
         on_destroyed()
@@ -1298,6 +1304,11 @@ def destroy_asteroid(asteroid, effects):
             )
         )
     asteroid.currently_alive = False
+    event_ledger.record_removed(
+        asteroid,
+        destroyed=True,
+        reason="destruction",
+    )
 
 
 def object_on_screen(obj, ships):

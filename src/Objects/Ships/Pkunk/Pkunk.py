@@ -5,6 +5,7 @@ from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.Pkunk.A1.PkunkA1 import PkunkA1
 from src.Objects.Ships.Pkunk.A2.PkunkA2 import PkunkA2
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
+from src.training import event_ledger
 
 
 class Pkunk(SpaceShip):
@@ -40,7 +41,16 @@ class Pkunk(SpaceShip):
         return SHIP_DEFINITIONS[self.name].circle_gap
 
     def attempt_rebirth(self):
-        if self.rng.random() >= self.current_rebirth_chance:
+        success = self.rng.random() < self.current_rebirth_chance
+        ledger = event_ledger.ledger_for(self)
+        if ledger is not None:
+            ledger.append(
+                event_ledger.EVENT_REBIRTH_ATTEMPT,
+                owner=self,
+                target=self,
+                magnitude=1.0 if success else 0.0,
+            )
+        if not success:
             return False
 
         self.rebirth_count += 1
@@ -57,6 +67,13 @@ class Pkunk(SpaceShip):
         self.can_collide = True
         self.reset_controls()
         self.reset_limpets()
+        ledger = event_ledger.ledger_for(self)
+        if ledger is not None:
+            ledger.append(
+                event_ledger.EVENT_REBIRTH_COMPLETED,
+                owner=self,
+                target=self,
+            )
         if self.audio_service is not None:
             self.audio_service.play_effect(
                 const.source_path("Objects/Ships/Pkunk/Pkunk-rebirth.wav")

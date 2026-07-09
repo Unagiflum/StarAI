@@ -84,6 +84,7 @@ class BattleSimulation:
         rng=None,
         resources=None,
         include_stars=True,
+        training_event_ledger=None,
     ):
         if seed is not None and rng is not None:
             raise ValueError("Pass either seed or rng, not both")
@@ -112,6 +113,8 @@ class BattleSimulation:
         )
         self.settings = battle_state["settings"]
         self.world = battle_state["world"]
+        self.training_event_ledger = training_event_ledger
+        self.world.set_training_event_ledger(training_event_ledger)
         self.border_rect = battle_state["border_rect"]
         self.border_color = battle_state["border_color"]
         self.player1 = battle_state["player1"]
@@ -159,6 +162,9 @@ class BattleSimulation:
     @game_objects.setter
     def game_objects(self, objects):
         self.world = World(objects)
+        self.world.set_training_event_ledger(
+            getattr(self, "training_event_ledger", None)
+        )
 
     def _initial_key_states(self):
         return {
@@ -172,6 +178,9 @@ class BattleSimulation:
             return self.state()
 
         self.frame_id += 1
+        training_event_ledger = getattr(self, "training_event_ledger", None)
+        if training_event_ledger is not None:
+            training_event_ledger.current_frame = self.frame_id
         self.needs_selection = False
 
         for key, pressed in key_changes or []:
