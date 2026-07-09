@@ -6,11 +6,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+import src.const as const
 from src.persistence import EXPECTED_READ_ERRORS, atomic_write_json, read_json
+from src.training.contracts import (
+    ACTION_OUTPUT_SIZE,
+    ACTION_SCHEMA_METADATA,
+    ACTION_SCHEMA_VERSION,
+    OBSERVATION_INPUT_SIZE,
+    OBSERVATION_SCHEMA_VERSION,
+    SHIP_TYPE_CATALOG_ORDER,
+)
 
 
 MODEL_SLOT_COUNT = 4
-MODEL_METADATA_VERSION = 1
+MODEL_METADATA_VERSION = 2
 SLOT_EMPTY = "empty"
 SLOT_BUNDLED = "bundled"
 SLOT_USER = "user"
@@ -49,6 +58,47 @@ def model_paths(directory: Path, ship: str, slot: int) -> tuple[Path, Path]:
     return base.with_suffix(".pth"), base.with_suffix(".json")
 
 
+def model_architecture_metadata(
+    hidden_layer_width: int,
+    hidden_layer_count: int,
+    *,
+    optimizer: str = "adam",
+    loss: str = "huber",
+) -> dict[str, Any]:
+    return {
+        "input_size": OBSERVATION_INPUT_SIZE,
+        "hidden_layer_width": int(hidden_layer_width),
+        "hidden_layer_count": int(hidden_layer_count),
+        "output_count": ACTION_OUTPUT_SIZE,
+        "activation": "relu",
+        "output_activation": None,
+        "optimizer": optimizer,
+        "loss": loss,
+    }
+
+
+def normalize_architecture_metadata(architecture: Mapping[str, Any]) -> dict[str, Any]:
+    width = architecture.get("hidden_layer_width", architecture.get("hidden_layer_size"))
+    count = architecture.get("hidden_layer_count")
+    if width is None or count is None:
+        return dict(architecture)
+    return model_architecture_metadata(
+        int(width),
+        int(count),
+        optimizer=str(architecture.get("optimizer", "adam")),
+        loss=str(architecture.get("loss", "huber")),
+    )
+
+
+def current_game_settings_metadata() -> dict[str, int]:
+    return {
+        "ship_directions": const.SHIP_DIRECTIONS,
+        "asteroid_count": const.ASTEROID_COUNT,
+        "repeat_key_delay": const.INPUT_REPEAT_DELAY_FRAMES,
+        "fps": const.FPS,
+    }
+
+
 def _description_from_metadata(path: Path) -> tuple[str, Mapping[str, Any] | None]:
     if not path.exists():
         return "", None
@@ -69,14 +119,26 @@ def metadata_from_state(
     description: str,
     architecture: Mapping[str, Any],
     training: Mapping[str, Any],
+    game_settings: Mapping[str, Any] | None = None,
+    progress: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    game_settings_metadata = (
+        dict(game_settings) if game_settings is not None else current_game_settings_metadata()
+    )
     return {
         "schema_version": MODEL_METADATA_VERSION,
+        "observation_schema_version": OBSERVATION_SCHEMA_VERSION,
+        "observation_input_size": OBSERVATION_INPUT_SIZE,
+        "ship_type_catalog_order": list(SHIP_TYPE_CATALOG_ORDER),
+        "action_schema_version": ACTION_SCHEMA_VERSION,
+        "action_ordering": [dict(action) for action in ACTION_SCHEMA_METADATA],
         "ship": ship,
         "slot": slot,
         "description": description,
-        "architecture": dict(architecture),
+        "architecture": normalize_architecture_metadata(architecture),
         "training": dict(training),
+        "game_settings": game_settings_metadata,
+        "progress": {"completed_batches": 0, **dict(progress or {})},
     }
 
 
@@ -120,8 +182,12 @@ class TrainingModelRepository:
     def create_or_update_user_model(self, metadata: Mapping[str, Any]) -> TrainingModelSlot:
         ship = str(metadata["ship"])
         slot = int(metadata["slot"])
-        if self.slot_for(ship, slot).is_bundled:
+        current_slot = self.slot_for(ship, slot)
+        if current_slot.is_bundled:
             raise PermissionError("Bundled training models are read-only")
+        description = str(metadata.get("description", "")).strip()
+        if not current_slot.exists and not description:
+            raise ValueError("New training models require a description")
 
         pth_path, metadata_path = model_paths(self.user_dir, ship, slot)
         pth_path.parent.mkdir(parents=True, exist_ok=True)

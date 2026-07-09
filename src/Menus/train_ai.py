@@ -25,6 +25,7 @@ from src.training.model_registry import (
     TrainingModelRepository,
     TrainingModelSlot,
     metadata_from_state,
+    model_architecture_metadata,
 )
 
 
@@ -322,7 +323,7 @@ class RewardSlider:
 
 
 class TextField:
-    """Small single-line editor used for optional AI-slot descriptions."""
+    """Small single-line editor used for AI-slot descriptions."""
 
     def __init__(self, rect, text="", max_length=24):
         self.rect = pygame.Rect(rect)
@@ -826,10 +827,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     exited = [False]
 
     def architecture_metadata():
-        return {
-            "hidden_layer_size": state.hidden_layer_size,
-            "hidden_layer_count": state.hidden_layer_count,
-        }
+        return model_architecture_metadata(
+            state.hidden_layer_size,
+            state.hidden_layer_count,
+        )
 
     def training_metadata():
         return {
@@ -917,10 +918,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         model_slot = selected_model_slot()
         if state.selected_ship is None or model_slot is None or model_slot.is_bundled:
             return
+        description = slot_fields[state.selected_slot - 1].text.strip()
         metadata = metadata_from_state(
             ship=state.selected_ship,
             slot=state.selected_slot,
-            description=slot_fields[state.selected_slot - 1].text,
+            description=description,
             architecture=architecture_metadata(),
             training=training_metadata(),
         )
@@ -961,9 +963,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         new_architecture = architecture_metadata()
         new_training = training_metadata()
-        current_description = slot_fields[state.selected_slot - 1].text
+        current_description = slot_fields[state.selected_slot - 1].text.strip()
 
         if model_slot.source == SLOT_EMPTY:
+            if not current_description:
+                show_notice("Enter a model description before creating a new AI")
+                return
             persist_selected_model()
             show_notice(f"Created {describe_model(selected_model_slot())}")
             return
