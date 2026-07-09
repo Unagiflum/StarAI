@@ -117,7 +117,7 @@ Rules:
 - Pending samples only become replayable once their window matures or the round
   terminates.
 - Replay-buffer capacity comes from the Training UI.
-- Sample minibatches from replay at the end of each epoch initially, matching
+- Sample minibatches from replay at the end of each batch initially, matching
   the existing product description.
 - Keep update scheduling modular so training frequency can be changed after
   observing performance without changing observation or reward contracts.
@@ -392,7 +392,7 @@ collision side effects:
 Instrumentation must not change collision ordering, RNG consumption, damage,
 spawning, or other battle behavior when training is disabled.
 
-## 6. Training rounds and epochs
+## 6. Training rounds and batches
 
 ### 6.1 Simple-behavior opponents
 
@@ -418,7 +418,7 @@ rounds per batch = UI rounds_per_batch * available_AI_count
 ```
 
 Freeze the opponent list and loaded model snapshots at a safe boundary such as
-epoch start so saving the trainee cannot mutate an opponent during a round.
+batch start so saving the trainee cannot mutate an opponent during a round.
 Report incompatible or unloadable opponents and skip them safely.
 
 ### 6.3 Round behavior
@@ -472,13 +472,15 @@ Metadata must include at least:
 - Output count 24
 - Optimizer/loss identifiers
 - Training settings, including learning rate, epsilon, replay capacity,
-  prediction window, rounds per batch, match-time limit, and opponent mode
+  prediction window, rounds per batch, batch grouping, match-time limit, and
+  opponent mode
 - Reward names and weights
 - Ship-direction setting
 - Asteroid setting
 - Repeat-key delay
 - Simulation FPS
-- Training progress counters
+- Training progress counters, including the absolute cumulative completed-batch
+  count
 
 When loading:
 
@@ -506,10 +508,11 @@ Connect the existing Training UI without redesigning it unless required:
 - Epsilon.
 - Hidden-layer width/count.
 - Display toggle.
+- Batch grouping.
 
 Show useful live status:
 
-- Epoch and round progress
+- Batch and round progress
 - Current opponent
 - Current round frame/time
 - Replay-buffer occupancy
@@ -518,6 +521,85 @@ Show useful live status:
 - Weighted total return
 - Per-component reward totals
 - Model-save or compatibility errors
+
+### 8.1 Display-off batch log and metrics export
+
+Maintain a structured batch-metrics history regardless of whether the training
+display is currently on. The history must be independent of presentation state
+so turning display off can immediately show recent completed-batch results.
+
+When the Display on button is unchecked, replace the main square display window
+with a scrollable text box. The text must use a monospace font, support
+selectable text, and append one line when each batch finishes. The text box
+should show a bounded recent history rather than unbounded session history; keep
+at least the most recent 1,000 batch-summary lines in memory.
+
+This display-off diagnostics view must not affect training semantics. It must
+not change simulation timing, RNG consumption, physics, reward calculation,
+opponent ordering, replay contents, optimization scheduling, or batch
+boundaries.
+
+A batch is the complete set of matches defined by section 6:
+
+```text
+simple-opponent batch = UI rounds_per_batch * 25 matches
+existing-AI batch = UI rounds_per_batch * available_AI_count matches
+```
+
+For each completed batch, collect:
+
+- Match count.
+- Wins: opponent dies and trainee does not.
+- Losses: trainee dies and opponent does not.
+- Draws: both die, both survive, or the match-time limit is reached with both
+  ships alive.
+- Average match score, meaning average reward score per match in the batch.
+- Epsilon.
+- Learning rate.
+- Average loss for optimization performed for the batch.
+
+The Batch grouping slider defines the rolling-average window size for displayed
+parenthesized averages and CSV export. Include the current completed batch in
+the rolling window. If fewer than Batch grouping completed batches are
+available, average over all available completed batches.
+
+The display line format is:
+
+```text
+Batch      45 |   250 matches |   120 W,    30 L,   100 D | Avg. Match score:  30.5 ( 25.0) | Epsilon: 0.00200 | LR: 0.000100 | Loss: 0.0600 (0.0500)
+```
+
+Formatting rules:
+
+- Use spaces, not leading zeroes, for padding.
+- Batch numbers are right-aligned for values through `1000000`.
+- Match count and W/L/D counts are right-aligned for values through `10000`.
+- Match-score values are right-aligned for values through `100.0` and always
+  include one digit after the decimal point.
+- Epsilon always uses five digits after the decimal point.
+- Learning rate always uses six digits after the decimal point.
+- Loss values always use four digits after the decimal point.
+
+Whenever the absolute cumulative completed-batch count is an exact multiple of
+Batch grouping, append a CSV row containing rolling averages for the current
+grouping window. The CSV file lives in the same model directory as the trainee
+model weights and JSON sidecar. Its filename is based on the trainee ship and
+slot in the form `Ship-01.csv`, where `Ship` is the trainee ship name made
+filesystem-safe using the same convention as model files, and `01` is the
+zero-padded trainee AI slot number.
+
+Create the CSV file with a header when it does not already exist, even if the
+model's cumulative completed-batch count is not zero. Existing files are
+appended without rewriting the header. The required CSV columns are:
+
+```text
+Batch, Score, Epsilon, Learning Rate, Loss
+1000, 34.3, 0.00200, 0.000100, 0.0500
+```
+
+`Batch` is the absolute cumulative completed-batch count tracked in the model
+JSON sidecar. `Score`, `Epsilon`, `Learning Rate`, and `Loss` use the rolling
+averages for the current Batch grouping window, not only the most recent batch.
 
 Do not implement a separate automated evaluation system in the initial phases.
 Initial assessment is by user observation. Keep training metrics structured so
@@ -634,11 +716,11 @@ Acceptance:
 
 Scope:
 
-- Run full training rounds and epochs.
+- Run full training rounds and batches.
 - Implement both opponent modes.
 - Add Shofixti arming, timeout handling, terminal flushing, training transition
   shortening, and display-off simulation.
-- Perform the initial end-of-epoch replay updates.
+- Perform the initial end-of-batch replay updates.
 
 Acceptance:
 
@@ -659,6 +741,7 @@ Scope:
 
 - Connect Start/Stop and all UI settings.
 - Show progress and reward diagnostics.
+- Show the display-off batch log and write grouped CSV metrics.
 - Add compatibility warnings and error handling.
 - Verify display-on versus display-off simulation equivalence.
 - Profile obvious bottlenecks without changing learning semantics.
@@ -668,6 +751,10 @@ Acceptance:
 - A user can create, train, stop, save, reload, and continue a writable model.
 - Bundled slots remain protected.
 - Setting mismatches warn clearly.
+- Display-off mode shows selectable monospace batch-summary text without
+  changing training results.
+- Grouped CSV metrics append to the trainee model directory with the correct
+  header, filename, cumulative batch number, and rolling averages.
 - UI remains responsive and reports failures without corrupting the model.
 - Focused training tests and the full relevant game suite pass.
 
