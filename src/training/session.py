@@ -245,14 +245,19 @@ def rolling_metrics(history: tuple[BatchMetrics, ...], grouping: int) -> BatchMe
 
 
 def format_batch_summary_line(metrics: BatchMetrics, rolling: BatchMetrics) -> str:
+    win_rate = (metrics.wins / metrics.match_count * 100.0) if metrics.match_count > 0 else 0.0
+    loss_rate = (metrics.losses / metrics.match_count * 100.0) if metrics.match_count > 0 else 0.0
+    draw_rate = (metrics.draws / metrics.match_count * 100.0) if metrics.match_count > 0 else 0.0
+    rolling_win_rate = (rolling.wins / rolling.match_count * 100.0) if rolling.match_count > 0 else 0.0
+
     return (
-        f"Batch {metrics.batch:7d} | "
-        f"{metrics.match_count:5d} matches | "
-        f"{metrics.wins:5d} W, {metrics.losses:5d} L, {metrics.draws:5d} D | "
-        f"Avg. Match score: {metrics.average_match_score:5.1f} "
-        f"({rolling.average_match_score:5.1f}) | "
+        f"Batch {metrics.batch:6d} | "
+        f"{win_rate:5.1f}% W ({rolling_win_rate:5.1f}), "
+        f"{loss_rate:5.1f}% L, "
+        f"{draw_rate:5.1f}% D | "
+        f"Score: {metrics.average_match_score:6.2f} ({rolling.average_match_score:6.2f}) | "
         f"Epsilon: {metrics.epsilon:.5f} | "
-        f"LR: {metrics.learning_rate:.6f} | "
+        f"LR: {metrics.learning_rate:.5f} | "
         f"Loss: {metrics.average_loss:.4f} ({rolling.average_loss:.4f})"
     )
 

@@ -164,7 +164,7 @@ class TrainingRewardComponentTests(unittest.TestCase):
 
         self.assertEqual(components[REWARD_SPAWN_A1], 1.0)
         self.assertEqual(components[REWARD_SPAWN_A2], 1.0)
-        self.assertEqual(components[REWARD_HIGH_SPEED], 1.0)
+        self.assertAlmostEqual(components[REWARD_HIGH_SPEED], 0.1)
         self.assertEqual(components[REWARD_ENEMY_LOSES_CREW], 2.0)
         self.assertEqual(components[REWARD_LOSE_CREW], 3.0)
         self.assertEqual(components[REWARD_GAIN_CREW], 1.0)
@@ -184,6 +184,22 @@ class TrainingRewardComponentTests(unittest.TestCase):
 
         self.assertEqual(components[REWARD_LOSE_BATTERY], 4.0)
         self.assertEqual(components[REWARD_BATTERY_AT_ZERO], 1.0)
+
+    def test_high_speed_reward_is_per_frame_excess_speed_ratio(self):
+        decisions = [
+            decision(1, self.trainee, self.enemy, speed=15, max_thrust=10),
+            decision(2, self.trainee, self.enemy, speed=12, max_thrust=10),
+            decision(3, self.trainee, self.enemy, speed=9, max_thrust=10),
+        ]
+        outcomes = [
+            outcome(1, speed=15, max_thrust=10),
+            outcome(2, speed=12, max_thrust=10),
+            outcome(3, speed=9, max_thrust=10),
+        ]
+
+        components = calculate_reward_components(decisions[0], decisions, outcomes)
+
+        self.assertAlmostEqual(components[REWARD_HIGH_SPEED], (0.5 + 0.2) / 3)
 
     def test_natural_expiration_does_not_count_as_kill_enemy_object(self):
         event = TrainingBattleEvent(

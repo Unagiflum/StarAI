@@ -345,9 +345,9 @@ Implement the remaining rewards as follows:
 - **Spawn A2 object:** Award once if one or more non-A1 ability objects are
   spawned during the window for the A2 reward contract. A1+A2/A3-created
   objects are non-A1.
-- **Get to high speed:** Award if self started the window at or below current
-  `max_thrust` speed and ends the window above `max_thrust`. Planet-assisted
-  speed is valid.
+- **Be at high speed:** Award every frame where self speed exceeds current
+  `max_thrust`. The component value for that frame is
+  `(speed - max_thrust) / max_thrust`. Planet-assisted speed is valid.
 - **Enemy loses crew:** One unit per enemy crew lost from any cause. Count
   deaths of crew represented by launched Orz marines and Ur-Quan fighters.
   Launching those units is not itself crew loss. Later healing, regeneration,

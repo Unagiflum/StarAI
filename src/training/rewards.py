@@ -23,7 +23,7 @@ REWARD_SPAWN_A1 = "Spawn A1 object"
 REWARD_POINT_A2 = "Point A2 at enemy"
 REWARD_A2_RANGE = "Get in A2 weapon range"
 REWARD_SPAWN_A2 = "Spawn A2 object"
-REWARD_HIGH_SPEED = "Get to high speed"
+REWARD_HIGH_SPEED = "Be at high speed"
 REWARD_ENEMY_LOSES_CREW = "Enemy loses crew"
 REWARD_DEBUFF_ENEMY = "Debuff enemy"
 REWARD_KILL_ENEMY_OBJECT = "Kill enemy object"
@@ -261,11 +261,10 @@ def calculate_immediate_reward_components(
     components[REWARD_POINT_A2] = 1.0 if decision.a2_pointing else 0.0
     components[REWARD_A2_RANGE] = 1.0 if decision.a2_in_range else 0.0
 
-    if (
-        decision.self_speed <= decision.self_max_thrust
-        and outcome.self_speed > outcome.self_max_thrust
-    ):
-        components[REWARD_HIGH_SPEED] = 1.0
+    if outcome.self_max_thrust > 0.0 and outcome.self_speed > outcome.self_max_thrust:
+        components[REWARD_HIGH_SPEED] = (
+            outcome.self_speed - outcome.self_max_thrust
+        ) / outcome.self_max_thrust
 
     battery_delta = outcome.self_battery - decision.self_battery
     if battery_delta > 0:
