@@ -86,7 +86,6 @@ class TrainingRoundTests(unittest.TestCase):
         replay = TrainingReplayBuffer(capacity=16)
         config = TrainingOrchestrationConfig(
             trainee_ship="Earthling",
-            prediction_window=10,
             match_time_limit=3,
             movement_behaviors=frozenset({MOVEMENT_FORWARD}),
         )
@@ -133,7 +132,6 @@ class TrainingRoundTests(unittest.TestCase):
         replay = TrainingReplayBuffer(capacity=8)
         config = TrainingOrchestrationConfig(
             trainee_ship="Earthling",
-            prediction_window=2,
             match_time_limit=2,
         )
 
@@ -156,7 +154,6 @@ class TrainingRoundTests(unittest.TestCase):
             replay = TrainingReplayBuffer(capacity=8)
             config = TrainingOrchestrationConfig(
                 trainee_ship="Earthling",
-                prediction_window=2,
                 match_time_limit=2,
                 display_on=display_on,
             )
@@ -181,7 +178,7 @@ class TrainingRoundTests(unittest.TestCase):
         replay = TrainingReplayBuffer(capacity=8)
         config = TrainingOrchestrationConfig(
             trainee_ship="Earthling",
-            prediction_window=1,
+            gamma=0.0,
             match_time_limit=1,
         )
         events = []
@@ -205,7 +202,7 @@ class TrainingRoundTests(unittest.TestCase):
         replay = TrainingReplayBuffer(capacity=8)
         config = TrainingOrchestrationConfig(
             trainee_ship="Earthling",
-            prediction_window=1,
+            gamma=0.0,
             match_time_limit=10,
         )
         stop_requested = [False]
@@ -277,7 +274,7 @@ class ExistingAIOpponentTests(unittest.TestCase):
                 trainee_ship="Earthling",
                 opponent_mode=OPPONENT_MODE_EXISTING_AI,
                 rounds_per_batch=2,
-                prediction_window=1,
+                gamma=0.0,
                 match_time_limit=1,
                 minibatch_size=1,
             )

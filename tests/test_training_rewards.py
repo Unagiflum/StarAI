@@ -31,6 +31,7 @@ from src.training.rewards import (
     RewardFrameOutcome,
     RollingReturnPipeline,
     calculate_reward_components,
+    discount_cutoff_frames,
 )
 
 
@@ -207,9 +208,11 @@ class RollingReturnPipelineTests(unittest.TestCase):
         self.trainee = SimpleNamespace(name="Earthling")
         self.enemy = SimpleNamespace(name="Chenjesu")
 
-    def test_sample_matures_when_prediction_window_is_full(self):
+    def test_sample_matures_when_discount_cutoff_is_reached(self):
+        gamma = 0.2
+        self.assertEqual(discount_cutoff_frames(gamma), 3)
         pipeline = RollingReturnPipeline(
-            prediction_window=3,
+            gamma=gamma,
             reward_weights={REWARD_POINT_A1: 6.0, REWARD_GAIN_BATTERY: 2.0},
         )
 
@@ -238,13 +241,18 @@ class RollingReturnPipelineTests(unittest.TestCase):
         self.assertEqual(sample.action_index, 3)
         self.assertEqual(sample.actual_frame_count, 3)
         self.assertFalse(sample.terminal_truncated)
-        self.assertAlmostEqual(sample.component_values[REWARD_POINT_A1], 1 / 3)
-        self.assertEqual(sample.component_values[REWARD_GAIN_BATTERY], 3.0)
-        self.assertAlmostEqual(sample.return_value, 8.0)
+        discount_sum = 1.0 + gamma + gamma**2
+        self.assertAlmostEqual(
+            sample.component_values[REWARD_POINT_A1],
+            1.0 / discount_sum,
+        )
+        self.assertEqual(sample.component_values[REWARD_GAIN_BATTERY], 1.0)
+        self.assertAlmostEqual(sample.return_value, 6.0 / discount_sum + 2.0)
 
     def test_terminal_frame_flushes_every_pending_window_and_truncates_return(self):
+        gamma = 0.5
         pipeline = RollingReturnPipeline(
-            prediction_window=5,
+            gamma=gamma,
             reward_weights={REWARD_POINT_A1: 10.0},
         )
 
@@ -264,8 +272,14 @@ class RollingReturnPipelineTests(unittest.TestCase):
         self.assertEqual([sample.start_frame_id for sample in matured], [1, 2, 3])
         self.assertEqual([sample.actual_frame_count for sample in matured], [3, 2, 1])
         self.assertTrue(all(sample.terminal_truncated for sample in matured))
-        self.assertAlmostEqual(matured[0].return_value, 10.0 * (2 / 3))
-        self.assertAlmostEqual(matured[1].return_value, 10.0 * (1 / 2))
+        self.assertAlmostEqual(
+            matured[0].return_value,
+            10.0 * ((1.0 + gamma**2) / (1.0 + gamma + gamma**2)),
+        )
+        self.assertAlmostEqual(
+            matured[1].return_value,
+            10.0 * (gamma / (1.0 + gamma)),
+        )
         self.assertAlmostEqual(matured[2].return_value, 10.0)
 
         with self.assertRaises(RuntimeError):
@@ -273,6 +287,32 @@ class RollingReturnPipelineTests(unittest.TestCase):
                 decision(4, self.trainee, self.enemy),
                 outcome(4),
             )
+
+    def test_constant_per_frame_rewards_are_match_length_invariant(self):
+        gamma = 0.2
+        full_pipeline = RollingReturnPipeline(
+            gamma=gamma,
+            reward_weights={REWARD_POINT_A1: 10.0},
+        )
+        truncated_pipeline = RollingReturnPipeline(
+            gamma=gamma,
+            reward_weights={REWARD_POINT_A1: 10.0},
+        )
+
+        for frame_id in range(1, 4):
+            full_matured = full_pipeline.add_frame(
+                decision(frame_id, self.trainee, self.enemy, a1_pointing=True),
+                outcome(frame_id),
+            )
+        truncated_matured = truncated_pipeline.add_frame(
+            decision(1, self.trainee, self.enemy, a1_pointing=True),
+            outcome(1, terminal=True),
+        )
+
+        self.assertEqual(len(full_matured), 1)
+        self.assertEqual(len(truncated_matured), 1)
+        self.assertAlmostEqual(full_matured[0].return_value, 10.0)
+        self.assertAlmostEqual(truncated_matured[0].return_value, 10.0)
 
 
 if __name__ == "__main__":

@@ -71,7 +71,7 @@ class TrainingOrchestrationConfig:
     movement_behaviors: frozenset[str] = field(default_factory=frozenset)
     turning_behavior: str = TURN_NONE
     rounds_per_batch: int = 1
-    prediction_window: int = 120
+    gamma: float = 0.99
     match_time_limit: int = 2400
     replay_capacity: int = 10000
     learning_rate: float = 0.001
@@ -87,8 +87,8 @@ class TrainingOrchestrationConfig:
             raise ValueError("unsupported opponent mode")
         if self.rounds_per_batch <= 0:
             raise ValueError("rounds_per_batch must be positive")
-        if self.prediction_window <= 0:
-            raise ValueError("prediction_window must be positive")
+        if not 0.0 <= float(self.gamma) < 1.0:
+            raise ValueError("gamma must be in [0, 1)")
         if self.match_time_limit <= 0:
             raise ValueError("match_time_limit must be positive")
         if self.replay_capacity <= 0:
@@ -329,11 +329,11 @@ def run_training_round(
     )
 
     pipeline = RollingReturnPipeline(
-        prediction_window=config.prediction_window,
+        gamma=config.gamma,
         reward_weights=config.reward_weights,
     )
-    total_return = 0.0
-    component_totals = {component: 0.0 for component in REWARD_COMPONENTS}
+    return_sum = 0.0
+    component_sums = {component: 0.0 for component in REWARD_COMPONENTS}
     mature_count = 0
     terminal_reason = "timeout"
     terminal_seen = False
@@ -379,8 +379,9 @@ def run_training_round(
         mature_samples = pipeline.add_frame(decision, outcome)
         replay_buffer.extend(mature_samples)
         mature_count += len(mature_samples)
-        total_return += sum(sample.return_value for sample in mature_samples)
-        _accumulate_weighted_components(component_totals, mature_samples)
+        return_sum += sum(sample.return_value for sample in mature_samples)
+        _accumulate_weighted_components(component_sums, mature_samples)
+        normalized_return = _average_value(return_sum, mature_count)
         _emit_progress(
             progress_callback,
             event="frame",
@@ -389,8 +390,8 @@ def run_training_round(
             action_index=selection.action_index,
             exploratory=selection.exploratory,
             replay_size=len(replay_buffer),
-            weighted_total_return=total_return,
-            component_totals=dict(component_totals),
+            weighted_total_return=normalized_return,
+            component_totals=_average_components(component_sums, mature_count),
             battle_view=_battle_view_from_simulation(simulation),
         )
         _raise_if_stop_requested(stop_requested)
@@ -415,8 +416,8 @@ def run_training_round(
             replay_buffer,
         )
         mature_count += len(mature_samples)
-        total_return += sum(sample.return_value for sample in mature_samples)
-        _accumulate_weighted_components(component_totals, mature_samples)
+        return_sum += sum(sample.return_value for sample in mature_samples)
+        _accumulate_weighted_components(component_sums, mature_samples)
 
     win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
     return TrainingRoundResult(
@@ -424,11 +425,11 @@ def run_training_round(
         frames=simulation.frame_id,
         terminal_reason=terminal_reason,
         mature_samples=mature_count,
-        total_return=total_return,
+        total_return=_average_value(return_sum, mature_count),
         win=win,
         loss=loss,
         draw=draw,
-        component_totals=dict(component_totals),
+        component_totals=_average_components(component_sums, mature_count),
     )
 
 
@@ -599,6 +600,22 @@ def _accumulate_weighted_components(
     for sample in samples:
         for component, value in sample.weighted_components.items():
             totals[component] = totals.get(component, 0.0) + float(value)
+
+
+def _average_value(total: float, count: int) -> float:
+    return float(total) / int(count) if int(count) > 0 else 0.0
+
+
+def _average_components(
+    totals: Mapping[str, float],
+    count: int,
+) -> dict[str, float]:
+    if int(count) <= 0:
+        return {component: 0.0 for component in REWARD_COMPONENTS}
+    return {
+        component: float(totals.get(component, 0.0)) / int(count)
+        for component in REWARD_COMPONENTS
+    }
 
 
 def _emit_progress(

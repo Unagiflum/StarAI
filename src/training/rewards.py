@@ -1,4 +1,4 @@
-"""Reward components and rolling finite-horizon returns for training."""
+"""Reward components and discounted normalized returns for training."""
 
 from __future__ import annotations
 
@@ -64,6 +64,8 @@ NORMALIZED_SHAPING_COMPONENTS = (
     REWARD_A2_RANGE,
 )
 
+DISCOUNT_CUTOFF_WEIGHT = 0.01
+
 
 @dataclass(frozen=True)
 class RewardDecisionFrame:
@@ -113,6 +115,7 @@ class _PendingSample:
     decision: RewardDecisionFrame
     decisions: list[RewardDecisionFrame] = field(default_factory=list)
     outcomes: list[RewardFrameOutcome] = field(default_factory=list)
+    components: list[dict[str, float]] = field(default_factory=list)
 
 
 def decision_frame_from_battle_state(
@@ -170,17 +173,16 @@ def frame_outcome_from_battle_state(
 
 
 class RollingReturnPipeline:
-    """Collect pending decisions until their windows mature or terminate."""
+    """Collect pending decisions until discounted future rewards are negligible."""
 
     def __init__(
         self,
         *,
-        prediction_window: int,
+        gamma: float,
         reward_weights: Mapping[str, float] | None = None,
     ):
-        if int(prediction_window) <= 0:
-            raise ValueError("prediction_window must be positive")
-        self.prediction_window = int(prediction_window)
+        self.gamma = _validate_gamma(gamma)
+        self.discount_cutoff_frames = discount_cutoff_frames(self.gamma)
         self.reward_weights = normalize_reward_weights(reward_weights or {})
         self._pending: list[_PendingSample] = []
         self._terminal_seen = False
@@ -204,19 +206,22 @@ class RollingReturnPipeline:
             raise ValueError("decision and outcome frame IDs must match")
 
         self._pending.append(_PendingSample(decision=decision))
+        components = calculate_immediate_reward_components(decision, outcome)
         matured: list[MatureTrainingSample] = []
         for pending in list(self._pending):
             pending.decisions.append(decision)
             pending.outcomes.append(outcome)
-            if len(pending.outcomes) >= self.prediction_window or outcome.terminal:
+            pending.components.append(components)
+            if len(pending.outcomes) >= self.discount_cutoff_frames or outcome.terminal:
                 matured.append(
-                    build_training_sample(
+                    build_discounted_training_sample(
                         pending.decision,
-                        pending.decisions,
-                        pending.outcomes,
+                        pending.components,
                         self.reward_weights,
+                        self.gamma,
+                        end_frame_id=pending.outcomes[-1].frame_id,
                         terminal_truncated=outcome.terminal
-                        and len(pending.outcomes) < self.prediction_window,
+                        and len(pending.outcomes) < self.discount_cutoff_frames,
                     )
                 )
                 self._pending.remove(pending)
@@ -230,47 +235,49 @@ def normalize_reward_weights(weights: Mapping[str, float]) -> dict[str, float]:
     return {component: float(weights.get(component, 0.0)) for component in REWARD_COMPONENTS}
 
 
-def calculate_reward_components(
-    start_decision: RewardDecisionFrame,
-    decisions: Sequence[RewardDecisionFrame],
-    outcomes: Sequence[RewardFrameOutcome],
-) -> dict[str, float]:
-    if not decisions or not outcomes or len(decisions) != len(outcomes):
-        raise ValueError("reward windows require matching decisions and outcomes")
-    components = {component: 0.0 for component in REWARD_COMPONENTS}
-    actual_frames = len(outcomes)
-    end_outcome = outcomes[-1]
+def discount_cutoff_frames(
+    gamma: float,
+    cutoff_weight: float = DISCOUNT_CUTOFF_WEIGHT,
+) -> int:
+    gamma = _validate_gamma(gamma)
+    cutoff = float(cutoff_weight)
+    if not 0.0 < cutoff < 1.0:
+        raise ValueError("cutoff_weight must be between 0 and 1")
+    if gamma == 0.0:
+        return 1
+    return max(1, int(math.ceil(math.log(cutoff) / math.log(gamma))))
 
-    components[REWARD_POINT_A1] = _fraction(
-        decision.a1_pointing for decision in decisions
-    )
-    components[REWARD_A1_RANGE] = _fraction(
-        decision.a1_in_range for decision in decisions
-    )
-    components[REWARD_POINT_A2] = _fraction(
-        decision.a2_pointing for decision in decisions
-    )
-    components[REWARD_A2_RANGE] = _fraction(
-        decision.a2_in_range for decision in decisions
-    )
+
+def calculate_immediate_reward_components(
+    decision: RewardDecisionFrame,
+    outcome: RewardFrameOutcome,
+) -> dict[str, float]:
+    if decision.frame_id != outcome.frame_id:
+        raise ValueError("decision and outcome frame IDs must match")
+    components = {component: 0.0 for component in REWARD_COMPONENTS}
+
+    components[REWARD_POINT_A1] = 1.0 if decision.a1_pointing else 0.0
+    components[REWARD_A1_RANGE] = 1.0 if decision.a1_in_range else 0.0
+    components[REWARD_POINT_A2] = 1.0 if decision.a2_pointing else 0.0
+    components[REWARD_A2_RANGE] = 1.0 if decision.a2_in_range else 0.0
 
     if (
-        start_decision.self_speed <= start_decision.self_max_thrust
-        and end_outcome.self_speed > end_outcome.self_max_thrust
+        decision.self_speed <= decision.self_max_thrust
+        and outcome.self_speed > outcome.self_max_thrust
     ):
         components[REWARD_HIGH_SPEED] = 1.0
 
-    battery_delta = end_outcome.self_battery - start_decision.self_battery
+    battery_delta = outcome.self_battery - decision.self_battery
     if battery_delta > 0:
         components[REWARD_GAIN_BATTERY] = battery_delta
     elif battery_delta < 0:
         components[REWARD_LOSE_BATTERY] = -battery_delta
-    if end_outcome.self_battery <= 0:
+    if outcome.self_battery <= 0:
         components[REWARD_BATTERY_AT_ZERO] = 1.0
 
-    self_ship = start_decision.self_ship
-    enemy_ship = start_decision.enemy_ship
-    for event in _events_for_window(outcomes):
+    self_ship = decision.self_ship
+    enemy_ship = decision.enemy_ship
+    for event in outcome.events:
         if event.event_type == EVENT_OBJECT_SPAWNED and _same_entity(event.owner, self_ship):
             if event.action == "A1":
                 components[REWARD_SPAWN_A1] = 1.0
@@ -297,8 +304,28 @@ def calculate_reward_components(
             elif _same_entity(event.target, self_ship):
                 components[REWARD_DIE] += 1.0
 
+    return components
+
+
+def calculate_reward_components(
+    start_decision: RewardDecisionFrame,
+    decisions: Sequence[RewardDecisionFrame],
+    outcomes: Sequence[RewardFrameOutcome],
+) -> dict[str, float]:
+    if not decisions or not outcomes or len(decisions) != len(outcomes):
+        raise ValueError("reward windows require matching decisions and outcomes")
+    components = {component: 0.0 for component in REWARD_COMPONENTS}
+    actual_frames = len(outcomes)
+
     if actual_frames <= 0:
         raise ValueError("reward windows must contain at least one frame")
+    for decision, outcome in zip(decisions, outcomes):
+        for component, value in calculate_immediate_reward_components(
+            decision, outcome
+        ).items():
+            components[component] += value
+    for component in REWARD_COMPONENTS:
+        components[component] /= actual_frames
     return components
 
 
@@ -311,6 +338,65 @@ def build_training_sample(
     terminal_truncated: bool = False,
 ) -> MatureTrainingSample:
     components = calculate_reward_components(start_decision, decisions, outcomes)
+    return _sample_from_components(
+        start_decision,
+        components,
+        reward_weights,
+        end_frame_id=outcomes[-1].frame_id,
+        actual_frame_count=len(outcomes),
+        terminal_truncated=terminal_truncated,
+    )
+
+
+def build_discounted_training_sample(
+    start_decision: RewardDecisionFrame,
+    immediate_components: Sequence[Mapping[str, float]],
+    reward_weights: Mapping[str, float],
+    gamma: float,
+    *,
+    end_frame_id: int,
+    terminal_truncated: bool = False,
+) -> MatureTrainingSample:
+    if not immediate_components:
+        raise ValueError("reward windows must contain at least one frame")
+    components = discounted_average_components(immediate_components, gamma)
+    return _sample_from_components(
+        start_decision,
+        components,
+        reward_weights,
+        end_frame_id=end_frame_id,
+        actual_frame_count=len(immediate_components),
+        terminal_truncated=terminal_truncated,
+    )
+
+
+def discounted_average_components(
+    immediate_components: Sequence[Mapping[str, float]],
+    gamma: float,
+) -> dict[str, float]:
+    gamma = _validate_gamma(gamma)
+    if not immediate_components:
+        raise ValueError("reward windows must contain at least one frame")
+    totals = {component: 0.0 for component in REWARD_COMPONENTS}
+    discount = 1.0
+    weight_sum = 0.0
+    for frame_components in immediate_components:
+        weight_sum += discount
+        for component in REWARD_COMPONENTS:
+            totals[component] += float(frame_components.get(component, 0.0)) * discount
+        discount *= gamma
+    return {component: totals[component] / weight_sum for component in REWARD_COMPONENTS}
+
+
+def _sample_from_components(
+    start_decision: RewardDecisionFrame,
+    components: Mapping[str, float],
+    reward_weights: Mapping[str, float],
+    *,
+    end_frame_id: int,
+    actual_frame_count: int,
+    terminal_truncated: bool = False,
+) -> MatureTrainingSample:
     weights = normalize_reward_weights(reward_weights)
     weighted = {
         component: components[component] * weights[component]
@@ -323,27 +409,10 @@ def build_training_sample(
         component_values=components,
         weighted_components=weighted,
         start_frame_id=start_decision.frame_id,
-        end_frame_id=outcomes[-1].frame_id,
-        actual_frame_count=len(outcomes),
+        end_frame_id=int(end_frame_id),
+        actual_frame_count=int(actual_frame_count),
         terminal_truncated=bool(terminal_truncated),
     )
-
-
-def _events_for_window(
-    outcomes: Sequence[RewardFrameOutcome],
-) -> Iterable[TrainingBattleEvent]:
-    for outcome in outcomes:
-        yield from outcome.events
-
-
-def _fraction(values: Iterable[bool]) -> float:
-    total = 0
-    qualifying = 0
-    for value in values:
-        total += 1
-        if value:
-            qualifying += 1
-    return qualifying / total if total else 0.0
 
 
 def _is_non_a1_ability_event(event: TrainingBattleEvent) -> bool:
@@ -359,6 +428,13 @@ def _same_entity(left, right) -> bool:
     if left is None or right is None:
         return False
     return left is right
+
+
+def _validate_gamma(value: float) -> float:
+    gamma = float(value)
+    if not math.isfinite(gamma) or gamma < 0.0 or gamma >= 1.0:
+        raise ValueError("gamma must be in [0, 1)")
+    return gamma
 
 
 def _number(obj, attribute: str, default: float = 0.0) -> float:

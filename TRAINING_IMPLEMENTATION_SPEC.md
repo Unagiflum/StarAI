@@ -101,21 +101,22 @@ For a decision at simulation frame `t`, store:
 where:
 
 ```text
-return_t = sum of applicable rewards from frame t through
-           min(t + prediction_window - 1, terminal frame)
+return_t = normalized discounted average of applicable per-frame rewards from
+           frame t until gamma^n <= 0.01 or the terminal frame is reached
 ```
 
 Rules:
 
-- The return is undiscounted.
+- The return is discounted by the Training UI gamma value and normalized by the
+  sum of included discount weights.
 - A resolved round end, round timeout, or any other terminal condition
-  truncates every pending window that crosses that terminal frame. A death
+  flushes every pending discounted return. A death
   with a pending Pkunk rebirth is a reward event, not yet a terminal condition.
 - No reward after the terminal frame is included.
-- Pointing and range shaping are special normalized components described in
-  section 5; other event rewards accumulate normally.
-- Pending samples only become replayable once their window matures or the round
-  terminates.
+- Reward components are per-frame averages; event rewards do not accumulate
+  merely because the prediction horizon or match is longer.
+- Pending samples only become replayable once their gamma cutoff matures or the
+  round terminates.
 - Replay-buffer capacity comes from the Training UI.
 - Sample minibatches from replay at the end of each batch initially, matching
   the existing product description.

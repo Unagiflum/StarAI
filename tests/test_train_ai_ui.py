@@ -13,6 +13,7 @@ pygame.font.init()
 import src.const as const
 from src.Menus.train_ai import (
     EPSILON_VALUES,
+    GAMMA_VALUES,
     LEARNING_RATE_VALUES,
     MATCH_TIME_LIMIT_VALUES,
     MOVEMENT_BEHAVIORS,
@@ -49,6 +50,7 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.match_time_limit, 2400)
         self.assertEqual(state.learning_rate, 0.001)
         self.assertEqual(state.epsilon, 0.1)
+        self.assertEqual(state.gamma, 0.99)
         self.assertFalse(state.display_on)
         self.assertFalse(state.running)
 
@@ -128,6 +130,7 @@ class RegimenSliderTests(unittest.TestCase):
             EPSILON_VALUES,
             (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5),
         )
+        self.assertEqual(GAMMA_VALUES, (0.9, 0.95, 0.98, 0.99, 0.995, 0.999))
 
 
 class DisabledCheckboxTests(unittest.TestCase):
@@ -149,6 +152,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         state.rewards["Kill enemy"] = 2.56
         state.movement_behaviors = {"Move forward continuously"}
         state.rounds_per_batch = 2
+        state.gamma = 0.995
         state.hidden_layer_size = 64
         state.hidden_layer_count = 1
 
@@ -158,6 +162,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         self.assertEqual(config.reward_weights["Kill enemy"], 2.56)
         self.assertEqual(config.movement_behaviors, frozenset({"Move forward continuously"}))
         self.assertEqual(config.rounds_per_batch, 2)
+        self.assertEqual(config.gamma, 0.995)
         self.assertEqual(config.hidden_layer_width, 64)
         self.assertEqual(config.hidden_layer_count, 1)
 
