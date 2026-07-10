@@ -191,6 +191,45 @@ class BattleHudLayoutTests(unittest.TestCase):
         self.assertNotEqual(screen.get_at((285, 100))[:3], (20, 20, 20))
         self.assertNotEqual(screen.get_at((1250, 100))[:3], (20, 20, 20))
 
+    def test_shared_controller_draws_arena_into_non_play_rect(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        unchanged = (20, 21, 22)
+        marker = (1, 2, 3)
+        screen.fill(unchanged)
+        arena_rect = pygame.Rect(
+            const.SCREEN_WIDTH - const.SCREEN_HEIGHT,
+            0,
+            const.SCREEN_HEIGHT,
+            const.SCREEN_HEIGHT,
+        )
+
+        def fake_render(surface, *args, **kwargs):
+            pygame.draw.rect(
+                surface,
+                marker,
+                pygame.Rect(const.SCREEN_LEFT + 10, 10, 20, 20),
+            )
+
+        with mock.patch(
+            "src.Battle.battle_draw._render_world_to_surface",
+            side_effect=fake_render,
+        ):
+            BattleDrawController().draw(
+                screen,
+                [],
+                BattleDrawLayout(
+                    arena_rect=arena_rect,
+                    player1_hud_rect=None,
+                    player2_hud_rect=None,
+                ),
+                (255, 255, 255),
+                mock.Mock(),
+                options=BattleDrawOptions(draw_huds=False),
+            )
+
+        self.assertEqual(screen.get_at((arena_rect.left + 10, 10))[:3], marker)
+        self.assertEqual(screen.get_at((const.SCREEN_LEFT + 10, 10))[:3], unchanged)
+
     def test_hud_panel_is_clipped_to_supplied_rect(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         unchanged = (13, 14, 15)

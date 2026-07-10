@@ -673,6 +673,81 @@ def _draw_pause_overlay(screen):
 
 
 class BattleDrawController:
+    def __init__(self):
+        self._native_arena_surface = None
+
+    def _draw_arena(
+        self,
+        screen,
+        snapshot,
+        arena_rect,
+        border_color,
+        star_field_renderer,
+        scale_factor,
+        translation,
+        midpoint,
+        show_crosshairs,
+        entry_state,
+        frame_id,
+        options,
+    ):
+        native_arena_rect = pygame.Rect(
+            const.SCREEN_LEFT,
+            0,
+            const.SCREEN_HEIGHT,
+            const.SCREEN_HEIGHT,
+        )
+
+        if arena_rect == native_arena_rect:
+            target_surface = screen
+            target_rect = arena_rect
+        else:
+            if (
+                self._native_arena_surface is None
+                or self._native_arena_surface.get_size()
+                != (const.SCREEN_WIDTH, const.SCREEN_HEIGHT)
+            ):
+                self._native_arena_surface = pygame.Surface(
+                    (const.SCREEN_WIDTH, const.SCREEN_HEIGHT)
+                )
+            target_surface = self._native_arena_surface
+            target_rect = native_arena_rect
+
+        pygame.draw.rect(target_surface, ui.BLACK, target_rect)
+        previous_clip = target_surface.get_clip()
+        target_surface.set_clip(target_rect)
+
+        _render_world_to_surface(
+            target_surface,
+            snapshot,
+            scale_factor,
+            translation,
+            midpoint,
+            entry_state,
+            frame_id,
+            star_field_renderer,
+            show_gravity_range=const.SHOW_PLANET_GRAVITY_MARKER,
+            show_entry_trails=options.show_entry_trails,
+            show_crosshairs=show_crosshairs,
+            interp_t=options.interp_t,
+        )
+
+        pygame.draw.rect(target_surface, border_color, target_rect, 2)
+        target_surface.set_clip(previous_clip)
+
+        if target_surface is screen:
+            return
+
+        previous_screen_clip = screen.get_clip()
+        screen.set_clip(arena_rect)
+        if arena_rect.size == native_arena_rect.size:
+            screen.blit(target_surface, arena_rect, native_arena_rect)
+        else:
+            arena_image = target_surface.subsurface(native_arena_rect).copy()
+            arena_image = pygame.transform.smoothscale(arena_image, arena_rect.size)
+            screen.blit(arena_image, arena_rect)
+        screen.set_clip(previous_screen_clip)
+
     def draw(
         self,
         screen,
@@ -699,27 +774,20 @@ class BattleDrawController:
 
         if options.draw_arena:
             arena_rect = pygame.Rect(layout.arena_rect)
-            pygame.draw.rect(screen, ui.BLACK, arena_rect)
-            previous_clip = screen.get_clip()
-            screen.set_clip(arena_rect)
-
-            _render_world_to_surface(
+            self._draw_arena(
                 screen,
                 snapshot,
+                arena_rect,
+                border_color,
+                star_field_renderer,
                 scale_factor,
                 translation,
                 midpoint,
+                show_crosshairs,
                 entry_state,
                 frame_id,
-                star_field_renderer,
-                show_gravity_range=const.SHOW_PLANET_GRAVITY_MARKER,
-                show_entry_trails=options.show_entry_trails,
-                show_crosshairs=show_crosshairs,
-                interp_t=options.interp_t,
+                options,
             )
-
-            pygame.draw.rect(screen, border_color, arena_rect, 2)
-            screen.set_clip(previous_clip)
 
         if options.draw_huds:
             _draw_play_huds(

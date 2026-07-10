@@ -38,8 +38,10 @@ from src.Menus.train_ai import (
 )
 from src.Battle.battle_draw import (
     BAR_WIDTH,
+    BattleDrawController,
     HUD_BOTTOM_PADDING,
     MARINE_REGION_HEIGHT,
+    RenderSnapshot,
     VIEWPORT_MARGIN,
     VIEWPORT_SIZE,
 )
@@ -357,11 +359,11 @@ class TrainingBatchLogBoxTests(unittest.TestCase):
 
 
 class TrainingBattleDisplayTests(unittest.TestCase):
-    def test_display_on_draws_cropped_battle_surface_into_arena(self):
+    def test_display_on_battle_uses_shared_controller_with_training_arena(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
-        screen.fill((0, 0, 255))
-        battle_surface = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         rect = training_layout().arena_rect
+        controller = mock.Mock()
+        star_field_renderer = object()
         status = SimpleNamespace(
             battle_view={
                 "game_objects": (),
@@ -379,69 +381,136 @@ class TrainingBattleDisplayTests(unittest.TestCase):
             }
         )
 
-        def fake_draw(surface, *args, **kwargs):
-            surface.fill((255, 0, 0))
-            source = pygame.Rect(
-                const.SCREEN_LEFT,
-                0,
-                const.SCREEN_HEIGHT,
-                const.SCREEN_HEIGHT,
+        with mock.patch("pygame.display.flip") as display_flip:
+            _draw_training_battle(
+                screen,
+                rect,
+                status,
+                star_field_renderer,
+                controller,
             )
-            pygame.draw.rect(surface, (0, 255, 0), source)
 
-        with (
-            mock.patch("src.Menus.train_ai.draw_battle_arena", side_effect=fake_draw),
-            mock.patch("pygame.display.flip") as display_flip,
-        ):
-            _draw_training_battle(screen, rect, status, battle_surface, object())
+        args, kwargs = controller.draw.call_args
+        layout = args[2]
+        options = kwargs["options"]
 
-        self.assertEqual(screen.get_at((rect.left + 10, rect.top + 10))[:3], (0, 255, 0))
-        self.assertEqual(screen.get_at((rect.left - 10, rect.top + 10))[:3], (0, 0, 255))
+        self.assertEqual(layout.arena_rect, rect)
+        self.assertIsNone(layout.player1_hud_rect)
+        self.assertIsNone(layout.player2_hud_rect)
+        self.assertIs(args[4], star_field_renderer)
+        self.assertFalse(options.draw_huds)
         display_flip.assert_not_called()
 
-    def test_display_on_hud_draws_live_ship_values(self):
+    def test_display_on_huds_use_shared_controller_with_training_rects(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
-        screen.fill((0, 0, 0))
-        sprite = pygame.Surface((24, 24), pygame.SRCALPHA)
-        sprite.fill((255, 255, 255))
-        trainee = SimpleNamespace(
-            player=1,
-            name="Earthling",
-            sprites=(sprite,),
-            set_sprite=lambda: sprite,
-            current_hp=8,
-            max_hp=10,
-            current_energy=6,
-            max_energy=12,
-        )
-        opponent = SimpleNamespace(
-            player=2,
-            name="Chenjesu",
-            sprites=(sprite,),
-            set_sprite=lambda: sprite,
-            current_hp=4,
-            max_hp=10,
-            current_energy=2,
-            max_energy=8,
-        )
+        hud_rects = training_layout().hud_rects
+        controller = mock.Mock()
+        star_field_renderer = object()
         status = SimpleNamespace(
             battle_view={
-                "original_ships": (trainee, opponent),
                 "game_objects": (),
+                "border_color": (50, 50, 50),
+                "frame_id": 1,
+                "original_ships": (),
+                "camera_targets": (),
+                "entry_state": None,
             }
         )
 
         _draw_training_huds(
             screen,
-            training_layout().hud_rects,
+            hud_rects,
             status,
-            pygame.font.SysFont(None, 24),
-            pygame.font.SysFont(None, 18),
+            star_field_renderer,
+            controller,
         )
 
+        args, kwargs = controller.draw.call_args
+        layout = args[2]
+        options = kwargs["options"]
+
+        self.assertEqual(layout.player1_hud_rect, hud_rects[0])
+        self.assertEqual(layout.player2_hud_rect, hud_rects[1])
+        self.assertIs(args[4], star_field_renderer)
+        self.assertFalse(options.draw_arena)
+
+    def test_display_on_hud_draws_shared_live_ship_features(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        screen.fill((0, 0, 0))
+        trainee = SimpleNamespace(
+            player=1,
+            name="Earthling",
+            position=[500.0, 500.0],
+            previous_position=[500.0, 500.0],
+            current_hp=8,
+            max_hp=10,
+            current_energy=6,
+            max_energy=12,
+            boarded_marines=(),
+            limpets_attached=0,
+        )
+        opponent = SimpleNamespace(
+            player=2,
+            name="Chenjesu",
+            position=[700.0, 500.0],
+            previous_position=[700.0, 500.0],
+            current_hp=4,
+            max_hp=10,
+            current_energy=2,
+            max_energy=8,
+            boarded_marines=(),
+            limpets_attached=0,
+        )
+        snapshot = RenderSnapshot(
+            stars=(),
+            planets=(),
+            thrust_markers=(),
+            asteroids=(),
+            abilities=(),
+            ships=(trainee, opponent),
+            effects=(),
+            live_ships=(trainee, opponent),
+        )
+        status = SimpleNamespace(
+            battle_view={
+                "game_objects": snapshot,
+                "border_color": (50, 50, 50),
+                "frame_id": 1,
+                "original_ships": (trainee, opponent),
+                "camera_targets": (trainee, opponent),
+                "entry_state": None,
+            }
+        )
+
+        with (
+            mock.patch("src.Battle.battle_draw._render_world_to_surface"),
+            mock.patch("pygame.display.flip") as display_flip,
+        ):
+            _draw_training_huds(
+                screen,
+                training_layout().hud_rects,
+                status,
+                object(),
+                BattleDrawController(),
+            )
+
         first, second = training_layout().hud_rects
-        self.assertEqual(screen.get_at((first.left + 1, first.top + 1))[:3], const.P1_COLOR)
-        self.assertEqual(screen.get_at((second.left + 1, second.top + 1))[:3], const.P2_COLOR)
+        first_tint = screen.get_at((first.left + 1, first.top + 1))[:3]
+        second_tint = screen.get_at((second.left + 1, second.top + 1))[:3]
+        self.assertGreater(first_tint[1], first_tint[0])
+        self.assertGreater(first_tint[2], first_tint[0])
+        self.assertGreater(second_tint[0], second_tint[1])
+        self.assertGreater(second_tint[2], second_tint[1])
+
+        hud_content_width = BAR_WIDTH * 2 + VIEWPORT_SIZE + 2 * VIEWPORT_MARGIN
+        draw_x_offset = (first.width - hud_content_width) // 2
+        viewport_left = first.left + draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
+        viewport_top = first.top + MARINE_REGION_HEIGHT
+        self.assertEqual(
+            screen.get_at((viewport_left, viewport_top))[:3],
+            const.HUD_VIEWPORT_BORDER,
+        )
+        display_flip.assert_not_called()
 
 
 if __name__ == "__main__":

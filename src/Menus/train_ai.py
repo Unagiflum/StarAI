@@ -9,11 +9,13 @@ import pygame
 
 import src.const as const
 from src.Battle.battle_draw import (
+    BattleDrawController,
+    BattleDrawLayout,
+    BattleDrawOptions,
     HUD_BOTTOM_PADDING,
     MARINE_REGION_HEIGHT,
     StarFieldRenderer,
     VIEWPORT_SIZE,
-    draw_battle_arena,
 )
 from src.Menus.pick_fleet import (
     MODAL_SHADE_ALPHA,
@@ -824,52 +826,72 @@ def _draw_training_hud_panel(screen, rect, ship, label, color, font, small_font)
         screen.blit(value_text, value_text.get_rect(midleft=(value_left, bar_rect.centery)))
 
 
-def _draw_training_huds(screen, hud_rects, status, font, small_font):
+def _training_battle_view_args(status):
     battle_view = status.battle_view if status is not None else None
     if not battle_view:
-        _draw_hud_placeholders(screen, hud_rects, font)
-        return
-    for rect, player_id, label, color in zip(
-        hud_rects,
-        (1, 2),
-        ("Trainee HUD", "Opponent HUD"),
-        (const.P1_COLOR, const.P2_COLOR),
-    ):
-        _draw_training_hud_panel(
-            screen,
-            rect,
-            _ship_for_player(battle_view, player_id),
-            label,
-            color,
-            font,
-            small_font,
-        )
+        return {
+            "game_objects": (),
+            "border_color": ui.GREY,
+            "camera_targets": (),
+            "entry_state": None,
+            "frame_id": 0,
+            "original_ships": (),
+        }
+    return battle_view
 
 
-def _draw_training_battle(screen, rect, status, battle_surface, star_field_renderer):
-    battle_view = status.battle_view
-    if not battle_view:
-        pygame.draw.rect(screen, ui.BLACK, rect)
-        pygame.draw.rect(screen, ui.GREY, rect, 2)
-        return
-    draw_battle_arena(
-        battle_surface,
+def _draw_training_battle(
+    screen,
+    rect,
+    status,
+    star_field_renderer,
+    battle_draw_controller=None,
+):
+    battle_view = _training_battle_view_args(status)
+    controller = battle_draw_controller or BattleDrawController()
+    controller.draw(
+        screen,
         battle_view["game_objects"],
-        battle_view["border_rect"],
+        BattleDrawLayout(
+            arena_rect=pygame.Rect(rect),
+            player1_hud_rect=None,
+            player2_hud_rect=None,
+        ),
         battle_view["border_color"],
         star_field_renderer,
         camera_targets=battle_view.get("camera_targets"),
         entry_state=battle_view.get("entry_state"),
         frame_id=battle_view.get("frame_id", 0),
         original_ships=battle_view.get("original_ships"),
-        interp_t=0.0,
+        options=BattleDrawOptions(draw_huds=False),
     )
-    source = pygame.Rect(const.SCREEN_LEFT, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT)
-    previous_clip = screen.get_clip()
-    screen.set_clip(rect)
-    screen.blit(battle_surface, rect, source)
-    screen.set_clip(previous_clip)
-    pygame.draw.rect(screen, battle_view["border_color"], rect, 2)
+
+
+def _draw_training_huds(
+    screen,
+    hud_rects,
+    status,
+    star_field_renderer,
+    battle_draw_controller=None,
+):
+    battle_view = _training_battle_view_args(status)
+    controller = battle_draw_controller or BattleDrawController()
+    controller.draw(
+        screen,
+        battle_view["game_objects"],
+        BattleDrawLayout(
+            arena_rect=pygame.Rect(0, 0, 0, 0),
+            player1_hud_rect=pygame.Rect(hud_rects[0]),
+            player2_hud_rect=pygame.Rect(hud_rects[1]),
+        ),
+        battle_view["border_color"],
+        star_field_renderer,
+        camera_targets=battle_view.get("camera_targets"),
+        entry_state=battle_view.get("entry_state"),
+        frame_id=battle_view.get("frame_id", 0),
+        original_ships=battle_view.get("original_ships"),
+        options=BattleDrawOptions(draw_arena=False),
+    )
 
 
 def _draw_hud_placeholders(screen, hud_rects, font):
@@ -980,8 +1002,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     log_font = pygame.font.SysFont("Consolas", 11)
     picker_title_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.042))
     picker_tooltip_font = pygame.font.SysFont(None, PICKER_TOOLTIP_FONT_SIZE)
-    battle_surface = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
     training_battle_renderer = StarFieldRenderer()
+    training_battle_controller = BattleDrawController()
 
     def fallback_ship_sprite(_ship_name):
         surface = pygame.Surface((188, 188), pygame.SRCALPHA)
@@ -1928,8 +1950,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     screen,
                     layout.arena_rect,
                     session_status,
-                    battle_surface,
                     training_battle_renderer,
+                    training_battle_controller,
                 )
             else:
                 batch_log_box.draw(screen, layout.arena_rect, log_font)
@@ -2067,7 +2089,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             pygame.draw.rect(screen, ui.BLACK, start_stop_button.rect, 2, border_radius=5)
         if state.display_on and session_status is not None:
             _draw_training_huds(
-                screen, layout.hud_rects, session_status, small_font, log_font
+                screen,
+                layout.hud_rects,
+                session_status,
+                training_battle_renderer,
+                training_battle_controller,
             )
         else:
             _draw_hud_placeholders(screen, layout.hud_rects, small_font)

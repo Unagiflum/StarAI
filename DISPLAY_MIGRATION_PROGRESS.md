@@ -109,8 +109,49 @@ Verification:
 
 Result: All verification commands passed.
 
+## Phase 4: Migrate Training Display to the Shared Controller
+
+Status: Complete
+
+Scope implemented:
+
+- Updated `BattleDrawController` so it can draw arena content into a caller
+  supplied non-play arena rectangle while preserving the existing native
+  `SCREEN_LEFT` assumptions in object draw methods.
+- Replaced training display-on arena drawing with `BattleDrawController.draw()`
+  using the training arena rectangle and `BattleDrawOptions(draw_huds=False)`.
+- Replaced the active training display-on HUD path with
+  `BattleDrawController.draw()` using the training HUD rectangles and
+  `BattleDrawOptions(draw_arena=False)`.
+- Kept training menu screen ownership unchanged: the menu still draws
+  background, controls, modals, notices, and performs the single final
+  `pygame.display.flip()`.
+- Preserved display-off behavior; batch logs still draw into the training arena
+  region without requiring a battle render.
+- Left obsolete training-specific HUD helper functions in place for the Phase 6
+  cleanup pass, but removed them from the active display-on path.
+
+Tests added or updated:
+
+- Shared controller draws arena content into a non-play arena rectangle.
+- Training display-on arena rendering calls the shared controller with the
+  training arena rectangle and does not flip.
+- Training display-on HUD rendering calls the shared controller with both
+  training HUD rectangles.
+- Training display-on HUD rendering uses shared live HUD features.
+
+Verification:
+
+- `.\.venv\Scripts\python.exe -m unittest tests.test_train_ai_ui`
+- `.\.venv\Scripts\python.exe -m unittest tests.test_match_ui tests.test_train_ai_ui`
+- `.\.venv\Scripts\python.exe -m unittest tests.test_training_orchestration tests.test_training_session tests.test_train_ai_ui`
+- `.\.venv\Scripts\python.exe -m unittest discover tests`
+
+Result: All verification commands passed.
+
 ## Next Phase
 
-Phase 4 should migrate training display-on mode to call the shared battle
-drawing controller with the training arena and HUD rectangles, while preserving
-training menu screen ownership and display-off log behavior.
+Phase 5 should migrate stars to display ownership so normal play and training
+display share the same display-owned star field, while removing render-only star
+objects from battle `World` ownership and auditing collision/snapshot
+assumptions.
