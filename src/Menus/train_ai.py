@@ -76,16 +76,13 @@ EPSILON_VALUES = (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5)
 GAMMA_VALUES = (0.9, 0.95, 0.98, 0.99, 0.995, 0.999)
 HIDDEN_LAYER_SIZE_VALUES = (32, 64, 128, 256, 512, 1024, 2048)
 HIDDEN_LAYER_COUNT_VALUES = (1, 2, 4, 8, 16)
-CURRENT_BATCH_REWARD_LINES = 6
 CURRENT_BATCH_STATE_WIDTH = len("stopped (stopping)")
 CURRENT_BATCH_BATCH_WIDTH = 6
 CURRENT_BATCH_ROUND_WIDTH = 4
-CURRENT_BATCH_FRAME_WIDTH = 8
 CURRENT_BATCH_REPLAY_WIDTH = 6
-CURRENT_BATCH_ACTION_WIDTH = len("explore")
 CURRENT_BATCH_RETURN_WIDTH = 9
 CURRENT_BATCH_LOSS_WIDTH = 10
-CURRENT_BATCH_REWARD_NAME_WIDTH = max(len(label) for label in REWARD_LABELS)
+CURRENT_BATCH_REWARD_NAME_WIDTH = max((len(label) for label in REWARD_LABELS), default=0)
 CURRENT_BATCH_REWARD_VALUE_WIDTH = 8
 
 CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
@@ -631,19 +628,12 @@ def _draw_arena_placeholder(screen, rect, state, font):
 def _draw_training_status(screen, rect, status, font, small_font):
     pygame.draw.rect(screen, ui.BLACK, rect)
     pygame.draw.rect(screen, ui.GREY, rect, 2)
-    action_mode = (
-        "explore"
-        if status.last_action_exploratory
-        else "greedy"
-        if status.last_action_exploratory is not None
-        else "-"
-    )
     lines = (
         "Training running" if status.running else "Training stopped",
         f"Batch {status.completed_batches + 1} | Round {status.current_round}/{status.total_rounds}",
         f"Opponent: {status.current_opponent or '-'}",
-        f"Frame: {status.current_frame} | Replay: {status.replay_size}",
-        f"Action: {action_mode} | Return: {status.weighted_total_return:.2f}",
+        f"Replay: {status.replay_size}",
+        f"Return: {status.weighted_total_return:.2f}",
         f"Loss: {status.recent_loss:.4f}" if status.recent_loss is not None else "Loss: -",
     )
     y = rect.top + 40
@@ -652,14 +642,9 @@ def _draw_training_status(screen, rect, status, font, small_font):
         screen.blit(rendered, rendered.get_rect(midtop=(rect.centerx, y)))
         y += rendered.get_height() + 14
     component_lines = [
-        f"{name}: {value:.2f}"
-        for name, value in sorted(
-            status.component_totals.items(),
-            key=lambda item: abs(item[1]),
-            reverse=True,
-        )
-        if value
-    ][:6]
+        f"{name}: {status.component_totals.get(name, 0.0):.4f}"
+        for name in REWARD_LABELS
+    ]
     for line in component_lines:
         rendered = small_font.render(line, True, ui.LIGHT_GREY)
         screen.blit(rendered, rendered.get_rect(midtop=(rect.centerx, y)))
@@ -667,13 +652,6 @@ def _draw_training_status(screen, rect, status, font, small_font):
 
 
 def _current_batch_console_lines(status):
-    action_mode = (
-        "explore"
-        if status.last_action_exploratory
-        else "greedy"
-        if status.last_action_exploratory is not None
-        else "-"
-    )
     state_label = "running" if status.running else "stopped"
     if status.stopping:
         state_label += " (stopping)"
@@ -684,34 +662,42 @@ def _current_batch_console_lines(status):
     )
     lines = [
         "Current batch",
-        f"State: {state_label:<{CURRENT_BATCH_STATE_WIDTH}}",
-        f"Batch: {status.completed_batches + 1:>{CURRENT_BATCH_BATCH_WIDTH}d}",
-        f"Round: {status.current_round:>{total_round_width}d}/{status.total_rounds:>{total_round_width}d}",
-        f"Opponent: {status.current_opponent or '-':<{CURRENT_BATCH_REWARD_NAME_WIDTH}}",
-        f"Frame: {status.current_frame:>{CURRENT_BATCH_FRAME_WIDTH}d} | Replay: {status.replay_size:>{CURRENT_BATCH_REPLAY_WIDTH}d}",
-        f"Action: {action_mode:<{CURRENT_BATCH_ACTION_WIDTH}} | Return: {status.weighted_total_return:>{CURRENT_BATCH_RETURN_WIDTH}.2f}",
-        f"Loss: {status.recent_loss:>{CURRENT_BATCH_LOSS_WIDTH}.4f}"
+        f"{'State:':<10}{state_label:<{CURRENT_BATCH_STATE_WIDTH}}",
+        f"{'Batch:':<10}{status.completed_batches + 1:>{CURRENT_BATCH_BATCH_WIDTH}d}",
+        f"{'Round:':<10}{status.current_round:>{total_round_width}d}/{status.total_rounds:>{total_round_width}d}",
+        f"{'Opponent:':<10}{status.current_opponent or '-':<{CURRENT_BATCH_REWARD_NAME_WIDTH}}",
+        f"{'Replay:':<10}{status.replay_size:>{CURRENT_BATCH_REPLAY_WIDTH}d}",
+        f"{'Return:':<10}{status.weighted_total_return:>{CURRENT_BATCH_RETURN_WIDTH}.2f}",
+        f"{'Loss:':<10}{status.recent_loss:>{CURRENT_BATCH_LOSS_WIDTH}.4f}"
         if status.recent_loss is not None
-        else f"Loss: {'-':>{CURRENT_BATCH_LOSS_WIDTH}}",
+        else f"{'Loss:':<10}{'-':>{CURRENT_BATCH_LOSS_WIDTH}}",
         "",
-        "Reward components",
     ]
-    component_lines = [
-        f"{name:<{CURRENT_BATCH_REWARD_NAME_WIDTH}}: {value:>{CURRENT_BATCH_REWARD_VALUE_WIDTH}.2f}"
-        for name, value in sorted(
-            status.component_totals.items(),
-            key=lambda item: abs(item[1]),
-            reverse=True,
-        )
-        if value
-    ][:CURRENT_BATCH_REWARD_LINES]
-    component_lines.extend(
-        [
-            f"{'-':<{CURRENT_BATCH_REWARD_NAME_WIDTH}}: {'-':>{CURRENT_BATCH_REWARD_VALUE_WIDTH}}"
-        ]
-        * (CURRENT_BATCH_REWARD_LINES - len(component_lines))
-    )
-    lines.extend(component_lines)
+    
+    ship_name = status.previous_opponent or "-"
+    col2_header = f" {ship_name[:10]:>10} "
+    
+    if status.batch_component_totals:
+        col3_header = f" Batch {status.completed_batches}"
+    else:
+        col3_header = " Batch -"
+    col3_width = max(9, len(col3_header))
+    
+    lines.append(f"{'Reward components':<{CURRENT_BATCH_REWARD_NAME_WIDTH}}|{col2_header}|{col3_header:>{col3_width}}")
+    
+    for name in REWARD_LABELS:
+        col1 = f"{name:<{CURRENT_BATCH_REWARD_NAME_WIDTH}}"
+        val2 = status.component_totals.get(name, 0.0)
+        col2 = f"{val2:>11.4f} "
+        
+        if status.batch_component_totals:
+            val3 = status.batch_component_totals.get(name, 0.0)
+            col3 = f"{val3:>{col3_width}.4f}"
+        else:
+            col3 = f"{'-':>{col3_width}}"
+            
+        lines.append(f"{col1}|{col2}|{col3}")
+        
     return tuple(lines)
 
 

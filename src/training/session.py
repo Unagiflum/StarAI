@@ -132,12 +132,14 @@ class TrainingSessionStatus:
     current_round: int = 0
     total_rounds: int = 0
     current_opponent: str = ""
+    previous_opponent: str = ""
     current_frame: int = 0
     replay_size: int = 0
     recent_loss: float | None = None
     last_action_exploratory: bool | None = None
     weighted_total_return: float = 0.0
     component_totals: dict[str, float] = field(default_factory=dict)
+    batch_component_totals: dict[str, float] = field(default_factory=dict)
     battle_view: Mapping[str, Any] | None = None
     error: str = ""
 
@@ -354,12 +356,14 @@ class TrainingSession:
                 current_round=self._status.current_round,
                 total_rounds=self._status.total_rounds,
                 current_opponent=self._status.current_opponent,
+                previous_opponent=self._status.previous_opponent,
                 current_frame=self._status.current_frame,
                 replay_size=self._status.replay_size,
                 recent_loss=self._status.recent_loss,
                 last_action_exploratory=self._status.last_action_exploratory,
                 weighted_total_return=self._status.weighted_total_return,
                 component_totals=dict(self._status.component_totals),
+                batch_component_totals=dict(self._status.batch_component_totals),
                 battle_view=self._status.battle_view,
                 error=self._status.error,
             )
@@ -509,6 +513,21 @@ class TrainingSession:
             self._history.append(metrics)
             rolling = rolling_metrics(tuple(self._history), self.batch_grouping)
             self._log_lines.append(format_batch_summary_line(metrics, rolling))
+            
+            from src.training.rewards import REWARD_COMPONENTS
+            batch_components = {c: 0.0 for c in REWARD_COMPONENTS}
+            for round_result in result.round_results:
+                for comp, val in round_result.component_totals.items():
+                    if comp in batch_components:
+                        batch_components[comp] += val
+                        
+            num_rounds = len(result.round_results)
+            if num_rounds > 0:
+                for comp in batch_components:
+                    batch_components[comp] /= num_rounds
+            
+            self._status.batch_component_totals = batch_components
+            
             if len(self._log_lines) > MAX_BATCH_LOG_LINES:
                 del self._log_lines[: len(self._log_lines) - MAX_BATCH_LOG_LINES]
             self._status.recent_loss = metrics.average_loss
@@ -571,7 +590,12 @@ class TrainingSession:
                 self._status.current_opponent = opponent_label
                 self._status.current_frame = 0
                 self._status.weighted_total_return = 0.0
-                self._status.component_totals = {}
+            if event == "round_end":
+                if "result" in payload:
+                    self._status.component_totals = dict(
+                        payload.get("result").component_totals
+                    )
+                self._status.previous_opponent = opponent_label
             if "battle_view" in payload:
                 self._status.battle_view = (
                     freeze_battle_view(payload["battle_view"])
@@ -587,9 +611,6 @@ class TrainingSession:
                 )
                 self._status.weighted_total_return = float(
                     payload.get("weighted_total_return", 0.0)
-                )
-                self._status.component_totals = dict(
-                    payload.get("component_totals", {})
                 )
         if event == "frame" and self._display_on.is_set():
             self._throttle_display_frame()
