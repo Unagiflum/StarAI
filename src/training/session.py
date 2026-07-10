@@ -240,6 +240,8 @@ class TrainingSession:
         batch_runner: Callable[..., TrainingBatchResult] = run_training_batch,
         audio_service: Any | None = None,
         rng: Any | None = None,
+        initial_history: tuple[BatchMetrics, ...] = (),
+        initial_log_lines: tuple[str, ...] = (),
     ):
         if slot.is_bundled:
             raise TrainingSessionError("Bundled training models are read-only")
@@ -255,8 +257,8 @@ class TrainingSession:
                 self.metadata.get("progress", {}).get("completed_batches", 0)
             )
         )
-        self._history: list[BatchMetrics] = []
-        self._log_lines: list[str] = []
+        self._history: list[BatchMetrics] = list(initial_history)
+        self._log_lines: list[str] = list(initial_log_lines)[-MAX_BATCH_LOG_LINES:]
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
         self._display_on = threading.Event()

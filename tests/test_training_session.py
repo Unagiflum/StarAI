@@ -221,6 +221,42 @@ class TrainingSessionTests(unittest.TestCase):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")
 
+    def test_session_accepts_existing_batch_history_and_logs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+                progress={"completed_batches": 7},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            history = (BatchMetrics(7, 1, 1, 0, 0, 5.0, 0.1, 0.001, 0.25),)
+            log_lines = ("Batch      7 | summary",)
+
+            session = TrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                ),
+                batch_grouping=1,
+                initial_history=history,
+                initial_log_lines=log_lines,
+            )
+
+        self.assertEqual(session.status.completed_batches, 7)
+        self.assertEqual(session.history, history)
+        self.assertEqual(session.log_lines, log_lines)
+
     def test_session_runs_batch_saves_progress_and_checkpoint(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

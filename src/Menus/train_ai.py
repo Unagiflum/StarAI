@@ -879,6 +879,18 @@ def training_config_from_state(state: TrainingUIState) -> TrainingOrchestrationC
     )
 
 
+def _progress_for_model_update(existing_metadata, progress=None, *, reset_checkpoint=False):
+    if progress is not None:
+        return dict(progress)
+    if reset_checkpoint:
+        return {"completed_batches": 0}
+    if isinstance(existing_metadata, dict):
+        existing_progress = existing_metadata.get("progress", {})
+        if isinstance(existing_progress, dict):
+            return dict(existing_progress)
+    return None
+
+
 def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     """Show the AI-training configuration UI without starting training yet."""
     clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
@@ -1313,13 +1325,20 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if state.selected_ship is None or model_slot is None or model_slot.is_bundled:
             return None
         description = slot_fields[state.selected_slot - 1].text.strip()
+        existing_metadata = (
+            model_slot.metadata if isinstance(model_slot.metadata, dict) else {}
+        )
         metadata = metadata_from_state(
             ship=state.selected_ship,
             slot=state.selected_slot,
             description=description,
             architecture=architecture_metadata(),
             training=training_metadata(),
-            progress=progress,
+            progress=_progress_for_model_update(
+                existing_metadata,
+                progress,
+                reset_checkpoint=reset_checkpoint,
+            ),
         )
         updated_slot = model_repository.create_or_update_user_model(metadata)
         if reset_checkpoint and updated_slot.pth_path is not None:
@@ -1447,6 +1466,20 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             show_notice(f"Loaded {describe_model(model_slot)} conditions")
 
+    def clear_session_continuity():
+        training_session[0] = None
+        last_session_running[0] = False
+
+    def session_continuity_for(model_slot):
+        active_session = training_session[0]
+        if (
+            active_session is None
+            or active_session.slot.ship != model_slot.ship
+            or active_session.slot.slot != model_slot.slot
+        ):
+            return (), ()
+        return active_session.history, active_session.log_lines
+
     def request_back():
         if training_session[0] is not None and training_session[0].status.running:
             training_session[0].request_stop()
@@ -1480,6 +1513,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             show_notice(report.warnings[0])
 
         try:
+            initial_history, initial_log_lines = session_continuity_for(model_slot)
             session = TrainingSession(
                 repository=model_repository,
                 slot=model_slot,
@@ -1487,6 +1521,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 config=training_config_from_state(state),
                 batch_grouping=state.batch_grouping,
                 audio_service=audio_service,
+                initial_history=initial_history,
+                initial_log_lines=initial_log_lines,
             )
             training_session[0] = session
             last_session_running[0] = True
@@ -1527,7 +1563,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if old_architecture and old_architecture != new_architecture:
             confirmation_prompt[0] = ConfirmationPrompt(
                 f"Do you want to overwrite {describe_model(model_slot)}?",
-                lambda: (persist_selected_model(reset_checkpoint=True), begin_training()),
+                lambda: (
+                    persist_selected_model(reset_checkpoint=True),
+                    clear_session_continuity(),
+                    begin_training(),
+                ),
             )
             return
 

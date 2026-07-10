@@ -8,6 +8,8 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 import pygame
 
+pygame.font.init()
+
 import src.const as const
 from src.Menus.train_ai import (
     EPSILON_VALUES,
@@ -24,6 +26,7 @@ from src.Menus.train_ai import (
     _display_off_console_lines,
     _draw_training_huds,
     _draw_training_battle,
+    _progress_for_model_update,
     _set_slider_value,
     training_config_from_state,
     training_layout,
@@ -157,6 +160,22 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         self.assertEqual(config.rounds_per_batch, 2)
         self.assertEqual(config.hidden_layer_width, 64)
         self.assertEqual(config.hidden_layer_count, 1)
+
+    def test_non_reset_settings_update_preserves_existing_progress(self):
+        progress = _progress_for_model_update(
+            {"progress": {"completed_batches": 42}},
+            reset_checkpoint=False,
+        )
+
+        self.assertEqual(progress, {"completed_batches": 42})
+
+    def test_checkpoint_reset_clears_existing_progress(self):
+        progress = _progress_for_model_update(
+            {"progress": {"completed_batches": 42}},
+            reset_checkpoint=True,
+        )
+
+        self.assertEqual(progress, {"completed_batches": 0})
 
 
 class TrainingBatchLogBoxTests(unittest.TestCase):
