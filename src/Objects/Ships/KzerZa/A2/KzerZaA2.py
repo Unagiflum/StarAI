@@ -13,6 +13,7 @@ from src.Objects.Ships.ability import (
 )
 from src.Objects.Ships.KzerZa.A2.KzerZaA2Laser import KzerZaA2Laser
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.training import event_ledger
 from src.toroidal import wrapped_delta
 
 
@@ -75,6 +76,8 @@ class KzerZaA2(Ability):
         self.formation_index = formation_index
         self.spawned_objects = []
         self.planet_avoidance = None
+        self._crew_loss_recorded = False
+        self._crew_recovered = False
         self.jitter_angle_toggle = self.rng.choice([True, False])
         self.jitter_dist_toggle = self.rng.choice([True, False])
 
@@ -83,6 +86,7 @@ class KzerZaA2(Ability):
             return False
 
         if self.expiration_timer <= 0 or self.current_hp <= 0:
+            self._record_crew_loss()
             self.currently_alive = False
             return False
         self.previous_position = self.position.copy()
@@ -256,6 +260,7 @@ class KzerZaA2(Ability):
         return True
 
     def handle_ship_contact(self, ship, normal=None):
+        self._record_crew_loss(actor=ship, source=ship)
         self.set_hp(0)
         return True
 
@@ -289,8 +294,22 @@ class KzerZaA2(Ability):
         self.parent.current_hp = min(self.parent.max_hp, self.parent.current_hp + 1)
         if self.return_sound:
             self.return_sound.play()
+        self._crew_recovered = True
         self.current_hp = 0
         self.currently_alive = False
+
+    def on_destroyed(self):
+        self._record_crew_loss()
+
+    def _record_crew_loss(self, *, actor=None, source=None):
+        if self._crew_loss_recorded or self._crew_recovered:
+            return
+        self._crew_loss_recorded = True
+        event_ledger.record_launched_crew_lost(
+            self,
+            actor=actor,
+            source=source if source is not None else self,
+        )
 
     def _load_fighter_sounds(self, file_path):
         sound_files = {

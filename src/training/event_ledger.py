@@ -191,6 +191,24 @@ def record_crew_changed(ship, delta: float, *, actor=None, source=None) -> None:
         ledger.record_crew_changed(ship, delta, actor=actor, source=source)
 
 
+def record_launched_crew_lost(
+    unit,
+    *,
+    actor=None,
+    source=None,
+    magnitude: float = 1.0,
+) -> None:
+    parent = getattr(unit, "parent", None)
+    if parent is None:
+        return
+    record_crew_changed(
+        parent,
+        -abs(float(magnitude)),
+        actor=actor,
+        source=source if source is not None else unit,
+    )
+
+
 def record_battery_changed(ship, delta: float, *, actor=None, source=None) -> None:
     ledger = ledger_for(ship)
     if ledger is not None:

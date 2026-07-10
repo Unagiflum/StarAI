@@ -22,6 +22,11 @@ from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, ActionResult
 from src.Objects.Ships.catalog import ABILITIES_DATA, ABILITY_DEFINITIONS, SHIPS_DATA
 from src.Objects.Ships.registry import create_ability, create_ship
+from src.training.event_ledger import (
+    BattleEventLedger,
+    EVENT_CREW_CHANGED,
+    bind_ledger,
+)
 
 
 ORDINARY_SINGLE_ACTIONS = (
@@ -769,6 +774,41 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(ship.fighter_launch_count, 2)
         special_objects[0].launch_sound.play.assert_called_once_with()
         special_objects[1].launch_sound.play.assert_not_called()
+
+    def test_kzer_za_lost_fighter_records_parent_crew_loss_once(self):
+        ledger = BattleEventLedger()
+        carrier = create_ship("KzerZa", 1)
+        enemy = create_ship("Earthling", 2)
+        carrier.initialize_in_battle([500, 500], 0)
+        enemy.initialize_in_battle([700, 500], 0)
+        bind_ledger(carrier, ledger)
+        fighter = create_ability("KzerZaA2", carrier)
+
+        fighter.handle_ship_contact(enemy)
+        fighter.on_destroyed()
+
+        crew_events = [
+            event for event in ledger.events if event.event_type == EVENT_CREW_CHANGED
+        ]
+        self.assertEqual([event.target for event in crew_events], [carrier])
+        self.assertEqual([event.magnitude for event in crew_events], [-1.0])
+        self.assertIs(crew_events[0].actor, enemy)
+
+    def test_kzer_za_returned_fighter_does_not_record_crew_loss(self):
+        ledger = BattleEventLedger()
+        carrier = create_ship("KzerZa", 1)
+        carrier.initialize_in_battle([500, 500], 0)
+        carrier.current_hp = carrier.max_hp - 1
+        bind_ledger(carrier, ledger)
+        fighter = create_ability("KzerZaA2", carrier)
+        fighter.mode = fighter.RETURNING
+
+        fighter.recover_with_parent()
+        fighter.on_destroyed()
+
+        self.assertFalse(
+            any(event.event_type == EVENT_CREW_CHANGED for event in ledger.events)
+        )
 
     def test_pkunk_secondary_gains_energy_without_paying_action_cost(self):
         ship = create_ship("Pkunk", 1)

@@ -25,6 +25,11 @@ from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ability, create_ship
 from src.Objects.Ships.Orz.A3.OrzA3 import OrzA3
 from src.resources import AssetManager
+from src.training.event_ledger import (
+    BattleEventLedger,
+    EVENT_CREW_CHANGED,
+    bind_ledger,
+)
 
 
 class OrzAbilityTests(unittest.TestCase):
@@ -372,6 +377,28 @@ class OrzAbilityTests(unittest.TestCase):
 
         self.assertEqual(self.ship.current_hp, self.ship.max_hp)
         self.assertFalse(marine.currently_alive)
+
+    def test_a3_boarding_death_records_parent_crew_loss_once(self):
+        ledger = BattleEventLedger()
+        bind_ledger(self.ship, ledger)
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
+        marine.handle_ship_contact(enemy)
+        marine.rng = mock.Mock()
+        marine.rng.randrange.return_value = 0
+        marine.boarding_timer = 1
+
+        self.assertFalse(marine.update())
+        marine.on_destroyed()
+
+        crew_events = [
+            event for event in ledger.events if event.event_type == EVENT_CREW_CHANGED
+        ]
+        self.assertEqual([event.target for event in crew_events], [self.ship])
+        self.assertEqual([event.magnitude for event in crew_events], [-1.0])
 
     def test_a3_uses_named_launch_alarm_and_death_sounds(self):
         audio = RecordingAudioService()

@@ -87,6 +87,8 @@ class OrzA3(Ability):
 
         self.spawned_objects = []
         self._death_sound_played = False
+        self._crew_loss_recorded = False
+        self._crew_recovered = False
         self._load_marine_sounds()
         self._load_flight_sprites()
         self._place_at_parent_rear()
@@ -496,6 +498,7 @@ class OrzA3(Ability):
         if not self.currently_alive or not self._parent_alive():
             return
         self.parent.current_hp = min(self.parent.max_hp, self.parent.current_hp + 1)
+        self._crew_recovered = True
         self._detach_from_ship()
         self.current_hp = 0
         self.currently_alive = False
@@ -516,6 +519,7 @@ class OrzA3(Ability):
         self._die()
 
     def on_destroyed(self):
+        self._record_crew_loss()
         self._detach_from_ship()
         self._play_death_sound()
 
@@ -545,6 +549,7 @@ class OrzA3(Ability):
         if not self.currently_alive:
             return
         self._detach_from_ship()
+        self._record_crew_loss()
         self.current_hp = 0
         self.currently_alive = False
         self._play_death_sound()
@@ -553,6 +558,16 @@ class OrzA3(Ability):
         if not self._death_sound_played and self.die_sound:
             self.die_sound.play()
         self._death_sound_played = True
+
+    def _record_crew_loss(self, *, actor=None, source=None):
+        if self._crew_loss_recorded or self._crew_recovered:
+            return
+        self._crew_loss_recorded = True
+        event_ledger.record_launched_crew_lost(
+            self,
+            actor=actor,
+            source=source if source is not None else self,
+        )
 
     def _parent_alive(self):
         return self.parent.currently_alive and self.parent.current_hp > 0
