@@ -6,8 +6,18 @@ import math
 from collections.abc import Iterable
 
 import src.const as const
-from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 from src.toroidal import wrapped_delta, wrapped_distance
+
+_INDEFINITE_RANGE_ABILITIES = frozenset(
+    {
+        "ChenjesuA1",
+        "ChenjesuA2",
+        "KohrAhA1",
+        "OrzA2",
+        "OrzA3",
+    }
+)
 
 
 def is_pointing_at_enemy(ship, enemy, world=None, action_number: int = 1) -> bool:
@@ -27,27 +37,37 @@ def is_pointing_at_enemy(ship, enemy, world=None, action_number: int = 1) -> boo
 
 
 def is_enemy_in_effective_range(ship, enemy, world=None, action_number: int = 1) -> bool:
-    definition = ability_definition_for_action(ship, action_number)
-    if definition is None or not _target_is_live(enemy):
+    if not _target_is_live(enemy):
         return False
+    return any(
+        _is_enemy_in_definition_range(ship, enemy, ability_name, definition, action_number)
+        for ability_name, definition in _ability_specs_for_action(
+            ship,
+            action_number,
+            include_linked=True,
+        )
+    )
+
+
+def _is_enemy_in_definition_range(
+    ship,
+    enemy,
+    ability_name: str,
+    definition,
+    action_number: int,
+) -> bool:
     distance = wrapped_distance(_position(ship), _position(enemy))
 
-    if definition.range is not None:
-        return distance <= float(definition.range)
-    if definition.ability_type == "area":
+    effective_range = _fixed_effective_range(ship, definition)
+    if effective_range is not None:
+        return distance <= effective_range
+    if ability_name in _INDEFINITE_RANGE_ABILITIES:
+        return True
+    if definition.ability_type in {"projectile", "special_object"}:
+        return _projectile_can_reach_perfectly_aimed(ship, enemy, definition)
+    if definition.ability_type in {"area", "laser"}:
         return False
-    if definition.ability_type == "laser":
-        return False
-    if definition.ability_type not in {"projectile", "special_object"}:
-        return _special_effective_range(ship, enemy, definition, action_number)
-
-    if definition.tracking and _automatic_target_is_valid(definition, enemy):
-        return distance <= _projectile_travel_distance(definition)
-
-    return any(
-        _projectile_can_intercept(ship, enemy, definition, weapon_angle)
-        for weapon_angle in _weapon_angles(ship, definition, action_number)
-    )
+    return _special_effective_range(ship, enemy, definition, action_number)
 
 
 def is_a1_pointing_at_enemy(ship, enemy, world=None) -> bool:
@@ -67,13 +87,30 @@ def is_enemy_in_a2_effective_range(ship, enemy, world=None) -> bool:
 
 
 def ability_definition_for_action(ship, action_number: int):
+    for _, definition in _ability_specs_for_action(ship, action_number):
+        return definition
+    return None
+
+
+def _ability_specs_for_action(
+    ship,
+    action_number: int,
+    *,
+    include_linked: bool = False,
+):
     if action_number not in (1, 2):
-        return None
-    for ability_name in _ability_names_for_action(ship, action_number):
+        return
+    yielded = set()
+    ability_names = list(_ability_names_for_action(ship, action_number))
+    if include_linked:
+        ability_names.extend(_linked_ability_names_for_action(ship, action_number))
+    for ability_name in ability_names:
+        if ability_name in yielded:
+            continue
         definition = ABILITY_DEFINITIONS.get(ability_name)
         if definition is not None:
-            return definition
-    return None
+            yielded.add(ability_name)
+            yield ability_name, definition
 
 
 def _ability_names_for_action(ship, action_number: int) -> Iterable[str]:
@@ -84,6 +121,11 @@ def _ability_names_for_action(ship, action_number: int) -> Iterable[str]:
         else:
             yield "MmrnmrhmXFormA1"
     yield f"{ship_name}A{action_number}"
+
+
+def _linked_ability_names_for_action(ship, action_number: int) -> Iterable[str]:
+    if getattr(ship, "name", "") == "Orz" and action_number == 2:
+        yield "OrzA3"
 
 
 def _is_omnidirectional_effect(definition) -> bool:
@@ -120,6 +162,29 @@ def _special_effective_range(ship, enemy, definition, action_number: int) -> boo
     return False
 
 
+def _fixed_effective_range(ship, definition) -> float | None:
+    if definition.range is not None:
+        return float(definition.range)
+    if definition.ability_type == "area" and definition.area_length is not None:
+        return float(definition.area_length)
+    if definition.ship_name == "Slylandro" and definition.action == "A1":
+        return _slylandro_lightning_range(ship, definition)
+    return None
+
+
+def _slylandro_lightning_range(ship, definition) -> float | None:
+    if definition.segment_length_max is None:
+        return None
+    weapon_wait = getattr(ship, "a1_wait", None)
+    if not _finite(weapon_wait):
+        ship_definition = SHIP_DEFINITIONS.get(definition.ship_name)
+        weapon_wait = ship_definition.a1_wait if ship_definition else None
+    if not _finite(weapon_wait) or weapon_wait <= 0:
+        return None
+    max_segment_count = int(math.floor(float(weapon_wait) / 2.0)) + 1
+    return max_segment_count * float(definition.segment_length_max)
+
+
 def _weapon_angles(ship, definition, action_number: int) -> tuple[float, ...]:
     if getattr(ship, "name", None) == "Orz" and action_number == 1:
         turret_heading = getattr(ship, "turret_heading", None)
@@ -135,41 +200,60 @@ def _weapon_angles(ship, definition, action_number: int) -> tuple[float, ...]:
     return tuple((heading + float(direction)) % 360.0 for direction in directions)
 
 
-def _projectile_can_intercept(ship, enemy, definition, weapon_angle: float) -> bool:
+def _projectile_can_reach_perfectly_aimed(ship, enemy, definition) -> bool:
     lifetime = max(0.0, float(definition.life_time))
     if lifetime <= 0:
         return False
     speed = max(0.0, float(definition.speed))
-    if speed <= 0:
-        return False
 
-    angle = math.radians(weapon_angle)
-    projectile_velocity = (
-        math.sin(angle) * speed + _velocity(ship)[0] * float(definition.parent_vel),
-        -math.cos(angle) * speed + _velocity(ship)[1] * float(definition.parent_vel),
-    )
+    parent_velocity = _velocity(ship)
+    parent_x = parent_velocity[0] * float(definition.parent_vel)
+    parent_y = parent_velocity[1] * float(definition.parent_vel)
     rel_position = wrapped_delta(_position(ship), _position(enemy))
     rel_velocity = (
-        _velocity(enemy)[0] - projectile_velocity[0],
-        _velocity(enemy)[1] - projectile_velocity[1],
+        _velocity(enemy)[0] - parent_x,
+        _velocity(enemy)[1] - parent_y,
     )
-    vv = rel_velocity[0] * rel_velocity[0] + rel_velocity[1] * rel_velocity[1]
-    if vv <= 0:
-        closest_time = 0.0
-    else:
-        closest_time = -(
-            rel_position[0] * rel_velocity[0]
-            + rel_position[1] * rel_velocity[1]
-        ) / vv
-        closest_time = min(lifetime, max(0.0, closest_time))
-    closest_x = rel_position[0] + rel_velocity[0] * closest_time
-    closest_y = rel_position[1] + rel_velocity[1] * closest_time
     hit_radius = _radius(ship) + _radius(enemy) + max(1.0, max(definition.damage or (1,)))
-    return math.hypot(closest_x, closest_y) <= hit_radius
+    return _moving_target_is_reachable(
+        rel_position,
+        rel_velocity,
+        speed,
+        lifetime,
+        hit_radius,
+    )
 
 
-def _projectile_travel_distance(definition) -> float:
-    return max(0.0, float(definition.speed)) * max(0.0, float(definition.life_time))
+def _moving_target_is_reachable(
+    rel_position: tuple[float, float],
+    rel_velocity: tuple[float, float],
+    projectile_speed: float,
+    lifetime: float,
+    hit_radius: float,
+) -> bool:
+    rx, ry = rel_position
+    vx, vy = rel_velocity
+    speed = max(0.0, projectile_speed)
+    radius = max(0.0, hit_radius)
+
+    def miss_margin_squared(time: float) -> float:
+        return (
+            (rx + vx * time) ** 2
+            + (ry + vy * time) ** 2
+            - (speed * time + radius) ** 2
+        )
+
+    if miss_margin_squared(0.0) <= 1e-9 or miss_margin_squared(lifetime) <= 1e-9:
+        return True
+
+    a = vx * vx + vy * vy - speed * speed
+    if a <= 1e-9:
+        return False
+    b = 2.0 * (rx * vx + ry * vy - speed * radius)
+    closest_time = -b / (2.0 * a)
+    if closest_time < 0.0 or closest_time > lifetime:
+        return False
+    return miss_margin_squared(closest_time) <= 1e-9
 
 
 def _angle_to_target(ship, enemy) -> float:

@@ -57,6 +57,42 @@ class TrainingCombatAdapterTests(unittest.TestCase):
         enemy.position = [100, 4000]
         self.assertFalse(is_enemy_in_effective_range(trainee, enemy, action_number=1))
 
+        enemy.position = [100, 700]
+        enemy.velocity = [0, 80]
+        self.assertFalse(is_enemy_in_effective_range(trainee, enemy, action_number=1))
+
+    def test_projectile_range_disregards_facing_but_keeps_parent_velocity(self):
+        trainee = ship("Druuge", position=(1000, 1000), rotation=0)
+        enemy = ship("Chenjesu", position=(1000, 2500))
+
+        self.assertTrue(is_enemy_in_effective_range(trainee, enemy, action_number=1))
+
+        trainee = ship("Orz", position=(1000, 1000), rotation=0, velocity=(0, 100))
+        self.assertTrue(is_enemy_in_effective_range(trainee, enemy, action_number=1))
+
+        trainee.velocity = [0, -100]
+        self.assertFalse(is_enemy_in_effective_range(trainee, enemy, action_number=1))
+
+    def test_laser_area_and_linked_orz_marine_ranges_are_directionless(self):
+        slylandro = ship("Slylandro", position=(100, 100), rotation=180)
+        enemy = ship("Chenjesu", position=(100, 1100))
+
+        self.assertTrue(is_enemy_in_effective_range(slylandro, enemy, action_number=1))
+
+        enemy.position = [100, 1400]
+        self.assertFalse(is_enemy_in_effective_range(slylandro, enemy, action_number=1))
+
+        zoq = ship("ZoqFotPik", position=(100, 100), rotation=180)
+        enemy.position = [100, 230]
+        self.assertTrue(is_enemy_in_effective_range(zoq, enemy, action_number=2))
+
+        enemy.position = [100, 260]
+        self.assertFalse(is_enemy_in_effective_range(zoq, enemy, action_number=2))
+
+        orz = ship("Orz", position=(100, 100), rotation=0)
+        enemy.position = [3000, 3000]
+        self.assertTrue(is_enemy_in_effective_range(orz, enemy, action_number=2))
+
     def test_laser_range_and_cloaked_tracking_fallback_are_characterized(self):
         chmmr = ship("Chmmr", position=(100, 100), rotation=180)
         enemy = ship("Chenjesu", position=(100, 650))

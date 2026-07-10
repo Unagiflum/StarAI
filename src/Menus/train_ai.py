@@ -37,7 +37,7 @@ from src.training.model_registry import (
     model_architecture_metadata,
 )
 from src.training.orchestration import TrainingOrchestrationConfig
-from src.training.rewards import REWARD_COMPONENTS
+from src.training.rewards import LEGACY_REWARD_ALIASES, REWARD_COMPONENTS
 from src.training.session import (
     TrainingSession,
     TrainingSessionError,
@@ -1414,10 +1414,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             rewards = training.get("rewards", {})
             if isinstance(rewards, dict):
                 for slider in reward_sliders:
-                    if slider.label not in rewards:
+                    reward_key = slider.label
+                    if reward_key not in rewards:
+                        legacy_key = LEGACY_REWARD_ALIASES.get(slider.label)
+                        if legacy_key not in rewards:
+                            continue
+                        reward_key = legacy_key
+                    if reward_key not in rewards:
                         continue
                     try:
-                        value = float(rewards[slider.label])
+                        value = float(rewards[reward_key])
                     except (TypeError, ValueError):
                         skipped.append(slider.label)
                         continue

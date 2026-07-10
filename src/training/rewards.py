@@ -18,10 +18,10 @@ from src.training.event_ledger import (
 
 
 REWARD_POINT_A1 = "Point A1 at enemy"
-REWARD_A1_RANGE = "Get in A1 weapon range"
+REWARD_A1_RANGE = "In A1 range"
 REWARD_SPAWN_A1 = "Spawn A1 object"
 REWARD_POINT_A2 = "Point A2 at enemy"
-REWARD_A2_RANGE = "Get in A2 weapon range"
+REWARD_A2_RANGE = "In A2 range"
 REWARD_SPAWN_A2 = "Spawn A2 object"
 REWARD_HIGH_SPEED = "Be at high speed"
 REWARD_ENEMY_LOSES_CREW = "Enemy loses crew"
@@ -56,6 +56,11 @@ REWARD_COMPONENTS = (
     REWARD_GET_DEBUFFED,
     REWARD_DIE,
 )
+
+LEGACY_REWARD_ALIASES = {
+    REWARD_A1_RANGE: "Get in A1 weapon range",
+    REWARD_A2_RANGE: "Get in A2 weapon range",
+}
 
 NORMALIZED_SHAPING_COMPONENTS = (
     REWARD_POINT_A1,
@@ -232,7 +237,15 @@ class RollingReturnPipeline:
 
 
 def normalize_reward_weights(weights: Mapping[str, float]) -> dict[str, float]:
-    return {component: float(weights.get(component, 0.0)) for component in REWARD_COMPONENTS}
+    normalized = {}
+    for component in REWARD_COMPONENTS:
+        value = weights.get(component, None)
+        if value is None:
+            legacy_component = LEGACY_REWARD_ALIASES.get(component)
+            if legacy_component is not None:
+                value = weights.get(legacy_component, None)
+        normalized[component] = float(value) if value is not None else 0.0
+    return normalized
 
 
 def discount_cutoff_frames(

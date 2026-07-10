@@ -11,6 +11,7 @@ from src.training.event_ledger import (
 )
 from src.training.rewards import (
     REWARD_A1_RANGE,
+    REWARD_A2_RANGE,
     REWARD_BATTERY_AT_ZERO,
     REWARD_DEBUFF_ENEMY,
     REWARD_DIE,
@@ -32,6 +33,7 @@ from src.training.rewards import (
     RollingReturnPipeline,
     calculate_reward_components,
     discount_cutoff_frames,
+    normalize_reward_weights,
 )
 
 
@@ -95,6 +97,20 @@ class TrainingRewardComponentTests(unittest.TestCase):
         self.assertEqual(components[REWARD_POINT_A1], 0.25)
         self.assertEqual(components[REWARD_A1_RANGE], 0.5)
         self.assertEqual(components[REWARD_POINT_A2], 0.5)
+
+    def test_range_reward_labels_and_legacy_weights(self):
+        self.assertEqual(REWARD_A1_RANGE, "In A1 range")
+        self.assertEqual(REWARD_A2_RANGE, "In A2 range")
+
+        weights = normalize_reward_weights(
+            {
+                "Get in A1 weapon range": 1.5,
+                "Get in A2 weapon range": -2.0,
+            }
+        )
+
+        self.assertEqual(weights[REWARD_A1_RANGE], 1.5)
+        self.assertEqual(weights[REWARD_A2_RANGE], -2.0)
 
     def test_events_and_endpoint_rewards_remain_distinct(self):
         events = (
