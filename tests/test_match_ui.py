@@ -15,8 +15,15 @@ pygame.display.set_mode((1, 1))
 import src.const as const
 from src.Battle import battle
 from src.Battle.battle_draw import (
+    BAR_WIDTH,
+    BattleDrawLayout,
     BattleDrawController,
     BattleDrawOptions,
+    MARINE_REGION_HEIGHT,
+    RenderSnapshot,
+    VIEWPORT_COLUMN_WIDTH,
+    VIEWPORT_MARGIN,
+    VIEWPORT_SIZE,
     create_play_battle_layout,
     draw_battle,
 )
@@ -110,6 +117,32 @@ class EndMatchDialogTests(unittest.TestCase):
 
 
 class BattleHudLayoutTests(unittest.TestCase):
+    def _empty_snapshot(self, ships=(), live_ships=()):
+        return RenderSnapshot(
+            stars=(),
+            planets=(),
+            thrust_markers=(),
+            asteroids=(),
+            abilities=(),
+            ships=tuple(ships),
+            effects=(),
+            live_ships=tuple(live_ships),
+        )
+
+    def _ship(self, player):
+        return SimpleNamespace(
+            player=player,
+            name=f"Ship {player}",
+            position=[500.0 + player * 100, 500.0],
+            previous_position=[500.0 + player * 100, 500.0],
+            current_hp=8,
+            max_hp=10,
+            current_energy=5,
+            max_energy=10,
+            boarded_marines=(),
+            limpets_attached=0,
+        )
+
     def test_shared_controller_does_not_flip_display(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         arena_rect = pygame.Rect(
@@ -157,6 +190,78 @@ class BattleHudLayoutTests(unittest.TestCase):
         self.assertEqual(screen.get_at(arena_rect.center)[:3], (0, 0, 0))
         self.assertNotEqual(screen.get_at((285, 100))[:3], (20, 20, 20))
         self.assertNotEqual(screen.get_at((1250, 100))[:3], (20, 20, 20))
+
+    def test_hud_panel_is_clipped_to_supplied_rect(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        unchanged = (13, 14, 15)
+        screen.fill(unchanged)
+        hud_rect = pygame.Rect(40, 50, 320, 120)
+        layout = BattleDrawLayout(
+            arena_rect=pygame.Rect(0, 0, 1, 1),
+            player1_hud_rect=hud_rect,
+            player2_hud_rect=None,
+        )
+
+        BattleDrawController().draw(
+            screen,
+            self._empty_snapshot(),
+            layout,
+            (255, 255, 255),
+            mock.Mock(),
+            options=BattleDrawOptions(draw_arena=False),
+        )
+
+        self.assertNotEqual(
+            screen.get_at((hud_rect.left + 1, hud_rect.top + 1))[:3],
+            unchanged,
+        )
+        self.assertEqual(
+            screen.get_at((hud_rect.centerx, hud_rect.bottom + 5))[:3],
+            unchanged,
+        )
+        self.assertEqual(
+            screen.get_at((hud_rect.right + 5, hud_rect.centery))[:3],
+            unchanged,
+        )
+
+    def test_live_hud_features_render_into_arbitrary_supplied_rect(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        unchanged = (11, 12, 13)
+        screen.fill(unchanged)
+        hud_rect = pygame.Rect(410, 300, 320, 240)
+        ship = self._ship(1)
+        layout = BattleDrawLayout(
+            arena_rect=pygame.Rect(0, 0, 1, 1),
+            player1_hud_rect=hud_rect,
+            player2_hud_rect=None,
+        )
+
+        with mock.patch("src.Battle.battle_draw._render_world_to_surface"):
+            BattleDrawController().draw(
+                screen,
+                self._empty_snapshot(ships=(ship,), live_ships=(ship,)),
+                layout,
+                (255, 255, 255),
+                mock.Mock(),
+                options=BattleDrawOptions(draw_arena=False),
+            )
+
+        hud_content_width = BAR_WIDTH * 2 + VIEWPORT_COLUMN_WIDTH
+        draw_x_offset = (hud_rect.width - hud_content_width) // 2
+        viewport_left = hud_rect.left + draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
+        viewport_top = hud_rect.top + MARINE_REGION_HEIGHT
+        hp_x = hud_rect.left + draw_x_offset + 2
+        hp_y = hud_rect.top + MARINE_REGION_HEIGHT + VIEWPORT_SIZE - 2
+
+        self.assertEqual(
+            screen.get_at((viewport_left, viewport_top))[:3],
+            const.HUD_VIEWPORT_BORDER,
+        )
+        self.assertNotEqual(screen.get_at((hp_x, hp_y))[:3], unchanged)
+        self.assertEqual(
+            screen.get_at((hud_rect.left - 1, hud_rect.top + 1))[:3],
+            unchanged,
+        )
 
     def test_draw_battle_wrapper_flips_once(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
