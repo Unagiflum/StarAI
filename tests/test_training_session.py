@@ -115,6 +115,18 @@ class TrainingMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(rolling.average_match_score, 15.0)
         self.assertAlmostEqual(rolling.average_loss, 2.0)
 
+    def test_rolling_metrics_keeps_grouped_outcome_totals_for_win_rate(self):
+        history = (
+            BatchMetrics(1, 3, 1, 1, 1, 10.0, 0.1, 0.001, 1.0),
+            BatchMetrics(2, 3, 2, 1, 0, 20.0, 0.2, 0.002, 3.0),
+        )
+
+        rolling = rolling_metrics(history, grouping=2)
+
+        self.assertEqual(rolling.match_count, 6)
+        self.assertEqual((rolling.wins, rolling.losses, rolling.draws), (3, 2, 1))
+        self.assertIn("( 50.00% W)", format_batch_summary_line(history[-1], rolling))
+
     def test_csv_append_writes_header_once(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "Earthling-01.csv"
@@ -150,6 +162,27 @@ class TrainingMetricsTests(unittest.TestCase):
         }
 
         self.assertEqual(batch_metrics_history_from_metadata(metadata), (metrics,))
+
+    def test_grouped_win_rate_survives_metadata_round_trip(self):
+        history = (
+            BatchMetrics(12, 3, 1, 1, 1, 42.5, 0.1, 0.001, 0.25),
+            BatchMetrics(13, 3, 2, 1, 0, 43.5, 0.1, 0.001, 0.35),
+        )
+        metadata = {
+            "progress": {
+                "completed_batches": 13,
+                "recent_batch_metrics": [
+                    batch_metrics_to_metadata(metrics) for metrics in history
+                ],
+            }
+        }
+
+        restored = batch_metrics_history_from_metadata(metadata)
+        rolling = rolling_metrics(restored, grouping=2)
+
+        self.assertEqual(rolling.match_count, 6)
+        self.assertEqual(rolling.wins, 3)
+        self.assertIn("( 50.00% W)", format_batch_summary_line(restored[-1], rolling))
 
 
 class TrainingCompatibilityTests(unittest.TestCase):

@@ -233,10 +233,10 @@ def rolling_metrics(history: tuple[BatchMetrics, ...], grouping: int) -> BatchMe
     latest = window[-1]
     return BatchMetrics(
         batch=latest.batch,
-        match_count=round(sum(item.match_count for item in window) / count),
-        wins=round(sum(item.wins for item in window) / count),
-        losses=round(sum(item.losses for item in window) / count),
-        draws=round(sum(item.draws for item in window) / count),
+        match_count=sum(item.match_count for item in window),
+        wins=sum(item.wins for item in window),
+        losses=sum(item.losses for item in window),
+        draws=sum(item.draws for item in window),
         average_match_score=sum(item.average_match_score for item in window) / count,
         epsilon=sum(item.epsilon for item in window) / count,
         learning_rate=sum(item.learning_rate for item in window) / count,
