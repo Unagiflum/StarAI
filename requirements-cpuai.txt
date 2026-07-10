@@ -1,0 +1,4 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+pygame-ce==2.5.2
+numpy==2.5.1
+torch==2.7.0+cpu
