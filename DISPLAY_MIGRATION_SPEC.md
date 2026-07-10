@@ -29,7 +29,7 @@ drawing controller.
 
 Both modes must show the same battle presentation features:
 
-- Stars.
+- The same display-owned star field.
 - Player color indicators from display settings.
 - Battle arena/world drawing.
 - Ship crosshairs when enabled by display settings.
@@ -88,10 +88,14 @@ Display on/off must not change:
 - Model updates.
 - Stop behavior.
 
+Stars must be migrated out of battle simulation ownership and into display
+ownership. The shared star field must be presentation state only: it may use
+world-space coordinates and camera/midpoint information for parallax, but it
+must not be stored in or updated by the gameplay `World`.
+
 Do not add real `Star` objects to the training `BattleSimulation` world merely
-to make training display stars. Training stars must be visual-only display
-state unless a later phase deliberately proves an equivalent deterministic
-simulation contract.
+to make training display stars. Do not keep normal battle dependent on
+simulation-owned stars after the star-field migration phase is complete.
 
 ### 2.3 Compatibility during migration
 
@@ -108,6 +112,33 @@ that disables them in play mode.
 
 Training should not keep a separate simplified HUD once the shared HUD renderer
 supports training layout rectangles.
+
+### 2.5 Star field ownership
+
+The star field is a display resource, not a battle object.
+
+The migrated star field must:
+
+- Be created at startup, renderer initialization, or another display/asset
+  initialization boundary.
+- Use an isolated deterministic seed or isolated RNG that is unrelated to
+  simulation RNG and training decision RNG.
+- Be present equally in normal battle and training display.
+- Receive camera/world-view information from the drawing controller so it can
+  keep the same parallax behavior as the current renderer.
+- Stay out of `World`, collision snapshots, observations, rewards, event
+  ledgers, and training replay data.
+
+### 2.6 Collision system boundary
+
+The star-field migration should not add new collision behavior.
+
+Stars are visual background presentation and must not become collision
+candidates. If any collision code, spatial index code, world snapshot code, or
+typed-world cache currently references stars because they are in `World`, that
+dependency must be audited during the star migration. Rendering dependencies
+should move to the display-owned star field; collision and simulation code
+should either ignore stars or no longer see them at all.
 
 ## 3. Target Architecture
 
@@ -164,9 +195,35 @@ and training should feed equivalent battle-view data into the same controller:
 - Entry state, if any.
 - Frame ID.
 - Original ships.
-- Optional visual-only stars for training.
 
-### 3.4 Shared drawing controller
+Stars should not be supplied as battle-view game objects after the star-field
+migration phase. The drawing controller should obtain the shared display-owned
+star field from renderer/display resources and draw it using the current
+world-camera parameters.
+
+### 3.4 Shared display star field
+
+Introduce or adapt a display-owned star-field object, for example:
+
+```python
+class DisplayStarField:
+    def draw(self, surface, scale_factor, translation, midpoint):
+        ...
+```
+
+The exact class shape may differ. The required behavior is:
+
+- It is created outside battle simulation setup.
+- It owns the star positions, depths, and images needed for rendering.
+- It uses world-space positions so camera panning, wrapping, and parallax work
+  like the current battle star rendering.
+- It does not insert stars into the `World`.
+- It is shared by both normal play and training display through the same battle
+  drawing controller.
+- It may reuse existing star assets and `StarFieldRenderer` logic if that keeps
+  the implementation smaller and behaviorally equivalent.
+
+### 3.5 Shared drawing controller
 
 Introduce a controller or cohesive helper API, for example:
 
@@ -179,12 +236,14 @@ class BattleDrawController:
 The exact class/function shape may differ. The required behavior is:
 
 - Draw arena/world content into `layout.arena_rect`.
+- Draw the display-owned star field before gameplay objects in both play and
+  training display modes.
 - Draw player HUDs into supplied HUD rectangles.
 - Use the same status bars and HUD feature drawing for both modes.
 - Respect display settings through the same constants/config used by play mode.
 - Preserve the no-flip/no-timing/no-simulation invariant.
 
-### 3.5 Top-level wrappers
+### 3.6 Top-level wrappers
 
 Normal play mode should retain a top-level function that does play-mode
 composition:
@@ -218,6 +277,7 @@ Keep existing training display behavior unchanged in this phase.
 
 - Add a layout contract for the current play arena and HUD regions.
 - Add a controller or shared function that can draw:
+  - The existing star field behavior.
   - Arena/world.
   - Current play HUDs.
   - Optional pause/instruction overlays if that is the least disruptive first
@@ -226,7 +286,7 @@ Keep existing training display behavior unchanged in this phase.
 - Ensure `draw_battle()` remains callable and keeps the current play-mode
   behavior by wrapping the new controller and then flipping once.
 - Preserve existing viewport rendering behavior, including clipped player
-  viewports and skipped stars inside HUD viewports.
+  viewports and no star drawing inside HUD viewports.
 
 ### Tests
 
@@ -363,20 +423,34 @@ Add or update tests proving:
   display-on path.
 - Flicker-prone full-screen clearing/flipping is not introduced.
 
-## Phase 5: Add Presentation-Only Stars to Training
+## Phase 5: Migrate Stars to Display Ownership
 
 ### Scope
 
-Make training display show stars while preserving training semantics.
+Move stars out of battle `World` ownership and into a shared display-owned star
+field used equally by normal play and training display.
 
 ### Required implementation details
 
-- Do not set `include_stars=True` on training `BattleSimulation` unless a
-  deliberate proof and test suite show no training-semantic change.
-- Provide stars to the shared renderer as visual-only display state.
-- The visual star field should be deterministic for a training UI/session and
-  should not consume the RNG used for simulation or training decisions.
-- Prefer reusing existing `Star` assets and `StarFieldRenderer` behavior.
+- Create the shared star field at startup, renderer initialization, or another
+  display/asset initialization boundary.
+- Use an isolated deterministic seed or isolated RNG that cannot consume or
+  perturb battle simulation RNG or training RNG.
+- Use the same display-owned star field in both normal play and training
+  display mode.
+- The star field must receive world camera information from the drawing
+  controller, such as scale factor, translation, and midpoint, so it can
+  preserve current parallax behavior.
+- Remove or bypass per-battle star insertion into the gameplay `World` once the
+  display-owned star field is active.
+- Move any code that depends on `World.stars` for rendering to the renderer or
+  display-owned star field path.
+- Audit collision snapshots, spatial indexes, typed world caches, and broad
+  world-object loops for star assumptions. The expected result is removal of
+  render-only star coupling, not new star collision handling.
+- Keep stars out of collision, observations, rewards, event ledgers, and replay
+  data.
+- Prefer reusing existing star assets and `StarFieldRenderer` behavior.
 - Make sure display settings that affect star/player presentation remain
   respected consistently with play mode.
 
@@ -384,18 +458,27 @@ Make training display show stars while preserving training semantics.
 
 Add or update tests proving:
 
-- Training battle simulation world still omits real stars.
-- Training display-on battle view includes visual stars or passes visual stars
-  to the renderer.
+- Training battle simulation world omits real stars.
+- Normal battle simulation world also no longer needs real stars after this
+  phase.
 - Display-on/off training results remain identical.
-- The shared renderer draws stars in training display mode.
-- Normal play stars continue to come from the battle world.
+- The shared renderer draws the same display-owned star field in normal play
+  and training display mode.
+- Star-field creation does not consume the RNG object passed to battle
+  initialization or training orchestration.
+- Any code previously relying on `World.stars` for presentation is migrated to
+  renderer/display ownership.
+- Collision snapshots and spatial indexes do not include stars.
+- Removing stars from `World` does not change focused collision behavior tests.
 
 ### Acceptance criteria
 
-- Training display visually includes stars.
+- Normal play and training display visually include the same display-owned star
+  field.
+- Stars are no longer simulation-owned battle objects.
+- Collision code has no render-only dependency on `World.stars`.
 - Training semantics remain unchanged.
-- Star rendering uses the same feature path as play mode wherever practical.
+- Star rendering uses the same feature path in both modes.
 
 ## Phase 6: Clean Up Legacy Drawing Paths
 
@@ -462,10 +545,18 @@ rectangles. Add tests that patch `pygame.display.flip()`.
 Mitigation: Keep training simulation and throttling in the session/orchestration
 layer. The renderer must not sleep, tick, or step simulation.
 
-### Risk: Training results change because stars alter RNG/world state
+### Risk: Results change because stars alter RNG/world state
 
-Mitigation: Training stars are presentation-only. Keep real training world
-stars omitted. Add display-on/off equivalence tests.
+Mitigation: Stars are display-owned, created with isolated deterministic display
+RNG, and omitted from gameplay `World` in both normal play and training. Add
+display-on/off equivalence tests and RNG-isolation tests.
+
+### Risk: Collision code retains hidden star assumptions
+
+Mitigation: Audit collision snapshots, spatial indexes, typed world caches, and
+broad world-object loops during Phase 5. Add or keep focused collision tests
+showing stars are absent from collision candidates and collision behavior is
+unchanged after stars leave `World`.
 
 ### Risk: HUD viewport clipping assumptions break in arbitrary rects
 
