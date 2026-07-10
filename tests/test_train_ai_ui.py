@@ -11,6 +11,7 @@ import pygame
 pygame.font.init()
 
 import src.const as const
+import src.Menus.train_ai as train_ai
 from src.Menus.train_ai import (
     ACTION_TOP,
     EPSILON_VALUES,
@@ -359,6 +360,15 @@ class TrainingBatchLogBoxTests(unittest.TestCase):
 
 
 class TrainingBattleDisplayTests(unittest.TestCase):
+    def test_legacy_training_hud_helpers_are_removed(self):
+        for name in (
+            "_ship_for_player",
+            "_draw_value_bar",
+            "_draw_ship_icon",
+            "_draw_training_hud_panel",
+        ):
+            self.assertFalse(hasattr(train_ai, name), name)
+
     def test_display_on_battle_uses_shared_controller_with_training_arena(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         rect = training_layout().arena_rect

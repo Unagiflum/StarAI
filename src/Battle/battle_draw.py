@@ -859,46 +859,23 @@ def draw_battle_arena(
     original_ships=None,
     interp_t=0.0,
 ):
-    """Draw only the square battle arena, without HUD panels or display flips."""
-    snapshot = RenderSnapshot.capture(game_objects)
-    scale_factor, translation = calculate_view_parameters(
-        snapshot, camera_targets, interp_t
-    )
-
-    players = snapshot.live_ships
-    is_mirror = False
-    if original_ships and len(original_ships) == 2:
-        is_mirror = original_ships[0].name == original_ships[1].name
-    elif len(players) == 2:
-        is_mirror = players[0].name == players[1].name
-
-    show_crosshairs = _should_show_crosshairs(const.SHIP_CROSSHAIRS, is_mirror)
-
-    midpoint = [
-        const.SCREEN_HEIGHT / (2 * scale_factor) - translation[0],
-        const.SCREEN_HEIGHT / (2 * scale_factor) - translation[1],
-    ]
-
-    pygame.draw.rect(screen, ui.BLACK, border_rect)
-    previous_clip = screen.get_clip()
-    screen.set_clip(border_rect)
-
-    _render_world_to_surface(
+    """Compatibility wrapper for drawing only the battle arena without flipping."""
+    BattleDrawController().draw(
         screen,
-        snapshot,
-        scale_factor,
-        translation,
-        midpoint,
-        entry_state,
-        frame_id,
+        game_objects,
+        BattleDrawLayout(
+            arena_rect=pygame.Rect(border_rect),
+            player1_hud_rect=None,
+            player2_hud_rect=None,
+        ),
+        border_color,
         star_field_renderer,
-        show_gravity_range=const.SHOW_PLANET_GRAVITY_MARKER,
-        show_crosshairs=show_crosshairs,
-        interp_t=interp_t,
+        camera_targets=camera_targets,
+        entry_state=entry_state,
+        frame_id=frame_id,
+        original_ships=original_ships,
+        options=BattleDrawOptions(draw_huds=False, interp_t=interp_t),
     )
-
-    pygame.draw.rect(screen, border_color, border_rect, 2)
-    screen.set_clip(previous_clip)
 
 
 def draw_battle(

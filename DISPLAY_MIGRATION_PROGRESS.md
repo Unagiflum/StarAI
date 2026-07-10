@@ -192,8 +192,44 @@ Result: All verification commands passed. The initial collision command without
 `collision_test_support` as a top-level helper; rerunning with the helper path
 set passed.
 
-## Next Phase
+## Phase 6: Clean Up Legacy Drawing Paths
 
-Phase 6 should remove obsolete duplicated training drawing helpers and simplify
-legacy wrappers now that play and training both use the shared controller and
-display-owned stars.
+Status: Complete
+
+Scope implemented:
+
+- Removed obsolete training-specific HUD helper functions that duplicated ship
+  lookup, value bar drawing, ship icon drawing, and simplified HUD panel
+  rendering.
+- Kept the active training display-on arena and HUD paths routed through
+  `BattleDrawController`.
+- Kept training-owned display-off HUD placeholders, batch logs, controls,
+  modals, and final screen flip in the Training UI.
+- Simplified `draw_battle_arena()` into a thin compatibility wrapper around
+  `BattleDrawController.draw()` with `BattleDrawOptions(draw_huds=False)`.
+- Preserved `draw_battle()` as the normal play composition wrapper that clears
+  the full screen, delegates to the shared controller, and flips once.
+
+Tests added or updated:
+
+- `draw_battle_arena()` delegates to the shared controller and does not call
+  `pygame.display.flip()`.
+- Obsolete duplicated training HUD helper functions are absent from the active
+  Training UI module.
+- Existing training display-on tests still prove arena and HUD rendering use
+  the shared controller.
+
+Verification:
+
+- `.\.venv\Scripts\python.exe -m unittest tests.test_match_ui tests.test_train_ai_ui`
+- `.\.venv\Scripts\python.exe -m unittest tests.test_training_orchestration tests.test_training_session tests.test_train_ai_ui`
+- `.\.venv\Scripts\python.exe -m unittest discover tests`
+
+Result: All verification commands passed.
+
+## Migration Status
+
+Complete. Normal play and training display both use the shared battle drawing
+controller, display-owned stars, and the shared HUD feature path. Training UI
+retains ownership of training controls, display-off logs, modal/notice drawing,
+and the single final display flip.

@@ -26,6 +26,7 @@ from src.Battle.battle_draw import (
     VIEWPORT_SIZE,
     create_play_battle_layout,
     draw_battle,
+    draw_battle_arena,
 )
 from src.Menus.pick_ship import show_battle_countdown
 from src.UI.match_dialog import EndMatchDialog
@@ -323,6 +324,42 @@ class BattleHudLayoutTests(unittest.TestCase):
             )
 
         flip.assert_called_once_with()
+
+    def test_draw_battle_arena_wrapper_delegates_without_flipping(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        arena_rect = pygame.Rect(
+            const.SCREEN_LEFT,
+            0,
+            const.SCREEN_HEIGHT,
+            const.SCREEN_HEIGHT,
+        )
+        controller = mock.Mock()
+
+        with (
+            mock.patch(
+                "src.Battle.battle_draw.BattleDrawController",
+                return_value=controller,
+            ),
+            mock.patch("src.Battle.battle_draw.pygame.display.flip") as flip,
+        ):
+            draw_battle_arena(
+                screen,
+                [],
+                arena_rect,
+                (255, 255, 255),
+                mock.Mock(),
+                interp_t=0.25,
+            )
+
+        args, kwargs = controller.draw.call_args
+        layout = args[2]
+        options = kwargs["options"]
+        self.assertEqual(layout.arena_rect, arena_rect)
+        self.assertIsNone(layout.player1_hud_rect)
+        self.assertIsNone(layout.player2_hud_rect)
+        self.assertFalse(options.draw_huds)
+        self.assertEqual(options.interp_t, 0.25)
+        flip.assert_not_called()
 
     def test_panels_are_at_top_and_control_hints_use_30px_font(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
