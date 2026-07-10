@@ -40,6 +40,7 @@ from src.training.replay import (
     load_training_checkpoint,
     save_training_checkpoint,
 )
+from src.training.render_view import freeze_battle_view
 from src.training.value_network import (
     ValueNetworkConfig,
     build_optimizer,
@@ -404,6 +405,12 @@ class TrainingSession:
             if self._display_on.is_set():
                 self.audio_service.stop_music()
             self._display_on.clear()
+            lock = getattr(self, "_lock", None)
+            if lock is None:
+                self._status.battle_view = None
+            else:
+                with lock:
+                    self._status.battle_view = None
 
     def join(self, timeout: float | None = None) -> None:
         if self._thread is not None:
@@ -566,7 +573,11 @@ class TrainingSession:
                 self._status.weighted_total_return = 0.0
                 self._status.component_totals = {}
             if "battle_view" in payload:
-                self._status.battle_view = payload["battle_view"]
+                self._status.battle_view = (
+                    freeze_battle_view(payload["battle_view"])
+                    if self._display_on.is_set()
+                    else None
+                )
             if event == "frame":
                 self._status.current_frame = int(payload.get("frame", 0))
                 self._status.current_opponent = opponent_label

@@ -3,6 +3,7 @@ import threading
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from src.training import torch_backend
@@ -20,6 +21,7 @@ from src.training.orchestration import (
     TrainingRoundResult,
 )
 from src.training.replay import TrainingReplayBuffer
+from src.training.render_view import freeze_battle_view
 from src.training.session import (
     BatchMetrics,
     TrainingSession,
@@ -231,6 +233,42 @@ class TrainingCompatibilityTests(unittest.TestCase):
 
 
 class TrainingSessionDisplayTests(unittest.TestCase):
+    def test_freeze_battle_view_copies_mutable_render_state_and_remaps_refs(self):
+        ship = SimpleNamespace(
+            position=[100.0, 200.0],
+            previous_position=[90.0, 190.0],
+            heading=3,
+            previous_heading=2,
+        )
+        ability = SimpleNamespace(
+            position=[105.0, 205.0],
+            previous_position=[104.0, 204.0],
+            parent=ship,
+        )
+        view = {
+            "game_objects": (ship, ability),
+            "original_ships": (ship,),
+            "camera_targets": (ship,),
+            "border_color": (50, 50, 50),
+            "frame_id": 7,
+        }
+
+        frozen = freeze_battle_view(view)
+        frozen_ship = frozen["game_objects"][0]
+        frozen_ability = frozen["game_objects"][1]
+
+        ship.position[0] = 999.0
+        ship.previous_position[0] = 998.0
+        ship.heading = 12
+
+        self.assertIsNot(frozen_ship, ship)
+        self.assertEqual(frozen_ship.position, [100.0, 200.0])
+        self.assertEqual(frozen_ship.previous_position, [90.0, 190.0])
+        self.assertEqual(frozen_ship.heading, 3)
+        self.assertIs(frozen_ability.parent, frozen_ship)
+        self.assertIs(frozen["original_ships"][0], frozen_ship)
+        self.assertIs(frozen["camera_targets"][0], frozen_ship)
+
     def test_live_display_toggle_throttles_frame_progress(self):
         session = TrainingSession.__new__(TrainingSession)
         session._lock = threading.Lock()
@@ -247,8 +285,55 @@ class TrainingSessionDisplayTests(unittest.TestCase):
 
         sleep.assert_called_once()
 
+    def test_headless_progress_drops_battle_view_without_freezing(self):
+        session = TrainingSession.__new__(TrainingSession)
+        session._lock = threading.Lock()
+        session._status = TrainingSessionStatus()
+        session._display_on = threading.Event()
+
+        with mock.patch("src.training.session.freeze_battle_view") as freeze:
+            session._on_progress(
+                {
+                    "event": "frame",
+                    "frame": 1,
+                    "battle_view": {"game_objects": ()},
+                }
+            )
+
+        freeze.assert_not_called()
+        self.assertIsNone(session.status.battle_view)
+
+    def test_display_progress_stores_frozen_battle_view(self):
+        session = TrainingSession.__new__(TrainingSession)
+        session._lock = threading.Lock()
+        session._status = TrainingSessionStatus()
+        session._display_on = threading.Event()
+        session._display_on.set()
+        session._next_display_frame_time = 100.0
+        frozen_view = {"game_objects": ("frozen",)}
+
+        with (
+            mock.patch(
+                "src.training.session.freeze_battle_view",
+                return_value=frozen_view,
+            ) as freeze,
+            mock.patch("src.training.session.time.perf_counter", return_value=100.0),
+            mock.patch("src.training.session.time.sleep"),
+        ):
+            session._on_progress(
+                {
+                    "event": "frame",
+                    "frame": 1,
+                    "battle_view": {"game_objects": ("live",)},
+                }
+            )
+
+        freeze.assert_called_once()
+        self.assertIs(session.status.battle_view, frozen_view)
+
     def test_live_display_toggle_starts_and_stops_training_audio(self):
         session = TrainingSession.__new__(TrainingSession)
+        session._status = TrainingSessionStatus(battle_view={"game_objects": ()})
         session._display_on = threading.Event()
         session.audio_service = RecordingAudioService()
         session._next_display_frame_time = 0.0
@@ -260,6 +345,7 @@ class TrainingSessionDisplayTests(unittest.TestCase):
             [operation[0] for operation in session.audio_service.operations],
             ["start_battle_music", "stop_music"],
         )
+        self.assertIsNone(session._status.battle_view)
 
 
 class TrainingSessionTests(unittest.TestCase):
