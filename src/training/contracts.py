@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS
 
 
-OBSERVATION_SCHEMA_VERSION = 1
-OBSERVATION_INPUT_SIZE = 533
+OBSERVATION_SCHEMA_VERSION = 2
+OBSERVATION_INPUT_SIZE = 571
 
 ACTION_SCHEMA_VERSION = 1
 ACTION_OUTPUT_SIZE = 24
@@ -17,7 +17,7 @@ CONTROL_ORDER = ("thrust", "turn_left", "turn_right", "a1", "a2")
 SHIP_TYPE_CATALOG_ORDER = tuple(SHIP_DEFINITIONS.keys())
 SHIP_TYPE_COUNT = 25
 SHIP_BLOCK_SIZE = 45
-OBJECT_SLOT_SIZE = 11
+OBJECT_SLOT_SIZE = 12
 OBJECT_SLOT_COUNT = 38
 ENEMY_SHIP_TYPE_OFFSET = 0
 SELF_SHIP_BLOCK_OFFSET = SHIP_TYPE_COUNT
@@ -84,6 +84,7 @@ OBJECT_SLOT_FIELDS = (
     "relative_speed",
     "expected_crew_effect",
     "expected_battery_effect",
+    "current_hit_points",
 )
 
 OBJECT_SLOT_GROUPS = (
@@ -118,11 +119,11 @@ OBSERVATION_FIELD_NAMES = _observation_field_names()
 if len(SHIP_BLOCK_FIELDS) != SHIP_BLOCK_SIZE:
     raise RuntimeError("SHIP_BLOCK_FIELDS must define exactly 45 fields")
 if len(OBJECT_SLOT_FIELDS) != OBJECT_SLOT_SIZE:
-    raise RuntimeError("OBJECT_SLOT_FIELDS must define exactly 11 fields")
+    raise RuntimeError("OBJECT_SLOT_FIELDS must define exactly 12 fields")
 if sum(count for _, count in OBJECT_SLOT_GROUPS) != OBJECT_SLOT_COUNT:
     raise RuntimeError("OBJECT_SLOT_GROUPS must define exactly 38 slots")
 if len(OBSERVATION_FIELD_NAMES) != OBSERVATION_INPUT_SIZE:
-    raise RuntimeError("OBSERVATION_FIELD_NAMES must define exactly 533 fields")
+    raise RuntimeError("OBSERVATION_FIELD_NAMES must define exactly 571 fields")
 
 
 @dataclass(frozen=True)

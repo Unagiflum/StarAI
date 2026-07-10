@@ -255,6 +255,7 @@ def _encode_object_slot(self_ship, enemy_ship, obj) -> list[float]:
         relative_speed / 100.0,
         crew_effect / 10.0,
         battery_effect / 10.0,
+        _number(obj, "current_hp", 0.0) / 50.0,
     ]
 
 

@@ -120,10 +120,14 @@ class TrainingUIState:
     replay_buffer_size: int = 10000
     display_on: bool = False
     running: bool = False
+    loaded_ship: str | None = None
+    loaded_slot: int | None = None
+    loaded_architecture: dict | None = None
+    loaded_training: dict | None = None
 
     @property
     def simple_behavior_controls_enabled(self):
-        return self.opponent_mode == "simple"
+        return self.opponent_mode == "simple" and not self.running
 
 
 @dataclass(frozen=True)
@@ -276,6 +280,7 @@ class RewardSlider:
         self.values = REWARD_VALUES
         self.value = value
         self.dragging = False
+        self.enabled = True
         self.label_width = 278
         self.value_width = 70
         self.line_rect = pygame.Rect(
@@ -299,6 +304,9 @@ class RewardSlider:
         self.value = self.values[index]
 
     def handle_event(self, event, sound_manager=None):
+        if not self.enabled:
+            self.dragging = False
+            return
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             hit_rect = self.line_rect.inflate(0, 20)
             if hit_rect.collidepoint(event.pos):
@@ -316,19 +324,20 @@ class RewardSlider:
             mouse_pos = pygame.mouse.get_pos()
         hovered = self.rect.collidepoint(mouse_pos)
         row = pygame.Surface(self.rect.size, pygame.SRCALPHA)
-        row.fill(ui.SLIDER_BG_HI if hovered else ui.SLIDER_BG)
+        row.fill(ui.SLIDER_BG_HI if hovered and self.enabled else ui.SLIDER_BG)
         surface.blit(row, self.rect)
 
-        label = font.render(self.label, True, ui.WHITE)
+        label_color = ui.WHITE if self.enabled else ui.GREY
+        label = font.render(self.label, True, label_color)
         surface.blit(
             label,
             label.get_rect(midleft=(self.rect.left + 8, self.rect.centery)),
         )
         pygame.draw.rect(surface, ui.SLIDER_LINE, self.line_rect)
         pygame.draw.circle(
-            surface, ui.HANDLE_COLOR, (self.handle_x, self.line_rect.centery), 7
+            surface, ui.HANDLE_COLOR if self.enabled else ui.GREY, (self.handle_x, self.line_rect.centery), 7
         )
-        value = font.render(_format_reward(self.value), True, ui.WHITE)
+        value = font.render(_format_reward(self.value), True, label_color)
         surface.blit(
             value,
             value.get_rect(midright=(self.rect.right - 8, self.rect.centery)),
@@ -1250,6 +1259,27 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     last_session_running = [False]
     batch_log_box = TrainingBatchLogBox()
 
+    def sync_state_from_ui():
+        state.display_on = display_checkbox.value
+        state.slot_labels[:] = [field.text for field in slot_fields]
+        state.rewards.update(
+            (slider.label, slider.value) for slider in reward_sliders
+        )
+        state.movement_behaviors = {
+            label
+            for label, checkbox in zip(MOVEMENT_BEHAVIORS, movement_checkboxes)
+            if checkbox.value
+        }
+        state.replay_buffer_size = int(regimen_sliders[0].value)
+        state.rounds_per_batch = int(regimen_sliders[1].value)
+        state.batch_grouping = int(regimen_sliders[2].value)
+        state.prediction_window = int(regimen_sliders[3].value)
+        state.match_time_limit = int(regimen_sliders[4].value)
+        state.learning_rate = regimen_sliders[5].value
+        state.epsilon = regimen_sliders[6].value
+        state.hidden_layer_size = int(regimen_sliders[7].value)
+        state.hidden_layer_count = int(regimen_sliders[8].value)
+
     def architecture_metadata():
         return model_architecture_metadata(
             state.hidden_layer_size,
@@ -1300,29 +1330,53 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 field.text_color = (80, 160, 255)
                 delete_button.enabled = False
             elif model_slot.source == SLOT_USER:
-                field.enabled = True
+                field.enabled = not state.running
                 field.text_color = ui.BRIGHT_GREEN
-                delete_button.enabled = True
+                delete_button.enabled = not state.running
             else:
-                field.enabled = True
+                field.enabled = not state.running
                 field.text_color = ui.WHITE
                 delete_button.enabled = False
 
     def update_field_colors():
         if state.selected_ship is None:
             return
-        for field, model_slot in zip(slot_fields, slot_models):
+            
+        current_arch = architecture_metadata()
+        current_training = training_metadata()
+        
+        for index, (field, model_slot) in enumerate(zip(slot_fields, slot_models)):
+            slot_number = index + 1
+            is_selected = slot_number == state.selected_slot
+            is_loaded = (
+                state.loaded_ship == state.selected_ship 
+                and state.loaded_slot == slot_number
+            )
+
             if model_slot.source == SLOT_BUNDLED:
                 field.text = "Default"
                 field.text_color = (80, 160, 255)
             elif model_slot.source == SLOT_USER:
-                field.text_color = (
-                    ui.BRIGHT_GREEN
-                    if field.text == model_slot.description
-                    else ui.CAN_RED
-                )
+                if is_selected:
+                    settings_match = False
+                    if is_loaded and isinstance(model_slot.metadata, dict):
+                        saved_arch = model_slot.metadata.get("architecture", {})
+                        saved_training = model_slot.metadata.get("training", {})
+                        settings_match = (
+                            saved_arch == current_arch
+                            and saved_training == current_training
+                            and field.text == model_slot.description
+                        )
+                    field.text_color = (
+                        ui.BRIGHT_GREEN if (is_loaded and settings_match) else ui.CAN_RED
+                    )
+                else:
+                    field.text_color = ui.WHITE
             else:
-                field.text_color = ui.CAN_RED if field.text else ui.WHITE
+                if is_selected:
+                    field.text_color = ui.CAN_RED
+                else:
+                    field.text_color = ui.WHITE
 
     def set_selected_ship(ship):
         state.selected_ship = ship
@@ -1361,6 +1415,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         updated_slot = model_repository.create_or_update_user_model(metadata)
         if reset_checkpoint and updated_slot.pth_path is not None:
             updated_slot.pth_path.write_bytes(b"")
+            
+        state.loaded_ship = state.selected_ship
+        state.loaded_slot = state.selected_slot
+        state.loaded_architecture = architecture_metadata()
+        state.loaded_training = training_metadata()
+        
         refresh_slot_controls()
         return updated_slot
 
@@ -1484,6 +1544,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             show_notice(f"Loaded {describe_model(model_slot)} conditions")
 
+        sync_state_from_ui()
+        state.loaded_ship = state.selected_ship
+        state.loaded_slot = state.selected_slot
+        state.loaded_architecture = architecture_metadata()
+        state.loaded_training = training_metadata()
+
     def clear_session_continuity():
         training_session[0] = None
         last_session_running[0] = False
@@ -1500,8 +1566,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     def request_back():
         if training_session[0] is not None and training_session[0].status.running:
+            if state.display_on:
+                display_checkbox.is_checked = False
+                state.display_on = False
+                training_session[0].set_display_on(False)
             training_session[0].request_stop()
-            show_notice("Training stopping; current batch will be abandoned")
+            show_notice("Training pausing; current batch will be abandoned")
         else:
             exited[0] = True
 
@@ -1543,7 +1613,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 initial_log_lines=initial_log_lines,
             )
             training_session[0] = session
-            last_session_running[0] = True
             state.running = True
             session.start()
             show_notice(f"Training {describe_model(model_slot)}")
@@ -1552,8 +1621,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     def start_selected_model():
         if training_session[0] is not None and training_session[0].status.running:
+            if state.display_on:
+                display_checkbox.is_checked = False
+                state.display_on = False
+                training_session[0].set_display_on(False)
             training_session[0].request_stop()
-            show_notice("Training stopping; current batch will be abandoned")
+            show_notice("Training pausing; current batch will be abandoned")
             return
 
         model_slot = selected_model_slot()
@@ -1697,7 +1770,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 )
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if layout.content_rect.collidepoint(event.pos):
-                        if ship_tile.collidepoint(translated.pos):
+                        if ship_tile.collidepoint(translated.pos) and not state.running:
                             if state.selected_ship is None:
                                 ship_picker = ShipPickerModal(
                                     1,
@@ -1711,7 +1784,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                             if menu_sound_manager:
                                 menu_sound_manager.play_sound("menu")
                         for index, row in enumerate(slot_rows):
-                            if state.selected_ship is not None and row.collidepoint(translated.pos):
+                            if state.selected_ship is not None and row.collidepoint(translated.pos) and not state.running:
                                 state.selected_slot = index + 1
                                 break
                 for field in slot_fields:
@@ -1755,40 +1828,35 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 for slider in regimen_sliders:
                     slider.handle_event(event, menu_sound_manager)
 
-        state.display_on = display_checkbox.value
-        state.slot_labels[:] = [field.text for field in slot_fields]
-        state.rewards.update(
-            (slider.label, slider.value) for slider in reward_sliders
-        )
-        state.movement_behaviors = {
-            label
-            for label, checkbox in zip(MOVEMENT_BEHAVIORS, movement_checkboxes)
-            if checkbox.value
-        }
-        state.replay_buffer_size = int(regimen_sliders[0].value)
-        state.rounds_per_batch = int(regimen_sliders[1].value)
-        state.batch_grouping = int(regimen_sliders[2].value)
-        state.prediction_window = int(regimen_sliders[3].value)
-        state.match_time_limit = int(regimen_sliders[4].value)
-        state.learning_rate = regimen_sliders[5].value
-        state.epsilon = regimen_sliders[6].value
-        state.hidden_layer_size = int(regimen_sliders[7].value)
-        state.hidden_layer_count = int(regimen_sliders[8].value)
+        sync_state_from_ui()
         controls_enabled = state.simple_behavior_controls_enabled
         for checkbox in movement_checkboxes:
             checkbox.enabled = controls_enabled
         for button in turning_buttons:
             button.enabled = controls_enabled
 
+        for btn in opponent_mode_buttons:
+            btn.enabled = not state.running
+        for slider in reward_sliders:
+            slider.enabled = not state.running
+        for slider in regimen_sliders:
+            slider.enabled = not state.running
+
         active_session = training_session[0]
         session_status = active_session.status if active_session is not None else None
         if active_session is not None:
-            active_session.set_display_on(state.display_on)
+            if session_status.running:
+                active_session.set_display_on(state.display_on)
             batch_log_box.set_lines(
                 _display_off_console_lines(session_status, active_session.log_lines)
             )
             state.running = session_status.running
+            if not last_session_running[0] and session_status.running:
+                refresh_slot_controls()
             if last_session_running[0] and not session_status.running:
+                display_checkbox.is_checked = False
+                state.display_on = False
+                active_session.set_display_on(False)
                 if session_status.error:
                     show_notice(session_status.error)
                 else:
@@ -1798,20 +1866,45 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         update_field_colors()
         selected_slot = selected_model_slot()
+        back_button.enabled = not state.running
         start_stop_button.enabled = (
             state.selected_ship is not None
             and selected_slot is not None
             and not selected_slot.is_bundled
+            and (
+                (session_status is not None and session_status.running)
+                or bool(slot_fields[state.selected_slot - 1].text.strip())
+            )
         )
-        load_button.enabled = selected_slot is not None and selected_slot.is_user
+
+        is_currently_loaded = (
+            state.loaded_ship == state.selected_ship
+            and state.loaded_slot == state.selected_slot
+            and state.loaded_architecture == architecture_metadata()
+            and state.loaded_training == training_metadata()
+        )
+
+        if is_currently_loaded and state.selected_ship is not None:
+            load_button.text = f"{state.selected_ship}-{state.selected_slot:02d} Loaded"
+            load_button.enabled = False
+        else:
+            load_button.text = "Load"
+            load_button.enabled = selected_slot is not None and selected_slot.is_user and not state.running
+
         if session_status is not None and session_status.running:
             start_stop_button.text = "Stopping" if session_status.stopping else "Stop"
-            start_stop_button.bg_color = ui.CAN_RED
+            start_stop_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
             start_stop_button.hover_color = ui.CAN_RED_HI
+            
+            display_checkbox.bg_color = (*ui.MENU_BUTTON_COLOR[:3], const.TAB_BUTTON_HOVER_ALPHA)
+            display_checkbox.hover_color = ui.MENU_BUTTON_COLOR_HI
         else:
             start_stop_button.text = "Start"
             start_stop_button.bg_color = ui.OK_GREEN
             start_stop_button.hover_color = ui.OK_GREEN_HI
+            
+            display_checkbox.bg_color = ui.MENU_BUTTON_COLOR
+            display_checkbox.hover_color = ui.MENU_BUTTON_COLOR_HI
 
         if notice[0] is not None:
             notice[0].remaining_seconds -= elapsed_seconds
@@ -1849,7 +1942,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             heading = body_font.render("Trainee Ship", True, ui.WHITE)
             content.blit(heading, heading.get_rect(center=(ship_tile.centerx, 25)))
             pygame.draw.rect(content, const.SHIP_PANEL_BACKGROUND_COLOR, ship_tile)
-            pygame.draw.rect(content, const.P1_COLOR, ship_tile, 3)
+            pygame.draw.rect(content, const.P1_COLOR if not state.running else ui.DARK_GREY, ship_tile, 3)
             if state.selected_ship is None:
                 prompt = body_font.render("Select Ship", True, ui.LIGHT_GREY)
                 content.blit(prompt, prompt.get_rect(center=ship_tile.center))
@@ -1867,7 +1960,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
             
             for index, (row, field) in enumerate(zip(slot_rows, slot_fields)):
-                enabled = state.selected_ship is not None
+                enabled = state.selected_ship is not None and not state.running
                 pygame.draw.rect(content, ui.SLIDER_BG if enabled else ui.DARK_GREY, row)
                 circle_center = (row.x + 18, row.centery)
                 circle_color = ui.WHITE if enabled else ui.GREY
@@ -1961,6 +2054,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         display_checkbox.draw(screen, body_font)
         start_stop_button.draw(screen, body_font)
         back_button.draw(screen, body_font)
+
+        if state.running:
+            pygame.draw.rect(screen, ui.BLACK, display_checkbox.rect, 2, border_radius=5)
+            pygame.draw.rect(screen, ui.BLACK, start_stop_button.rect, 2, border_radius=5)
         if state.display_on and session_status is not None:
             _draw_training_huds(
                 screen, layout.hud_rects, session_status, small_font, log_font

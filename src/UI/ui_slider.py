@@ -52,6 +52,7 @@ class Slider:
         self.bg_color = (*bg_color, 255) if len(bg_color) == 3 else bg_color
         self.hover_color = (*hover_color, 255) if len(hover_color) == 3 else hover_color
         self.is_hovered = False
+        self.enabled = True
         self.decimal_places = (
             abs(len(str(self.step).split(".")[-1])) if "." in str(self.step) else 0
         )
@@ -86,6 +87,9 @@ class Slider:
         self.handle_x = self.value_to_position(self.value)
 
     def handle_event(self, event, sound_manager=None):
+        if not self.enabled:
+            self.dragging = False
+            return
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # Left click
                 handle_rect = self.get_handle_rect()
@@ -132,7 +136,9 @@ class Slider:
     def draw(self, surface, font):
         # Create background surface with alpha
         bg_surface = pygame.Surface(self.bg_rect.size, pygame.SRCALPHA)
-        bg_color = self.hover_color if self.is_hovered else self.bg_color
+        bg_color = self.hover_color if self.is_hovered and self.enabled else self.bg_color
+        if not self.enabled:
+            bg_color = (self.bg_color[0], self.bg_color[1], self.bg_color[2], 100)
         pygame.draw.rect(bg_surface, bg_color, bg_surface.get_rect(), border_radius=5)
         surface.blit(bg_surface, self.bg_rect.topleft)
 
@@ -140,14 +146,15 @@ class Slider:
         pygame.draw.rect(surface, ui.SLIDER_LINE, self.line_rect)
         pygame.draw.circle(
             surface,
-            ui.HANDLE_COLOR,
+            ui.HANDLE_COLOR if self.enabled else ui.GREY,
             (self.handle_x, self.rect.y + self.handle_offset),
             self.handle_radius,
         )
 
         # Draw label
         label_text = f"{self.label}: {self.format_value()}"
-        label_surf = font.render(label_text, True, ui.WHITE)
+        label_color = ui.WHITE if self.enabled else ui.GREY
+        label_surf = font.render(label_text, True, label_color)
         label_rect = label_surf.get_rect(
             topleft=(self.line_rect.x, self.rect.y + self.padding_y)
         )
