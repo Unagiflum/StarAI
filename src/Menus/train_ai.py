@@ -392,18 +392,19 @@ class TrainingBatchLogBox:
     def __init__(self):
         self.lines: tuple[str, ...] = ()
         self.scroll_line = 0
+        self.visible_count = 1
         self.dragging = False
         self.selection_anchor: int | None = None
         self.selection_focus: int | None = None
 
     def set_lines(self, lines):
-        old_max = max(0, len(self.lines) - 1)
+        old_max = self._max_scroll_line()
         was_at_bottom = self.scroll_line >= old_max
         self.lines = tuple(lines)
         if was_at_bottom:
-            self.scroll_line = max(0, len(self.lines) - 1)
+            self.scroll_line = self._max_scroll_line()
         else:
-            self.scroll_line = min(self.scroll_line, max(0, len(self.lines) - 1))
+            self._clamp_scroll_line()
 
     @property
     def selected_text(self):
@@ -414,16 +415,18 @@ class TrainingBatchLogBox:
         return "\n".join(self.lines[first:last + 1])
 
     def handle_event(self, event, rect, font):
+        if event.type == pygame.MOUSEWHEEL:
+            mouse_pos = getattr(event, "pos", pygame.mouse.get_pos())
+            if rect.collidepoint(mouse_pos):
+                self._update_visible_count(rect, font)
+                self._scroll_lines(-event.y * 3)
+            return
+
         if event.type == pygame.MOUSEBUTTONDOWN and rect.collidepoint(event.pos):
             if event.button in (4, 5):
                 direction = -1 if event.button == 4 else 1
-                self.scroll_line = max(
-                    0,
-                    min(
-                        max(0, len(self.lines) - 1),
-                        self.scroll_line + direction * 3,
-                    ),
-                )
+                self._update_visible_count(rect, font)
+                self._scroll_lines(direction * 3)
             elif event.button == 1:
                 line_index = self._line_at_pos(event.pos, rect, font)
                 if line_index is not None:
@@ -445,13 +448,13 @@ class TrainingBatchLogBox:
         pygame.draw.rect(surface, ui.BLACK, rect)
         pygame.draw.rect(surface, ui.GREY, rect, 2)
         line_height = font.get_linesize()
-        visible_count = max(1, (rect.height - 16) // line_height)
-        start = max(0, min(self.scroll_line, max(0, len(self.lines) - visible_count)))
+        self._update_visible_count(rect, font)
+        start = self.scroll_line
         selected = self._selected_range()
         y = rect.top + 8
         clip = rect.inflate(-10, -8)
         surface.set_clip(clip)
-        for index, line in enumerate(self.lines[start:start + visible_count], start=start):
+        for index, line in enumerate(self.lines[start:start + self.visible_count], start=start):
             if selected is not None and selected[0] <= index <= selected[1]:
                 highlight = pygame.Rect(rect.left + 6, y, rect.width - 12, line_height)
                 pygame.draw.rect(surface, (55, 80, 120), highlight)
@@ -459,18 +462,33 @@ class TrainingBatchLogBox:
             surface.blit(rendered, (rect.left + 8, y))
             y += line_height
         surface.set_clip(None)
-        _draw_scrollbar(surface, rect, max(len(self.lines), visible_count) * line_height, start * line_height)
+        _draw_scrollbar(surface, rect, max(len(self.lines), self.visible_count) * line_height, start * line_height)
 
     def _line_at_pos(self, pos, rect, font):
         if not self.lines:
             return None
+        self._update_visible_count(rect, font)
         line_height = font.get_linesize()
-        visible_count = max(1, (rect.height - 16) // line_height)
-        start = max(0, min(self.scroll_line, max(0, len(self.lines) - visible_count)))
+        start = self.scroll_line
         offset = (pos[1] - rect.top - 8) // line_height
         if offset < 0:
             return None
         return max(0, min(len(self.lines) - 1, start + int(offset)))
+
+    def _update_visible_count(self, rect, font):
+        line_height = font.get_linesize()
+        self.visible_count = max(1, (rect.height - 16) // line_height)
+        self._clamp_scroll_line()
+
+    def _max_scroll_line(self):
+        return max(0, len(self.lines) - self.visible_count)
+
+    def _clamp_scroll_line(self):
+        self.scroll_line = max(0, min(self.scroll_line, self._max_scroll_line()))
+
+    def _scroll_lines(self, amount):
+        self.scroll_line += amount
+        self._clamp_scroll_line()
 
     def _selected_range(self):
         if self.selection_anchor is None or self.selection_focus is None:

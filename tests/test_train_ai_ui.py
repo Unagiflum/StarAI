@@ -239,6 +239,59 @@ class TrainingConsoleTests(unittest.TestCase):
         self.assertTrue(placeholder_rows[0].endswith(":        -"))
 
 
+class TrainingBatchLogBoxTests(unittest.TestCase):
+    def _box_with_lines(self, line_count=20):
+        rect = pygame.Rect(0, 0, 300, 100)
+        surface = pygame.Surface(rect.size)
+        font = pygame.font.Font(None, 20)
+        box = TrainingBatchLogBox()
+        box.set_lines(tuple(f"line {index}" for index in range(line_count)))
+        box.draw(surface, rect, font)
+        return box, rect, font
+
+    def test_mousewheel_scrolls_up_from_bottom_page(self):
+        box, rect, font = self._box_with_lines()
+        bottom_line = box.scroll_line
+
+        with mock.patch("pygame.mouse.get_pos", return_value=rect.center):
+            box.handle_event(pygame.event.Event(pygame.MOUSEWHEEL, {"y": 1}), rect, font)
+
+        self.assertLess(box.scroll_line, bottom_line)
+
+    def test_legacy_wheel_scrolls_up_from_bottom_page(self):
+        box, rect, font = self._box_with_lines()
+        bottom_line = box.scroll_line
+
+        box.handle_event(
+            pygame.event.Event(
+                pygame.MOUSEBUTTONDOWN,
+                {"button": 4, "pos": rect.center},
+            ),
+            rect,
+            font,
+        )
+
+        self.assertLess(box.scroll_line, bottom_line)
+
+    def test_new_lines_do_not_force_scroll_when_user_reading_history(self):
+        box, rect, font = self._box_with_lines()
+
+        with mock.patch("pygame.mouse.get_pos", return_value=rect.center):
+            box.handle_event(pygame.event.Event(pygame.MOUSEWHEEL, {"y": 1}), rect, font)
+        scrolled_line = box.scroll_line
+
+        box.set_lines(tuple(f"line {index}" for index in range(24)))
+
+        self.assertEqual(box.scroll_line, scrolled_line)
+
+    def test_new_lines_follow_when_view_is_at_bottom(self):
+        box, rect, font = self._box_with_lines()
+
+        box.set_lines(tuple(f"line {index}" for index in range(24)))
+
+        self.assertEqual(box.scroll_line, 24 - box.visible_count)
+
+
 class TrainingBattleDisplayTests(unittest.TestCase):
     def test_display_on_draws_cropped_battle_surface_into_arena(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
