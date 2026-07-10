@@ -72,8 +72,45 @@ Verification:
 
 Result: All verification commands passed.
 
+## Phase 3: Adjust Training Layout for Full-Size HUDs
+
+Status: Complete
+
+Scope implemented:
+
+- Derived the training HUD height from the shared battle HUD dimensions:
+  marine icon region, 200px ship viewport, and HUD bottom padding.
+- Moved training HUD rectangles flush with the screen bottom by making
+  `HUD_TOP` depend on the shared full HUD height.
+- Kept the existing display, start/stop, and back control rows in place because
+  they already fit above the larger bottom HUD band with a small gap.
+- Preserved the right-side arena/log rectangle used by display-on battle
+  rendering and display-off batch logs.
+- Left training display rendering behavior unchanged; training still uses its
+  custom display-on battle/HUD path until Phase 4.
+
+Tests added or updated:
+
+- Training HUD rectangles contain the full shared HUD height and sit flush with
+  the screen bottom.
+- Training HUD rectangles are wide enough for the shared status bars and ship
+  viewport.
+- Bottom Display, Start/Stop, and Back controls do not overlap either HUD
+  rectangle.
+- Display-off log region remains the training arena rectangle and does not
+  overlap HUD rectangles.
+
+Verification:
+
+- `.\.venv\Scripts\python.exe -m unittest tests.test_train_ai_ui`
+- `.\.venv\Scripts\python.exe -m unittest tests.test_match_ui tests.test_train_ai_ui`
+- `.\.venv\Scripts\python.exe -m unittest tests.test_training_orchestration tests.test_training_session tests.test_train_ai_ui`
+- `.\.venv\Scripts\python.exe -m unittest discover tests`
+
+Result: All verification commands passed.
+
 ## Next Phase
 
-Phase 3 should adjust the Training UI layout so display-on mode can fit
-full-size shared HUD rectangles without overlapping bottom controls, while
-preserving display-off log behavior.
+Phase 4 should migrate training display-on mode to call the shared battle
+drawing controller with the training arena and HUD rectangles, while preserving
+training menu screen ownership and display-off log behavior.

@@ -8,7 +8,13 @@ from dataclasses import dataclass, field
 import pygame
 
 import src.const as const
-from src.Battle.battle_draw import StarFieldRenderer, draw_battle_arena
+from src.Battle.battle_draw import (
+    HUD_BOTTOM_PADDING,
+    MARINE_REGION_HEIGHT,
+    StarFieldRenderer,
+    VIEWPORT_SIZE,
+    draw_battle_arena,
+)
 from src.Menus.pick_fleet import (
     MODAL_SHADE_ALPHA,
     PICKER_TOOLTIP_FONT_SIZE,
@@ -91,8 +97,9 @@ CONTENT_TOP = TAB_MARGIN + TAB_HEIGHT + TAB_GAP
 DISPLAY_TOP = 614
 FOOTER_CONTROL_HEIGHT = 46
 ACTION_TOP = 668
-HUD_TOP = 722
-HUD_BOTTOM_MARGIN = 10
+TRAINING_HUD_HEIGHT = MARINE_REGION_HEIGHT + VIEWPORT_SIZE + HUD_BOTTOM_PADDING
+HUD_TOP = const.SCREEN_HEIGHT - TRAINING_HUD_HEIGHT
+HUD_BOTTOM_MARGIN = 0
 CONTENT_BOTTOM = DISPLAY_TOP - TAB_GAP
 CONTENT_VIEW_HEIGHT = CONTENT_BOTTOM - CONTENT_TOP
 

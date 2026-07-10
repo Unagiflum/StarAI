@@ -12,7 +12,10 @@ pygame.font.init()
 
 import src.const as const
 from src.Menus.train_ai import (
+    ACTION_TOP,
     EPSILON_VALUES,
+    DISPLAY_TOP,
+    FOOTER_CONTROL_HEIGHT,
     GAMMA_VALUES,
     LEARNING_RATE_VALUES,
     MATCH_TIME_LIMIT_VALUES,
@@ -22,6 +25,7 @@ from src.Menus.train_ai import (
     ROUNDS_PER_BATCH_VALUES,
     BATCH_GROUPING_VALUES,
     RewardSlider,
+    TRAINING_HUD_HEIGHT,
     TrainingBatchLogBox,
     TrainingUIState,
     _display_off_console_lines,
@@ -31,6 +35,13 @@ from src.Menus.train_ai import (
     _set_slider_value,
     training_config_from_state,
     training_layout,
+)
+from src.Battle.battle_draw import (
+    BAR_WIDTH,
+    HUD_BOTTOM_PADDING,
+    MARINE_REGION_HEIGHT,
+    VIEWPORT_MARGIN,
+    VIEWPORT_SIZE,
 )
 from src.UI.ui_button import Checkbox
 
@@ -87,6 +98,54 @@ class TrainingLayoutTests(unittest.TestCase):
         self.assertEqual(first.width, second.width)
         self.assertEqual(first.y, second.y)
         self.assertLess(first.right, second.left)
+
+    def test_hud_rectangles_hold_full_shared_hud_and_sit_flush_bottom(self):
+        expected_height = MARINE_REGION_HEIGHT + VIEWPORT_SIZE + HUD_BOTTOM_PADDING
+        layout = training_layout()
+
+        self.assertEqual(TRAINING_HUD_HEIGHT, expected_height)
+        for hud_rect in layout.hud_rects:
+            self.assertEqual(hud_rect.height, expected_height)
+            self.assertEqual(hud_rect.bottom, const.SCREEN_HEIGHT)
+            self.assertGreaterEqual(
+                hud_rect.width,
+                BAR_WIDTH * 2 + VIEWPORT_SIZE + 2 * VIEWPORT_MARGIN,
+            )
+
+    def test_bottom_controls_do_not_overlap_full_size_huds(self):
+        layout = training_layout()
+        display_rect = pygame.Rect(
+            8,
+            DISPLAY_TOP,
+            layout.control_rect.width - 16,
+            FOOTER_CONTROL_HEIGHT,
+        )
+        action_gap = 10
+        action_width = (layout.control_rect.width - 16 - action_gap) // 2
+        start_rect = pygame.Rect(
+            8,
+            ACTION_TOP,
+            action_width,
+            FOOTER_CONTROL_HEIGHT,
+        )
+        back_rect = pygame.Rect(
+            8 + action_width + action_gap,
+            ACTION_TOP,
+            action_width,
+            FOOTER_CONTROL_HEIGHT,
+        )
+
+        for control_rect in (display_rect, start_rect, back_rect):
+            for hud_rect in layout.hud_rects:
+                self.assertFalse(control_rect.colliderect(hud_rect))
+
+    def test_display_off_log_region_remains_the_training_arena(self):
+        layout = training_layout()
+
+        self.assertEqual(layout.arena_rect.size, (const.SCREEN_HEIGHT,) * 2)
+        self.assertEqual(layout.arena_rect.right, const.SCREEN_WIDTH)
+        for hud_rect in layout.hud_rects:
+            self.assertFalse(layout.arena_rect.colliderect(hud_rect))
 
 
 class RewardSliderTests(unittest.TestCase):
