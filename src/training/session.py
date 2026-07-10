@@ -48,6 +48,7 @@ from src.training.value_network import (
 
 
 MAX_BATCH_LOG_LINES = 1000
+RECENT_BATCH_METRICS_KEY = "recent_batch_metrics"
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,55 @@ class BatchMetrics:
     epsilon: float
     learning_rate: float
     average_loss: float
+
+
+def batch_metrics_to_metadata(metrics: BatchMetrics) -> dict[str, Any]:
+    return {
+        "batch": metrics.batch,
+        "match_count": metrics.match_count,
+        "wins": metrics.wins,
+        "losses": metrics.losses,
+        "draws": metrics.draws,
+        "average_match_score": metrics.average_match_score,
+        "epsilon": metrics.epsilon,
+        "learning_rate": metrics.learning_rate,
+        "average_loss": metrics.average_loss,
+    }
+
+
+def batch_metrics_from_metadata(value: Mapping[str, Any]) -> BatchMetrics:
+    return BatchMetrics(
+        batch=int(value["batch"]),
+        match_count=int(value["match_count"]),
+        wins=int(value["wins"]),
+        losses=int(value["losses"]),
+        draws=int(value["draws"]),
+        average_match_score=float(value["average_match_score"]),
+        epsilon=float(value["epsilon"]),
+        learning_rate=float(value["learning_rate"]),
+        average_loss=float(value["average_loss"]),
+    )
+
+
+def batch_metrics_history_from_metadata(
+    metadata: Mapping[str, Any],
+) -> tuple[BatchMetrics, ...]:
+    progress = metadata.get("progress", {})
+    if not isinstance(progress, Mapping):
+        return ()
+    raw_history = progress.get(RECENT_BATCH_METRICS_KEY, ())
+    if not isinstance(raw_history, list | tuple):
+        return ()
+
+    history: list[BatchMetrics] = []
+    for item in raw_history:
+        if not isinstance(item, Mapping):
+            continue
+        try:
+            history.append(batch_metrics_from_metadata(item))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return tuple(history)
 
 
 @dataclass
@@ -257,7 +307,10 @@ class TrainingSession:
                 self.metadata.get("progress", {}).get("completed_batches", 0)
             )
         )
-        self._history: list[BatchMetrics] = list(initial_history)
+        self._history: list[BatchMetrics] = list(
+            initial_history or batch_metrics_history_from_metadata(self.metadata)
+        )
+        self._trim_history()
         self._log_lines: list[str] = list(initial_log_lines)[-MAX_BATCH_LOG_LINES:]
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
@@ -450,6 +503,7 @@ class TrainingSession:
 
         if batch_number % self.batch_grouping == 0:
             append_grouped_metrics_csv(self._csv_path(), rolling)
+        self._trim_history()
 
     def _save_state(self, model, optimizer, replay_buffer: TrainingReplayBuffer) -> None:
         pth_path, _ = model_paths(self.repository.user_dir, self.slot.ship, self.slot.slot)
@@ -473,7 +527,13 @@ class TrainingSession:
                 ),
             ),
             training=self.metadata.get("training", {}),
-            progress={"completed_batches": completed_batches},
+            progress={
+                "completed_batches": completed_batches,
+                RECENT_BATCH_METRICS_KEY: [
+                    batch_metrics_to_metadata(metrics)
+                    for metrics in self.history[-self.batch_grouping :]
+                ],
+            },
         )
         self.metadata = metadata
         self.slot = self.repository.create_or_update_user_model(metadata)
@@ -481,6 +541,11 @@ class TrainingSession:
     def _csv_path(self) -> Path:
         _, metadata_path = model_paths(self.repository.user_dir, self.slot.ship, self.slot.slot)
         return metadata_path.with_suffix(".csv")
+
+    def _trim_history(self) -> None:
+        limit = max(1, int(self.batch_grouping))
+        if len(self._history) > limit:
+            del self._history[: len(self._history) - limit]
 
     def _on_progress(self, payload: Mapping[str, Any]) -> None:
         event = payload.get("event")

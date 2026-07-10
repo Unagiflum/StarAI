@@ -25,6 +25,8 @@ from src.training.session import (
     TrainingSession,
     TrainingSessionStatus,
     append_grouped_metrics_csv,
+    batch_metrics_history_from_metadata,
+    batch_metrics_to_metadata,
     format_batch_summary_line,
     metrics_from_batch_result,
     rolling_metrics,
@@ -137,6 +139,17 @@ class TrainingMetricsTests(unittest.TestCase):
                 ["2000", "35.0", "0.00300", "0.000200", "0.0600"],
             ],
         )
+
+    def test_batch_metrics_history_round_trips_through_metadata(self):
+        metrics = BatchMetrics(12, 25, 9, 10, 6, 42.5, 0.1, 0.001, 0.25)
+        metadata = {
+            "progress": {
+                "completed_batches": 12,
+                "recent_batch_metrics": [batch_metrics_to_metadata(metrics)],
+            }
+        }
+
+        self.assertEqual(batch_metrics_history_from_metadata(metadata), (metrics,))
 
 
 class TrainingCompatibilityTests(unittest.TestCase):
@@ -310,6 +323,73 @@ class TrainingSessionTests(unittest.TestCase):
             self.assertTrue((root / "user" / "Earthling-01.csv").exists())
 
         self.assertEqual(len(session.log_lines), 1)
+
+    def test_session_resume_preserves_partial_grouping_average(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1, "batch_grouping": 3}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+
+            scores = iter((10.0, 20.0))
+
+            def first_runner(**kwargs):
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(0.1,),
+                    round_results=(_round_result(next(scores)),),
+                )
+
+            first_session = TrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                ),
+                batch_grouping=3,
+                batch_runner=first_runner,
+            )
+            first_session.run_synchronously(max_batches=2)
+
+            resumed_slot = repository.slot_for("Earthling", 1)
+            resumed_session = TrainingSession(
+                repository=repository,
+                slot=resumed_slot,
+                metadata=resumed_slot.metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                ),
+                batch_grouping=3,
+                batch_runner=lambda **kwargs: TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(0.1,),
+                    round_results=(_round_result(30.0),),
+                ),
+            )
+            resumed_session.run_synchronously(max_batches=1)
+
+            with (root / "user" / "Earthling-01.csv").open(
+                newline="",
+                encoding="utf-8",
+            ) as file:
+                rows = list(csv.reader(file))
+
+        self.assertEqual(rows[-1], ["3", "20.0", "0.10000", "0.001000", "0.1000"])
 
     def test_stop_abandons_current_batch_without_saving_progress(self):
         with tempfile.TemporaryDirectory() as directory:
