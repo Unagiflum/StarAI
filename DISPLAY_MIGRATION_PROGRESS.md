@@ -149,9 +149,51 @@ Verification:
 
 Result: All verification commands passed.
 
+## Phase 5: Migrate Stars to Display Ownership
+
+Status: Complete
+
+Scope implemented:
+
+- Added `DisplayStarField` as the display-owned star collection for shared
+  battle rendering.
+- Created display stars with an isolated deterministic RNG seed, separate from
+  battle simulation RNG and training RNG.
+- Updated the shared world renderer to draw stars from the display-owned star
+  field instead of `RenderSnapshot.stars`.
+- Updated normal play mode to create and pass a `DisplayStarField` to
+  `draw_battle()`.
+- Updated Training UI display mode to create and pass the same
+  display-owned star-field type to the shared controller.
+- Stopped `initialize_battle()` from inserting `Star` objects into the
+  gameplay `World`; the legacy `include_stars` argument is retained as a
+  compatibility no-op.
+- Audited collision ownership by adding coverage that stars do not receive
+  spatial collision categories.
+
+Tests added or updated:
+
+- Display-owned stars are deterministic and owned by `DisplayStarField`.
+- Display star drawing uses the display-owned collection rather than world
+  snapshot stars.
+- Battle initialization keeps stars out of `World` objects.
+- The legacy `include_stars=True` path no longer creates gameplay stars.
+- Stars are not spatial collision candidates.
+
+Verification:
+
+- `.\.venv\Scripts\python.exe -m unittest tests.test_star_field_renderer tests.test_world tests.test_match_ui tests.test_train_ai_ui`
+- `.\.venv\Scripts\python.exe -m unittest tests.test_training_orchestration tests.test_training_session tests.test_environment tests.test_training_observation tests.test_training_replay`
+- `$env:PYTHONPATH='tests'; .\.venv\Scripts\python.exe -m unittest tests.test_collision_pipeline tests.test_collision_spatial_index tests.test_collision_spatial_pipeline tests.test_collision_contract tests.test_collision_dispatch`
+- `.\.venv\Scripts\python.exe -m unittest discover tests`
+
+Result: All verification commands passed. The initial collision command without
+`PYTHONPATH=tests` failed because several collision tests import
+`collision_test_support` as a top-level helper; rerunning with the helper path
+set passed.
+
 ## Next Phase
 
-Phase 5 should migrate stars to display ownership so normal play and training
-display share the same display-owned star field, while removing render-only star
-objects from battle `World` ownership and auditing collision/snapshot
-assumptions.
+Phase 6 should remove obsolete duplicated training drawing helpers and simplify
+legacy wrappers now that play and training both use the shared controller and
+display-owned stars.

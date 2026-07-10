@@ -4,7 +4,7 @@ import random
 import src.const as const
 from src.configuration import GameSettingsRepository
 from src.toroidal import wrapped_distance
-from src.Objects.Space.space_obj import Planet, Star, Asteroid
+from src.Objects.Space.space_obj import Planet, Asteroid
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Battle.world import World
 
@@ -253,12 +253,8 @@ def initialize_battle(
     settings = load_settings()
     world = World()
 
-    # Create stars
-    if include_stars:
-        if explicit_runtime:
-            world.add_all(Star.create_random_stars(const.STAR_COUNT, resources, rng))
-        else:
-            world.add_all(Star.create_random_stars(const.STAR_COUNT))
+    # Stars are display-owned. ``include_stars`` is retained only as a
+    # compatibility parameter for older callers.
 
     # Initialize ships
     pos1, pos2 = (

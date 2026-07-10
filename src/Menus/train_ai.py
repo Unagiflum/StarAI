@@ -12,9 +12,9 @@ from src.Battle.battle_draw import (
     BattleDrawController,
     BattleDrawLayout,
     BattleDrawOptions,
+    DisplayStarField,
     HUD_BOTTOM_PADDING,
     MARINE_REGION_HEIGHT,
-    StarFieldRenderer,
     VIEWPORT_SIZE,
 )
 from src.Menus.pick_fleet import (
@@ -1002,7 +1002,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     log_font = pygame.font.SysFont("Consolas", 11)
     picker_title_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.042))
     picker_tooltip_font = pygame.font.SysFont(None, PICKER_TOOLTIP_FONT_SIZE)
-    training_battle_renderer = StarFieldRenderer()
+    training_battle_renderer = DisplayStarField()
     training_battle_controller = BattleDrawController()
 
     def fallback_ship_sprite(_ship_name):

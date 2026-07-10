@@ -14,6 +14,7 @@ pygame.init()
 
 import src.const as const
 from src.Battle.battle_draw import (
+    DisplayStarField,
     RenderSnapshot,
     StarFieldRenderer,
     _render_world_to_surface,
@@ -54,6 +55,78 @@ class StarGenerationTests(unittest.TestCase):
 
 
 class StarFieldRendererTests(unittest.TestCase):
+    def test_display_star_field_owns_a_deterministic_star_collection(self):
+        def create_stars(count, resources, rng):
+            return [
+                SimpleNamespace(
+                    name=f"star-{rng.randint(0, 99)}",
+                    depth=rng.randint(0, const.STAR_DEPTHS - 1),
+                    position=[rng.randint(0, const.ARENA_SIZE), rng.randint(0, const.ARENA_SIZE)],
+                )
+                for _ in range(count)
+            ]
+
+        with mock.patch.object(
+            Star, "create_random_stars", side_effect=create_stars
+        ):
+            first = DisplayStarField(count=3)
+            second = DisplayStarField(count=3)
+
+        self.assertEqual(
+            [(star.name, star.depth, star.position) for star in first.stars],
+            [(star.name, star.depth, star.position) for star in second.stars],
+        )
+
+    def test_display_star_field_draws_its_owned_stars_through_renderer(self):
+        renderer = mock.Mock()
+        stars = [object(), object()]
+
+        with mock.patch.object(Star, "create_random_stars", return_value=stars):
+            field = DisplayStarField(count=2, renderer=renderer)
+
+        field.draw(mock.sentinel.surface, 1.5, [10, 20], [30, 40])
+
+        renderer.draw.assert_called_once_with(
+            mock.sentinel.surface,
+            tuple(stars),
+            1.5,
+            [10, 20],
+            [30, 40],
+        )
+
+    def test_world_render_uses_display_owned_stars_not_snapshot_stars(self):
+        order = []
+        world = SimpleNamespace(
+            stars=[object()],
+            planets=[],
+            thrust_markers=[],
+            asteroids=[],
+            abilities=[],
+            ships=[],
+            effects=[],
+        )
+
+        class RecordingDisplayStarField:
+            def draw(self, surface, scale_factor, translation, midpoint):
+                order.append((surface, scale_factor, translation, midpoint))
+
+        _render_world_to_surface(
+            mock.sentinel.surface,
+            world,
+            1.0,
+            [0, 0],
+            [0, 0],
+            None,
+            0,
+            RecordingDisplayStarField(),
+            show_gravity_range=False,
+        )
+
+        self.assertEqual(
+            order,
+            [(mock.sentinel.surface, 1.0, [0, 0], [0, 0])],
+        )
+
     def test_render_snapshot_classifies_the_world_once_into_stable_tuples(self):
         star = Star.__new__(Star)
         planet = Planet.__new__(Planet)
@@ -82,6 +155,15 @@ class StarFieldRendererTests(unittest.TestCase):
         renderer = StarFieldRenderer()
 
         self.assertFalse(hasattr(renderer, "depth_surfaces"))
+
+    def test_legacy_renderer_accepts_display_star_field_draw_shape(self):
+        renderer = StarFieldRenderer()
+
+        with mock.patch.object(renderer, "draw_depth_stars") as draw_depth:
+            renderer.draw(mock.sentinel.surface, 1.0, [0, 0], [0, 0])
+
+        self.assertEqual(draw_depth.call_count, const.STAR_DEPTHS)
+        self.assertTrue(all(call.args[1] == [] for call in draw_depth.call_args_list))
 
     def test_only_supplied_stars_are_rendered_in_each_depth(self):
         renderer = StarFieldRenderer()

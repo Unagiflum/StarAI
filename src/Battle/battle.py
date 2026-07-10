@@ -8,7 +8,7 @@ from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.object import ThrustMarker
 from src.Battle.battle_init import initialize_battle
 from src.Battle.collisions import handle_collisions
-from src.Battle.battle_draw import StarFieldRenderer, draw_battle
+from src.Battle.battle_draw import DisplayStarField, draw_battle
 from src.Battle.battle_entry import (
     EntryState,
     entry_complete,
@@ -512,7 +512,7 @@ def run(
         player2_ships,
         audio_service=audio_service,
     )
-    star_field_renderer = StarFieldRenderer()
+    star_field = DisplayStarField(resources=simulation.resources)
 
     running = True
     is_paused = False
@@ -623,7 +623,7 @@ def run(
                 simulation.world,
                 simulation.border_rect,
                 simulation.border_color,
-                star_field_renderer,
+                star_field,
                 camera_targets=(
                     simulation.entry.camera_targets
                     if simulation.entry

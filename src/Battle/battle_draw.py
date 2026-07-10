@@ -1,5 +1,6 @@
 import pygame
 import math
+import random
 from dataclasses import dataclass
 
 from src.UI import ui
@@ -20,6 +21,8 @@ from src.Objects.object import ThrustMarker
 from src.Objects.Space.space_obj import Asteroid, Planet, Star
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
+
+DISPLAY_STAR_SEED = 314159
 
 # HUD layout constants
 VIEWPORT_SIZE = 200
@@ -194,7 +197,24 @@ class StarFieldRenderer:
     def __init__(self):
         pass
 
-    def draw(self, screen, stars, scale_factor, translation, midpoint):
+    def draw(
+        self,
+        screen,
+        stars_or_scale_factor,
+        scale_factor_or_translation=None,
+        translation_or_midpoint=None,
+        midpoint=None,
+    ):
+        if midpoint is None:
+            stars = ()
+            scale_factor = stars_or_scale_factor
+            translation = scale_factor_or_translation
+            midpoint = translation_or_midpoint
+        else:
+            stars = stars_or_scale_factor
+            scale_factor = scale_factor_or_translation
+            translation = translation_or_midpoint
+
         stars_by_depth = [[] for _ in range(const.STAR_DEPTHS)]
         for star in stars:
             stars_by_depth[star.depth].append(star)
@@ -252,6 +272,26 @@ class StarFieldRenderer:
                         screen_y - star_size // 2,
                     ),
                 )
+
+
+class DisplayStarField:
+    """Display-owned star collection with RNG isolated from battle simulation."""
+
+    def __init__(
+        self,
+        resources=None,
+        *,
+        rng=None,
+        seed=DISPLAY_STAR_SEED,
+        count=const.STAR_COUNT,
+        renderer=None,
+    ):
+        star_rng = rng if rng is not None else random.Random(seed)
+        self.stars = tuple(Star.create_random_stars(count, resources, star_rng))
+        self.renderer = renderer or StarFieldRenderer()
+
+    def draw(self, screen, scale_factor, translation, midpoint):
+        self.renderer.draw(screen, self.stars, scale_factor, translation, midpoint)
 
 
 def calculate_view_parameters(game_objects, camera_targets=None, interp_t=0.0):
@@ -314,9 +354,7 @@ def _render_world_to_surface(
     interp_t=0.0,
 ):
     if not skip_stars:
-        star_field_renderer.draw(
-            surface, snapshot.stars, scale_factor, translation, midpoint
-        )
+        star_field_renderer.draw(surface, scale_factor, translation, midpoint)
 
     if show_gravity_range:
         for planet in snapshot.planets:

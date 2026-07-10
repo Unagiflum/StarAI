@@ -18,6 +18,7 @@ from src.Objects.object import Object, ThrustMarker
 from src.Objects.Space.space_obj import Asteroid, Planet, Star
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
+from src.collision_capabilities import CollisionCapabilities, CollisionRole
 
 
 class WorldCharacterizationTests(unittest.TestCase):
@@ -177,7 +178,20 @@ class WorldCharacterizationTests(unittest.TestCase):
         self.assertEqual(world.colliding_lasers, [live_laser])
         self.assertEqual(world.live_asteroids, [live_asteroid])
 
-    def test_battle_initialization_preserves_legacy_object_order(self):
+    def test_stars_are_not_spatial_collision_candidates(self):
+        star = Star.__new__(Star)
+        ship = SpaceShip.__new__(SpaceShip)
+        ship.currently_alive = True
+        ship.current_hp = 1
+        ship.collision_capabilities = CollisionCapabilities(CollisionRole.SHIP)
+        world = World([star, ship])
+
+        snapshot = world.collision_snapshot()
+
+        self.assertNotIn(id(star), snapshot.spatial_categories)
+        self.assertIn(id(ship), snapshot.spatial_categories)
+
+    def test_battle_initialization_keeps_stars_out_of_world_objects(self):
         class Ship:
             def __init__(self):
                 self.name = "TestShip"
@@ -202,15 +216,11 @@ class WorldCharacterizationTests(unittest.TestCase):
             def get_valid_asteroid_position(self, planet, ships, objects):
                 return [len(self.created), 0]
 
-        stars = [object(), object()]
         player1 = Ship()
         player2 = Ship()
         planet = object()
 
         with (
-            mock.patch.object(
-                battle_init.Star, "create_random_stars", return_value=stars
-            ),
             mock.patch.object(
                 battle_init, "get_valid_ship_positions", return_value=([1, 2], [3, 4])
             ),
@@ -224,9 +234,45 @@ class WorldCharacterizationTests(unittest.TestCase):
 
         self.assertEqual(
             state["world"].objects,
-            stars + [player1, player2, planet] + ReplacementAsteroid.created,
+            [player1, player2, planet] + ReplacementAsteroid.created,
         )
+        self.assertEqual(state["world"].stars, [])
         self.assertIs(state["game_objects"], state["world"].objects)
+
+    def test_battle_initialization_ignores_legacy_include_stars_flag(self):
+        class Ship:
+            name = "TestShip"
+            battles_fought = 0
+
+            def initialize_in_battle(self, position, rotation):
+                self.position = position
+                self.rotation = rotation
+
+            def set_planet(self, planet):
+                self.planet = planet
+
+        player1 = Ship()
+        player2 = Ship()
+
+        with (
+            mock.patch(
+                "src.Objects.Space.space_obj.Star.create_random_stars"
+            ) as create_stars,
+            mock.patch.object(
+                battle_init, "get_valid_ship_positions", return_value=([1, 2], [3, 4])
+            ),
+            mock.patch.object(battle_init.Planet, "create_center", return_value=object()),
+            mock.patch.object(battle_init.const, "ASTEROID_COUNT", 0),
+        ):
+            state = battle_init.initialize_battle(
+                None,
+                player1,
+                player2,
+                include_stars=True,
+            )
+
+        create_stars.assert_not_called()
+        self.assertEqual(state["world"].stars, [])
 
 
 if __name__ == "__main__":
