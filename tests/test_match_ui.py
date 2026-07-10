@@ -14,7 +14,12 @@ pygame.display.set_mode((1, 1))
 
 import src.const as const
 from src.Battle import battle
-from src.Battle.battle_draw import draw_battle
+from src.Battle.battle_draw import (
+    BattleDrawController,
+    BattleDrawOptions,
+    create_play_battle_layout,
+    draw_battle,
+)
 from src.Menus.pick_ship import show_battle_countdown
 from src.UI.match_dialog import EndMatchDialog
 
@@ -105,6 +110,76 @@ class EndMatchDialogTests(unittest.TestCase):
 
 
 class BattleHudLayoutTests(unittest.TestCase):
+    def test_shared_controller_does_not_flip_display(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        arena_rect = pygame.Rect(
+            const.SCREEN_LEFT,
+            0,
+            const.SCREEN_HEIGHT,
+            const.SCREEN_HEIGHT,
+        )
+
+        with (
+            mock.patch("src.Battle.battle_draw._render_world_to_surface"),
+            mock.patch("src.Battle.battle_draw.pygame.display.flip") as flip,
+        ):
+            BattleDrawController().draw(
+                screen,
+                [],
+                create_play_battle_layout(arena_rect),
+                (255, 255, 255),
+                mock.Mock(),
+                options=BattleDrawOptions(draw_huds=False),
+            )
+
+        flip.assert_not_called()
+
+    def test_shared_controller_draws_supplied_play_arena_and_huds(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        screen.fill((20, 20, 20))
+        arena_rect = pygame.Rect(
+            const.SCREEN_LEFT,
+            0,
+            const.SCREEN_HEIGHT,
+            const.SCREEN_HEIGHT,
+        )
+
+        with mock.patch("src.Battle.battle_draw._render_world_to_surface"):
+            BattleDrawController().draw(
+                screen,
+                [],
+                create_play_battle_layout(arena_rect),
+                (255, 255, 255),
+                mock.Mock(),
+                options=BattleDrawOptions(draw_instructions=False),
+            )
+
+        self.assertEqual(screen.get_at(arena_rect.center)[:3], (0, 0, 0))
+        self.assertNotEqual(screen.get_at((285, 100))[:3], (20, 20, 20))
+        self.assertNotEqual(screen.get_at((1250, 100))[:3], (20, 20, 20))
+
+    def test_draw_battle_wrapper_flips_once(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+
+        with (
+            mock.patch("src.Battle.battle_draw.BattleDrawController.draw"),
+            mock.patch("src.Battle.battle_draw.pygame.display.flip") as flip,
+        ):
+            draw_battle(
+                screen,
+                [],
+                pygame.Rect(
+                    const.SCREEN_LEFT,
+                    0,
+                    const.SCREEN_HEIGHT,
+                    const.SCREEN_HEIGHT,
+                ),
+                (255, 255, 255),
+                mock.Mock(),
+            )
+
+        flip.assert_called_once_with()
+
     def test_panels_are_at_top_and_control_hints_use_30px_font(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         rendered_text = []

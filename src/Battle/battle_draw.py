@@ -116,6 +116,36 @@ class RenderSnapshot:
         )
 
 
+@dataclass(frozen=True)
+class BattleDrawLayout:
+    arena_rect: pygame.Rect
+    player1_hud_rect: pygame.Rect | None
+    player2_hud_rect: pygame.Rect | None
+
+
+@dataclass(frozen=True)
+class BattleDrawOptions:
+    draw_arena: bool = True
+    draw_huds: bool = True
+    draw_instructions: bool = False
+    is_paused: bool = False
+    show_entry_trails: bool = True
+    interp_t: float = 0.0
+
+
+def create_play_battle_layout(arena_rect):
+    return BattleDrawLayout(
+        arena_rect=pygame.Rect(arena_rect),
+        player1_hud_rect=pygame.Rect(0, 0, _LEFT_PANEL_W, const.SCREEN_HEIGHT),
+        player2_hud_rect=pygame.Rect(
+            const.SCREEN_LEFT + const.SCREEN_HEIGHT,
+            0,
+            _RIGHT_PANEL_W,
+            const.SCREEN_HEIGHT,
+        ),
+    )
+
+
 def _draw_empty_rect(surface, rect, border_color, fill_color):
     """Draw a filled rect with a colored border — used for dead-ship HUD slots."""
     pygame.draw.rect(surface, fill_color, rect)
@@ -381,6 +411,319 @@ def _should_show_crosshairs(mode, is_mirror):
     return mode == "always" or (mode == "mirror_match_only" and is_mirror)
 
 
+def _battle_camera_state(
+    snapshot,
+    camera_targets=None,
+    original_ships=None,
+    interp_t=0.0,
+):
+    scale_factor, translation = calculate_view_parameters(
+        snapshot, camera_targets, interp_t
+    )
+
+    players = snapshot.live_ships
+    is_mirror = False
+    if original_ships and len(original_ships) == 2:
+        is_mirror = original_ships[0].name == original_ships[1].name
+    elif len(players) == 2:
+        is_mirror = players[0].name == players[1].name
+
+    show_crosshairs = _should_show_crosshairs(const.SHIP_CROSSHAIRS, is_mirror)
+
+    midpoint = [
+        const.SCREEN_HEIGHT / (2 * scale_factor) - translation[0],
+        const.SCREEN_HEIGHT / (2 * scale_factor) - translation[1],
+    ]
+    return scale_factor, translation, midpoint, show_crosshairs
+
+
+def _draw_play_huds(
+    screen,
+    snapshot,
+    layout,
+    star_field_renderer,
+    entry_state=None,
+    frame_id=0,
+    original_ships=None,
+    interp_t=0.0,
+    midpoint=None,
+):
+    # Draw status bars and viewports for both players.
+    global _viewport_surface
+    if _viewport_surface is None or _viewport_surface.get_size() != (
+        VP_SURF_W,
+        VP_SURF_H,
+    ):
+        _viewport_surface = pygame.Surface((VP_SURF_W, VP_SURF_H))
+    viewport_surface = _viewport_surface
+
+    players = snapshot.live_ships
+    hud_rects = {
+        1: layout.player1_hud_rect,
+        2: layout.player2_hud_rect,
+    }
+
+    for player_id in (1, 2):
+        hud_rect = hud_rects[player_id]
+        if hud_rect is None:
+            continue
+        hud_rect = pygame.Rect(hud_rect)
+        panel_w = hud_rect.width
+
+        live_ship = next((s for s in players if s.player == player_id), None)
+        ship_to_track = live_ship or next(
+            (s for s in snapshot.ships if s.player == player_id), None
+        )
+
+        # Calculate max height of elements to size the panel.
+        if live_ship:
+            hp_height = StatusBar.calculate_height(live_ship.max_hp)
+            energy_height = StatusBar.calculate_height(live_ship.max_energy)
+        else:
+            dead_ship = None
+            if original_ships:
+                dead_ship = next(
+                    (s for s in original_ships if s.player == player_id), None
+                )
+            elif ship_to_track:
+                dead_ship = ship_to_track
+
+            if dead_ship:
+                hp_height = StatusBar.calculate_height(dead_ship.max_hp)
+                energy_height = StatusBar.calculate_height(dead_ship.max_energy)
+            else:
+                hp_height = VIEWPORT_SIZE
+                energy_height = VIEWPORT_SIZE
+
+        highest_bar = max(hp_height, energy_height, VIEWPORT_SIZE)
+
+        player_border_color = const.P1_COLOR if player_id == 1 else const.P2_COLOR
+
+        # Create the panel surface.
+        panel_h = MARINE_REGION_HEIGHT + highest_bar + HUD_BOTTOM_PADDING
+        panel_surface = pygame.Surface((panel_w, panel_h))
+        panel_surface.fill((0, 0, 0))
+
+        # Add translucent player color.
+        color_surface = pygame.Surface((panel_w, panel_h))
+        color_surface.fill(player_border_color)
+        color_surface.set_alpha(const.HUD_PANEL_ALPHA)
+        panel_surface.blit(color_surface, (0, 0))
+
+        local_base_y = panel_h - HUD_BOTTOM_PADDING
+        draw_x_offset = (panel_w - _TOTAL_WIDTH) // 2
+
+        # Draw status bars onto the panel.
+        if live_ship:
+            draw_player_status(
+                panel_surface,
+                live_ship,
+                draw_x_offset,
+                local_base_y,
+                BAR_WIDTH,
+                VIEWPORT_COLUMN_WIDTH,
+                viewport_size=VIEWPORT_SIZE,
+            )
+        else:
+            _draw_empty_rect(
+                panel_surface,
+                pygame.Rect(
+                    draw_x_offset, local_base_y - hp_height, BAR_WIDTH, hp_height
+                ),
+                const.HUD_BAR_BORDER,
+                const.HUD_BAR_BG,
+            )
+            _draw_empty_rect(
+                panel_surface,
+                pygame.Rect(
+                    draw_x_offset + BAR_WIDTH + VIEWPORT_COLUMN_WIDTH,
+                    local_base_y - energy_height,
+                    BAR_WIDTH,
+                    energy_height,
+                ),
+                const.HUD_BAR_BORDER,
+                const.HUD_BAR_BG,
+            )
+
+        # Draw viewport onto the panel.
+        if ship_to_track:
+            viewport_surface.set_clip(VP_CLIP_RECT)
+            viewport_surface.fill((0, 0, 0))
+
+            from src.Battle.interpolation import interpolated_position
+
+            base_pos = getattr(ship_to_track, "camera_position", ship_to_track.position)
+            if base_pos == ship_to_track.position:
+                ship_pos = interpolated_position(ship_to_track, interp_t)
+            else:
+                ship_pos = base_pos
+
+            ship_translation = [
+                const.SCREEN_HEIGHT / 2 - ship_pos[0],
+                const.SCREEN_HEIGHT / 2 - ship_pos[1],
+            ]
+
+            _render_world_to_surface(
+                viewport_surface,
+                snapshot,
+                1.0,
+                ship_translation,
+                midpoint or [0, 0],
+                entry_state,
+                frame_id,
+                star_field_renderer,
+                skip_stars=True,
+                show_gravity_range=False,
+                show_entry_trails=False,
+                show_crosshairs=False,
+                interp_t=interp_t,
+            )
+
+            viewport_surface.set_clip(None)
+
+            dest_x = draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
+            dest_y = local_base_y - VIEWPORT_SIZE
+            dest_rect = pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE)
+
+            panel_surface.blit(viewport_surface, dest_rect, area=VP_CLIP_RECT)
+            pygame.draw.rect(panel_surface, const.HUD_VIEWPORT_BORDER, dest_rect, 2)
+        else:
+            dest_x = draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
+            dest_y = local_base_y - VIEWPORT_SIZE
+            _draw_empty_rect(
+                panel_surface,
+                pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE),
+                const.HUD_VIEWPORT_BORDER,
+                HUD_FILL,
+            )
+
+        if live_ship:
+            draw_boarded_marine_icons(
+                panel_surface,
+                live_ship,
+                draw_x_offset,
+                0,
+                _TOTAL_WIDTH,
+                MARINE_REGION_HEIGHT,
+            )
+            draw_limpet_count(
+                panel_surface,
+                live_ship,
+                draw_x_offset,
+                local_base_y,
+                _TOTAL_WIDTH,
+                HUD_BOTTOM_PADDING,
+            )
+            draw_special_indicator(panel_surface, live_ship)
+
+        # Blit the unified panel to the screen.
+        screen.blit(panel_surface, hud_rect.topleft)
+
+
+def _draw_battle_instructions(screen):
+    instruction_font = pygame.font.SysFont(None, HUD_INSTRUCTION_FONT_SIZE)
+    pause_text = instruction_font.render("Press F1 to Pause", True, ui.WHITE)
+    exit_text = instruction_font.render("Press Esc to Exit", True, ui.WHITE)
+    screen.blit(
+        pause_text,
+        pause_text.get_rect(
+            bottomleft=(
+                HUD_INSTRUCTION_MARGIN,
+                const.SCREEN_HEIGHT - HUD_INSTRUCTION_MARGIN,
+            )
+        ),
+    )
+    screen.blit(
+        exit_text,
+        exit_text.get_rect(
+            bottomright=(
+                const.SCREEN_WIDTH - HUD_INSTRUCTION_MARGIN,
+                const.SCREEN_HEIGHT - HUD_INSTRUCTION_MARGIN,
+            )
+        ),
+    )
+
+
+def _draw_pause_overlay(screen):
+    from src.UI.ui import WHITE
+
+    font = pygame.font.SysFont(None, 72)
+    text = font.render("PAUSED", True, WHITE)
+    text_rect = text.get_rect(
+        center=(const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT // 2)
+    )
+    screen.blit(text, text_rect)
+
+
+class BattleDrawController:
+    def draw(
+        self,
+        screen,
+        game_objects,
+        layout,
+        border_color,
+        star_field_renderer,
+        camera_targets=None,
+        entry_state=None,
+        frame_id=0,
+        original_ships=None,
+        options=None,
+    ):
+        if options is None:
+            options = BattleDrawOptions()
+
+        snapshot = RenderSnapshot.capture(game_objects)
+        scale_factor, translation, midpoint, show_crosshairs = _battle_camera_state(
+            snapshot,
+            camera_targets,
+            original_ships,
+            options.interp_t,
+        )
+
+        if options.draw_arena:
+            arena_rect = pygame.Rect(layout.arena_rect)
+            pygame.draw.rect(screen, ui.BLACK, arena_rect)
+            previous_clip = screen.get_clip()
+            screen.set_clip(arena_rect)
+
+            _render_world_to_surface(
+                screen,
+                snapshot,
+                scale_factor,
+                translation,
+                midpoint,
+                entry_state,
+                frame_id,
+                star_field_renderer,
+                show_gravity_range=const.SHOW_PLANET_GRAVITY_MARKER,
+                show_entry_trails=options.show_entry_trails,
+                show_crosshairs=show_crosshairs,
+                interp_t=options.interp_t,
+            )
+
+            pygame.draw.rect(screen, border_color, arena_rect, 2)
+            screen.set_clip(previous_clip)
+
+        if options.draw_huds:
+            _draw_play_huds(
+                screen,
+                snapshot,
+                layout,
+                star_field_renderer,
+                entry_state=entry_state,
+                frame_id=frame_id,
+                original_ships=original_ships,
+                interp_t=options.interp_t,
+                midpoint=midpoint,
+            )
+
+        if options.draw_instructions:
+            _draw_battle_instructions(screen)
+
+        if options.is_paused:
+            _draw_pause_overlay(screen)
+
+
 def draw_battle_arena(
     screen,
     game_objects,
@@ -448,241 +791,22 @@ def draw_battle(
     is_paused=False,
     interp_t=0.0,
 ):
-    snapshot = RenderSnapshot.capture(game_objects)
-    scale_factor, translation = calculate_view_parameters(
-        snapshot, camera_targets, interp_t
-    )
-
-    players = snapshot.live_ships
-    is_mirror = False
-    if original_ships and len(original_ships) == 2:
-        is_mirror = original_ships[0].name == original_ships[1].name
-    elif len(players) == 2:
-        is_mirror = players[0].name == players[1].name
-
-    show_crosshairs = _should_show_crosshairs(const.SHIP_CROSSHAIRS, is_mirror)
-
-    midpoint = [
-        const.SCREEN_HEIGHT / (2 * scale_factor) - translation[0],
-        const.SCREEN_HEIGHT / (2 * scale_factor) - translation[1],
-    ]
-
     screen.fill(ui.BLACK)
-    screen.set_clip(border_rect)
-
-    _render_world_to_surface(
+    BattleDrawController().draw(
         screen,
-        snapshot,
-        scale_factor,
-        translation,
-        midpoint,
-        entry_state,
-        frame_id,
+        game_objects,
+        create_play_battle_layout(border_rect),
+        border_color,
         star_field_renderer,
-        show_gravity_range=const.SHOW_PLANET_GRAVITY_MARKER,
-        show_crosshairs=show_crosshairs,
-        interp_t=interp_t,
-    )
-
-    pygame.draw.rect(screen, border_color, border_rect, 2)
-    screen.set_clip(None)
-
-    # Draw status bars and viewports for both players.
-    global _viewport_surface
-    if _viewport_surface is None or _viewport_surface.get_size() != (
-        VP_SURF_W,
-        VP_SURF_H,
-    ):
-        _viewport_surface = pygame.Surface((VP_SURF_W, VP_SURF_H))
-    viewport_surface = _viewport_surface
-
-    for player_id in (1, 2):
-        if player_id == 1:
-            status_x = 0
-            panel_w = _LEFT_PANEL_W
-        else:
-            status_x = const.SCREEN_LEFT + const.SCREEN_HEIGHT
-            panel_w = _RIGHT_PANEL_W
-
-        live_ship = next((s for s in players if s.player == player_id), None)
-        ship_to_track = live_ship or next(
-            (s for s in snapshot.ships if s.player == player_id), None
-        )
-
-        # Calculate max height of elements to size the panel
-        if live_ship:
-            hp_height = StatusBar.calculate_height(live_ship.max_hp)
-            energy_height = StatusBar.calculate_height(live_ship.max_energy)
-        else:
-            dead_ship = None
-            if original_ships:
-                dead_ship = next(
-                    (s for s in original_ships if s.player == player_id), None
-                )
-            elif ship_to_track:
-                dead_ship = ship_to_track
-
-            if dead_ship:
-                hp_height = StatusBar.calculate_height(dead_ship.max_hp)
-                energy_height = StatusBar.calculate_height(dead_ship.max_energy)
-            else:
-                hp_height = VIEWPORT_SIZE
-                energy_height = VIEWPORT_SIZE
-
-        highest_bar = max(hp_height, energy_height, VIEWPORT_SIZE)
-
-        border_color = const.P1_COLOR if player_id == 1 else const.P2_COLOR
-
-        # Create the panel surface
-        panel_h = MARINE_REGION_HEIGHT + highest_bar + HUD_BOTTOM_PADDING
-        panel_surface = pygame.Surface((panel_w, panel_h))
-        panel_surface.fill((0, 0, 0))
-
-        # Add translucent player color
-        color_surface = pygame.Surface((panel_w, panel_h))
-        color_surface.fill(border_color)
-        color_surface.set_alpha(const.HUD_PANEL_ALPHA)
-        panel_surface.blit(color_surface, (0, 0))
-
-        local_base_y = panel_h - HUD_BOTTOM_PADDING
-        draw_x_offset = (panel_w - _TOTAL_WIDTH) // 2
-
-        # Draw status bars onto the panel
-        if live_ship:
-            draw_player_status(
-                panel_surface,
-                live_ship,
-                draw_x_offset,
-                local_base_y,
-                BAR_WIDTH,
-                VIEWPORT_COLUMN_WIDTH,
-                viewport_size=VIEWPORT_SIZE,
-            )
-        else:
-            _draw_empty_rect(
-                panel_surface,
-                pygame.Rect(
-                    draw_x_offset, local_base_y - hp_height, BAR_WIDTH, hp_height
-                ),
-                const.HUD_BAR_BORDER,
-                const.HUD_BAR_BG,
-            )
-            _draw_empty_rect(
-                panel_surface,
-                pygame.Rect(
-                    draw_x_offset + BAR_WIDTH + VIEWPORT_COLUMN_WIDTH,
-                    local_base_y - energy_height,
-                    BAR_WIDTH,
-                    energy_height,
-                ),
-                const.HUD_BAR_BORDER,
-                const.HUD_BAR_BG,
-            )
-
-        # Draw viewport onto the panel
-        if ship_to_track:
-            viewport_surface.set_clip(VP_CLIP_RECT)
-            viewport_surface.fill((0, 0, 0))
-
-            from src.Battle.interpolation import interpolated_position
-
-            base_pos = getattr(ship_to_track, "camera_position", ship_to_track.position)
-            if base_pos == ship_to_track.position:
-                ship_pos = interpolated_position(ship_to_track, interp_t)
-            else:
-                ship_pos = base_pos
-
-            ship_translation = [
-                const.SCREEN_HEIGHT / 2 - ship_pos[0],
-                const.SCREEN_HEIGHT / 2 - ship_pos[1],
-            ]
-
-            _render_world_to_surface(
-                viewport_surface,
-                snapshot,
-                1.0,
-                ship_translation,
-                midpoint,
-                entry_state,
-                frame_id,
-                star_field_renderer,
-                skip_stars=True,
-                show_gravity_range=False,
-                show_entry_trails=False,
-                show_crosshairs=False,
-                interp_t=interp_t,
-            )
-
-            viewport_surface.set_clip(None)
-
-            dest_x = draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
-            dest_y = local_base_y - VIEWPORT_SIZE
-            dest_rect = pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE)
-
-            panel_surface.blit(viewport_surface, dest_rect, area=VP_CLIP_RECT)
-            pygame.draw.rect(panel_surface, const.HUD_VIEWPORT_BORDER, dest_rect, 2)
-        else:
-            dest_x = draw_x_offset + BAR_WIDTH + VIEWPORT_MARGIN
-            dest_y = local_base_y - VIEWPORT_SIZE
-            _draw_empty_rect(
-                panel_surface,
-                pygame.Rect(dest_x, dest_y, VIEWPORT_SIZE, VIEWPORT_SIZE),
-                const.HUD_VIEWPORT_BORDER,
-                HUD_FILL,
-            )
-
-        if live_ship:
-            draw_boarded_marine_icons(
-                panel_surface,
-                live_ship,
-                draw_x_offset,
-                0,
-                _TOTAL_WIDTH,
-                MARINE_REGION_HEIGHT,
-            )
-            draw_limpet_count(
-                panel_surface,
-                live_ship,
-                draw_x_offset,
-                local_base_y,
-                _TOTAL_WIDTH,
-                HUD_BOTTOM_PADDING,
-            )
-            draw_special_indicator(panel_surface, live_ship)
-
-        # Blit the unified panel to the screen
-        screen.blit(panel_surface, (status_x, 0))
-
-    instruction_font = pygame.font.SysFont(None, HUD_INSTRUCTION_FONT_SIZE)
-    pause_text = instruction_font.render("Press F1 to Pause", True, ui.WHITE)
-    exit_text = instruction_font.render("Press Esc to Exit", True, ui.WHITE)
-    screen.blit(
-        pause_text,
-        pause_text.get_rect(
-            bottomleft=(
-                HUD_INSTRUCTION_MARGIN,
-                const.SCREEN_HEIGHT - HUD_INSTRUCTION_MARGIN,
-            )
+        camera_targets=camera_targets,
+        entry_state=entry_state,
+        frame_id=frame_id,
+        original_ships=original_ships,
+        options=BattleDrawOptions(
+            draw_instructions=True,
+            is_paused=is_paused,
+            interp_t=interp_t,
         ),
     )
-    screen.blit(
-        exit_text,
-        exit_text.get_rect(
-            bottomright=(
-                const.SCREEN_WIDTH - HUD_INSTRUCTION_MARGIN,
-                const.SCREEN_HEIGHT - HUD_INSTRUCTION_MARGIN,
-            )
-        ),
-    )
-
-    if is_paused:
-        from src.UI.ui import WHITE
-
-        font = pygame.font.SysFont(None, 72)
-        text = font.render("PAUSED", True, WHITE)
-        text_rect = text.get_rect(
-            center=(const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT // 2)
-        )
-        screen.blit(text, text_rect)
 
     pygame.display.flip()
