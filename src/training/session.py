@@ -252,10 +252,11 @@ def format_batch_summary_line(metrics: BatchMetrics, rolling: BatchMetrics) -> s
 
     return (
         f"Batch {metrics.batch:6d} | "
-        f"{win_rate:5.1f}% W ({rolling_win_rate:5.1f}), "
+        f"{win_rate:5.1f}% W, "
         f"{loss_rate:5.1f}% L, "
         f"{draw_rate:5.1f}% D | "
-        f"Score: {metrics.average_match_score:6.2f} ({rolling.average_match_score:6.2f}) | "
+        f"({rolling_win_rate:6.2f}% W) | "
+        f"Score: {metrics.average_match_score: =7.3f} ({rolling.average_match_score: =7.3f}) | "
         f"Epsilon: {metrics.epsilon:.5f} | "
         f"LR: {metrics.learning_rate:.5f} | "
         f"Loss: {metrics.average_loss:.4f} ({rolling.average_loss:.4f})"

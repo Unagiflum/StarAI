@@ -74,9 +74,9 @@ class TrainingMetricsTests(unittest.TestCase):
 
         self.assertEqual(
             format_batch_summary_line(metrics, rolling),
-            "Batch      45 |   250 matches |   120 W,    30 L,   100 D | "
-            "Avg. Match score:  30.5 ( 25.0) | Epsilon: 0.00200 | "
-            "LR: 0.000100 | Loss: 0.0600 (0.0500)",
+            "Batch     45 |  48.0% W,  12.0% L,  40.0% D | ( 44.00% W) | "
+            "Score:  30.500 ( 25.000) | Epsilon: 0.00200 | "
+            "LR: 0.00010 | Loss: 0.0600 (0.0500)",
         )
 
     def test_metrics_from_batch_result_counts_outcomes_and_average_score(self):
