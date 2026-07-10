@@ -7,6 +7,7 @@ from collections.abc import Iterable
 
 import src.const as const
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
+from src.Objects.Ships.launch_geometry import gun_world_position
 from src.toroidal import wrapped_delta, wrapped_distance
 
 _INDEFINITE_RANGE_ABILITIES = frozenset(
@@ -26,12 +27,10 @@ def is_pointing_at_enemy(ship, enemy, world=None, action_number: int = 1) -> boo
         return False
     if _is_omnidirectional_effect(definition):
         return _automatic_target_is_valid(definition, enemy)
-    if definition.tracking and _automatic_target_is_valid(definition, enemy):
-        return True
 
-    target_angle = _angle_to_target(ship, enemy)
-    for weapon_angle in _weapon_angles(ship, definition, action_number):
-        if abs(_signed_angle(target_angle - weapon_angle)) <= const.TURN_ANGLE / 2 + 1e-9:
+    for origin, weapon_angle in _weapon_mounts(ship, definition, action_number):
+        target_angle = _angle_to_target(origin, enemy, fallback_angle=_rotation(ship))
+        if abs(_signed_angle(target_angle - weapon_angle)) <= _pointing_tolerance(definition):
             return True
     return False
 
@@ -64,7 +63,10 @@ def _is_enemy_in_definition_range(
     if ability_name in _INDEFINITE_RANGE_ABILITIES:
         return True
     if definition.ability_type in {"projectile", "special_object"}:
-        return _projectile_can_reach_perfectly_aimed(ship, enemy, definition)
+        return any(
+            _projectile_can_reach_perfectly_aimed(ship, enemy, definition, origin)
+            for origin, _ in _weapon_mounts(ship, definition, action_number)
+        )
     if definition.ability_type in {"area", "laser"}:
         return False
     return _special_effective_range(ship, enemy, definition, action_number)
@@ -131,10 +133,15 @@ def _linked_ability_names_for_action(ship, action_number: int) -> Iterable[str]:
 def _is_omnidirectional_effect(definition) -> bool:
     return bool(definition.omnidirectional) and definition.ability_type in {
         "area",
-        "laser",
         "other",
         "shield",
     }
+
+
+def _pointing_tolerance(definition) -> float:
+    if definition.ability_type == "laser":
+        return const.TURN_ANGLE + 1e-9
+    return const.TURN_ANGLE / 2 + 1e-9
 
 
 def _automatic_target_is_valid(definition, enemy) -> bool:
@@ -185,22 +192,39 @@ def _slylandro_lightning_range(ship, definition) -> float | None:
     return max_segment_count * float(definition.segment_length_max)
 
 
-def _weapon_angles(ship, definition, action_number: int) -> tuple[float, ...]:
-    if getattr(ship, "name", None) == "Orz" and action_number == 1:
-        turret_heading = getattr(ship, "turret_heading", None)
-        if _finite(turret_heading):
-            return (float(turret_heading) % 360.0,)
-        turret = getattr(ship, "turret", None)
-        turret_heading = getattr(turret, "absolute_heading", None)
-        if _finite(turret_heading):
-            return (float(turret_heading) % 360.0,)
-
+def _weapon_mounts(
+    ship,
+    definition,
+    action_number: int,
+) -> tuple[tuple[tuple[float, float], float], ...]:
     directions = definition.gun_directions or (0.0,)
-    heading = _rotation(ship)
-    return tuple((heading + float(direction)) % 360.0 for direction in directions)
+    locations = definition.gun_locations or ()
+    mount_rotation = _weapon_mount_rotation(ship, action_number)
+    launch_base = mount_rotation if mount_rotation is not None else _rotation(ship)
+
+    mounts = []
+    for index, direction in enumerate(directions):
+        origin = _position(ship)
+        if index < len(locations):
+            origin = _gun_position(ship, locations[index], rotation=launch_base)
+        mounts.append((origin, (launch_base + float(direction)) % 360.0))
+    return tuple(mounts) or ((_position(ship), launch_base % 360.0),)
 
 
-def _projectile_can_reach_perfectly_aimed(ship, enemy, definition) -> bool:
+def _weapon_mount_rotation(ship, action_number: int) -> float | None:
+    if getattr(ship, "name", None) != "Orz" or action_number != 1:
+        return None
+    turret_heading = getattr(ship, "turret_heading", None)
+    if _finite(turret_heading):
+        return (float(turret_heading) * const.TURN_ANGLE) % 360.0
+    turret = getattr(ship, "turret", None)
+    turret_heading = getattr(turret, "absolute_heading", None)
+    if _finite(turret_heading):
+        return (float(turret_heading) * const.TURN_ANGLE) % 360.0
+    return None
+
+
+def _projectile_can_reach_perfectly_aimed(ship, enemy, definition, origin) -> bool:
     lifetime = max(0.0, float(definition.life_time))
     if lifetime <= 0:
         return False
@@ -209,7 +233,7 @@ def _projectile_can_reach_perfectly_aimed(ship, enemy, definition) -> bool:
     parent_velocity = _velocity(ship)
     parent_x = parent_velocity[0] * float(definition.parent_vel)
     parent_y = parent_velocity[1] * float(definition.parent_vel)
-    rel_position = wrapped_delta(_position(ship), _position(enemy))
+    rel_position = wrapped_delta(origin, _position(enemy))
     rel_velocity = (
         _velocity(enemy)[0] - parent_x,
         _velocity(enemy)[1] - parent_y,
@@ -256,10 +280,10 @@ def _moving_target_is_reachable(
     return miss_margin_squared(closest_time) <= 1e-9
 
 
-def _angle_to_target(ship, enemy) -> float:
-    dx, dy = wrapped_delta(_position(ship), _position(enemy))
+def _angle_to_target(origin, enemy, *, fallback_angle: float) -> float:
+    dx, dy = wrapped_delta(origin, _position(enemy))
     if dx == 0 and dy == 0:
-        return _rotation(ship)
+        return fallback_angle
     return math.degrees(math.atan2(dx, -dy)) % 360.0
 
 
@@ -270,6 +294,16 @@ def _signed_angle(angle: float) -> float:
 def _position(obj) -> tuple[float, float]:
     value = getattr(obj, "position", (0.0, 0.0))
     return float(value[0]), float(value[1])
+
+
+def _gun_position(ship, gun_location, *, rotation: float) -> tuple[float, float]:
+    if not hasattr(ship, "sprites"):
+        return _position(ship)
+    try:
+        position = gun_world_position(ship, gun_location, rotation=rotation)
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return _position(ship)
+    return float(position[0]), float(position[1])
 
 
 def _velocity(obj) -> tuple[float, float]:

@@ -1,9 +1,12 @@
+import math
 import unittest
 from types import SimpleNamespace
 
 import src.const as const
 from src.Battle.world import World
 from src.Objects.Ships.action_transaction import ActionPlan
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships.launch_geometry import gun_world_position
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Pkunk.Pkunk import Pkunk
 from src.training.combat_adapters import (
@@ -36,6 +39,14 @@ def ship(name, *, position=(1000, 1000), rotation=0, velocity=(0, 0), trackable=
         current_hp=10,
         trackable=trackable,
     )
+
+
+def position_at_angle(origin, angle_degrees, distance):
+    angle = math.radians(angle_degrees)
+    return [
+        origin[0] + math.sin(angle) * distance,
+        origin[1] - math.cos(angle) * distance,
+    ]
 
 
 class TrainingCombatAdapterTests(unittest.TestCase):
@@ -73,6 +84,36 @@ class TrainingCombatAdapterTests(unittest.TestCase):
         trainee.velocity = [0, -100]
         self.assertFalse(is_enemy_in_effective_range(trainee, enemy, action_number=1))
 
+    def test_tracking_projectile_pointing_still_uses_current_weapon_facing(self):
+        trainee = ship("Androsynth", position=(100, 100), rotation=0)
+        enemy = ship("Chenjesu", position=(300, 100))
+
+        self.assertFalse(is_pointing_at_enemy(trainee, enemy, action_number=1))
+
+        trainee.rotation = 90
+        self.assertTrue(is_pointing_at_enemy(trainee, enemy, action_number=1))
+
+    def test_orz_a1_pointing_uses_turret_muzzle_offset(self):
+        class TestSprite:
+            def get_size(self):
+                return 100, 100
+
+        orz = ship("Orz", position=(500, 500), rotation=0)
+        orz.heading = 0
+        orz.turret_heading = 8
+        orz.sprites = [TestSprite()]
+        gun_location = ABILITY_DEFINITIONS["OrzA1"].gun_locations[0]
+        muzzle = gun_world_position(
+            orz,
+            gun_location,
+            rotation=orz.turret_heading * const.TURN_ANGLE,
+        )
+        enemy = ship("Chenjesu", position=(600, 900))
+        self.assertFalse(is_pointing_at_enemy(orz, enemy, action_number=1))
+
+        enemy.position = [muzzle[0], 900]
+        self.assertTrue(is_pointing_at_enemy(orz, enemy, action_number=1))
+
     def test_laser_area_and_linked_orz_marine_ranges_are_directionless(self):
         slylandro = ship("Slylandro", position=(100, 100), rotation=180)
         enemy = ship("Chenjesu", position=(100, 1100))
@@ -105,7 +146,32 @@ class TrainingCombatAdapterTests(unittest.TestCase):
 
         arilou = ship("Arilou", position=(100, 100), rotation=180)
         cloaked = ship("Ilwrath", position=(100, 200), trackable=False)
+        self.assertTrue(is_pointing_at_enemy(arilou, cloaked, action_number=1))
+
+        arilou.rotation = 0
         self.assertFalse(is_pointing_at_enemy(arilou, cloaked, action_number=1))
+
+    def test_laser_pointing_uses_one_quantized_angle_independent_of_range(self):
+        chmmr = ship("Chmmr", position=(100, 100), rotation=180)
+        enemy = ship(
+            "Chenjesu",
+            position=position_at_angle(chmmr.position, 180 + const.TURN_ANGLE, 900),
+        )
+
+        self.assertTrue(is_pointing_at_enemy(chmmr, enemy, action_number=1))
+        self.assertFalse(is_enemy_in_effective_range(chmmr, enemy, action_number=1))
+
+        enemy.position = position_at_angle(
+            chmmr.position,
+            180 + const.TURN_ANGLE + 1,
+            500,
+        )
+        self.assertFalse(is_pointing_at_enemy(chmmr, enemy, action_number=1))
+
+        vux = ship("Vux", position=(100, 100), rotation=0)
+        enemy.position = position_at_angle(vux.position, const.TURN_ANGLE, 700)
+        self.assertTrue(is_pointing_at_enemy(vux, enemy, action_number=1))
+        self.assertFalse(is_enemy_in_effective_range(vux, enemy, action_number=1))
 
     def test_unsupported_action_returns_false(self):
         trainee = ship("Supox")
