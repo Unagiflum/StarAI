@@ -273,6 +273,28 @@ def _format_short_count(value):
     return f"{sign}{value}"
 
 
+def _normalized_training_settings(training):
+    if not isinstance(training, dict):
+        return training
+    normalized = {}
+    for group, settings in training.items():
+        if isinstance(settings, dict):
+            normalized[group] = dict(settings)
+        else:
+            normalized[group] = settings
+    regimen = normalized.get("regimen")
+    if isinstance(regimen, dict):
+        if "starting_epsilon" not in regimen and "epsilon" in regimen:
+            regimen["starting_epsilon"] = regimen["epsilon"]
+        regimen.pop("current_epsilon", None)
+        regimen.pop("epsilon", None)
+    return normalized
+
+
+def _training_settings_match(first, second):
+    return _normalized_training_settings(first) == _normalized_training_settings(second)
+
+
 def _set_slider_value(slider, value):
     if slider.values is not None and value not in slider.values:
         return False
@@ -322,6 +344,7 @@ class SliderRow:
 
     LABEL_SLIDER_VALUE = "label-slider-value"
     LABEL_VALUE_SLIDER = "label-value-slider"
+    VALUE_COLOR = (255, 255, 0)
 
     def __init__(
         self,
@@ -479,7 +502,7 @@ class SliderRow:
         surface.blit(row, self.rect)
 
         label_color = ui.WHITE if self.enabled else ui.GREY
-        value_color = ui.LIGHT_GREY if self.enabled else ui.GREY
+        value_color = self.VALUE_COLOR
         label_text = f"{self.label}: " if self.layout == self.LABEL_VALUE_SLIDER else self.label
         label = font.render(label_text, True, label_color)
         label_rect = label.get_rect(midleft=(self.rect.left + 8, self.rect.centery))
@@ -1103,9 +1126,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Hidden layer size: 4096",
             "Hidden layer count: 8",
         ),
-        336,
-        max_height=22,
-        maximum=20,
+        320,
+        max_height=24,
+        maximum=22,
     )
     small_font = pygame.font.SysFont(None, 24)
     arena_font = pygame.font.SysFont(None, 32)
@@ -1207,7 +1230,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         pygame.Rect(12, 12, CONTROL_WIDTH - 24, 70),
         pygame.Rect(12, 92, CONTROL_WIDTH - 24, 222),
     )
-    opponent_label_width = 150
+    opponent_label_width = 170
     opponent_value_width = 58
     ai_opponent_slider = SliderRow(
         (20, 22, CONTROL_WIDTH - 40, 44),
@@ -1284,9 +1307,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     regimen_left = 16
     regimen_width = CONTROL_WIDTH - 32
     regimen_top = CONTENT_TOP + 14
-    regimen_spacing = 40
-    regimen_height = 34
-    regimen_slider_width = 184
+    regimen_spacing = 38
+    regimen_height = 36
+    regimen_slider_width = 204
     regimen_layout = SliderRow.LABEL_VALUE_SLIDER
     regimen_sliders = (
         SliderRow(
@@ -1600,7 +1623,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         saved_training = model_slot.metadata.get("training", {})
                         settings_match = (
                             saved_arch == current_arch
-                            and saved_training == current_training
+                            and _training_settings_match(saved_training, current_training)
                             and field.text == model_slot.description
                         )
                     field.text_color = (
@@ -1664,7 +1687,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         return [
             name
             for name in ("opponent", "rewards", "regimen")
-            if old_training.get(name) != new_training.get(name)
+            if not _training_settings_match(
+                {name: old_training.get(name)},
+                {name: new_training.get(name)},
+            )
         ]
 
     def describe_model(model_slot):
@@ -2226,7 +2252,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             state.loaded_ship == state.selected_ship
             and state.loaded_slot == state.selected_slot
             and state.loaded_architecture == architecture_metadata()
-            and state.loaded_training == training_metadata()
+            and _training_settings_match(state.loaded_training, training_metadata())
         )
 
         if is_currently_loaded and state.selected_ship is not None:

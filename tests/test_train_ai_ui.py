@@ -43,6 +43,7 @@ from src.Menus.train_ai import (
     _draw_training_huds,
     _draw_training_battle,
     _format_short_count,
+    _training_settings_match,
     _progress_for_model_update,
     _set_slider_value,
     training_config_from_state,
@@ -239,6 +240,64 @@ class SliderRowTests(unittest.TestCase):
     def test_short_count_formats_regimen_context_values(self):
         self.assertEqual(_format_short_count(30000), "30k")
         self.assertEqual(_format_short_count(15000000), "15M")
+
+    def test_disabled_slider_value_remains_yellow(self):
+        slider = SliderRow(
+            (0, 0, 240, 34),
+            "Value",
+            0,
+            100,
+            50,
+            value_formatter=lambda value: str(int(value)),
+        )
+        slider.enabled = False
+        surface = pygame.Surface((240, 34), pygame.SRCALPHA)
+        font = pygame.font.Font(None, 20)
+
+        slider.draw(surface, font, mouse_pos=(-1, -1))
+
+        pixels = pygame.surfarray.pixels3d(surface)
+        self.assertTrue(((pixels[:, :, 0] == 255) & (pixels[:, :, 1] == 255) & (pixels[:, :, 2] == 0)).any())
+
+
+class TrainingSettingsComparisonTests(unittest.TestCase):
+    def test_decayed_current_epsilon_does_not_change_settings_match(self):
+        saved = {
+            "regimen": {
+                "starting_epsilon": 0.2,
+                "current_epsilon": 0.2,
+                "epsilon": 0.2,
+                "epsilon_decay": 0.997,
+            }
+        }
+        live = {
+            "regimen": {
+                "starting_epsilon": 0.2,
+                "current_epsilon": 0.125,
+                "epsilon": 0.125,
+                "epsilon_decay": 0.997,
+            }
+        }
+
+        self.assertTrue(_training_settings_match(saved, live))
+
+    def test_starting_epsilon_still_changes_settings_match(self):
+        saved = {
+            "regimen": {
+                "starting_epsilon": 0.2,
+                "current_epsilon": 0.125,
+                "epsilon": 0.125,
+            }
+        }
+        live = {
+            "regimen": {
+                "starting_epsilon": 0.3,
+                "current_epsilon": 0.125,
+                "epsilon": 0.125,
+            }
+        }
+
+        self.assertFalse(_training_settings_match(saved, live))
 
 
 class GenericSliderTests(unittest.TestCase):
