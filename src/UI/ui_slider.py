@@ -19,6 +19,8 @@ class Slider:
         hover_color=ui.SLIDER_BG_HI,
         values=None,
         height=None,
+        decimal_places=None,
+        value_suffix="",
     ):
         self.bg_rect_height = height if height is not None else int(0.07 * Const.SCREEN_HEIGHT)
         self.rect = pygame.Rect(x, y, width, self.bg_rect_height)
@@ -53,9 +55,13 @@ class Slider:
         self.hover_color = (*hover_color, 255) if len(hover_color) == 3 else hover_color
         self.is_hovered = False
         self.enabled = True
-        self.decimal_places = (
-            abs(len(str(self.step).split(".")[-1])) if "." in str(self.step) else 0
-        )
+        if decimal_places is not None:
+            self.decimal_places = decimal_places
+        else:
+            self.decimal_places = (
+                abs(len(str(self.step).split(".")[-1])) if "." in str(self.step) and "e" not in str(self.step) else 0
+            )
+        self.value_suffix = value_suffix
         self.handle_x = self.value_to_position(self.value)
 
     def value_to_position(self, value):
@@ -163,5 +169,5 @@ class Slider:
 
     def format_value(self):
         if self.is_int:
-            return f"{int(self.value)}"
-        return f"{self.value:.{self.decimal_places}f}"
+            return f"{int(self.value)}{self.value_suffix}"
+        return f"{self.value:.{self.decimal_places}f}{self.value_suffix}"

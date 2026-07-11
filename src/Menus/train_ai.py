@@ -56,17 +56,17 @@ REWARD_LABELS = REWARD_COMPONENTS
 SIMPLE_ACTIVITY_VALUES = tuple(float(value) for value in range(0, 101, 5))
 AI_OPPONENT_PERCENT_VALUES = SIMPLE_ACTIVITY_VALUES
 
-REPLAY_BUFFER_SIZE_VALUES = (1000, 2000, 5000, 10000, 20000, 50000)
-ROUNDS_PER_BATCH_VALUES = (1, 2, 5, 10, 20, 50)
-BATCH_GROUPING_VALUES = (50, 100, 250, 500, 1000)
-MATCH_TIME_LIMIT_VALUES = (240, 480, 1200, 2400, 4800, 12000)
-MINIBATCH_SIZE_VALUES = (16, 32, 64, 128, 256)
-REPLAY_UPDATES_PER_BATCH_VALUES = (100, 200, 500, 1000, 2000)
-LEARNING_RATE_VALUES = (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01)
-EPSILON_VALUES = (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5)
-GAMMA_VALUES = (0.9, 0.95, 0.98, 0.99, 0.995, 0.999)
-HIDDEN_LAYER_SIZE_VALUES = (32, 64, 128, 256, 512, 1024, 2048)
-HIDDEN_LAYER_COUNT_VALUES = (1, 2, 4, 8, 16)
+REPLAY_BUFFER_SIZE_VALUES = tuple(range(5000, 250001, 5000))
+ROUNDS_PER_BATCH_VALUES = tuple(range(1, 51, 1))
+BATCH_GROUPING_VALUES = tuple(range(25, 1001, 25))
+MATCH_TIME_LIMIT_VALUES = tuple(range(240, 12001, 240))
+MINIBATCH_SIZE_VALUES = (16, 32, 64, 128, 256, 512)
+REPLAY_UPDATES_PER_BATCH_VALUES = tuple(range(100, 5001, 100))
+LEARNING_RATE_VALUES = (0.00001, 0.00003, 0.00010, 0.00030, 0.00100, 0.00300, 0.01000)
+EPSILON_VALUES = tuple(round(i * 0.025, 3) for i in range(41))
+GAMMA_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
+HIDDEN_LAYER_SIZE_VALUES = (16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
+HIDDEN_LAYER_COUNT_VALUES = tuple(range(1, 9, 1))
 REGIMEN_MATCH_TIME_LIMIT_INDEX = 0
 REGIMEN_ROUNDS_PER_BATCH_INDEX = 1
 REGIMEN_BATCH_GROUPING_INDEX = 2
@@ -120,17 +120,17 @@ class TrainingUIState:
     a1_activity: float = 0.0
     a2_activity: float = 0.0
     face_opponent_activity: float = 0.0
-    rounds_per_batch: int = 10
-    batch_grouping: int = 250
-    match_time_limit: int = 2400
-    learning_rate: float = 0.001
-    epsilon: float = 0.1
-    gamma: float = 0.99
-    minibatch_size: int = 32
-    replay_updates_per_batch: int = 100
-    hidden_layer_size: int = 128
+    rounds_per_batch: int = 1
+    batch_grouping: int = 50
+    match_time_limit: int = 1200
+    learning_rate: float = 0.00010
+    epsilon: float = 0.100
+    gamma: float = 0.990
+    minibatch_size: int = 64
+    replay_updates_per_batch: int = 500
+    hidden_layer_size: int = 256
     hidden_layer_count: int = 2
-    replay_buffer_size: int = 10000
+    replay_buffer_size: int = 50000
     display_on: bool = False
     running: bool = False
     loaded_ship: str | None = None
@@ -909,14 +909,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Match frame limit: 12000",
             "Rounds per batch: 50",
             "Batch grouping: 1000",
-            "Replay buffer size (batch = 30000): 50000",
-            "Minibatch size: 256",
-            "Updates per minibatch (UTD = 0.43): 2000",
-            "Learning rate: 0.0100",
-            "Epsilon: 0.5000",
-            "Gamma: 0.999",
-            "Hidden layer size: 2048",
-            "Hidden layer count: 16",
+            "Replay buffer size (batch = 30000): 250000",
+            "Minibatch size: 512",
+            "Updates per minibatch (UTD = 0.43): 5000",
+            "Learning rate: 0.01000",
+            "Epsilon: 1.000",
+            "Gamma: 1.000",
+            "Hidden layer size: 4096",
+            "Hidden layer count: 8",
         ),
         CONTROL_WIDTH - 64,
         max_height=22,
@@ -1172,9 +1172,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             LEARNING_RATE_VALUES[-1],
             state.learning_rate,
             "Learning rate",
-            step=0.0001,
+            step=0.00001,
             values=LEARNING_RATE_VALUES,
             height=regimen_height,
+            decimal_places=5,
         ),
         ui_slider.Slider(
             regimen_left,
@@ -1184,9 +1185,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             EPSILON_VALUES[-1],
             state.epsilon,
             "Epsilon",
-            step=0.0001,
+            step=0.025,
             values=EPSILON_VALUES,
             height=regimen_height,
+            decimal_places=3,
         ),
         ui_slider.Slider(
             regimen_left,
@@ -1199,6 +1201,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             step=0.001,
             values=GAMMA_VALUES,
             height=regimen_height,
+            decimal_places=3,
         ),
         ui_slider.Slider(
             regimen_left,
@@ -1899,6 +1902,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             
         max_batch_frames = state.rounds_per_batch * state.match_time_limit * len(SHIP_DEFINITIONS)
         regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].label = f"Replay buffer size (batch = {max_batch_frames})"
+        buffer_size_mb = int((state.replay_buffer_size / 1000) * 5)
+        regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value_suffix = f" ({buffer_size_mb}MB)"
         if max_batch_frames > 0:
             utd = (state.minibatch_size * state.replay_updates_per_batch) / max_batch_frames
             regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].label = f"Updates per minibatch (UTD = {utd:.2f})"
