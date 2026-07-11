@@ -19,6 +19,7 @@ from src.Battle.battle_draw import (
     BattleDrawLayout,
     BattleDrawController,
     BattleDrawOptions,
+    HUD_AI_LABEL_FONT_SIZE,
     MARINE_REGION_HEIGHT,
     RenderSnapshot,
     VIEWPORT_COLUMN_WIDTH,
@@ -398,8 +399,89 @@ class BattleHudLayoutTests(unittest.TestCase):
         sys_font.assert_called_once_with(None, 30)
         self.assertEqual(rendered_text, ["Press F1 to Pause", "Press Esc to Exit"])
 
+    def test_ai_label_renders_below_player_hud(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        rendered_text = []
+        hud_rect = pygame.Rect(40, 50, 320, 320)
+        layout = BattleDrawLayout(
+            arena_rect=pygame.Rect(0, 0, 1, 1),
+            player1_hud_rect=hud_rect,
+            player2_hud_rect=None,
+        )
+
+        class RecordingFont:
+            def render(self, text, antialias, color):
+                rendered_text.append(text)
+                return pygame.Surface((180, 24), pygame.SRCALPHA)
+
+        with mock.patch(
+            "src.Battle.battle_draw.pygame.font.SysFont",
+            return_value=RecordingFont(),
+        ) as sys_font:
+            BattleDrawController().draw(
+                screen,
+                self._empty_snapshot(),
+                layout,
+                (255, 255, 255),
+                mock.Mock(),
+                options=BattleDrawOptions(
+                    draw_arena=False,
+                    ai_labels={1: "None found"},
+                ),
+            )
+
+        sys_font.assert_called_once_with(None, HUD_AI_LABEL_FONT_SIZE)
+        self.assertEqual(rendered_text, ["AI: None found"])
+
 
 class BattleResumeFlowTests(unittest.TestCase):
+    def test_ai_labels_are_passed_to_battle_draw(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        simulation = mock.Mock()
+        simulation.world = []
+        simulation.border_rect = pygame.Rect(0, 0, 10, 10)
+        simulation.border_color = (255, 255, 255)
+        simulation.player1 = mock.Mock()
+        simulation.player2 = mock.Mock()
+        simulation.entry = None
+        simulation.aftermath = None
+        simulation.frame_id = 0
+        simulation.key_states = {}
+        simulation.running = True
+        simulation.state.return_value = {"needs_selection": False}
+        simulation.step.return_value = {"needs_selection": False}
+        fake_clock = SimpleNamespace(
+            tick=mock.Mock(side_effect=(1 / const.FPS, 1 / const.FPS)),
+            reset=mock.Mock(),
+        )
+        manager = mock.Mock()
+        manager.actions_for_frame.return_value = {}
+        manager.label_for_player.side_effect = lambda player: {
+            1: "Earthling-01",
+            2: "None found",
+        }[player]
+        escape = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE)
+
+        with (
+            mock.patch("src.Battle.battle.BattleSimulation", return_value=simulation),
+            mock.patch("src.Battle.battle.BattleAIManager", return_value=manager),
+            mock.patch("src.Battle.battle.reset_ai_player_inputs"),
+            mock.patch("src.Battle.battle.PresentationClock", return_value=fake_clock),
+            mock.patch("src.Battle.battle.confirm_end_match", return_value=True),
+            mock.patch(
+                "src.Battle.battle.pygame.event.get",
+                side_effect=([], [escape]),
+            ),
+            mock.patch("src.Battle.battle.pygame.event.clear"),
+            mock.patch("src.Battle.battle.draw_battle") as draw,
+        ):
+            battle.run(screen, mock.Mock(), mock.Mock(), player1_ai=True, player2_ai=True)
+
+        self.assertEqual(draw.call_args.kwargs["ai_labels"], {
+            1: "Earthling-01",
+            2: "None found",
+        })
+
     def test_canceling_escape_does_not_step_or_redraw_before_countdown(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         simulation = mock.Mock()

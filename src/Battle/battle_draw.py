@@ -1,6 +1,7 @@
 import pygame
 import math
 import random
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from src.UI import ui
@@ -38,6 +39,8 @@ HUD_BOTTOM_PADDING = 20
 MARINE_REGION_HEIGHT = HUD_BOTTOM_PADDING
 HUD_INSTRUCTION_FONT_SIZE = 30
 HUD_INSTRUCTION_MARGIN = 20
+HUD_AI_LABEL_FONT_SIZE = 24
+HUD_AI_LABEL_GAP = 6
 
 # Derived layout — constant once the screen geometry is set.
 _TOTAL_WIDTH = (BAR_WIDTH * 2) + VIEWPORT_COLUMN_WIDTH
@@ -129,6 +132,7 @@ class BattleDrawOptions:
     is_paused: bool = False
     show_entry_trails: bool = True
     interp_t: float = 0.0
+    ai_labels: Mapping[int, str] | None = None
 
 
 def create_play_battle_layout(arena_rect):
@@ -480,6 +484,7 @@ def _draw_play_huds(
     original_ships=None,
     interp_t=0.0,
     midpoint=None,
+    ai_labels=None,
 ):
     # Draw status bars and viewports for both players.
     global _viewport_surface
@@ -511,6 +516,7 @@ def _draw_play_huds(
             original_ships=original_ships,
             interp_t=interp_t,
             midpoint=midpoint,
+            ai_label=(ai_labels or {}).get(player_id),
         )
 
 
@@ -526,6 +532,7 @@ def _draw_player_hud(
     original_ships=None,
     interp_t=0.0,
     midpoint=None,
+    ai_label=None,
 ):
     if hud_rect.width <= 0 or hud_rect.height <= 0:
         return
@@ -672,7 +679,26 @@ def _draw_player_hud(
     previous_clip = screen.get_clip()
     screen.set_clip(hud_rect)
     screen.blit(panel_surface, hud_rect.topleft)
+    _draw_ai_status_label(screen, hud_rect, panel_h, ai_label)
     screen.set_clip(previous_clip)
+
+
+def _format_ai_status_label(label):
+    if label is None:
+        return None
+    return f"AI: {label}"
+
+
+def _draw_ai_status_label(screen, hud_rect, panel_height, label):
+    text = _format_ai_status_label(label)
+    if not text:
+        return
+    font = pygame.font.SysFont(None, HUD_AI_LABEL_FONT_SIZE)
+    rendered = font.render(text, True, ui.WHITE)
+    label_rect = rendered.get_rect(
+        midtop=(hud_rect.centerx, hud_rect.top + panel_height + HUD_AI_LABEL_GAP)
+    )
+    screen.blit(rendered, label_rect)
 
 
 def _draw_battle_instructions(screen):
@@ -838,6 +864,7 @@ class BattleDrawController:
                 original_ships=original_ships,
                 interp_t=options.interp_t,
                 midpoint=midpoint,
+                ai_labels=options.ai_labels,
             )
 
         if options.draw_instructions:
@@ -890,6 +917,7 @@ def draw_battle(
     original_ships=None,
     is_paused=False,
     interp_t=0.0,
+    ai_labels=None,
 ):
     screen.fill(ui.BLACK)
     BattleDrawController().draw(
@@ -906,6 +934,7 @@ def draw_battle(
             draw_instructions=True,
             is_paused=is_paused,
             interp_t=interp_t,
+            ai_labels=ai_labels,
         ),
     )
 

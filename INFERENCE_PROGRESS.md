@@ -98,3 +98,25 @@ Notes:
 
 - The automation does not block the event loop and Escape/end-match handling remains in the normal event path.
 - HUD label drawing remains Phase 5.
+
+## Phase 5: HUD Status Labels
+
+Status: Implemented, focused verification passed.
+
+Completed:
+
+- Extended `BattleDrawOptions` and `draw_battle()` with optional per-player AI labels.
+- Threaded `BattleAIManager.label_for_player()` values from `battle.run()` into the battle draw path each rendered frame.
+- Rendered AI status text as `AI: <label>` below each AI-controlled player's HUD panel while keeping labels clipped to the player's HUD region.
+- Preserved human-controlled behavior by omitting labels when the AI manager returns no label.
+- Added focused unit coverage for HUD label text formatting/routing and live battle label handoff.
+
+Verification:
+
+- Passed: `.venv\Scripts\python.exe -m unittest tests.test_battle_ai tests.test_match_ui`
+- Passed: `.venv\Scripts\python.exe -m unittest tests.test_battle_ai tests.test_match_ui tests.test_fleet_picker tests.test_battle_entry`
+
+Notes:
+
+- The AI manager continues to expose raw label values such as `Earthling-01` or `None found`; the HUD draw layer owns the visible `AI: ` prefix.
+- Pixel-level layout tests were not added because the focused rendering test asserts the label text requested by the HUD path, matching the Phase 5 acceptance criteria.

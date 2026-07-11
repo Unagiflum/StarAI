@@ -664,6 +664,11 @@ def run(
                 original_ships=(simulation.player1, simulation.player2),
                 is_paused=is_paused,
                 interp_t=interp_t,
+                ai_labels={
+                    player: label
+                    for player in (1, 2)
+                    if (label := ai_manager.label_for_player(player)) is not None
+                },
             )
 
         if resume_countdown_pending:
