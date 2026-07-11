@@ -116,6 +116,8 @@ class TrainingMetricsTests(unittest.TestCase):
         self.assertEqual(rolling.batch, 2)
         self.assertAlmostEqual(rolling.average_match_score, 15.0)
         self.assertAlmostEqual(rolling.average_loss, 2.0)
+        self.assertAlmostEqual(rolling.epsilon, 0.2)
+        self.assertAlmostEqual(rolling.learning_rate, 0.002)
 
     def test_rolling_metrics_keeps_grouped_outcome_totals_for_win_rate(self):
         history = (
@@ -148,11 +150,25 @@ class TrainingMetricsTests(unittest.TestCase):
         self.assertEqual(
             rows,
             [
-                ["Batch", "Score", "Epsilon", "Learning Rate", "Loss"],
-                ["1000", "34.3", "0.00200", "0.000100", "0.0500"],
-                ["2000", "35.0", "0.00300", "0.000200", "0.0600"],
+                ["Batch", "Win %", "Score", "Epsilon", "Learning Rate", "Loss"],
+                ["1000", "0.0", "34.3", "0.00200", "0.000100", "0.0500"],
+                ["2000", "0.0", "35.0", "0.00300", "0.000200", "0.0600"],
             ],
         )
+
+    def test_csv_append_writes_grouped_win_rate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Earthling-01.csv"
+
+            append_grouped_metrics_csv(
+                path,
+                BatchMetrics(50, 10, 4, 3, 3, 12.5, 0.100, 0.001, 0.25),
+            )
+
+            with path.open(newline="", encoding="utf-8") as file:
+                rows = list(csv.reader(file))
+
+        self.assertEqual(rows[-1], ["50", "40.0", "12.5", "0.10000", "0.001000", "0.2500"])
 
     def test_batch_metrics_history_round_trips_through_metadata(self):
         metrics = BatchMetrics(12, 25, 9, 10, 6, 42.5, 0.1, 0.001, 0.25)
@@ -377,6 +393,7 @@ class TrainingSessionTests(unittest.TestCase):
                     trainee_ship="Earthling",
                     hidden_layer_width=8,
                     hidden_layer_count=1,
+                    epsilon_decay=1.0,
                 ),
                 batch_grouping=1,
             )
@@ -428,6 +445,7 @@ class TrainingSessionTests(unittest.TestCase):
                     trainee_ship="Earthling",
                     hidden_layer_width=8,
                     hidden_layer_count=1,
+                    epsilon_decay=1.0,
                 ),
                 batch_grouping=1,
                 initial_history=history,
@@ -479,6 +497,7 @@ class TrainingSessionTests(unittest.TestCase):
                     trainee_ship="Earthling",
                     hidden_layer_width=8,
                     hidden_layer_count=1,
+                    epsilon_decay=1.0,
                 ),
                 batch_grouping=1,
                 batch_runner=batch_runner,
@@ -491,6 +510,63 @@ class TrainingSessionTests(unittest.TestCase):
             self.assertTrue((root / "user" / "Earthling-01.csv").exists())
 
         self.assertEqual(len(session.log_lines), 1)
+
+    def test_session_decays_current_epsilon_after_each_completed_batch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            seen_epsilons = []
+
+            def batch_runner(**kwargs):
+                seen_epsilons.append(kwargs["config"].epsilon)
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(0.125,),
+                    round_results=(_round_result(5.0),),
+                )
+
+            session = TrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    starting_epsilon=0.4,
+                    epsilon=0.4,
+                    epsilon_decay=0.5,
+                    epsilon_frame_span=12,
+                ),
+                batch_grouping=3,
+                batch_runner=batch_runner,
+            )
+
+            session.run_synchronously(max_batches=2)
+
+            saved_regimen = repository.slot_for("Earthling", 1).metadata["training"][
+                "regimen"
+            ]
+
+        self.assertEqual(seen_epsilons, [0.4, 0.2])
+        self.assertAlmostEqual(session.status.current_epsilon, 0.1)
+        self.assertEqual([metrics.epsilon for metrics in session.history], [0.2, 0.1])
+        self.assertEqual(saved_regimen["starting_epsilon"], 0.4)
+        self.assertAlmostEqual(saved_regimen["current_epsilon"], 0.1)
+        self.assertAlmostEqual(saved_regimen["epsilon"], 0.1)
+        self.assertEqual(saved_regimen["epsilon_decay"], 0.5)
+        self.assertEqual(saved_regimen["epsilon_frame_span"], 12)
 
     def test_session_passes_display_predicate_to_batch_runner(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -564,6 +640,7 @@ class TrainingSessionTests(unittest.TestCase):
                     trainee_ship="Earthling",
                     hidden_layer_width=8,
                     hidden_layer_count=1,
+                    epsilon_decay=1.0,
                 ),
                 batch_grouping=3,
                 batch_runner=first_runner,
@@ -579,6 +656,7 @@ class TrainingSessionTests(unittest.TestCase):
                     trainee_ship="Earthling",
                     hidden_layer_width=8,
                     hidden_layer_count=1,
+                    epsilon_decay=1.0,
                 ),
                 batch_grouping=3,
                 batch_runner=lambda **kwargs: TrainingBatchResult(
@@ -596,7 +674,7 @@ class TrainingSessionTests(unittest.TestCase):
             ) as file:
                 rows = list(csv.reader(file))
 
-        self.assertEqual(rows[-1], ["3", "20.0", "0.10000", "0.001000", "0.1000"])
+        self.assertEqual(rows[-1], ["3", "0.0", "20.0", "0.10000", "0.001000", "0.1000"])
 
     def test_stop_abandons_current_batch_without_saving_progress(self):
         with tempfile.TemporaryDirectory() as directory:

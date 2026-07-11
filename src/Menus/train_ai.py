@@ -64,6 +64,8 @@ MINIBATCH_SIZE_VALUES = (16, 32, 64, 128, 256, 512)
 REPLAY_UPDATES_PER_BATCH_VALUES = tuple(range(100, 5001, 100))
 LEARNING_RATE_VALUES = (0.00001, 0.00003, 0.00010, 0.00030, 0.00100, 0.00300, 0.01000)
 EPSILON_VALUES = tuple(round(i * 0.025, 3) for i in range(41))
+EPSILON_DECAY_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
+EPSILON_FRAME_SPAN_VALUES = tuple(range(1, 49))
 GAMMA_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
 HIDDEN_LAYER_SIZE_VALUES = (16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
 HIDDEN_LAYER_COUNT_VALUES = tuple(range(1, 9, 1))
@@ -74,10 +76,12 @@ REGIMEN_REPLAY_BUFFER_INDEX = 3
 REGIMEN_MINIBATCH_SIZE_INDEX = 4
 REGIMEN_REPLAY_UPDATES_INDEX = 5
 REGIMEN_LEARNING_RATE_INDEX = 6
-REGIMEN_EPSILON_INDEX = 7
-REGIMEN_GAMMA_INDEX = 8
-REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 9
-REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 10
+REGIMEN_STARTING_EPSILON_INDEX = 7
+REGIMEN_EPSILON_DECAY_INDEX = 8
+REGIMEN_EPSILON_FRAME_SPAN_INDEX = 9
+REGIMEN_GAMMA_INDEX = 10
+REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 11
+REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 12
 CURRENT_BATCH_STATE_WIDTH = len("stopped (stopping)")
 CURRENT_BATCH_BATCH_WIDTH = 6
 CURRENT_BATCH_ROUND_WIDTH = 4
@@ -124,7 +128,10 @@ class TrainingUIState:
     batch_grouping: int = 50
     match_time_limit: int = 1200
     learning_rate: float = 0.00010
-    epsilon: float = 0.100
+    starting_epsilon: float = 0.100
+    current_epsilon: float = 0.100
+    epsilon_decay: float = 0.998
+    epsilon_frame_span: int = 8
     gamma: float = 0.990
     minibatch_size: int = 64
     replay_updates_per_batch: int = 500
@@ -141,6 +148,15 @@ class TrainingUIState:
     @property
     def simple_behavior_controls_enabled(self):
         return not self.running
+
+    @property
+    def epsilon(self):
+        return self.starting_epsilon
+
+    @epsilon.setter
+    def epsilon(self, value):
+        self.starting_epsilon = float(value)
+        self.current_epsilon = float(value)
 
 
 @dataclass(frozen=True)
@@ -832,7 +848,10 @@ def training_config_from_state(state: TrainingUIState) -> TrainingOrchestrationC
         match_time_limit=state.match_time_limit,
         replay_capacity=state.replay_buffer_size,
         learning_rate=state.learning_rate,
-        epsilon=state.epsilon,
+        starting_epsilon=state.starting_epsilon,
+        epsilon=state.current_epsilon,
+        epsilon_decay=state.epsilon_decay,
+        epsilon_frame_span=state.epsilon_frame_span,
         hidden_layer_width=state.hidden_layer_size,
         hidden_layer_count=state.hidden_layer_count,
         minibatch_size=state.minibatch_size,
@@ -851,6 +870,16 @@ def _progress_for_model_update(existing_metadata, progress=None, *, reset_checkp
         if isinstance(existing_progress, dict):
             return dict(existing_progress)
     return None
+
+
+def _clear_reset_model_artifacts(model_slot):
+    if model_slot.pth_path is not None:
+        model_slot.pth_path.write_bytes(b"")
+        csv_path = model_slot.pth_path.with_suffix(".csv")
+        try:
+            csv_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
@@ -913,14 +942,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Minibatch size: 512",
             "Updates per minibatch (UTD = 0.43): 5000",
             "Learning rate: 0.01000",
-            "Epsilon: 1.000",
+            "Starting Epsilon: 1.000",
+            "Epsilon decay: 1.000",
+            "Epsilon frame span: 48",
             "Gamma: 1.000",
             "Hidden layer size: 4096",
             "Hidden layer count: 8",
         ),
         CONTROL_WIDTH - 64,
-        max_height=22,
-        maximum=21,
+        max_height=19,
+        maximum=18,
     )
     small_font = pygame.font.SysFont(None, 24)
     arena_font = pygame.font.SysFont(None, 32)
@@ -1089,8 +1120,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     regimen_left = 16
     regimen_width = CONTROL_WIDTH - 32
     regimen_top = CONTENT_TOP + 14
-    regimen_spacing = 44
-    regimen_height = 38
+    regimen_spacing = 40
+    regimen_height = 34
     regimen_sliders = (
         ui_slider.Slider(
             regimen_left,
@@ -1183,8 +1214,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_width,
             EPSILON_VALUES[0],
             EPSILON_VALUES[-1],
-            state.epsilon,
-            "Epsilon",
+            state.starting_epsilon,
+            "Starting Epsilon",
             step=0.025,
             values=EPSILON_VALUES,
             height=regimen_height,
@@ -1193,6 +1224,31 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ui_slider.Slider(
             regimen_left,
             regimen_top + 8 * regimen_spacing,
+            regimen_width,
+            EPSILON_DECAY_VALUES[0],
+            EPSILON_DECAY_VALUES[-1],
+            state.epsilon_decay,
+            "Epsilon decay",
+            step=0.001,
+            values=EPSILON_DECAY_VALUES,
+            height=regimen_height,
+            decimal_places=3,
+        ),
+        ui_slider.Slider(
+            regimen_left,
+            regimen_top + 9 * regimen_spacing,
+            regimen_width,
+            EPSILON_FRAME_SPAN_VALUES[0],
+            EPSILON_FRAME_SPAN_VALUES[-1],
+            state.epsilon_frame_span,
+            "Epsilon frame span",
+            is_int=True,
+            values=EPSILON_FRAME_SPAN_VALUES,
+            height=regimen_height,
+        ),
+        ui_slider.Slider(
+            regimen_left,
+            regimen_top + 10 * regimen_spacing,
             regimen_width,
             GAMMA_VALUES[0],
             GAMMA_VALUES[-1],
@@ -1205,7 +1261,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
         ui_slider.Slider(
             regimen_left,
-            regimen_top + 9 * regimen_spacing,
+            regimen_top + 11 * regimen_spacing,
             regimen_width,
             HIDDEN_LAYER_SIZE_VALUES[0],
             HIDDEN_LAYER_SIZE_VALUES[-1],
@@ -1217,7 +1273,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
         ui_slider.Slider(
             regimen_left,
-            regimen_top + 10 * regimen_spacing,
+            regimen_top + 12 * regimen_spacing,
             regimen_width,
             HIDDEN_LAYER_COUNT_VALUES[0],
             HIDDEN_LAYER_COUNT_VALUES[-1],
@@ -1239,6 +1295,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     exited = [False]
     training_session = [None]
     last_session_running = [False]
+    last_starting_epsilon_slider_value = [state.starting_epsilon]
     batch_log_box = TrainingBatchLogBox()
 
     def sync_state_from_ui():
@@ -1272,7 +1329,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].value
         )
         state.learning_rate = regimen_sliders[REGIMEN_LEARNING_RATE_INDEX].value
-        state.epsilon = regimen_sliders[REGIMEN_EPSILON_INDEX].value
+        starting_epsilon = regimen_sliders[
+            REGIMEN_STARTING_EPSILON_INDEX
+        ].value
+        if starting_epsilon != last_starting_epsilon_slider_value[0]:
+            state.starting_epsilon = starting_epsilon
+            state.current_epsilon = starting_epsilon
+            last_starting_epsilon_slider_value[0] = starting_epsilon
+            active_session = training_session[0]
+            if active_session is not None:
+                active_session.set_starting_epsilon(starting_epsilon)
+        else:
+            state.starting_epsilon = starting_epsilon
+        state.epsilon_decay = regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX].value
+        state.epsilon_frame_span = int(
+            regimen_sliders[REGIMEN_EPSILON_FRAME_SPAN_INDEX].value
+        )
         state.gamma = regimen_sliders[REGIMEN_GAMMA_INDEX].value
         state.hidden_layer_size = int(
             regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX].value
@@ -1306,7 +1378,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 "minibatch_size": state.minibatch_size,
                 "replay_updates_per_batch": state.replay_updates_per_batch,
                 "learning_rate": state.learning_rate,
-                "epsilon": state.epsilon,
+                "starting_epsilon": state.starting_epsilon,
+                "current_epsilon": state.current_epsilon,
+                "epsilon": state.current_epsilon,
+                "epsilon_decay": state.epsilon_decay,
+                "epsilon_frame_span": state.epsilon_frame_span,
                 "gamma": state.gamma,
             },
         }
@@ -1419,8 +1495,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             ),
         )
         updated_slot = model_repository.create_or_update_user_model(metadata)
-        if reset_checkpoint and updated_slot.pth_path is not None:
-            updated_slot.pth_path.write_bytes(b"")
+        if reset_checkpoint:
+            _clear_reset_model_artifacts(updated_slot)
             
         state.loaded_ship = state.selected_ship
         state.loaded_slot = state.selected_slot
@@ -1525,6 +1601,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
             regimen = training.get("regimen", {})
             if isinstance(regimen, dict):
+                if "current_epsilon" in regimen:
+                    try:
+                        float(regimen["current_epsilon"])
+                    except (TypeError, ValueError):
+                        skipped.append("current epsilon")
                 regimen_fields = (
                     (
                         "replay_buffer_size",
@@ -1561,7 +1642,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         regimen_sliders[REGIMEN_LEARNING_RATE_INDEX],
                         float,
                     ),
-                    ("epsilon", regimen_sliders[REGIMEN_EPSILON_INDEX], float),
+                    (
+                        "epsilon_decay",
+                        regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX],
+                        float,
+                    ),
+                    (
+                        "epsilon_frame_span",
+                        regimen_sliders[REGIMEN_EPSILON_FRAME_SPAN_INDEX],
+                        int,
+                    ),
                     ("gamma", regimen_sliders[REGIMEN_GAMMA_INDEX], float),
                 )
                 for key, slider, caster in regimen_fields:
@@ -1574,6 +1664,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         continue
                     if not _set_slider_value(slider, value):
                         skipped.append(key.replace("_", " "))
+                starting_epsilon_key = (
+                    "starting_epsilon"
+                    if "starting_epsilon" in regimen
+                    else "epsilon"
+                )
+                if starting_epsilon_key in regimen:
+                    try:
+                        value = float(regimen[starting_epsilon_key])
+                    except (TypeError, ValueError):
+                        skipped.append("starting epsilon")
+                    else:
+                        if not _set_slider_value(
+                            regimen_sliders[REGIMEN_STARTING_EPSILON_INDEX],
+                            value,
+                        ):
+                            skipped.append("starting epsilon")
 
         if isinstance(architecture, dict):
             architecture_fields = (
@@ -1608,6 +1714,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             show_notice(f"Loaded {describe_model(model_slot)} conditions")
 
         sync_state_from_ui()
+        if isinstance(training, dict):
+            regimen = training.get("regimen", {})
+            if isinstance(regimen, dict):
+                try:
+                    state.current_epsilon = float(
+                        regimen.get("current_epsilon", state.starting_epsilon)
+                    )
+                except (TypeError, ValueError):
+                    state.current_epsilon = state.starting_epsilon
+        last_starting_epsilon_slider_value[0] = state.starting_epsilon
         state.loaded_ship = state.selected_ship
         state.loaded_slot = state.selected_slot
         state.loaded_architecture = architecture_metadata()
@@ -1915,6 +2031,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if active_session is not None:
             if session_status.running:
                 active_session.set_display_on(state.display_on)
+            state.current_epsilon = float(
+                getattr(session_status, "current_epsilon", state.current_epsilon)
+            )
             batch_log_box.set_lines(
                 _display_off_console_lines(session_status, active_session.log_lines)
             )

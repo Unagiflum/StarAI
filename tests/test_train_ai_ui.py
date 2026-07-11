@@ -1,5 +1,7 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -15,6 +17,8 @@ import src.Menus.train_ai as train_ai
 from src.UI import ui, ui_slider
 from src.Menus.train_ai import (
     ACTION_TOP,
+    EPSILON_DECAY_VALUES,
+    EPSILON_FRAME_SPAN_VALUES,
     EPSILON_VALUES,
     DISPLAY_TOP,
     FOOTER_CONTROL_HEIGHT,
@@ -33,6 +37,7 @@ from src.Menus.train_ai import (
     TRAINING_HUD_HEIGHT,
     TrainingBatchLogBox,
     TrainingUIState,
+    _clear_reset_model_artifacts,
     _display_off_console_lines,
     _draw_training_huds,
     _draw_training_battle,
@@ -66,14 +71,17 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.a1_activity, 0.0)
         self.assertEqual(state.a2_activity, 0.0)
         self.assertEqual(state.face_opponent_activity, 0.0)
-        self.assertEqual(state.rounds_per_batch, 10)
-        self.assertEqual(state.batch_grouping, 250)
-        self.assertEqual(state.match_time_limit, 2400)
-        self.assertEqual(state.learning_rate, 0.001)
-        self.assertEqual(state.epsilon, 0.1)
+        self.assertEqual(state.rounds_per_batch, 1)
+        self.assertEqual(state.batch_grouping, 50)
+        self.assertEqual(state.match_time_limit, 1200)
+        self.assertEqual(state.learning_rate, 0.0001)
+        self.assertEqual(state.starting_epsilon, 0.1)
+        self.assertEqual(state.current_epsilon, 0.1)
+        self.assertEqual(state.epsilon_decay, 0.998)
+        self.assertEqual(state.epsilon_frame_span, 8)
         self.assertEqual(state.gamma, 0.99)
-        self.assertEqual(state.minibatch_size, 32)
-        self.assertEqual(state.replay_updates_per_batch, 100)
+        self.assertEqual(state.minibatch_size, 64)
+        self.assertEqual(state.replay_updates_per_batch, 500)
         self.assertFalse(state.display_on)
         self.assertFalse(state.running)
 
@@ -225,26 +233,34 @@ class GenericSliderTests(unittest.TestCase):
 
 class RegimenSliderTests(unittest.TestCase):
     def test_regimen_sliders_expose_the_requested_discrete_values(self):
-        self.assertEqual(ROUNDS_PER_BATCH_VALUES, (1, 2, 5, 10, 20, 50))
-        self.assertEqual(BATCH_GROUPING_VALUES, (50, 100, 250, 500, 1000))
+        self.assertEqual(ROUNDS_PER_BATCH_VALUES, tuple(range(1, 51, 1)))
+        self.assertEqual(BATCH_GROUPING_VALUES, tuple(range(25, 1001, 25)))
         self.assertEqual(
             MATCH_TIME_LIMIT_VALUES,
-            (240, 480, 1200, 2400, 4800, 12000),
+            tuple(range(240, 12001, 240)),
         )
-        self.assertEqual(MINIBATCH_SIZE_VALUES, (16, 32, 64, 128, 256))
+        self.assertEqual(MINIBATCH_SIZE_VALUES, (16, 32, 64, 128, 256, 512))
         self.assertEqual(
             REPLAY_UPDATES_PER_BATCH_VALUES,
-            (100, 200, 500, 1000, 2000),
+            tuple(range(100, 5001, 100)),
         )
         self.assertEqual(
             LEARNING_RATE_VALUES,
-            (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01),
+            (0.00001, 0.00003, 0.00010, 0.00030, 0.00100, 0.00300, 0.01000),
         )
         self.assertEqual(
             EPSILON_VALUES,
-            (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5),
+            tuple(round(i * 0.025, 3) for i in range(41)),
         )
-        self.assertEqual(GAMMA_VALUES, (0.9, 0.95, 0.98, 0.99, 0.995, 0.999))
+        self.assertEqual(
+            EPSILON_DECAY_VALUES,
+            tuple(round(0.950 + i * 0.001, 3) for i in range(51)),
+        )
+        self.assertEqual(EPSILON_FRAME_SPAN_VALUES, tuple(range(1, 49)))
+        self.assertEqual(
+            GAMMA_VALUES,
+            tuple(round(0.950 + i * 0.001, 3) for i in range(51)),
+        )
 
 
 class DisabledCheckboxTests(unittest.TestCase):
@@ -274,6 +290,10 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         state.gamma = 0.995
         state.minibatch_size = 128
         state.replay_updates_per_batch = 1000
+        state.starting_epsilon = 0.2
+        state.current_epsilon = 0.125
+        state.epsilon_decay = 0.997
+        state.epsilon_frame_span = 12
         state.hidden_layer_size = 64
         state.hidden_layer_count = 1
 
@@ -291,6 +311,10 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         self.assertEqual(config.gamma, 0.995)
         self.assertEqual(config.minibatch_size, 128)
         self.assertEqual(config.replay_updates_per_batch, 1000)
+        self.assertEqual(config.starting_epsilon, 0.2)
+        self.assertEqual(config.epsilon, 0.125)
+        self.assertEqual(config.epsilon_decay, 0.997)
+        self.assertEqual(config.epsilon_frame_span, 12)
         self.assertEqual(config.hidden_layer_width, 64)
         self.assertEqual(config.hidden_layer_count, 1)
 
@@ -309,6 +333,18 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(progress, {"completed_batches": 0})
+
+    def test_checkpoint_reset_clears_existing_csv(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pth_path = Path(directory) / "Earthling-01.pth"
+            csv_path = Path(directory) / "Earthling-01.csv"
+            pth_path.write_bytes(b"checkpoint")
+            csv_path.write_text("old,csv\n", encoding="utf-8")
+
+            _clear_reset_model_artifacts(SimpleNamespace(pth_path=pth_path))
+
+            self.assertEqual(pth_path.read_bytes(), b"")
+            self.assertFalse(csv_path.exists())
 
 
 class TrainingBatchLogBoxTests(unittest.TestCase):

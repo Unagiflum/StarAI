@@ -16,7 +16,11 @@ from src.audio import NullAudioService
 from src.persistence import EXPECTED_READ_ERRORS, read_json
 from src.toroidal import wrapped_delta
 from src.training import event_ledger, torch_backend
-from src.training.contracts import SHIP_TYPE_CATALOG_ORDER, action_for_index
+from src.training.contracts import (
+    ACTION_OUTPUT_SIZE,
+    SHIP_TYPE_CATALOG_ORDER,
+    action_for_index,
+)
 from src.training.model_registry import (
     MODEL_SLOT_COUNT,
     SLOT_EMPTY,
@@ -68,7 +72,10 @@ class TrainingOrchestrationConfig:
     match_time_limit: int = 2400
     replay_capacity: int = 10000
     learning_rate: float = 0.001
+    starting_epsilon: float = 0.1
     epsilon: float = 0.1
+    epsilon_decay: float = 0.998
+    epsilon_frame_span: int = 1
     hidden_layer_width: int = 128
     hidden_layer_count: int = 2
     minibatch_size: int = DEFAULT_MINIBATCH_SIZE
@@ -92,6 +99,14 @@ class TrainingOrchestrationConfig:
             raise ValueError("minibatch_size must be positive")
         if self.replay_updates_per_batch < 0:
             raise ValueError("replay_updates_per_batch cannot be negative")
+        if not 0.0 <= float(self.starting_epsilon) <= 1.0:
+            raise ValueError("starting_epsilon must be in [0, 1]")
+        if not 0.0 <= float(self.epsilon) <= 1.0:
+            raise ValueError("epsilon must be in [0, 1]")
+        if not 0.0 <= float(self.epsilon_decay) <= 1.0:
+            raise ValueError("epsilon_decay must be in [0, 1]")
+        if int(self.epsilon_frame_span) <= 0:
+            raise ValueError("epsilon_frame_span must be positive")
         for label, value in (
             ("forward_activity", self.forward_activity),
             ("a1_activity", self.a1_activity),
@@ -151,20 +166,62 @@ class TrainingBatchAborted(RuntimeError):
 class ValueNetworkPolicy:
     """Epsilon-greedy policy over the Phase 1 value network."""
 
-    def __init__(self, model, *, epsilon: float, rng: Any | None = None):
+    def __init__(
+        self,
+        model,
+        *,
+        epsilon: float,
+        epsilon_frame_span: int = 1,
+        rng: Any | None = None,
+    ):
         self.model = model
         self.epsilon = float(epsilon)
+        self.epsilon_frame_span = max(1, int(epsilon_frame_span))
         self.rng = rng or random
         self.last_selection: ActionSelection | None = None
+        self._span_frames_remaining = 0
+        self._span_action_index: int | None = None
 
     def select_action(self, observation: Sequence[float]) -> ActionSelection:
+        if self._span_frames_remaining > 0:
+            self._span_frames_remaining -= 1
+            if self._span_action_index is not None:
+                self.last_selection = ActionSelection(
+                    action_index=self._span_action_index,
+                    exploratory=True,
+                )
+                return self.last_selection
+            self.last_selection = select_action_epsilon_greedy(
+                self.model,
+                observation,
+                epsilon=0.0,
+                rng=self.rng,
+            )
+            return self.last_selection
+
+        self._span_action_index = None
+        self._span_frames_remaining = self.epsilon_frame_span - 1
+        if self.epsilon >= 1.0 or (
+            self.epsilon > 0.0 and self.rng.random() < self.epsilon
+        ):
+            self._span_action_index = int(self.rng.randrange(ACTION_OUTPUT_SIZE))
+            self.last_selection = ActionSelection(
+                action_index=self._span_action_index,
+                exploratory=True,
+            )
+            return self.last_selection
+
         self.last_selection = select_action_epsilon_greedy(
             self.model,
             observation,
-            epsilon=self.epsilon,
+            epsilon=0.0,
             rng=self.rng,
         )
         return self.last_selection
+
+    def reset_exploration_span(self) -> None:
+        self._span_frames_remaining = 0
+        self._span_action_index = None
 
 
 def simple_opponent_schedule(rounds_per_batch: int) -> tuple[OpponentSpec, ...]:
@@ -282,7 +339,12 @@ def run_training_batch(
             rng=rng,
         )
 
-    trainee_policy = ValueNetworkPolicy(model, epsilon=config.epsilon, rng=rng)
+    trainee_policy = ValueNetworkPolicy(
+        model,
+        epsilon=config.epsilon,
+        epsilon_frame_span=config.epsilon_frame_span,
+        rng=rng,
+    )
     round_results: list[TrainingRoundResult] = []
     total_rounds = len(opponents)
     for index, opponent in enumerate(opponents, start=1):
@@ -472,6 +534,10 @@ def run_training_round(
         mature_count += len(mature_samples)
         return_sum += sum(sample.return_value for sample in mature_samples)
         _accumulate_weighted_components(component_sums, mature_samples)
+
+    reset_span = getattr(trainee_policy, "reset_exploration_span", None)
+    if callable(reset_span):
+        reset_span()
 
     win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
     return TrainingRoundResult(

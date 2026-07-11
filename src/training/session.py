@@ -137,6 +137,7 @@ class TrainingSessionStatus:
     current_frame: int = 0
     replay_size: int = 0
     recent_loss: float | None = None
+    current_epsilon: float = 0.0
     last_action_exploratory: bool | None = None
     weighted_total_return: float = 0.0
     component_totals: dict[str, float] = field(default_factory=dict)
@@ -242,8 +243,8 @@ def rolling_metrics(history: tuple[BatchMetrics, ...], grouping: int) -> BatchMe
         losses=sum(item.losses for item in window),
         draws=sum(item.draws for item in window),
         average_match_score=sum(item.average_match_score for item in window) / count,
-        epsilon=sum(item.epsilon for item in window) / count,
-        learning_rate=sum(item.learning_rate for item in window) / count,
+        epsilon=latest.epsilon,
+        learning_rate=latest.learning_rate,
         average_loss=sum(item.average_loss for item in window) / count,
     )
 
@@ -271,13 +272,15 @@ def append_grouped_metrics_csv(path: Path, metrics: BatchMetrics) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not path.exists() or path.stat().st_size == 0
+    win_rate = (metrics.wins / metrics.match_count * 100.0) if metrics.match_count else 0.0
     with path.open("a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         if write_header:
-            writer.writerow(("Batch", "Score", "Epsilon", "Learning Rate", "Loss"))
+            writer.writerow(("Batch", "Win %", "Score", "Epsilon", "Learning Rate", "Loss"))
         writer.writerow(
             (
                 str(metrics.batch),
+                f"{win_rate:.1f}",
                 f"{metrics.average_match_score:.1f}",
                 f"{metrics.epsilon:.5f}",
                 f"{metrics.learning_rate:.6f}",
@@ -309,13 +312,15 @@ class TrainingSession:
         self.slot = slot
         self.metadata = dict(metadata)
         self.config = config
+        self._current_epsilon = float(config.epsilon)
         self.batch_grouping = max(1, int(batch_grouping))
         self.batch_runner = batch_runner
         self.rng = rng or random.Random()
         self._status = TrainingSessionStatus(
             completed_batches=int(
                 self.metadata.get("progress", {}).get("completed_batches", 0)
-            )
+            ),
+            current_epsilon=self._current_epsilon,
         )
         self._history: list[BatchMetrics] = list(
             initial_history or batch_metrics_history_from_metadata(self.metadata)
@@ -361,6 +366,7 @@ class TrainingSession:
                 current_frame=self._status.current_frame,
                 replay_size=self._status.replay_size,
                 recent_loss=self._status.recent_loss,
+                current_epsilon=self._status.current_epsilon,
                 last_action_exploratory=self._status.last_action_exploratory,
                 weighted_total_return=self._status.weighted_total_return,
                 component_totals=dict(self._status.component_totals),
@@ -392,6 +398,17 @@ class TrainingSession:
             daemon=True,
         )
         self._thread.start()
+
+    def set_starting_epsilon(self, value: float) -> None:
+        epsilon = max(0.0, min(1.0, float(value)))
+        with self._lock:
+            self.config = replace(
+                self.config,
+                starting_epsilon=epsilon,
+                epsilon=epsilon,
+            )
+            self._current_epsilon = epsilon
+            self._status.current_epsilon = epsilon
 
     def request_stop(self) -> None:
         self._stop_requested.set()
@@ -448,12 +465,18 @@ class TrainingSession:
             self._status.error = ""
 
         while not self._stop_requested.is_set():
+            with self._lock:
+                batch_config = replace(
+                    self.config,
+                    epsilon=self._current_epsilon,
+                    display_on=False,
+                )
             try:
                 result = self.batch_runner(
                     model=model,
                     optimizer=optimizer,
                     replay_buffer=replay_buffer,
-                    config=replace(self.config, display_on=False),
+                    config=batch_config,
                     rng=self.rng,
                     model_repository=self.repository,
                     audio_service=self.audio_service,
@@ -508,10 +531,16 @@ class TrainingSession:
         with self._lock:
             self._status.completed_batches += 1
             batch_number = self._status.completed_batches
+            self._current_epsilon = max(
+                0.0,
+                min(1.0, self._current_epsilon * float(self.config.epsilon_decay)),
+            )
+            self._status.current_epsilon = self._current_epsilon
+            current_epsilon = self._current_epsilon
         metrics = metrics_from_batch_result(
             result,
             batch=batch_number,
-            epsilon=self.config.epsilon,
+            epsilon=current_epsilon,
             learning_rate=self.config.learning_rate,
         )
         with self._lock:
@@ -563,7 +592,7 @@ class TrainingSession:
                     self.config.hidden_layer_count,
                 ),
             ),
-            training=self.metadata.get("training", {}),
+            training=self._training_metadata_for_save(),
             progress={
                 "completed_batches": completed_batches,
                 RECENT_BATCH_METRICS_KEY: [
@@ -574,6 +603,28 @@ class TrainingSession:
         )
         self.metadata = metadata
         self.slot = self.repository.create_or_update_user_model(metadata)
+
+    def _training_metadata_for_save(self) -> dict[str, Any]:
+        training = self.metadata.get("training", {})
+        training = dict(training) if isinstance(training, Mapping) else {}
+        regimen = training.get("regimen", {})
+        regimen = dict(regimen) if isinstance(regimen, Mapping) else {}
+        with self._lock:
+            starting_epsilon = float(self.config.starting_epsilon)
+            current_epsilon = float(self._current_epsilon)
+            epsilon_decay = float(self.config.epsilon_decay)
+            epsilon_frame_span = int(self.config.epsilon_frame_span)
+        regimen.update(
+            {
+                "starting_epsilon": starting_epsilon,
+                "current_epsilon": current_epsilon,
+                "epsilon": current_epsilon,
+                "epsilon_decay": epsilon_decay,
+                "epsilon_frame_span": epsilon_frame_span,
+            }
+        )
+        training["regimen"] = regimen
+        return training
 
     def _csv_path(self) -> Path:
         _, metadata_path = model_paths(self.repository.user_dir, self.slot.ship, self.slot.slot)

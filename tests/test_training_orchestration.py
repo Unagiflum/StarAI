@@ -31,6 +31,7 @@ from src.training.orchestration import (
     SimpleOpponentController,
     TrainingBatchAborted,
     TrainingOrchestrationConfig,
+    ValueNetworkPolicy,
     _fully_arm_training_shofixti,
     _round_terminal_state,
     controls_for_action_index,
@@ -69,6 +70,27 @@ class SequenceRng:
 class PreferTrainedOpponentRng:
     def choice(self, values):
         return values[-1]
+
+
+class SpanRng:
+    def __init__(self, random_values=(), randrange_values=()):
+        self.random_values = list(random_values)
+        self.randrange_values = list(randrange_values)
+        self.randrange_calls = 0
+
+    def random(self):
+        if not self.random_values:
+            return 1.0
+        return self.random_values.pop(0)
+
+    def randrange(self, limit):
+        self.randrange_calls += 1
+        if not self.randrange_values:
+            return 0
+        value = self.randrange_values.pop(0)
+        if not 0 <= value < limit:
+            raise AssertionError(f"randrange value {value} outside limit {limit}")
+        return value
 
 
 class TrainingScheduleTests(unittest.TestCase):
@@ -168,6 +190,52 @@ class TrainingScheduleTests(unittest.TestCase):
         self.assertEqual(len(earthling_rounds), 1)
         self.assertEqual(earthling_rounds[0].mode, OPPONENT_MODE_EXISTING_AI)
         self.assertEqual(earthling_rounds[0].slot, 1)
+
+
+class ValueNetworkPolicyTests(unittest.TestCase):
+    def test_exploratory_action_is_held_for_configured_frame_span(self):
+        rng = SpanRng(random_values=[0.0, 0.0], randrange_values=[7, 11])
+        policy = ValueNetworkPolicy(None, epsilon=1.0, epsilon_frame_span=3, rng=rng)
+
+        selections = [policy.select_action(()) for _ in range(4)]
+
+        self.assertEqual([selection.action_index for selection in selections], [7, 7, 7, 11])
+        self.assertTrue(all(selection.exploratory for selection in selections))
+        self.assertEqual(rng.randrange_calls, 2)
+
+    def test_reset_exploration_span_forces_next_call_to_roll_again(self):
+        rng = SpanRng(random_values=[0.0, 0.0], randrange_values=[3, 9])
+        policy = ValueNetworkPolicy(None, epsilon=1.0, epsilon_frame_span=8, rng=rng)
+
+        first = policy.select_action(())
+        policy.reset_exploration_span()
+        second = policy.select_action(())
+
+        self.assertEqual(first.action_index, 3)
+        self.assertEqual(second.action_index, 9)
+        self.assertEqual(rng.randrange_calls, 2)
+
+    def test_greedy_span_recomputes_greedy_action_each_frame_without_extra_rolls(self):
+        rng = SpanRng(random_values=[1.0])
+        policy = ValueNetworkPolicy(object(), epsilon=0.5, epsilon_frame_span=3, rng=rng)
+        selections = iter(
+            (
+                ActionSelection(1, exploratory=False),
+                ActionSelection(2, exploratory=False),
+                ActionSelection(3, exploratory=False),
+            )
+        )
+
+        with mock.patch(
+            "src.training.orchestration.select_action_epsilon_greedy",
+            side_effect=lambda *args, **kwargs: next(selections),
+        ) as select_action:
+            actions = [policy.select_action(()) for _ in range(3)]
+
+        self.assertEqual([selection.action_index for selection in actions], [1, 2, 3])
+        self.assertFalse(any(selection.exploratory for selection in actions))
+        self.assertEqual(select_action.call_count, 3)
+        self.assertEqual(rng.random_values, [])
 
 
 class TrainingRoundTests(unittest.TestCase):
