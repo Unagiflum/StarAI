@@ -1,5 +1,6 @@
 import pygame
 import random
+import math
 
 import src.const as const
 from src.configuration import GameSettingsRepository
@@ -146,13 +147,13 @@ def apply_vux_starting_conditions(
     arena_objects=(),
     training_close_start_chance=None,
 ):
-    import math
     from src.Objects.Ships.catalog import ABILITIES_DATA
     from src.toroidal import wrapped_delta
 
     rng = rng or random
     preserved_ships = tuple(preserved_ships or ())
     close_start_vux = []
+    successful_close_start_vux = []
 
     for p, opponent in [(player1, player2), (player2, player1)]:
         if not _vux_close_start_enabled(
@@ -226,6 +227,7 @@ def apply_vux_starting_conditions(
                 mover.position = new_pos
                 if hasattr(mover, "previous_position"):
                     mover.previous_position = new_pos.copy()
+                successful_close_start_vux.append(mover)
 
     # Aim after every close-start ship has been moved. When both ships are Vux,
     # aiming inside the placement loop makes the first Vux face the opponent's
@@ -245,6 +247,24 @@ def apply_vux_starting_conditions(
         )
         p.previous_heading = p.heading
         p.rotation = p.heading * const.TURN_ANGLE
+
+    return tuple(successful_close_start_vux)
+
+
+def apply_training_starting_velocities(ships, rng=None, stationary_ships=()):
+    rng = rng or random
+    stationary_ids = {id(ship) for ship in stationary_ships}
+    for ship in ships:
+        if id(ship) in stationary_ids:
+            ship.velocity = [0.0, 0.0]
+            continue
+        max_thrust = max(0.0, float(getattr(ship, "max_thrust", 0.0)))
+        speed = math.sqrt(rng.random()) * max_thrust
+        angle = rng.uniform(0.0, 2.0 * math.pi)
+        ship.velocity = [
+            math.sin(angle) * speed,
+            -math.cos(angle) * speed,
+        ]
 
 
 def _vux_close_start_enabled(
@@ -298,12 +318,18 @@ def initialize_battle(
     player1.opponent = player2
     player2.opponent = player1
 
-    apply_vux_starting_conditions(
+    close_start_vux = apply_vux_starting_conditions(
         player1,
         player2,
         rng=rng,
         training_close_start_chance=training_vux_close_start_chance,
     )
+    if training_vux_close_start_chance is not None:
+        apply_training_starting_velocities(
+            (player1, player2),
+            rng=rng,
+            stationary_ships=close_start_vux,
+        )
 
     world.add(player1)
     world.add(player2)

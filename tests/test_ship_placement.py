@@ -17,6 +17,7 @@ pygame.init()
 import src.const as const
 from src.Battle.battle import random_position_away_from, ship_spawn_obstacles
 from src.Battle.battle_init import (
+    apply_training_starting_velocities,
     apply_vux_starting_conditions,
     validate_ship_position,
 )
@@ -379,6 +380,36 @@ class ShipPlacementTests(unittest.TestCase):
         self.assertEqual(player2.position, [4000, 1000])
         self.assertEqual(player1.heading, heading_toward(player1, player2))
         self.assertEqual(rng.random.call_count, 2)
+
+    def test_training_starting_velocity_uses_sqrt_random_speed(self):
+        ship = SimpleNamespace(max_thrust=60, velocity=[0.0, 0.0])
+        rng = mock.Mock()
+        rng.random.return_value = 0.25
+        rng.uniform.return_value = math.pi / 2
+
+        apply_training_starting_velocities((ship,), rng=rng)
+
+        self.assertAlmostEqual(math.hypot(*ship.velocity), 30.0)
+        self.assertAlmostEqual(ship.velocity[0], 30.0)
+        self.assertAlmostEqual(ship.velocity[1], 0.0)
+        rng.uniform.assert_called_once_with(0.0, 2.0 * math.pi)
+
+    def test_training_starting_velocity_keeps_close_start_vux_stationary(self):
+        close_start_vux = SimpleNamespace(max_thrust=36, velocity=[9.0, 9.0])
+        opponent = SimpleNamespace(max_thrust=40, velocity=[0.0, 0.0])
+        rng = mock.Mock()
+        rng.random.return_value = 1.0
+        rng.uniform.return_value = 0.0
+
+        apply_training_starting_velocities(
+            (close_start_vux, opponent),
+            rng=rng,
+            stationary_ships=(close_start_vux,),
+        )
+
+        self.assertEqual(close_start_vux.velocity, [0.0, 0.0])
+        self.assertEqual(opponent.velocity, [0.0, -40.0])
+        rng.random.assert_called_once_with()
 
     def test_vux_close_start_can_exceed_preferred_band_to_avoid_projectiles(self):
         vux = SimpleNamespace(
