@@ -1896,6 +1896,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider.enabled = not state.running
         for slider in regimen_sliders:
             slider.enabled = not state.running
+            
+        max_batch_frames = state.rounds_per_batch * state.match_time_limit * len(SHIP_DEFINITIONS)
+        regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].label = f"Replay Buffer Size (Batch <= {max_batch_frames})"
 
         active_session = training_session[0]
         session_status = active_session.status if active_session is not None else None
