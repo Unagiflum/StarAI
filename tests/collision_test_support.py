@@ -158,6 +158,9 @@ class CollisionTestCase(unittest.TestCase):
             targetable=True
         )
         special_object.physical_collision_capabilities = PhysicalCollisionCapabilities(is_solid=True, is_projectile=True)
+        if special_object_class.__name__ in {"KzerZaA2", "OrzA3"}:
+            special_object._crew_loss_recorded = False
+            special_object._crew_recovered = False
         return special_object
 
     @staticmethod

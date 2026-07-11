@@ -286,6 +286,8 @@ class TrainingConsoleTests(unittest.TestCase):
             "weighted_total_return": 12.5,
             "recent_loss": None,
             "component_totals": {"Kill enemy": 2.0},
+            "previous_opponent": "Chenjesu",
+            "batch_component_totals": {},
         }
         values.update(overrides)
         return SimpleNamespace(**values)
@@ -296,16 +298,19 @@ class TrainingConsoleTests(unittest.TestCase):
         lines = _display_off_console_lines(status, ("Batch      1 | summary",))
 
         self.assertIn("Current batch", lines)
-        self.assertIn("Round:    3/  25", lines)
+        self.assertIn("Round:       3/  25", lines)
         self.assertEqual(lines[0], "Completed batches")
         self.assertLess(
             lines.index("Batch      1 | summary"),
             lines.index("Current batch"),
         )
-        self.assertIn("Batch:      3", lines)
-        self.assertIn("Frame:       42 | Replay:     99", lines)
-        self.assertIn("Action: explore | Return:     12.50", lines)
-        self.assertIn("Loss:          -", lines)
+        self.assertIn("Batch:         3", lines)
+        self.assertIn("Opponent: Earthling        ", lines)
+        self.assertIn("Replay:       99", lines)
+        self.assertIn("Return:       12.50", lines)
+        self.assertIn("Loss:              -", lines)
+        self.assertIn("Reward components|   Chenjesu |  Batch -", lines)
+        self.assertIn("Kill enemy       |     2.0000 |        -", lines)
 
     def test_display_off_console_keeps_current_batch_block_height_stable(self):
         lines_with_component = _display_off_console_lines(
@@ -316,10 +321,9 @@ class TrainingConsoleTests(unittest.TestCase):
         )
 
         self.assertEqual(len(lines_with_component), len(lines_without_components))
-        placeholder_rows = lines_without_components[-6:]
-        self.assertEqual(len(set(placeholder_rows)), 1)
-        self.assertTrue(placeholder_rows[0].startswith("-"))
-        self.assertTrue(placeholder_rows[0].endswith(":        -"))
+        placeholder_rows = lines_without_components[-len(REWARD_LABELS) :]
+        self.assertEqual(len(placeholder_rows), len(REWARD_LABELS))
+        self.assertTrue(all(row.endswith("|        -") for row in placeholder_rows))
 
 
 class TrainingBatchLogBoxTests(unittest.TestCase):
