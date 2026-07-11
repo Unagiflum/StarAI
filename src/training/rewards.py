@@ -72,6 +72,11 @@ NORMALIZED_SHAPING_COMPONENTS = (
     REWARD_A2_RANGE,
 )
 
+DISCOUNTED_SUM_COMPONENTS = (
+    REWARD_KILL_ENEMY,
+    REWARD_DIE,
+)
+
 DISCOUNT_CUTOFF_WEIGHT = 0.01
 
 
@@ -340,7 +345,8 @@ def calculate_reward_components(
         ).items():
             components[component] += value
     for component in REWARD_COMPONENTS:
-        components[component] /= actual_frames
+        if component not in DISCOUNTED_SUM_COMPONENTS:
+            components[component] /= actual_frames
     return components
 
 
@@ -400,7 +406,14 @@ def discounted_average_components(
         for component in REWARD_COMPONENTS:
             totals[component] += float(frame_components.get(component, 0.0)) * discount
         discount *= gamma
-    return {component: totals[component] / weight_sum for component in REWARD_COMPONENTS}
+    return {
+        component: (
+            totals[component]
+            if component in DISCOUNTED_SUM_COMPONENTS
+            else totals[component] / weight_sum
+        )
+        for component in REWARD_COMPONENTS
+    }
 
 
 def _sample_from_components(

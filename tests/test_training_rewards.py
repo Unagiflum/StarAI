@@ -437,6 +437,76 @@ class RollingReturnPipelineTests(unittest.TestCase):
                 outcome(4),
             )
 
+    def test_ship_death_rewards_are_discounted_sums_not_window_averages(self):
+        gamma = 0.5
+        pipeline = RollingReturnPipeline(
+            gamma=gamma,
+            reward_weights={REWARD_KILL_ENEMY: 1.0, REWARD_DIE: -1.0},
+        )
+        death_events = (
+            TrainingBattleEvent(
+                frame_id=2,
+                event_type=EVENT_SHIP_DIED,
+                target=self.enemy,
+            ),
+            TrainingBattleEvent(
+                frame_id=2,
+                event_type=EVENT_SHIP_DIED,
+                target=self.trainee,
+            ),
+        )
+
+        pipeline.add_frame(
+            decision(1, self.trainee, self.enemy),
+            outcome(1),
+        )
+        matured = pipeline.add_frame(
+            decision(2, self.trainee, self.enemy),
+            outcome(2, events=death_events, terminal=True),
+        )
+
+        self.assertEqual([sample.start_frame_id for sample in matured], [1, 2])
+        self.assertAlmostEqual(
+            matured[0].component_values[REWARD_KILL_ENEMY],
+            gamma,
+        )
+        self.assertAlmostEqual(matured[1].component_values[REWARD_KILL_ENEMY], 1.0)
+        self.assertAlmostEqual(matured[0].component_values[REWARD_DIE], gamma)
+        self.assertAlmostEqual(matured[1].component_values[REWARD_DIE], 1.0)
+        self.assertAlmostEqual(matured[0].return_value, 0.0)
+        self.assertAlmostEqual(matured[1].return_value, 0.0)
+
+    def test_reincarnating_pkunk_death_counts_as_normal_kill_event(self):
+        gamma = 0.5
+        pipeline = RollingReturnPipeline(
+            gamma=gamma,
+            reward_weights={REWARD_KILL_ENEMY: 1.0},
+        )
+        pkunk = SimpleNamespace(name="Pkunk")
+        death_event = TrainingBattleEvent(
+            frame_id=2,
+            event_type=EVENT_SHIP_DIED,
+            target=pkunk,
+        )
+
+        matured = []
+        for frame_id in range(1, discount_cutoff_frames(gamma) + 1):
+            events = (death_event,) if frame_id == 2 else ()
+            matured.extend(
+                pipeline.add_frame(
+                    decision(frame_id, self.trainee, pkunk),
+                    outcome(frame_id, events=events, terminal=False),
+                )
+            )
+
+        self.assertEqual(len(matured), 1)
+        self.assertEqual(matured[0].start_frame_id, 1)
+        self.assertAlmostEqual(
+            matured[0].component_values[REWARD_KILL_ENEMY],
+            gamma,
+        )
+        self.assertFalse(matured[0].terminal_truncated)
+
     def test_constant_per_frame_rewards_are_match_length_invariant(self):
         gamma = 0.2
         full_pipeline = RollingReturnPipeline(
