@@ -178,6 +178,38 @@ def simple_opponent_schedule(rounds_per_batch: int) -> tuple[OpponentSpec, ...]:
     return tuple(opponents)
 
 
+def existing_ai_opponent_schedule(
+    rounds_per_batch: int,
+    discovered_opponents: Sequence[OpponentSpec],
+    *,
+    rng: Any | None = None,
+) -> tuple[OpponentSpec, ...]:
+    """Return one batch schedule with one selected controller per ship type."""
+
+    if int(rounds_per_batch) <= 0:
+        raise ValueError("rounds_per_batch must be positive")
+    rng = rng or random
+    by_ship: dict[str, list[OpponentSpec]] = {
+        ship_name: [OpponentSpec(ship=ship_name, mode=OPPONENT_MODE_SIMPLE)]
+        for ship_name in SHIP_TYPE_CATALOG_ORDER
+    }
+    for opponent in discovered_opponents:
+        if opponent.ship not in by_ship:
+            continue
+        by_ship[opponent.ship].append(opponent)
+
+    selected_by_ship = {
+        ship_name: _choose_from_sequence(options, rng=rng)
+        for ship_name, options in by_ship.items()
+    }
+    opponents: list[OpponentSpec] = []
+    for _ in range(int(rounds_per_batch)):
+        opponents.extend(
+            selected_by_ship[ship_name] for ship_name in SHIP_TYPE_CATALOG_ORDER
+        )
+    return tuple(opponents)
+
+
 def discover_existing_ai_opponents(
     repository: TrainingModelRepository,
 ) -> OpponentDiscoveryResult:
@@ -233,10 +265,10 @@ def run_training_batch(
         if model_repository is None:
             raise ValueError("model_repository is required for existing-AI mode")
         discovered = discover_existing_ai_opponents(model_repository)
-        opponents = tuple(
-            opponent
-            for _ in range(config.rounds_per_batch)
-            for opponent in discovered.opponents
+        opponents = existing_ai_opponent_schedule(
+            config.rounds_per_batch,
+            discovered.opponents,
+            rng=rng,
         )
 
     trainee_policy = ValueNetworkPolicy(model, epsilon=config.epsilon, rng=rng)
@@ -585,6 +617,16 @@ def _turn_toward_target(ship, target) -> tuple[bool, bool]:
 
 def _activity_probability(activity: float) -> float:
     return max(0.0, min(1.0, float(activity) / 100.0))
+
+
+def _choose_from_sequence(values: Sequence[Any], *, rng: Any) -> Any:
+    if not values:
+        raise ValueError("cannot choose from an empty sequence")
+    chooser = getattr(rng, "choice", None)
+    if callable(chooser):
+        return chooser(values)
+    index = int(float(rng.random()) * len(values))
+    return values[min(index, len(values) - 1)]
 
 
 def _round_terminal_state(simulation, *, elapsed_frames: int, frame_limit: int):

@@ -26,6 +26,7 @@ from src.training.model_registry import (
 )
 from src.training.orchestration import (
     OPPONENT_MODE_EXISTING_AI,
+    OPPONENT_MODE_SIMPLE,
     OpponentSpec,
     SimpleOpponentController,
     TrainingBatchAborted,
@@ -34,6 +35,7 @@ from src.training.orchestration import (
     _round_terminal_state,
     controls_for_action_index,
     discover_existing_ai_opponents,
+    existing_ai_opponent_schedule,
     run_training_batch,
     run_training_round,
     simple_opponent_schedule,
@@ -64,6 +66,11 @@ class SequenceRng:
         return self.values.pop(0)
 
 
+class PreferTrainedOpponentRng:
+    def choice(self, values):
+        return values[-1]
+
+
 class TrainingScheduleTests(unittest.TestCase):
     def test_simple_mode_schedules_every_ship_for_each_repetition(self):
         schedule = simple_opponent_schedule(2)
@@ -90,6 +97,35 @@ class TrainingScheduleTests(unittest.TestCase):
                 "action1": False,
                 "action2": True,
             },
+        )
+
+    def test_existing_ai_mode_selects_one_controller_per_ship_type(self):
+        earthling_model = object()
+        schedule = existing_ai_opponent_schedule(
+            2,
+            (
+                OpponentSpec(
+                    ship="Earthling",
+                    mode=OPPONENT_MODE_EXISTING_AI,
+                    slot=1,
+                    model=earthling_model,
+                ),
+            ),
+            rng=PreferTrainedOpponentRng(),
+        )
+
+        self.assertEqual(len(schedule), 2 * len(SHIP_TYPE_CATALOG_ORDER))
+        earthling_rounds = [
+            opponent for opponent in schedule if opponent.ship == "Earthling"
+        ]
+        self.assertEqual(len(earthling_rounds), 2)
+        self.assertTrue(all(opponent.slot == 1 for opponent in earthling_rounds))
+        self.assertTrue(
+            all(
+                opponent.mode == OPPONENT_MODE_SIMPLE
+                for opponent in schedule
+                if opponent.ship != "Earthling"
+            )
         )
 
 
@@ -337,7 +373,7 @@ class ExistingAIOpponentTests(unittest.TestCase):
         self.assertEqual(result.opponents[0].slot, 2)
         self.assertEqual(result.skipped, ())
 
-    def test_existing_ai_batch_uses_available_opponent_count(self):
+    def test_existing_ai_batch_uses_mixed_all_ship_schedule(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repository = TrainingModelRepository(root / "bundled", root / "user")
@@ -354,7 +390,7 @@ class ExistingAIOpponentTests(unittest.TestCase):
 
             model = build_value_network(ValueNetworkConfig(8, 1))
             optimizer = build_optimizer(model, learning_rate=0.001)
-            replay = TrainingReplayBuffer(capacity=16)
+            replay = TrainingReplayBuffer(capacity=64)
             config = TrainingOrchestrationConfig(
                 trainee_ship="Earthling",
                 opponent_mode=OPPONENT_MODE_EXISTING_AI,
@@ -373,9 +409,9 @@ class ExistingAIOpponentTests(unittest.TestCase):
                 model_repository=repository,
             )
 
-        self.assertEqual(result.completed_rounds, 2)
-        self.assertEqual(len(result.round_results), 2)
-        self.assertEqual(len(replay), 2)
+        self.assertEqual(result.completed_rounds, 2 * len(SHIP_TYPE_CATALOG_ORDER))
+        self.assertEqual(len(result.round_results), 2 * len(SHIP_TYPE_CATALOG_ORDER))
+        self.assertEqual(len(replay), 2 * len(SHIP_TYPE_CATALOG_ORDER))
 
 
 if __name__ == "__main__":

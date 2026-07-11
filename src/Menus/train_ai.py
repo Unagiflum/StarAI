@@ -138,7 +138,7 @@ class TrainingUIState:
 
     @property
     def simple_behavior_controls_enabled(self):
-        return self.opponent_mode == "simple" and not self.running
+        return not self.running
 
 
 @dataclass(frozen=True)
@@ -874,8 +874,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     opponent_font = largest_fitting_font(
         (
-            "Train against all existing AIs",
-            "Train against simple behaviors",
+            "Include AI opponents",
+            "Simple opponents only",
             "Forward Activity: 100.0",
             "A1 Activity: 100.0",
             "A2 Activity: 100.0",
@@ -1025,7 +1025,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 18,
                 CONTROL_WIDTH - 40,
                 40,
-                "Train against all existing AIs",
+                "Include AI opponents",
                 lambda: select_opponent_mode("all"),
             ),
             ui_button.RadioButton(
@@ -1033,7 +1033,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 64,
                 CONTROL_WIDTH - 40,
                 40,
-                "Train against simple behaviors",
+                "Simple opponents only",
                 lambda: select_opponent_mode("simple"),
                 selected=True,
             ),

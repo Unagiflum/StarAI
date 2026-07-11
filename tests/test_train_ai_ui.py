@@ -74,11 +74,15 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertFalse(state.display_on)
         self.assertFalse(state.running)
 
-    def test_all_existing_ai_mode_disables_simple_behavior_controls(self):
+    def test_ai_opponent_mode_keeps_simple_behavior_controls_available(self):
         state = TrainingUIState()
         self.assertTrue(state.simple_behavior_controls_enabled)
 
         state.opponent_mode = "all"
+
+        self.assertTrue(state.simple_behavior_controls_enabled)
+
+        state.running = True
 
         self.assertFalse(state.simple_behavior_controls_enabled)
 
