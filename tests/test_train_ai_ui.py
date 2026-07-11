@@ -156,21 +156,21 @@ class TrainingLayoutTests(unittest.TestCase):
 
 
 class RewardSliderTests(unittest.TestCase):
-    def test_reward_scale_has_all_23_doubling_values(self):
-        self.assertEqual(len(REWARD_VALUES), 23)
-        self.assertEqual(REWARD_VALUES[0], -10.24)
-        self.assertEqual(REWARD_VALUES[10:13], (-0.01, 0.0, 0.01))
-        self.assertEqual(REWARD_VALUES[-1], 10.24)
+    def test_reward_scale_has_all_27_doubling_values(self):
+        self.assertEqual(len(REWARD_VALUES), 27)
+        self.assertEqual(REWARD_VALUES[0], -40.96)
+        self.assertEqual(REWARD_VALUES[12:15], (-0.01, 0.0, 0.01))
+        self.assertEqual(REWARD_VALUES[-1], 40.96)
 
     def test_slider_snaps_to_discrete_reward_values(self):
         slider = RewardSlider((0, 0, 550, 40), "Reward")
 
         slider.set_from_x(slider.line_rect.left)
-        self.assertEqual(slider.value, -10.24)
+        self.assertEqual(slider.value, -40.96)
         slider.set_from_x(slider.line_rect.centerx)
         self.assertEqual(slider.value, 0.0)
         slider.set_from_x(slider.line_rect.right)
-        self.assertEqual(slider.value, 10.24)
+        self.assertEqual(slider.value, 40.96)
 
     def test_saved_reward_value_loads_without_position_api(self):
         slider = RewardSlider((0, 0, 550, 40), "Reward")
