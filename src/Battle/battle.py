@@ -111,6 +111,11 @@ class BattleSimulation:
             rng=self.rng,
             resources=self.resources,
             include_stars=include_stars,
+            training_vux_close_start_chance=(
+                const.TRAINING_VUX_CLOSE_START_CHANCE
+                if training_event_ledger is not None
+                else None
+            ),
         )
         self.settings = battle_state["settings"]
         self.world = battle_state["world"]

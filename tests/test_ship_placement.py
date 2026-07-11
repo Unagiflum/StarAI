@@ -321,6 +321,65 @@ class ShipPlacementTests(unittest.TestCase):
         self.assertLessEqual(distance, vux_laser_range() * 1.2)
         self.assertAlmostEqual(distance, stepped_vux_min_distance())
 
+    def test_training_vux_close_start_probability_can_skip_first_battle_exception(self):
+        vux = SimpleNamespace(
+            name="Vux",
+            battles_fought=1,
+            player=1,
+            position=[7000, 7000],
+            previous_position=[7000, 7000],
+        )
+        opponent = SimpleNamespace(
+            name="Earthling",
+            battles_fought=1,
+            player=2,
+            position=[1000, 1000],
+            previous_position=[1000, 1000],
+        )
+        rng = mock.Mock()
+
+        apply_vux_starting_conditions(
+            vux,
+            opponent,
+            rng=rng,
+            training_close_start_chance=0.0,
+        )
+
+        self.assertEqual(vux.position, [7000, 7000])
+        self.assertEqual(opponent.position, [1000, 1000])
+        rng.uniform.assert_not_called()
+
+    def test_training_vux_close_start_rolls_each_vux_independently(self):
+        player1 = SimpleNamespace(
+            name="Vux",
+            battles_fought=2,
+            player=1,
+            position=[1000, 1000],
+            previous_position=[1000, 1000],
+        )
+        player2 = SimpleNamespace(
+            name="Vux",
+            battles_fought=2,
+            player=2,
+            position=[4000, 1000],
+            previous_position=[4000, 1000],
+        )
+        rng = mock.Mock()
+        rng.random.side_effect = [0.2, 0.9]
+        rng.uniform.return_value = 0
+
+        apply_vux_starting_conditions(
+            player1,
+            player2,
+            rng=rng,
+            training_close_start_chance=const.TRAINING_VUX_CLOSE_START_CHANCE,
+        )
+
+        self.assertNotEqual(player1.position, [1000, 1000])
+        self.assertEqual(player2.position, [4000, 1000])
+        self.assertEqual(player1.heading, heading_toward(player1, player2))
+        self.assertEqual(rng.random.call_count, 2)
+
     def test_vux_close_start_can_exceed_preferred_band_to_avoid_projectiles(self):
         vux = SimpleNamespace(
             name="Vux",

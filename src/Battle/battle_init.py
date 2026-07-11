@@ -144,6 +144,7 @@ def apply_vux_starting_conditions(
     preserved_ships=None,
     rng=None,
     arena_objects=(),
+    training_close_start_chance=None,
 ):
     import math
     from src.Objects.Ships.catalog import ABILITIES_DATA
@@ -154,7 +155,15 @@ def apply_vux_starting_conditions(
     close_start_vux = []
 
     for p, opponent in [(player1, player2), (player2, player1)]:
-        if p.name == "Vux" and p.battles_fought == 1 and p not in preserved_ships:
+        if not _vux_close_start_enabled(
+            p,
+            preserved_ships,
+            rng,
+            training_close_start_chance,
+        ):
+            continue
+
+        if p.name == "Vux":
             close_start_vux.append((p, opponent))
             # The Vux is the ship receiving the close-start exception. Keep the
             # opponent fixed so only the Vux bypasses normal spawn clearance.
@@ -238,6 +247,24 @@ def apply_vux_starting_conditions(
         p.rotation = p.heading * const.TURN_ANGLE
 
 
+def _vux_close_start_enabled(
+    ship,
+    preserved_ships,
+    rng,
+    training_close_start_chance,
+):
+    if ship.name != "Vux" or ship in preserved_ships:
+        return False
+    if training_close_start_chance is None:
+        return ship.battles_fought == 1
+    chance = float(training_close_start_chance)
+    if chance <= 0.0:
+        return False
+    if chance >= 1.0:
+        return True
+    return rng.random() < chance
+
+
 def initialize_battle(
     screen,
     ship1: SpaceShip,
@@ -246,6 +273,7 @@ def initialize_battle(
     rng=None,
     resources=None,
     include_stars=True,
+    training_vux_close_start_chance=None,
 ):
     explicit_runtime = rng is not None or resources is not None
     rng = rng or random
@@ -270,7 +298,12 @@ def initialize_battle(
     player1.opponent = player2
     player2.opponent = player1
 
-    apply_vux_starting_conditions(player1, player2, rng=rng)
+    apply_vux_starting_conditions(
+        player1,
+        player2,
+        rng=rng,
+        training_close_start_chance=training_vux_close_start_chance,
+    )
 
     world.add(player1)
     world.add(player2)
