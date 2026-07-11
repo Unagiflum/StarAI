@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from src.training.event_ledger import (
+    EVENT_ACTION_USED,
     EVENT_CREW_CHANGED,
     EVENT_DEBUFF_APPLIED,
     EVENT_OBJECT_REMOVED,
@@ -101,16 +102,22 @@ class TrainingRewardComponentTests(unittest.TestCase):
     def test_range_reward_labels_and_legacy_weights(self):
         self.assertEqual(REWARD_A1_RANGE, "In A1 range")
         self.assertEqual(REWARD_A2_RANGE, "In A2 range")
+        self.assertEqual(REWARD_SPAWN_A1, "Use A1")
+        self.assertEqual(REWARD_SPAWN_A2, "Use A2")
 
         weights = normalize_reward_weights(
             {
                 "Get in A1 weapon range": 1.5,
                 "Get in A2 weapon range": -2.0,
+                "Spawn A1 object": 3.0,
+                "Spawn A2 object": 4.0,
             }
         )
 
         self.assertEqual(weights[REWARD_A1_RANGE], 1.5)
         self.assertEqual(weights[REWARD_A2_RANGE], -2.0)
+        self.assertEqual(weights[REWARD_SPAWN_A1], 3.0)
+        self.assertEqual(weights[REWARD_SPAWN_A2], 4.0)
 
     def test_events_and_endpoint_rewards_remain_distinct(self):
         events = (
@@ -124,7 +131,7 @@ class TrainingRewardComponentTests(unittest.TestCase):
                 frame_id=1,
                 event_type=EVENT_OBJECT_SPAWNED,
                 owner=self.trainee,
-                action="A3",
+                action="A2",
             ),
             TrainingBattleEvent(
                 frame_id=1,
@@ -191,6 +198,116 @@ class TrainingRewardComponentTests(unittest.TestCase):
         self.assertEqual(components[REWARD_DIE], 1.0)
         self.assertEqual(components[REWARD_GAIN_BATTERY], 2.0)
         self.assertEqual(components[REWARD_LOSE_BATTERY], 0.0)
+
+    def test_use_rewards_count_successful_action_commits(self):
+        events = (
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_ACTION_USED,
+                owner=self.trainee,
+                action="A1",
+            ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_ACTION_USED,
+                owner=self.trainee,
+                action="A2",
+            ),
+        )
+        start = decision(1, self.trainee, self.enemy)
+
+        components = calculate_reward_components(
+            start,
+            [start],
+            [outcome(1, events=events)],
+        )
+
+        self.assertEqual(components[REWARD_SPAWN_A1], 1.0)
+        self.assertEqual(components[REWARD_SPAWN_A2], 1.0)
+
+    def test_use_rewards_count_laser_area_and_non_object_abilities(self):
+        for event in (
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_ACTION_USED,
+                owner=self.trainee,
+                action="A1",
+            ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_SPAWNED,
+                owner=self.trainee,
+                action="A1",
+                ability_name="ChmmrA1",
+                obj=SimpleNamespace(name="ChmmrA1", type="laser"),
+            ),
+        ):
+            with self.subTest(action="A1", event=event.event_type):
+                start = decision(1, self.trainee, self.enemy)
+                components = calculate_reward_components(
+                    start,
+                    [start],
+                    [outcome(1, events=(event,))],
+                )
+                self.assertEqual(components[REWARD_SPAWN_A1], 1.0)
+                self.assertEqual(components[REWARD_SPAWN_A2], 0.0)
+
+        for event in (
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_ACTION_USED,
+                owner=self.trainee,
+                action="A2",
+            ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_SPAWNED,
+                owner=self.trainee,
+                action="A2",
+                ability_name="ZoqFotPikA2",
+                obj=SimpleNamespace(name="ZoqFotPikA2", type="area"),
+            ),
+        ):
+            with self.subTest(action="A2", event=event.event_type):
+                start = decision(1, self.trainee, self.enemy)
+                components = calculate_reward_components(
+                    start,
+                    [start],
+                    [outcome(1, events=(event,))],
+                )
+                self.assertEqual(components[REWARD_SPAWN_A1], 0.0)
+                self.assertEqual(components[REWARD_SPAWN_A2], 1.0)
+
+    def test_orz_turret_turn_does_not_count_but_marine_counts_as_use_a2(self):
+        orz = SimpleNamespace(name="Orz")
+        start = decision(1, orz, self.enemy)
+        turret_turn = TrainingBattleEvent(
+            frame_id=1,
+            event_type=EVENT_ACTION_USED,
+            owner=orz,
+            action="A2",
+        )
+        marine_launch = TrainingBattleEvent(
+            frame_id=1,
+            event_type=EVENT_ACTION_USED,
+            owner=orz,
+            action="A3",
+            ability_name="OrzA3",
+        )
+
+        components = calculate_reward_components(
+            start,
+            [start],
+            [outcome(1, events=(turret_turn,))],
+        )
+        self.assertEqual(components[REWARD_SPAWN_A2], 0.0)
+
+        components = calculate_reward_components(
+            start,
+            [start],
+            [outcome(1, events=(marine_launch,))],
+        )
+        self.assertEqual(components[REWARD_SPAWN_A2], 1.0)
 
     def test_battery_loss_and_zero_are_endpoint_rewards(self):
         start = decision(1, self.trainee, self.enemy, battery=4)

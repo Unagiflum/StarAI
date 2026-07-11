@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from src.training import combat_adapters
 from src.training.event_ledger import (
+    EVENT_ACTION_USED,
     EVENT_CREW_CHANGED,
     EVENT_DEBUFF_APPLIED,
     EVENT_OBJECT_REMOVED,
@@ -19,10 +20,10 @@ from src.training.event_ledger import (
 
 REWARD_POINT_A1 = "Point A1 at enemy"
 REWARD_A1_RANGE = "In A1 range"
-REWARD_SPAWN_A1 = "Spawn A1 object"
+REWARD_SPAWN_A1 = "Use A1"
 REWARD_POINT_A2 = "Point A2 at enemy"
 REWARD_A2_RANGE = "In A2 range"
-REWARD_SPAWN_A2 = "Spawn A2 object"
+REWARD_SPAWN_A2 = "Use A2"
 REWARD_HIGH_SPEED = "Be at high speed"
 REWARD_ENEMY_LOSES_CREW = "Enemy loses crew"
 REWARD_DEBUFF_ENEMY = "Debuff enemy"
@@ -58,6 +59,8 @@ REWARD_COMPONENTS = (
 )
 
 LEGACY_REWARD_ALIASES = {
+    REWARD_SPAWN_A1: "Spawn A1 object",
+    REWARD_SPAWN_A2: "Spawn A2 object",
     REWARD_A1_RANGE: "Get in A1 weapon range",
     REWARD_A2_RANGE: "Get in A2 weapon range",
 }
@@ -290,10 +293,10 @@ def calculate_immediate_reward_components(
     self_ship = decision.self_ship
     enemy_ship = decision.enemy_ship
     for event in outcome.events:
-        if event.event_type == EVENT_OBJECT_SPAWNED and _same_entity(event.owner, self_ship):
-            if event.action == "A1":
+        if _is_self_action_use_event(event, self_ship):
+            if _is_a1_use_event(event):
                 components[REWARD_SPAWN_A1] = 1.0
-            elif _is_non_a1_ability_event(event):
+            elif _is_a2_use_event(event):
                 components[REWARD_SPAWN_A2] = 1.0
         elif event.event_type == EVENT_CREW_CHANGED:
             if _same_entity(event.target, enemy_ship) and event.magnitude < 0:
@@ -427,13 +430,46 @@ def _sample_from_components(
     )
 
 
-def _is_non_a1_ability_event(event: TrainingBattleEvent) -> bool:
-    if event.action in {"A2", "A3"}:
-        return True
+def _is_self_action_use_event(
+    event: TrainingBattleEvent,
+    self_ship: object | None,
+) -> bool:
+    return event.event_type in {
+        EVENT_ACTION_USED,
+        EVENT_OBJECT_SPAWNED,
+    } and _same_entity(event.owner, self_ship)
+
+
+def _is_a1_use_event(event: TrainingBattleEvent) -> bool:
+    return event.action == "A1" or _ability_name(event).endswith("A1")
+
+
+def _is_a2_use_event(event: TrainingBattleEvent) -> bool:
+    if event.action == "A2":
+        return not _is_orz_turret_turn_event(event)
+    if event.action == "A3":
+        return _ability_name(event) == "OrzA3" or _owner_name(event) == "Orz"
     if event.action == "A1":
         return False
+    ability_name = _ability_name(event)
+    return bool(ability_name) and not ability_name.endswith("A1")
+
+
+def _is_orz_turret_turn_event(event: TrainingBattleEvent) -> bool:
+    return (
+        event.event_type == EVENT_ACTION_USED
+        and event.action == "A2"
+        and _owner_name(event) == "Orz"
+    )
+
+
+def _ability_name(event: TrainingBattleEvent) -> str:
     ability_name = event.ability_name or getattr(event.obj, "name", "")
-    return bool(ability_name) and not str(ability_name).endswith("A1")
+    return str(ability_name or "")
+
+
+def _owner_name(event: TrainingBattleEvent) -> str:
+    return str(getattr(event.owner, "name", "") or "")
 
 
 def _same_entity(left, right) -> bool:

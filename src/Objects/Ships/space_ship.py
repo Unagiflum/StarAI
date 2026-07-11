@@ -695,6 +695,8 @@ class SpaceShip(PlayerObject):
             cooldown_action = plan.action_number
             setattr(self, f"action{plan.action_number}_timer", plan.cooldown_frames)
 
+        event_ledger.record_action_used(self, plan.action_number)
+
         for effect in plan.side_effects:
             effect()
 

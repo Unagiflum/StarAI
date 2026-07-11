@@ -15,6 +15,7 @@ from src.training.combat_adapters import (
 )
 from src.training.event_ledger import (
     BattleEventLedger,
+    EVENT_ACTION_USED,
     DEBUFF_CONFUSION,
     EVENT_BATTERY_CHANGED,
     EVENT_CREW_CHANGED,
@@ -213,6 +214,29 @@ class TrainingEventLedgerTests(unittest.TestCase):
         crew_events = [event for event in ledger.events if event.event_type == EVENT_CREW_CHANGED]
         self.assertEqual([event.magnitude for event in crew_events], [-2.0, 1.0])
         self.assertEqual([event.frame_id for event in crew_events], [7, 7])
+
+    def test_successful_action_commit_records_action_used_event(self):
+        ledger = BattleEventLedger()
+        ledger.current_frame = 8
+        test_ship = self.make_ship()
+        bind_ledger(test_ship, ledger)
+
+        result = test_ship.commit_action(
+            ActionPlan(
+                action_number=2,
+                valid=True,
+                energy_change=0,
+            )
+        )
+
+        action_events = [
+            event for event in ledger.events if event.event_type == EVENT_ACTION_USED
+        ]
+        self.assertTrue(result.valid)
+        self.assertEqual(len(action_events), 1)
+        self.assertEqual(action_events[0].frame_id, 8)
+        self.assertIs(action_events[0].owner, test_ship)
+        self.assertEqual(action_events[0].action, "A2")
 
     def test_launched_marine_or_fighter_transfer_is_not_crew_loss(self):
         ledger = BattleEventLedger()

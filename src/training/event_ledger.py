@@ -8,6 +8,7 @@ from typing import Any
 
 EVENT_OBJECT_SPAWNED = "object_spawned"
 EVENT_OBJECT_REMOVED = "object_removed"
+EVENT_ACTION_USED = "action_used"
 EVENT_CREW_CHANGED = "crew_changed"
 EVENT_BATTERY_CHANGED = "battery_changed"
 EVENT_DEBUFF_APPLIED = "debuff_applied"
@@ -86,6 +87,15 @@ class BattleEventLedger:
             action=_action_for_object(obj),
             removal_reason=reason,
             destroyed=bool(destroyed),
+        )
+
+    def record_action_used(self, ship, action_number: int) -> TrainingBattleEvent:
+        return self.append(
+            EVENT_ACTION_USED,
+            actor=ship,
+            owner=ship,
+            target=ship,
+            action=f"A{int(action_number)}",
         )
 
     def record_crew_changed(self, ship, delta: float, *, actor=None, source=None):
@@ -183,6 +193,12 @@ def record_removed(obj, *, destroyed: bool, reason: str, actor=None) -> None:
             reason=reason,
             actor=actor,
         )
+
+
+def record_action_used(ship, action_number: int) -> None:
+    ledger = ledger_for(ship)
+    if ledger is not None:
+        ledger.record_action_used(ship, action_number)
 
 
 def record_crew_changed(ship, delta: float, *, actor=None, source=None) -> None:
