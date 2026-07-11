@@ -47,3 +47,28 @@ Notes:
 
 - Phase 2 does not yet wire the manager into the live battle loop; that is Phase 3.
 - The existing `INFERENCE_SPEC.md` had local modifications before this phase and was not changed.
+
+## Phase 3: Battle Loop Integration
+
+Status: Implemented, focused verification passed.
+
+Completed:
+
+- Extended `battle.run()` with `player1_ai` and `player2_ai` flags while preserving existing callers.
+- Created and bound `BattleAIManager` immediately after `BattleSimulation` creation.
+- Fed AI action dictionaries into `BattleSimulation.step()` on each fixed physics step.
+- Filtered accumulated player action key changes so AI-owned sides ignore human movement/action inputs while F1 pause and Escape/end-match remain handled before filtering.
+- Cleared stale key state and ship controls for AI-owned ships when AI ownership starts.
+- Rebound AI controllers and cleared AI-owned input state after `select_next_round()`.
+- Added focused unit coverage for AI input filtering and stale-control clearing.
+
+Verification:
+
+- Passed: `.venv\Scripts\python.exe -m unittest tests.test_battle_ai`
+- Passed: `.venv\Scripts\python.exe -m unittest tests.test_battle_ai tests.test_battle_entry`
+- Passed: `.venv\Scripts\python.exe -m unittest tests.test_battle_ai tests.test_match_ui`
+
+Notes:
+
+- Phase 3 does not yet pass fleet-selection AI toggles into `battle.run()`; that is part of Phase 4 ship-selection automation.
+- HUD label drawing remains Phase 5.

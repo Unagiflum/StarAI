@@ -9,6 +9,7 @@ from src.Objects.object import ThrustMarker
 from src.Battle.battle_init import initialize_battle
 from src.Battle.collisions import handle_collisions
 from src.Battle.battle_draw import DisplayStarField, draw_battle
+from src.Battle.battle_ai import BattleAIManager
 from src.Battle.battle_entry import (
     EntryState,
     entry_complete,
@@ -502,6 +503,8 @@ def run(
     player2_ships=None,
     audio_service=None,
     menu_sound_manager=None,
+    player1_ai=False,
+    player2_ai=False,
 ):
     clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
     simulation = BattleSimulation(
@@ -512,6 +515,12 @@ def run(
         player2_ships,
         audio_service=audio_service,
     )
+    ai_manager = BattleAIManager(
+        {1: player1_ai, 2: player2_ai},
+        rng=getattr(simulation, "rng", random),
+    )
+    ai_manager.bind_round(simulation)
+    reset_ai_player_inputs(simulation, ai_manager)
     star_field = DisplayStarField(resources=simulation.resources)
 
     running = True
@@ -563,7 +572,11 @@ def run(
             continue
 
         if is_paused or resume_countdown_pending:
-            for key, pressed in accumulated_key_changes:
+            for key, pressed in filter_ai_key_changes(
+                simulation,
+                accumulated_key_changes,
+                ai_manager,
+            ):
                 simulation.handle_key_change(key, pressed)
             accumulated_key_changes.clear()
             state = simulation.state()
@@ -571,7 +584,15 @@ def run(
         else:
             physics_steps, interp_t = fixed_step.advance(elapsed_seconds)
             for _ in range(physics_steps):
-                state = simulation.step(key_changes=accumulated_key_changes)
+                filtered_key_changes = filter_ai_key_changes(
+                    simulation,
+                    accumulated_key_changes,
+                    ai_manager,
+                )
+                state = simulation.step(
+                    actions=ai_manager.actions_for_frame(simulation),
+                    key_changes=filtered_key_changes,
+                )
                 accumulated_key_changes.clear()
 
                 if state["needs_selection"]:
@@ -599,6 +620,8 @@ def run(
                         menu_sound_manager=menu_sound_manager,
                     )
                     simulation.select_next_round(selected)
+                    ai_manager.bind_round(simulation)
+                    reset_ai_player_inputs(simulation, ai_manager)
                     pygame.event.clear(pygame.KEYDOWN)
                     pygame.event.clear(pygame.KEYUP)
                     fixed_step.reset()
@@ -668,6 +691,36 @@ def _sync_interpolation_snapshots(game_objects):
             obj.previous_position = obj.position.copy()
         if hasattr(obj, "heading") and hasattr(obj, "previous_heading"):
             obj.previous_heading = obj.heading
+
+
+def filter_ai_key_changes(simulation, key_changes, ai_manager):
+    """Remove player action key changes for AI-owned sides."""
+    return [
+        (key, pressed)
+        for key, pressed in key_changes or []
+        if not _is_ai_action_key(simulation, key, ai_manager)
+    ]
+
+
+def reset_ai_player_inputs(simulation, ai_manager):
+    """Clear stale human controls from ships currently owned by AI."""
+    for player in (1, 2):
+        if not ai_manager.is_ai_player(player):
+            continue
+        for control in CONTROL_NAMES:
+            key = simulation.settings[f"Player {player}: {control}"]
+            if key in simulation.key_states:
+                simulation.key_states[key] = False
+        ship = simulation.player1 if player == 1 else simulation.player2
+        reset_ship_controls(ship)
+
+
+def _is_ai_action_key(simulation, key, ai_manager):
+    binding_for_key = getattr(simulation, "_binding_for_key", None)
+    if binding_for_key is None:
+        return False
+    binding = binding_for_key(key)
+    return binding is not None and ai_manager.is_ai_player(binding[0])
 
 
 def play_battle_music():

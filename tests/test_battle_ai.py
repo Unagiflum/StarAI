@@ -4,6 +4,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from src.Battle.battle import (
+    filter_ai_key_changes,
+    reset_ai_player_inputs,
+)
 from src.Battle.battle_ai import (
     BattleAIManager,
     BattleAIModel,
@@ -190,6 +194,88 @@ class BattleAIFallbackControllerTests(unittest.TestCase):
                 "action2": True,
             },
         )
+
+
+class BattleAIInputIntegrationTests(unittest.TestCase):
+    def test_filter_removes_ai_player_action_keys_only(self):
+        simulation = SimpleNamespace(
+            settings={
+                "Player 1: Forward": 10,
+                "Player 1: Left": 11,
+                "Player 1: Right": 12,
+                "Player 1: Action 1": 13,
+                "Player 1: Action 2": 14,
+                "Player 2: Forward": 20,
+                "Player 2: Left": 21,
+                "Player 2: Right": 22,
+                "Player 2: Action 1": 23,
+                "Player 2: Action 2": 24,
+            },
+        )
+
+        def binding_for_key(key):
+            for player in (1, 2):
+                for control in ("Forward", "Left", "Right", "Action 1", "Action 2"):
+                    if key == simulation.settings[f"Player {player}: {control}"]:
+                        return player, control
+            return None
+
+        simulation._binding_for_key = binding_for_key
+        manager = BattleAIManager({1: True, 2: False})
+
+        filtered = filter_ai_key_changes(
+            simulation,
+            [(10, True), (20, True), (999, True), (13, False), (24, False)],
+            manager,
+        )
+
+        self.assertEqual(filtered, [(20, True), (999, True), (24, False)])
+
+    def test_reset_ai_player_inputs_clears_stale_ai_ship_controls(self):
+        player1 = mock.Mock()
+        player2 = mock.Mock()
+        simulation = SimpleNamespace(
+            player1=player1,
+            player2=player2,
+            settings={
+                "Player 1: Forward": 10,
+                "Player 1: Left": 11,
+                "Player 1: Right": 12,
+                "Player 1: Action 1": 13,
+                "Player 1: Action 2": 14,
+                "Player 2: Forward": 20,
+                "Player 2: Left": 21,
+                "Player 2: Right": 22,
+                "Player 2: Action 1": 23,
+                "Player 2: Action 2": 24,
+            },
+            key_states={
+                10: True,
+                11: True,
+                12: True,
+                13: True,
+                14: True,
+                20: True,
+                21: True,
+                22: True,
+                23: True,
+                24: True,
+            },
+        )
+        manager = BattleAIManager({1: True, 2: False})
+
+        reset_ai_player_inputs(simulation, manager)
+
+        self.assertEqual(
+            {key: simulation.key_states[key] for key in (10, 11, 12, 13, 14)},
+            {10: False, 11: False, 12: False, 13: False, 14: False},
+        )
+        self.assertEqual(
+            {key: simulation.key_states[key] for key in (20, 21, 22, 23, 24)},
+            {20: True, 21: True, 22: True, 23: True, 24: True},
+        )
+        player1.reset_controls.assert_called_once_with()
+        player2.reset_controls.assert_not_called()
 
 
 if __name__ == "__main__":
