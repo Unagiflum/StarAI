@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -197,6 +198,31 @@ class TrainingRoundTests(unittest.TestCase):
         self.assertIn("game_objects", views[0])
         self.assertIn("border_rect", views[0])
         self.assertEqual(views[-1]["frame_id"], 1)
+
+    def test_training_round_skips_battle_view_when_disabled(self):
+        replay = TrainingReplayBuffer(capacity=8)
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            gamma=0.0,
+            match_time_limit=1,
+        )
+        events = []
+
+        with mock.patch(
+            "src.training.orchestration._battle_view_from_simulation"
+        ) as build_view:
+            run_training_round(
+                opponent=OpponentSpec("Earthling"),
+                trainee_policy=FixedPolicy(0),
+                replay_buffer=replay,
+                config=config,
+                rng=random.Random(9),
+                progress_callback=events.append,
+                battle_view_enabled=lambda: False,
+            )
+
+        build_view.assert_not_called()
+        self.assertFalse(any("battle_view" in event for event in events))
 
     def test_training_round_aborts_when_stop_is_requested_mid_round(self):
         replay = TrainingReplayBuffer(capacity=8)

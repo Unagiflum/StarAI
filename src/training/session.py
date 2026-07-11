@@ -459,6 +459,7 @@ class TrainingSession:
                     audio_service=self.audio_service,
                     progress_callback=self._on_progress,
                     stop_requested=self._stop_requested.is_set,
+                    battle_view_enabled=self._display_on.is_set,
                 )
             except TrainingBatchAborted:
                 break

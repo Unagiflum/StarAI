@@ -492,6 +492,45 @@ class TrainingSessionTests(unittest.TestCase):
 
         self.assertEqual(len(session.log_lines), 1)
 
+    def test_session_passes_display_predicate_to_batch_runner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+
+            def batch_runner(**kwargs):
+                self.assertTrue(kwargs["battle_view_enabled"]())
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(),
+                    round_results=(_round_result(),),
+                )
+
+            session = TrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    display_on=True,
+                ),
+                batch_grouping=1,
+                batch_runner=batch_runner,
+            )
+            session.run_synchronously(max_batches=1)
+
     def test_session_resume_preserves_partial_grouping_average(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

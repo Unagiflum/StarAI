@@ -222,6 +222,7 @@ def run_training_batch(
     audio_service: Any | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
+    battle_view_enabled: Callable[[], bool] | None = None,
 ) -> TrainingBatchResult:
     """Run one complete Phase 7 batch and perform end-of-batch replay updates."""
 
@@ -260,6 +261,7 @@ def run_training_batch(
             audio_service=audio_service,
             progress_callback=progress_callback,
             stop_requested=stop_requested,
+            battle_view_enabled=battle_view_enabled,
         )
         round_results.append(result)
         _raise_if_stop_requested(stop_requested)
@@ -304,6 +306,7 @@ def run_training_round(
     audio_service: Any | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
+    battle_view_enabled: Callable[[], bool] | None = None,
 ) -> TrainingRoundResult:
     rng = rng or random.Random()
     audio = audio_service or NullAudioService()
@@ -321,12 +324,13 @@ def run_training_round(
     )
     _fully_arm_training_shofixti(simulation.player1)
     _fully_arm_training_shofixti(simulation.player2)
-    _emit_progress(
-        progress_callback,
-        event="battle_view",
-        opponent=opponent,
-        battle_view=_battle_view_from_simulation(simulation),
-    )
+    if _battle_view_enabled(battle_view_enabled):
+        _emit_progress(
+            progress_callback,
+            event="battle_view",
+            opponent=opponent,
+            battle_view=_battle_view_from_simulation(simulation),
+        )
 
     pipeline = RollingReturnPipeline(
         gamma=config.gamma,
@@ -382,18 +386,19 @@ def run_training_round(
         return_sum += sum(sample.return_value for sample in mature_samples)
         _accumulate_weighted_components(component_sums, mature_samples)
         normalized_return = _average_value(return_sum, mature_count)
-        _emit_progress(
-            progress_callback,
-            event="frame",
-            frame=state["frame_id"],
-            opponent=opponent,
-            action_index=selection.action_index,
-            exploratory=selection.exploratory,
-            replay_size=len(replay_buffer),
-            weighted_total_return=normalized_return,
-            component_totals=_average_components(component_sums, mature_count),
-            battle_view=_battle_view_from_simulation(simulation),
-        )
+        progress_payload = {
+            "event": "frame",
+            "frame": state["frame_id"],
+            "opponent": opponent,
+            "action_index": selection.action_index,
+            "exploratory": selection.exploratory,
+            "replay_size": len(replay_buffer),
+            "weighted_total_return": normalized_return,
+            "component_totals": _average_components(component_sums, mature_count),
+        }
+        if _battle_view_enabled(battle_view_enabled):
+            progress_payload["battle_view"] = _battle_view_from_simulation(simulation)
+        _emit_progress(progress_callback, **progress_payload)
         _raise_if_stop_requested(stop_requested)
         if config.display_on:
             next_display_frame_time += 1.0 / const.FPS
@@ -631,6 +636,10 @@ def _emit_progress(
 def _raise_if_stop_requested(callback: Callable[[], bool] | None) -> None:
     if callback is not None and callback():
         raise TrainingBatchAborted("training stop requested")
+
+
+def _battle_view_enabled(callback: Callable[[], bool] | None) -> bool:
+    return True if callback is None else bool(callback())
 
 
 def _battle_view_from_simulation(simulation) -> dict[str, Any]:
