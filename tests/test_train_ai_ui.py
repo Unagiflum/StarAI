@@ -21,12 +21,12 @@ from src.Menus.train_ai import (
     LEARNING_RATE_VALUES,
     MATCH_TIME_LIMIT_VALUES,
     MINIBATCH_SIZE_VALUES,
-    MOVEMENT_BEHAVIORS,
     REWARD_LABELS,
     REWARD_VALUES,
     REPLAY_UPDATES_PER_BATCH_VALUES,
     ROUNDS_PER_BATCH_VALUES,
     BATCH_GROUPING_VALUES,
+    SIMPLE_ACTIVITY_VALUES,
     RewardSlider,
     TRAINING_HUD_HEIGHT,
     TrainingBatchLogBox,
@@ -59,8 +59,10 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.slot_labels, ["", "", "", ""])
         self.assertEqual(state.rewards, {label: 0.0 for label in REWARD_LABELS})
         self.assertEqual(state.opponent_mode, "simple")
-        self.assertEqual(state.movement_behaviors, set())
-        self.assertEqual(state.turning_behavior, "none")
+        self.assertEqual(state.forward_activity, 0.0)
+        self.assertEqual(state.a1_activity, 0.0)
+        self.assertEqual(state.a2_activity, 0.0)
+        self.assertEqual(state.face_opponent_activity, 0.0)
         self.assertEqual(state.rounds_per_batch, 10)
         self.assertEqual(state.batch_grouping, 250)
         self.assertEqual(state.match_time_limit, 2400)
@@ -80,14 +82,10 @@ class TrainingUIStateTests(unittest.TestCase):
 
         self.assertFalse(state.simple_behavior_controls_enabled)
 
-    def test_behavior_choices_are_the_three_independent_checkboxes(self):
+    def test_simple_activity_values_are_five_percent_steps(self):
         self.assertEqual(
-            MOVEMENT_BEHAVIORS,
-            (
-                "Move forward continuously",
-                "Hold A1 continuously",
-                "Hold A2 continuously",
-            ),
+            SIMPLE_ACTIVITY_VALUES,
+            tuple(float(value) for value in range(0, 101, 5)),
         )
 
 
@@ -221,7 +219,10 @@ class TrainingConfigAdapterTests(unittest.TestCase):
     def test_training_config_from_state_carries_ui_values(self):
         state = TrainingUIState(selected_ship="Earthling")
         state.rewards["Kill enemy"] = 2.56
-        state.movement_behaviors = {"Move forward continuously"}
+        state.forward_activity = 25.0
+        state.a1_activity = 50.0
+        state.a2_activity = 75.0
+        state.face_opponent_activity = 100.0
         state.rounds_per_batch = 2
         state.gamma = 0.995
         state.minibatch_size = 128
@@ -233,10 +234,10 @@ class TrainingConfigAdapterTests(unittest.TestCase):
 
         self.assertEqual(config.trainee_ship, "Earthling")
         self.assertEqual(config.reward_weights["Kill enemy"], 2.56)
-        self.assertEqual(
-            config.movement_behaviors,
-            frozenset({"Move forward continuously"}),
-        )
+        self.assertEqual(config.forward_activity, 25.0)
+        self.assertEqual(config.a1_activity, 50.0)
+        self.assertEqual(config.a2_activity, 75.0)
+        self.assertEqual(config.face_opponent_activity, 100.0)
         self.assertEqual(config.rounds_per_batch, 2)
         self.assertEqual(config.gamma, 0.995)
         self.assertEqual(config.minibatch_size, 128)

@@ -53,19 +53,7 @@ REWARD_VALUES = tuple(
 
 REWARD_LABELS = REWARD_COMPONENTS
 
-MOVEMENT_BEHAVIORS = (
-    "Move forward continuously",
-    "Hold A1 continuously",
-    "Hold A2 continuously",
-)
-
-TURNING_BEHAVIORS = (
-    ("No turning", "none"),
-    ("Face trainee", "face_trainee"),
-    ("Face away from trainee", "face_away"),
-    ("Turn right continuously", "turn_right"),
-    ("Turn left continuously", "turn_left"),
-)
+SIMPLE_ACTIVITY_VALUES = tuple(float(value) for value in range(0, 101, 5))
 
 REPLAY_BUFFER_SIZE_VALUES = (1000, 2000, 5000, 10000, 20000, 50000)
 ROUNDS_PER_BATCH_VALUES = (1, 2, 5, 10, 20, 50)
@@ -126,8 +114,10 @@ class TrainingUIState:
         default_factory=lambda: {label: 0.0 for label in REWARD_LABELS}
     )
     opponent_mode: str = "simple"
-    movement_behaviors: set[str] = field(default_factory=set)
-    turning_behavior: str = "none"
+    forward_activity: float = 0.0
+    a1_activity: float = 0.0
+    a2_activity: float = 0.0
+    face_opponent_activity: float = 0.0
     rounds_per_batch: int = 10
     batch_grouping: int = 250
     match_time_limit: int = 2400
@@ -827,8 +817,10 @@ def training_config_from_state(state: TrainingUIState) -> TrainingOrchestrationC
         trainee_ship=str(state.selected_ship),
         reward_weights=dict(state.rewards),
         opponent_mode=state.opponent_mode,
-        movement_behaviors=frozenset(state.movement_behaviors),
-        turning_behavior=state.turning_behavior,
+        forward_activity=state.forward_activity,
+        a1_activity=state.a1_activity,
+        a2_activity=state.a2_activity,
+        face_opponent_activity=state.face_opponent_activity,
         rounds_per_batch=state.rounds_per_batch,
         gamma=state.gamma,
         match_time_limit=state.match_time_limit,
@@ -881,11 +873,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         maximum=32,
     )
     opponent_font = largest_fitting_font(
-        MOVEMENT_BEHAVIORS
-        + tuple(x[0] for x in TURNING_BEHAVIORS)
-        + (
+        (
             "Train against all existing AIs",
             "Train against simple behaviors",
+            "Forward Activity: 100.0",
+            "A1 Activity: 100.0",
+            "A2 Activity: 100.0",
+            "Face opponent: 100.0",
         ),
         CONTROL_WIDTH - 80,
         max_height=30,
@@ -1015,8 +1009,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     opponent_mode_buttons = []
     opponent_panels = (
         pygame.Rect(12, 12, CONTROL_WIDTH - 24, 100),
-        pygame.Rect(12, 122, CONTROL_WIDTH - 24, 140),
-        pygame.Rect(12, 272, CONTROL_WIDTH - 24, 258),
+        pygame.Rect(12, 122, CONTROL_WIDTH - 24, 222),
     )
 
     def select_opponent_mode(value):
@@ -1046,42 +1039,60 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             ),
         )
     )
-    movement_checkboxes = [
-        ui_button.Checkbox(
+    simple_activity_sliders = (
+        ui_slider.Slider(
             20,
-            128 + index * 42,
+            132,
             CONTROL_WIDTH - 40,
-            38,
-            label,
+            SIMPLE_ACTIVITY_VALUES[0],
+            SIMPLE_ACTIVITY_VALUES[-1],
+            state.forward_activity,
+            "Forward Activity",
+            step=5.0,
+            values=SIMPLE_ACTIVITY_VALUES,
+            height=44,
+        ),
+        ui_slider.Slider(
+            20,
+            182,
+            CONTROL_WIDTH - 40,
+            SIMPLE_ACTIVITY_VALUES[0],
+            SIMPLE_ACTIVITY_VALUES[-1],
+            state.a1_activity,
+            "A1 Activity",
+            step=5.0,
+            values=SIMPLE_ACTIVITY_VALUES,
+            height=44,
+        ),
+        ui_slider.Slider(
+            20,
+            232,
+            CONTROL_WIDTH - 40,
+            SIMPLE_ACTIVITY_VALUES[0],
+            SIMPLE_ACTIVITY_VALUES[-1],
+            state.a2_activity,
+            "A2 Activity",
+            step=5.0,
+            values=SIMPLE_ACTIVITY_VALUES,
+            height=44,
+        ),
+        ui_slider.Slider(
+            20,
+            282,
+            CONTROL_WIDTH - 40,
+            SIMPLE_ACTIVITY_VALUES[0],
+            SIMPLE_ACTIVITY_VALUES[-1],
+            state.face_opponent_activity,
+            "Face opponent",
+            step=5.0,
+            values=SIMPLE_ACTIVITY_VALUES,
+            height=44,
         )
-        for index, label in enumerate(MOVEMENT_BEHAVIORS)
-    ]
-
-    turning_buttons = []
-
-    def select_turning(value):
-        state.turning_behavior = value
-        for button, (_, option) in zip(turning_buttons, TURNING_BEHAVIORS):
-            button.selected = option == value
-
-    turning_start = 280
-    for index, (label, value) in enumerate(TURNING_BEHAVIORS):
-        turning_buttons.append(
-            ui_button.RadioButton(
-                20,
-                turning_start + index * 48,
-                CONTROL_WIDTH - 40,
-                42,
-                label,
-                lambda selected=value: select_turning(selected),
-                selected=value == "none",
-            )
-        )
+    )
 
     grouped_controls = (
         *opponent_mode_buttons,
-        *movement_checkboxes,
-        *turning_buttons,
+        *simple_activity_sliders,
     )
     for control in grouped_controls:
         control.bg_color = (0, 0, 0, 0)
@@ -1245,11 +1256,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.rewards.update(
             (slider.label, slider.value) for slider in reward_sliders
         )
-        state.movement_behaviors = {
-            label
-            for label, checkbox in zip(MOVEMENT_BEHAVIORS, movement_checkboxes)
-            if checkbox.value
-        }
+        state.forward_activity = simple_activity_sliders[0].value
+        state.a1_activity = simple_activity_sliders[1].value
+        state.a2_activity = simple_activity_sliders[2].value
+        state.face_opponent_activity = simple_activity_sliders[3].value
         state.replay_buffer_size = int(
             regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value
         )
@@ -1288,8 +1298,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         return {
             "opponent": {
                 "mode": state.opponent_mode,
-                "movement_behaviors": sorted(state.movement_behaviors),
-                "turning_behavior": state.turning_behavior,
+                "forward_activity": state.forward_activity,
+                "a1_activity": state.a1_activity,
+                "a2_activity": state.a2_activity,
+                "face_opponent_activity": state.face_opponent_activity,
             },
             "rewards": dict(state.rewards),
             "regimen": {
@@ -1470,12 +1482,21 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 mode = opponent.get("mode")
                 if mode in {"all", "simple"}:
                     select_opponent_mode(mode)
-                behaviors = set(opponent.get("movement_behaviors", ()))
-                for label, checkbox in zip(MOVEMENT_BEHAVIORS, movement_checkboxes):
-                    _set_checkbox_value(checkbox, label in behaviors)
-                turning = opponent.get("turning_behavior")
-                if turning in {value for _, value in TURNING_BEHAVIORS}:
-                    select_turning(turning)
+                for key, slider in (
+                    ("forward_activity", simple_activity_sliders[0]),
+                    ("a1_activity", simple_activity_sliders[1]),
+                    ("a2_activity", simple_activity_sliders[2]),
+                    ("face_opponent_activity", simple_activity_sliders[3]),
+                ):
+                    if key not in opponent:
+                        continue
+                    try:
+                        value = float(opponent[key])
+                    except (TypeError, ValueError):
+                        skipped.append(slider.label)
+                        continue
+                    if not _set_slider_value(slider, value):
+                        skipped.append(slider.label)
 
             rewards = training.get("rewards", {})
             if isinstance(rewards, dict):
@@ -1854,22 +1875,17 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 for button in opponent_mode_buttons:
                     button.handle_event(translated, menu_sound_manager)
                 enabled = state.simple_behavior_controls_enabled
-                for checkbox in movement_checkboxes:
-                    checkbox.enabled = enabled
-                    checkbox.handle_event(translated, menu_sound_manager)
-                for button in turning_buttons:
-                    button.enabled = enabled
-                    button.handle_event(translated, menu_sound_manager)
+                for slider in simple_activity_sliders:
+                    slider.enabled = enabled
+                    slider.handle_event(translated, menu_sound_manager)
             else:
                 for slider in regimen_sliders:
                     slider.handle_event(event, menu_sound_manager)
 
         sync_state_from_ui()
         controls_enabled = state.simple_behavior_controls_enabled
-        for checkbox in movement_checkboxes:
-            checkbox.enabled = controls_enabled
-        for button in turning_buttons:
-            button.enabled = controls_enabled
+        for slider in simple_activity_sliders:
+            slider.enabled = controls_enabled
 
         for btn in opponent_mode_buttons:
             btn.enabled = not state.running
@@ -2061,10 +2077,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 _draw_group_panel(content, panel, hovered, enabled)
             for button in opponent_mode_buttons:
                 button.draw(content, opponent_font, content_mouse_pos)
-            for checkbox in movement_checkboxes:
-                checkbox.draw(content, opponent_font, content_mouse_pos)
-            for button in turning_buttons:
-                button.draw(content, opponent_font, content_mouse_pos)
+            for slider in simple_activity_sliders:
+                slider.draw(content, opponent_font)
             screen.blit(content, layout.content_rect)
         else:
             panel = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)

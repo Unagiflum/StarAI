@@ -46,16 +46,6 @@ from src.training.value_network import (
 )
 
 
-MOVEMENT_FORWARD = "Move forward continuously"
-MOVEMENT_HOLD_A1 = "Hold A1 continuously"
-MOVEMENT_HOLD_A2 = "Hold A2 continuously"
-
-TURN_NONE = "none"
-TURN_FACE_TRAINEE = "face_trainee"
-TURN_FACE_AWAY = "face_away"
-TURN_RIGHT = "turn_right"
-TURN_LEFT = "turn_left"
-
 OPPONENT_MODE_SIMPLE = "simple"
 OPPONENT_MODE_EXISTING_AI = "all"
 
@@ -68,8 +58,10 @@ class TrainingOrchestrationConfig:
     trainee_ship: str
     reward_weights: Mapping[str, float] = field(default_factory=dict)
     opponent_mode: str = OPPONENT_MODE_SIMPLE
-    movement_behaviors: frozenset[str] = field(default_factory=frozenset)
-    turning_behavior: str = TURN_NONE
+    forward_activity: float = 0.0
+    a1_activity: float = 0.0
+    a2_activity: float = 0.0
+    face_opponent_activity: float = 0.0
     rounds_per_batch: int = 1
     gamma: float = 0.99
     match_time_limit: int = 2400
@@ -97,6 +89,14 @@ class TrainingOrchestrationConfig:
             raise ValueError("minibatch_size must be positive")
         if self.replay_updates_per_batch < 0:
             raise ValueError("replay_updates_per_batch cannot be negative")
+        for label, value in (
+            ("forward_activity", self.forward_activity),
+            ("a1_activity", self.a1_activity),
+            ("a2_activity", self.a2_activity),
+            ("face_opponent_activity", self.face_opponent_activity),
+        ):
+            if not 0.0 <= float(value) <= 100.0:
+                raise ValueError(f"{label} must be in [0, 100]")
 
 
 @dataclass(frozen=True)
@@ -342,6 +342,7 @@ def run_training_round(
     terminal_reason = "timeout"
     terminal_seen = False
     next_display_frame_time = time.perf_counter()
+    simple_opponent_controller = SimpleOpponentController(config, rng=rng)
 
     for _ in range(config.match_time_limit):
         _raise_if_stop_requested(stop_requested)
@@ -365,7 +366,12 @@ def run_training_round(
         event_start = len(ledger.events)
         actions = {
             1: controls_for_action_index(selection.action_index),
-            2: _opponent_controls(opponent, simulation, config),
+            2: _opponent_controls(
+                opponent,
+                simulation,
+                config,
+                simple_opponent_controller,
+            ),
         }
         state = simulation.step(actions=actions)
         terminal, terminal_reason = _round_terminal_state(
@@ -449,28 +455,77 @@ def controls_for_action_index(action_index: int) -> dict[str, bool]:
     }
 
 
-def controls_for_simple_behavior(simulation, config: TrainingOrchestrationConfig):
-    controls = {
-        "forward": MOVEMENT_FORWARD in config.movement_behaviors,
-        "action1": MOVEMENT_HOLD_A1 in config.movement_behaviors,
-        "action2": MOVEMENT_HOLD_A2 in config.movement_behaviors,
-        "left": False,
-        "right": False,
-    }
-    turning = config.turning_behavior
-    if turning == TURN_LEFT:
-        controls["left"] = True
-    elif turning == TURN_RIGHT:
-        controls["right"] = True
-    elif turning in {TURN_FACE_TRAINEE, TURN_FACE_AWAY}:
-        left, right = _turn_toward_target(
-            simulation.player2,
-            simulation.player1,
-            face_away=turning == TURN_FACE_AWAY,
+class SimpleOpponentController:
+    def __init__(self, config: TrainingOrchestrationConfig, *, rng=None):
+        self.config = config
+        self.rng = rng or random
+        self.forward_held = False
+        self.action1_held = False
+        self.action2_held = False
+        self.face_opponent_active = False
+        self.next_face_decision_frame: int | None = None
+
+    def controls_for_frame(self, simulation):
+        self.forward_held = self._next_key_state(
+            self.forward_held,
+            self.config.forward_activity,
         )
-        controls["left"] = left
-        controls["right"] = right
-    return controls
+        self.action1_held = self._next_key_state(
+            self.action1_held,
+            self.config.a1_activity,
+        )
+        self.action2_held = self._next_key_state(
+            self.action2_held,
+            self.config.a2_activity,
+        )
+
+        left = right = False
+        if self._should_face_opponent(getattr(simulation, "frame_id", 0)):
+            left, right = _turn_toward_target(
+                simulation.player2,
+                simulation.player1,
+            )
+        return {
+            "forward": self.forward_held,
+            "action1": self.action1_held,
+            "action2": self.action2_held,
+            "left": left,
+            "right": right,
+        }
+
+    def _next_key_state(self, held: bool, activity: float) -> bool:
+        probability = _activity_probability(activity)
+        if probability <= 0.0:
+            return False
+        if probability >= 1.0 or self.rng.random() < probability:
+            return not held
+        return held
+
+    def _should_face_opponent(self, frame_id: int) -> bool:
+        probability = _activity_probability(self.config.face_opponent_activity)
+        if probability <= 0.0:
+            self.face_opponent_active = False
+            return False
+        if probability >= 1.0:
+            self.face_opponent_active = True
+            return True
+        frame_id = int(frame_id)
+        if (
+            self.next_face_decision_frame is None
+            or frame_id >= self.next_face_decision_frame
+        ):
+            self.face_opponent_active = self.rng.random() < probability
+            self.next_face_decision_frame = frame_id + max(1, int(const.FPS))
+        return self.face_opponent_active
+
+
+def controls_for_simple_behavior(
+    simulation,
+    config: TrainingOrchestrationConfig,
+    *,
+    rng=None,
+):
+    return SimpleOpponentController(config, rng=rng).controls_for_frame(simulation)
 
 
 def build_training_components(config: TrainingOrchestrationConfig):
@@ -500,9 +555,10 @@ def _opponent_controls(
     opponent: OpponentSpec,
     simulation,
     config: TrainingOrchestrationConfig,
+    simple_controller: SimpleOpponentController,
 ) -> dict[str, bool]:
     if opponent.model is None:
-        return controls_for_simple_behavior(simulation, config)
+        return simple_controller.controls_for_frame(simulation)
     observation = encode_observation(
         simulation.player2,
         simulation.player1,
@@ -517,16 +573,18 @@ def _opponent_controls(
     return controls_for_action_index(selection.action_index)
 
 
-def _turn_toward_target(ship, target, *, face_away: bool) -> tuple[bool, bool]:
+def _turn_toward_target(ship, target) -> tuple[bool, bool]:
     dx, dy = wrapped_delta(ship.position, target.position)
     target_angle = math.degrees(math.atan2(dx, -dy)) % 360.0
-    if face_away:
-        target_angle = (target_angle + 180.0) % 360.0
     rotation = float(getattr(ship, "rotation", 0.0)) % 360.0
     diff = (target_angle - rotation + 540.0) % 360.0 - 180.0
     if abs(diff) <= max(1.0, const.TURN_ANGLE / 2.0):
         return False, False
     return diff < 0.0, diff > 0.0
+
+
+def _activity_probability(activity: float) -> float:
+    return max(0.0, min(1.0, float(activity) / 100.0))
 
 
 def _round_terminal_state(simulation, *, elapsed_frames: int, frame_limit: int):

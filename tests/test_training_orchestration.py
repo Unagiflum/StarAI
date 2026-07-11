@@ -15,6 +15,7 @@ import pygame
 pygame.init()
 pygame.display.set_mode((1, 1))
 
+import src.const as const
 from src.Objects.Ships.registry import create_ship
 from src.training import torch_backend
 from src.training.contracts import SHIP_TYPE_CATALOG_ORDER
@@ -24,9 +25,9 @@ from src.training.model_registry import (
     model_architecture_metadata,
 )
 from src.training.orchestration import (
-    MOVEMENT_FORWARD,
     OPPONENT_MODE_EXISTING_AI,
     OpponentSpec,
+    SimpleOpponentController,
     TrainingBatchAborted,
     TrainingOrchestrationConfig,
     _fully_arm_training_shofixti,
@@ -51,6 +52,16 @@ class FixedPolicy:
 
     def select_action(self, observation):
         return ActionSelection(self.action_index, exploratory=False)
+
+
+class SequenceRng:
+    def __init__(self, values):
+        self.values = list(values)
+
+    def random(self):
+        if not self.values:
+            return 1.0
+        return self.values.pop(0)
 
 
 class TrainingScheduleTests(unittest.TestCase):
@@ -88,7 +99,7 @@ class TrainingRoundTests(unittest.TestCase):
         config = TrainingOrchestrationConfig(
             trainee_ship="Earthling",
             match_time_limit=3,
-            movement_behaviors=frozenset({MOVEMENT_FORWARD}),
+            forward_activity=100.0,
         )
 
         result = run_training_round(
@@ -103,6 +114,54 @@ class TrainingRoundTests(unittest.TestCase):
         self.assertEqual(result.frames, 3)
         self.assertEqual(len(replay), 3)
         self.assertTrue(all(sample.return_value == 0.0 for sample in replay))
+
+    def test_simple_opponent_activity_toggles_keys_per_frame(self):
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            forward_activity=100.0,
+            a1_activity=50.0,
+            a2_activity=0.0,
+        )
+        controller = SimpleOpponentController(config, rng=SequenceRng([0.0, 1.0]))
+        simulation = SimpleNamespace(
+            frame_id=0,
+            player1=SimpleNamespace(position=(4000, 3900), rotation=0.0),
+            player2=SimpleNamespace(position=(4000, 4000), rotation=0.0),
+        )
+
+        first = controller.controls_for_frame(simulation)
+        simulation.frame_id = 1
+        second = controller.controls_for_frame(simulation)
+
+        self.assertTrue(first["forward"])
+        self.assertFalse(second["forward"])
+        self.assertTrue(first["action1"])
+        self.assertTrue(second["action1"])
+        self.assertFalse(first["action2"])
+        self.assertFalse(second["action2"])
+
+    def test_simple_opponent_face_activity_resamples_every_fps_frames(self):
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            face_opponent_activity=50.0,
+        )
+        controller = SimpleOpponentController(config, rng=SequenceRng([0.0, 1.0]))
+        simulation = SimpleNamespace(
+            frame_id=0,
+            player1=SimpleNamespace(position=(4100, 4000), rotation=0.0),
+            player2=SimpleNamespace(position=(4000, 4000), rotation=0.0),
+        )
+
+        first = controller.controls_for_frame(simulation)
+        simulation.frame_id = const.FPS - 1
+        before_resample = controller.controls_for_frame(simulation)
+        simulation.frame_id = const.FPS
+        after_resample = controller.controls_for_frame(simulation)
+
+        self.assertTrue(first["right"])
+        self.assertTrue(before_resample["right"])
+        self.assertFalse(after_resample["left"])
+        self.assertFalse(after_resample["right"])
 
     def test_shofixti_is_fully_armed_for_training(self):
         ship = create_ship("Shofixti", 1)
