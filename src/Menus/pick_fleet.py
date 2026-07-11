@@ -430,6 +430,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     screen=screen,
                     menu_sound_manager=menu_sound_manager,
                     audio_service=audio_service,
+                    player1_ai=ai_toggles[1].value,
+                    player2_ai=ai_toggles[2].value,
                 )
             finally:
                 clock.reset()

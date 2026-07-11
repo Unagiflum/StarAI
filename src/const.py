@@ -73,6 +73,7 @@ INPUT_REPEAT_DELAY_FRAMES = 3
 # for which each number is displayed.
 COUNT_DOWN_STEPS = 3
 COUNT_DOWN_TIME = 0.5
+AI_SHIP_SELECTION_DELAY_SECONDS = 0.5
 
 # Aftermath timing is simulation-owned rather than derived from audio playback.
 # shipdies.wav is about 50 frames and the eight-frame explosion animation lasts

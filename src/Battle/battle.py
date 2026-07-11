@@ -618,6 +618,8 @@ def run(
                         choose_second_player=simulation.aftermath.choose_second_player,
                         audio_service=simulation.audio,
                         menu_sound_manager=menu_sound_manager,
+                        player1_ai=player1_ai,
+                        player2_ai=player2_ai,
                     )
                     simulation.select_next_round(selected)
                     ai_manager.bind_round(simulation)

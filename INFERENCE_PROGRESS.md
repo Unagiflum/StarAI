@@ -70,5 +70,31 @@ Verification:
 
 Notes:
 
-- Phase 3 does not yet pass fleet-selection AI toggles into `battle.run()`; that is part of Phase 4 ship-selection automation.
+- Fleet-selection AI toggle handoff is now covered by Phase 4.
+- HUD label drawing remains Phase 5.
+
+## Phase 4: Ship Selection Automation
+
+Status: Implemented, focused verification passed.
+
+Completed:
+
+- Extended `pick_ship.run()` with `player1_ai` and `player2_ai` flags.
+- Passed saved fleet AI toggle values from `pick_fleet.run()` into `pick_ship.run()`.
+- Passed AI ownership flags from `pick_ship.run()` into `battle.run()`.
+- Preserved AI ownership flags when `battle.run()` reopens ship selection after a round ends.
+- Added `const.AI_SHIP_SELECTION_DELAY_SECONDS` for the 0.5 second AI selection/continue delay.
+- Added `ShipSelectionAutomation` to drive non-blocking wall-clock AI random selection and both-AI auto-Continue.
+- AI automation uses existing `ShipSelectionState` alive-ship, survivor-lock, random-lock, and forced-order rules.
+- Added focused unit coverage for delayed AI random selection, alive-only selection, both-AI auto-Continue, one-human/no-auto-Continue, and forced-order timing.
+
+Verification:
+
+- Passed: `.venv\Scripts\python.exe -m unittest tests.test_fleet_picker`
+- Passed: `.venv\Scripts\python.exe -m unittest tests.test_battle_ai tests.test_match_ui`
+- Passed: `.venv\Scripts\python.exe -m unittest tests.test_menu_state tests.test_fleet_picker tests.test_battle_ai tests.test_match_ui tests.test_configuration_registry`
+
+Notes:
+
+- The automation does not block the event loop and Escape/end-match handling remains in the normal event path.
 - HUD label drawing remains Phase 5.

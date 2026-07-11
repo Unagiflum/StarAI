@@ -24,6 +24,7 @@ from src.Menus.pick_fleet import (
     fleet_control_rects,
 )
 from src.Menus.pick_ship import (
+    ShipSelectionAutomation,
     fleet_slot_indices_for_ships,
     fleet_slots_for_ships,
     selection_prompt,
@@ -127,6 +128,102 @@ class SelectionPromptTests(unittest.TestCase):
             selection_prompt(state),
             ("Player 2 Survives - Player 1: Select Ship", "SELECT SHIP"),
         )
+
+
+class ChoiceRng:
+    def __init__(self, choices):
+        self.choices = list(choices)
+
+    def choice(self, values):
+        choice = self.choices.pop(0)
+        self.last_values = tuple(values)
+        return choice
+
+
+class ShipSelectionAutomationTests(unittest.TestCase):
+    def state(self, player1, player2, **kwargs):
+        return ShipSelectionState(
+            {1: player1, 2: player2},
+            {
+                1: [ship.name for ship in player1],
+                2: [ship.name for ship in player2],
+            },
+            **kwargs,
+        )
+
+    def ship(self, name, alive=True):
+        return SimpleNamespace(
+            name=name,
+            currently_alive=alive,
+            current_hp=10 if alive else 0,
+        )
+
+    def test_ai_random_selects_alive_ship_after_delay(self):
+        dead = self.ship("Dead", alive=False)
+        alive = self.ship("Alive")
+        state = self.state([dead, alive], [self.ship("Opponent")])
+        rng = ChoiceRng([1])
+        automation = ShipSelectionAutomation(
+            {1: True, 2: False},
+            rng=rng,
+            delay_seconds=0.5,
+        )
+
+        self.assertFalse(automation.update(state, 0.49))
+        self.assertIsNone(state.selection(1))
+
+        self.assertFalse(automation.update(state, 0.01))
+
+        self.assertEqual(rng.last_values, (1,))
+        self.assertEqual(state.selection(1).ship, alive)
+        self.assertEqual(state.random_locked_players, frozenset({1}))
+
+    def test_both_ai_auto_continue_waits_until_ready_then_delay(self):
+        state = self.state([self.ship("P1")], [self.ship("P2")])
+        automation = ShipSelectionAutomation(
+            {1: True, 2: True},
+            rng=ChoiceRng([0, 0]),
+            delay_seconds=0.5,
+        )
+
+        self.assertFalse(automation.update(state, 0.5))
+        self.assertTrue(state.confirmation_ready)
+        self.assertFalse(automation.update(state, 0.49))
+        self.assertTrue(automation.update(state, 0.01))
+
+    def test_one_human_match_does_not_auto_continue(self):
+        state = self.state([self.ship("P1")], [self.ship("P2")])
+        state.select_random_index(1, 0)
+        state.select_index(2, 0)
+        automation = ShipSelectionAutomation(
+            {1: True, 2: False},
+            rng=ChoiceRng([]),
+            delay_seconds=0.5,
+        )
+
+        self.assertFalse(automation.update(state, 2.0))
+
+    def test_forced_order_starts_ai_timer_only_for_active_player(self):
+        state = self.state(
+            [self.ship("P1")],
+            [self.ship("P2")],
+            choose_second_player=1,
+        )
+        automation = ShipSelectionAutomation(
+            {1: True, 2: True},
+            rng=ChoiceRng([0, 0]),
+            delay_seconds=0.5,
+        )
+
+        self.assertFalse(automation.update(state, 0.5))
+        self.assertIsNone(state.selection(1))
+        self.assertIsNotNone(state.selection(2))
+        self.assertTrue(state.selection_allowed(1))
+
+        self.assertFalse(automation.update(state, 0.49))
+        self.assertIsNone(state.selection(1))
+        self.assertFalse(automation.update(state, 0.01))
+        self.assertIsNotNone(state.selection(1))
 
 
 class FleetSlotTests(unittest.TestCase):

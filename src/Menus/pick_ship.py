@@ -187,6 +187,87 @@ def selection_prompt(selection_state):
     return "Players: Select Your Ships", None
 
 
+class ShipSelectionAutomation:
+    """Non-blocking AI selection timers for the ship-pick menu."""
+
+    def __init__(self, ai_enabled, *, rng=None, delay_seconds=None):
+        self.ai_enabled = {player: bool(ai_enabled.get(player)) for player in (1, 2)}
+        self.rng = rng or random
+        self.delay_seconds = (
+            Const.AI_SHIP_SELECTION_DELAY_SECONDS
+            if delay_seconds is None
+            else delay_seconds
+        )
+        self._selection_elapsed = {1: 0.0, 2: 0.0}
+        self._continue_elapsed = 0.0
+        self._fingerprint = None
+
+    def update(self, selection_state, elapsed_seconds):
+        """Advance timers and return True when Continue should be activated."""
+        elapsed_seconds = max(0.0, elapsed_seconds)
+        fingerprint = self._state_fingerprint(selection_state)
+        if fingerprint != self._fingerprint:
+            self._selection_elapsed = {1: 0.0, 2: 0.0}
+            self._continue_elapsed = 0.0
+            self._fingerprint = fingerprint
+
+        changed = False
+        for player in (1, 2):
+            if not self.ai_enabled[player] or not selection_state.selection_allowed(player):
+                self._selection_elapsed[player] = 0.0
+                continue
+
+            alive_indices = selection_state.alive_indices(player)
+            if not alive_indices:
+                self._selection_elapsed[player] = 0.0
+                continue
+
+            self._selection_elapsed[player] += elapsed_seconds
+            if self._selection_elapsed[player] >= self.delay_seconds:
+                changed = bool(
+                    selection_state.select_random_index(
+                        player,
+                        self.rng.choice(alive_indices),
+                    )
+                ) or changed
+                self._selection_elapsed[player] = 0.0
+
+        if changed:
+            self._fingerprint = self._state_fingerprint(selection_state)
+            self._continue_elapsed = 0.0
+            return False
+
+        if (
+            self.ai_enabled[1]
+            and self.ai_enabled[2]
+            and selection_state.confirmation_ready
+        ):
+            self._continue_elapsed += elapsed_seconds
+            return self._continue_elapsed >= self.delay_seconds
+
+        self._continue_elapsed = 0.0
+        return False
+
+    @staticmethod
+    def _state_fingerprint(selection_state):
+        return (
+            selection_state.active_player,
+            selection_state.first_locked,
+            tuple(
+                None if selection_state.selection(player) is None
+                else selection_state.selection(player).index
+                for player in (1, 2)
+            ),
+            tuple(
+                selection_state.selection_allowed(player)
+                for player in (1, 2)
+            ),
+            selection_state.random_locked_players,
+            selection_state.survivor_locked_players,
+            selection_state.confirmation_ready,
+        )
+
+
 def load_ships_data(ships_data):
     return ships_data, load_menu_ship_sprites(ships_data)
 
@@ -201,6 +282,8 @@ def run(
     choose_second_player=None,
     audio_service=None,
     menu_sound_manager=None,
+    player1_ai=None,
+    player2_ai=None,
 ):
     clock = PresentationClock(Const.FPS, Const.VIDEO_FPS_MULTIPLIER)
     font = pygame.font.SysFont(None, int(Const.SCREEN_HEIGHT * 0.03))
@@ -212,11 +295,17 @@ def run(
 
     if player1_ships is None or player2_ships is None:
         fleet_data, player1_ships, player2_ships = load_fleet_data(audio_service)
+        if player1_ai is None:
+            player1_ai = bool(fleet_data.get("Player1", {}).get("ai", False))
+        if player2_ai is None:
+            player2_ai = bool(fleet_data.get("Player2", {}).get("ai", False))
     else:
         fleet_data = {
             "Player1": {"ships": list(fleet_slots_for_ships(player1_ships))},
             "Player2": {"ships": list(fleet_slots_for_ships(player2_ships))},
         }
+        player1_ai = bool(player1_ai)
+        player2_ai = bool(player2_ai)
     ships_data, original_sprites = load_ships_data(SHIP_DEFINITIONS)
     if not fleet_data or not ships_data or not original_sprites:
         return
@@ -270,6 +359,10 @@ def run(
         fleet_names,
         preselected={1: preselect_player1, 2: preselect_player2},
         choose_second_player=choose_second_player,
+    )
+    automation = ShipSelectionAutomation(
+        {1: player1_ai, 2: player2_ai},
+        rng=random,
     )
 
     def draw_panel_badge(panel, text, color):
@@ -345,6 +438,8 @@ def run(
                     player2_ships,
                     audio_service=audio_service,
                     menu_sound_manager=menu_sound_manager,
+                    player1_ai=player1_ai,
+                    player2_ai=player2_ai,
                 )
                 return None, None
 
@@ -374,13 +469,18 @@ def run(
 
     running = True
 
+    def activate_continue():
+        if start_battle:
+            show_battle_countdown(screen)
+        return confirm_callback()
+
     def request_end_match():
         nonlocal running
         if confirm_end_match(screen, menu_sound_manager):
             running = False
 
     while running:
-        clock.tick()
+        elapsed_seconds = clock.tick()
 
         for player, button in random_buttons.items():
             button.enabled = selection_state.selection_allowed(player)
@@ -439,12 +539,13 @@ def run(
                 ):
                     if menu_sound_manager:
                         menu_sound_manager.play_sound("menu")
-                    if start_battle:
-                        show_battle_countdown(screen)
-                    return confirm_callback()
+                    return activate_continue()
 
         if not running:
             break
+
+        if automation.update(selection_state, elapsed_seconds):
+            return activate_continue()
 
         if selection_state.confirmation_ready:
             confirm_button.bg_color = ui.OK_GREEN
