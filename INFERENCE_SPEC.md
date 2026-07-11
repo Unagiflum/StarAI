@@ -94,7 +94,7 @@ Requirements:
 
 When a side is AI-controlled:
 
-- If that side needs to select a ship, wait 0.5 seconds, then randomly select
+- If that side needs to select a ship, wait 0.5 seconds (this timing should be settable in const.py), then randomly select
   one alive ship from that side's available fleet.
 - AI random selection must use the same alive-ship rules as manual and existing
   random selection.
