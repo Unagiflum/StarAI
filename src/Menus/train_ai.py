@@ -67,10 +67,10 @@ EPSILON_VALUES = (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5)
 GAMMA_VALUES = (0.9, 0.95, 0.98, 0.99, 0.995, 0.999)
 HIDDEN_LAYER_SIZE_VALUES = (32, 64, 128, 256, 512, 1024, 2048)
 HIDDEN_LAYER_COUNT_VALUES = (1, 2, 4, 8, 16)
-REGIMEN_REPLAY_BUFFER_INDEX = 0
+REGIMEN_MATCH_TIME_LIMIT_INDEX = 0
 REGIMEN_ROUNDS_PER_BATCH_INDEX = 1
 REGIMEN_BATCH_GROUPING_INDEX = 2
-REGIMEN_MATCH_TIME_LIMIT_INDEX = 3
+REGIMEN_REPLAY_BUFFER_INDEX = 3
 REGIMEN_MINIBATCH_SIZE_INDEX = 4
 REGIMEN_REPLAY_UPDATES_INDEX = 5
 REGIMEN_LEARNING_RATE_INDEX = 6
@@ -906,12 +906,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     regimen_font = largest_fitting_font(
         (
-            "Replay Buffer Size: 50000",
+            "Match frame limit: 12000",
             "Rounds per batch: 50",
             "Batch grouping: 1000",
-            "Match Time Limit (frames): 12000",
+            "Replay buffer size (batch = 30000): 50000",
             "Minibatch size: 256",
-            "Updates per minibatch: 2000",
+            "Updates per minibatch (UTD = 0.43): 2000",
             "Learning rate: 0.0100",
             "Epsilon: 0.5000",
             "Gamma: 0.999",
@@ -1096,12 +1096,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_left,
             regimen_top,
             regimen_width,
-            REPLAY_BUFFER_SIZE_VALUES[0],
-            REPLAY_BUFFER_SIZE_VALUES[-1],
-            state.replay_buffer_size,
-            "Replay Buffer Size",
+            MATCH_TIME_LIMIT_VALUES[0],
+            MATCH_TIME_LIMIT_VALUES[-1],
+            state.match_time_limit,
+            "Match frame limit",
             is_int=True,
-            values=REPLAY_BUFFER_SIZE_VALUES,
+            values=MATCH_TIME_LIMIT_VALUES,
             height=regimen_height,
         ),
         ui_slider.Slider(
@@ -1132,12 +1132,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_left,
             regimen_top + 3 * regimen_spacing,
             regimen_width,
-            MATCH_TIME_LIMIT_VALUES[0],
-            MATCH_TIME_LIMIT_VALUES[-1],
-            state.match_time_limit,
-            "Match Time Limit (frames)",
+            REPLAY_BUFFER_SIZE_VALUES[0],
+            REPLAY_BUFFER_SIZE_VALUES[-1],
+            state.replay_buffer_size,
+            "Replay buffer size",
             is_int=True,
-            values=MATCH_TIME_LIMIT_VALUES,
+            values=REPLAY_BUFFER_SIZE_VALUES,
             height=regimen_height,
         ),
         ui_slider.Slider(
@@ -1898,7 +1898,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider.enabled = not state.running
             
         max_batch_frames = state.rounds_per_batch * state.match_time_limit * len(SHIP_DEFINITIONS)
-        regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].label = f"Replay Buffer Size (Batch <= {max_batch_frames})"
+        regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].label = f"Replay buffer size (batch = {max_batch_frames})"
+        if max_batch_frames > 0:
+            utd = (state.minibatch_size * state.replay_updates_per_batch) / max_batch_frames
+            regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].label = f"Updates per minibatch (UTD = {utd:.2f})"
+        else:
+            regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].label = "Updates per minibatch"
 
         active_session = training_session[0]
         session_status = active_session.status if active_session is not None else None
