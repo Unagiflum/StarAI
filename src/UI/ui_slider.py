@@ -136,9 +136,10 @@ class Slider:
     def draw(self, surface, font):
         # Create background surface with alpha
         bg_surface = pygame.Surface(self.bg_rect.size, pygame.SRCALPHA)
-        bg_color = self.hover_color if self.is_hovered and self.enabled else self.bg_color
         if not self.enabled:
-            bg_color = (self.bg_color[0], self.bg_color[1], self.bg_color[2], 100)
+            bg_color = (*ui.DARK_GREY, 255)
+        else:
+            bg_color = self.hover_color if self.is_hovered else self.bg_color
         pygame.draw.rect(bg_surface, bg_color, bg_surface.get_rect(), border_radius=5)
         surface.blit(bg_surface, self.bg_rect.topleft)
 

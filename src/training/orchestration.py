@@ -58,6 +58,7 @@ class TrainingOrchestrationConfig:
     trainee_ship: str
     reward_weights: Mapping[str, float] = field(default_factory=dict)
     opponent_mode: str = OPPONENT_MODE_SIMPLE
+    ai_opponent_chance: float = 100.0
     forward_activity: float = 0.0
     a1_activity: float = 0.0
     a2_activity: float = 0.0
@@ -77,6 +78,8 @@ class TrainingOrchestrationConfig:
     def __post_init__(self) -> None:
         if self.opponent_mode not in {OPPONENT_MODE_SIMPLE, OPPONENT_MODE_EXISTING_AI}:
             raise ValueError("unsupported opponent mode")
+        if not 0.0 <= float(self.ai_opponent_chance) <= 100.0:
+            raise ValueError("ai_opponent_chance must be in [0, 100]")
         if self.rounds_per_batch <= 0:
             raise ValueError("rounds_per_batch must be positive")
         if not 0.0 <= float(self.gamma) < 1.0:
@@ -182,15 +185,17 @@ def existing_ai_opponent_schedule(
     rounds_per_batch: int,
     discovered_opponents: Sequence[OpponentSpec],
     *,
+    ai_opponent_chance: float = 100.0,
     rng: Any | None = None,
 ) -> tuple[OpponentSpec, ...]:
     """Return one batch schedule with one selected controller per ship type."""
 
     if int(rounds_per_batch) <= 0:
         raise ValueError("rounds_per_batch must be positive")
+    ai_probability = _activity_probability(ai_opponent_chance)
     rng = rng or random
     by_ship: dict[str, list[OpponentSpec]] = {
-        ship_name: [OpponentSpec(ship=ship_name, mode=OPPONENT_MODE_SIMPLE)]
+        ship_name: []
         for ship_name in SHIP_TYPE_CATALOG_ORDER
     }
     for opponent in discovered_opponents:
@@ -199,8 +204,13 @@ def existing_ai_opponent_schedule(
         by_ship[opponent.ship].append(opponent)
 
     selected_by_ship = {
-        ship_name: _choose_from_sequence(options, rng=rng)
-        for ship_name, options in by_ship.items()
+        ship_name: _choose_opponent_controller(
+            ship_name,
+            trained_options,
+            ai_probability=ai_probability,
+            rng=rng,
+        )
+        for ship_name, trained_options in by_ship.items()
     }
     opponents: list[OpponentSpec] = []
     for _ in range(int(rounds_per_batch)):
@@ -268,6 +278,7 @@ def run_training_batch(
         opponents = existing_ai_opponent_schedule(
             config.rounds_per_batch,
             discovered.opponents,
+            ai_opponent_chance=config.ai_opponent_chance,
             rng=rng,
         )
 
@@ -627,6 +638,21 @@ def _choose_from_sequence(values: Sequence[Any], *, rng: Any) -> Any:
         return chooser(values)
     index = int(float(rng.random()) * len(values))
     return values[min(index, len(values) - 1)]
+
+
+def _choose_opponent_controller(
+    ship_name: str,
+    trained_options: Sequence[OpponentSpec],
+    *,
+    ai_probability: float,
+    rng: Any,
+) -> OpponentSpec:
+    simple = OpponentSpec(ship=ship_name, mode=OPPONENT_MODE_SIMPLE)
+    if not trained_options or ai_probability <= 0.0:
+        return simple
+    if ai_probability < 1.0 and float(rng.random()) >= ai_probability:
+        return simple
+    return _choose_from_sequence(trained_options, rng=rng)
 
 
 def _round_terminal_state(simulation, *, elapsed_frames: int, frame_limit: int):

@@ -54,6 +54,7 @@ REWARD_VALUES = tuple(
 REWARD_LABELS = REWARD_COMPONENTS
 
 SIMPLE_ACTIVITY_VALUES = tuple(float(value) for value in range(0, 101, 5))
+AI_OPPONENT_PERCENT_VALUES = SIMPLE_ACTIVITY_VALUES
 
 REPLAY_BUFFER_SIZE_VALUES = (1000, 2000, 5000, 10000, 20000, 50000)
 ROUNDS_PER_BATCH_VALUES = (1, 2, 5, 10, 20, 50)
@@ -114,6 +115,7 @@ class TrainingUIState:
         default_factory=lambda: {label: 0.0 for label in REWARD_LABELS}
     )
     opponent_mode: str = "simple"
+    ai_opponent_chance: float = 0.0
     forward_activity: float = 0.0
     a1_activity: float = 0.0
     a2_activity: float = 0.0
@@ -335,7 +337,10 @@ class RewardSlider:
             mouse_pos = pygame.mouse.get_pos()
         hovered = self.rect.collidepoint(mouse_pos)
         row = pygame.Surface(self.rect.size, pygame.SRCALPHA)
-        row.fill(ui.SLIDER_BG_HI if hovered and self.enabled else ui.SLIDER_BG)
+        if not self.enabled:
+            row.fill((*ui.DARK_GREY, 255))
+        else:
+            row.fill(ui.SLIDER_BG_HI if hovered else ui.SLIDER_BG)
         surface.blit(row, self.rect)
 
         label_color = ui.WHITE if self.enabled else ui.GREY
@@ -817,6 +822,7 @@ def training_config_from_state(state: TrainingUIState) -> TrainingOrchestrationC
         trainee_ship=str(state.selected_ship),
         reward_weights=dict(state.rewards),
         opponent_mode=state.opponent_mode,
+        ai_opponent_chance=state.ai_opponent_chance,
         forward_activity=state.forward_activity,
         a1_activity=state.a1_activity,
         a2_activity=state.a2_activity,
@@ -874,8 +880,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     opponent_font = largest_fitting_font(
         (
-            "Include AI opponents",
-            "Simple opponents only",
+            "Simple vs. AI: 100",
             "Forward Activity: 100.0",
             "A1 Activity: 100.0",
             "A2 Activity: 100.0",
@@ -1005,44 +1010,27 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     ]
     rewards_content_height = reward_sliders[-1].rect.bottom + 8
     rewards_scroll_y = 0
-    selected_opponent_mode = [state.opponent_mode]
-    opponent_mode_buttons = []
     opponent_panels = (
-        pygame.Rect(12, 12, CONTROL_WIDTH - 24, 100),
-        pygame.Rect(12, 122, CONTROL_WIDTH - 24, 222),
+        pygame.Rect(12, 12, CONTROL_WIDTH - 24, 70),
+        pygame.Rect(12, 92, CONTROL_WIDTH - 24, 222),
     )
-
-    def select_opponent_mode(value):
-        state.opponent_mode = value
-        selected_opponent_mode[0] = value
-        for button, option in zip(opponent_mode_buttons, ("all", "simple")):
-            button.selected = option == value
-
-    opponent_mode_buttons.extend(
-        (
-            ui_button.RadioButton(
-                20,
-                18,
-                CONTROL_WIDTH - 40,
-                40,
-                "Include AI opponents",
-                lambda: select_opponent_mode("all"),
-            ),
-            ui_button.RadioButton(
-                20,
-                64,
-                CONTROL_WIDTH - 40,
-                40,
-                "Simple opponents only",
-                lambda: select_opponent_mode("simple"),
-                selected=True,
-            ),
-        )
+    ai_opponent_slider = ui_slider.Slider(
+        20,
+        22,
+        CONTROL_WIDTH - 40,
+        AI_OPPONENT_PERCENT_VALUES[0],
+        AI_OPPONENT_PERCENT_VALUES[-1],
+        state.ai_opponent_chance,
+        "Simple vs. AI",
+        is_int=True,
+        step=5.0,
+        values=AI_OPPONENT_PERCENT_VALUES,
+        height=44,
     )
     simple_activity_sliders = (
         ui_slider.Slider(
             20,
-            132,
+            102,
             CONTROL_WIDTH - 40,
             SIMPLE_ACTIVITY_VALUES[0],
             SIMPLE_ACTIVITY_VALUES[-1],
@@ -1054,7 +1042,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
         ui_slider.Slider(
             20,
-            182,
+            152,
             CONTROL_WIDTH - 40,
             SIMPLE_ACTIVITY_VALUES[0],
             SIMPLE_ACTIVITY_VALUES[-1],
@@ -1066,7 +1054,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
         ui_slider.Slider(
             20,
-            232,
+            202,
             CONTROL_WIDTH - 40,
             SIMPLE_ACTIVITY_VALUES[0],
             SIMPLE_ACTIVITY_VALUES[-1],
@@ -1078,7 +1066,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
         ui_slider.Slider(
             20,
-            282,
+            252,
             CONTROL_WIDTH - 40,
             SIMPLE_ACTIVITY_VALUES[0],
             SIMPLE_ACTIVITY_VALUES[-1],
@@ -1091,7 +1079,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
 
     grouped_controls = (
-        *opponent_mode_buttons,
+        ai_opponent_slider,
         *simple_activity_sliders,
     )
     for control in grouped_controls:
@@ -1256,6 +1244,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.rewards.update(
             (slider.label, slider.value) for slider in reward_sliders
         )
+        state.ai_opponent_chance = ai_opponent_slider.value
+        state.opponent_mode = "all" if state.ai_opponent_chance > 0 else "simple"
         state.forward_activity = simple_activity_sliders[0].value
         state.a1_activity = simple_activity_sliders[1].value
         state.a2_activity = simple_activity_sliders[2].value
@@ -1298,6 +1288,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         return {
             "opponent": {
                 "mode": state.opponent_mode,
+                "ai_opponent_chance": state.ai_opponent_chance,
                 "forward_activity": state.forward_activity,
                 "a1_activity": state.a1_activity,
                 "a2_activity": state.a2_activity,
@@ -1479,9 +1470,21 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if isinstance(training, dict):
             opponent = training.get("opponent", {})
             if isinstance(opponent, dict):
-                mode = opponent.get("mode")
-                if mode in {"all", "simple"}:
-                    select_opponent_mode(mode)
+                if "ai_opponent_chance" in opponent:
+                    try:
+                        value = float(opponent["ai_opponent_chance"])
+                    except (TypeError, ValueError):
+                        skipped.append(ai_opponent_slider.label)
+                    else:
+                        if not _set_slider_value(ai_opponent_slider, value):
+                            skipped.append(ai_opponent_slider.label)
+                else:
+                    mode = opponent.get("mode")
+                    if mode in {"all", "simple"}:
+                        _set_slider_value(
+                            ai_opponent_slider,
+                            100.0 if mode == "all" else 0.0,
+                        )
                 for key, slider in (
                     ("forward_activity", simple_activity_sliders[0]),
                     ("a1_activity", simple_activity_sliders[1]),
@@ -1872,8 +1875,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     slider.handle_event(translated, menu_sound_manager)
             elif state.active_tab == "opponent":
                 translated = _translated_event(event, layout.content_rect, 0)
-                for button in opponent_mode_buttons:
-                    button.handle_event(translated, menu_sound_manager)
+                enabled = not state.running
+                ai_opponent_slider.enabled = enabled
+                ai_opponent_slider.handle_event(translated, menu_sound_manager)
                 enabled = state.simple_behavior_controls_enabled
                 for slider in simple_activity_sliders:
                     slider.enabled = enabled
@@ -1884,11 +1888,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         sync_state_from_ui()
         controls_enabled = state.simple_behavior_controls_enabled
+        ai_opponent_slider.enabled = not state.running
         for slider in simple_activity_sliders:
             slider.enabled = controls_enabled
 
-        for btn in opponent_mode_buttons:
-            btn.enabled = not state.running
         for slider in reward_sliders:
             slider.enabled = not state.running
         for slider in regimen_sliders:
@@ -2073,10 +2076,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
             for i, panel in enumerate(opponent_panels):
                 hovered = panel.collidepoint(content_mouse_pos)
-                enabled = not (i > 0 and not state.simple_behavior_controls_enabled)
+                enabled = not state.running
                 _draw_group_panel(content, panel, hovered, enabled)
-            for button in opponent_mode_buttons:
-                button.draw(content, opponent_font, content_mouse_pos)
+            ai_opponent_slider.draw(content, opponent_font)
             for slider in simple_activity_sliders:
                 slider.draw(content, opponent_font)
             screen.blit(content, layout.content_rect)

@@ -128,6 +128,47 @@ class TrainingScheduleTests(unittest.TestCase):
             )
         )
 
+    def test_existing_ai_mode_with_zero_percent_uses_simple_controllers(self):
+        schedule = existing_ai_opponent_schedule(
+            1,
+            (
+                OpponentSpec(
+                    ship="Earthling",
+                    mode=OPPONENT_MODE_EXISTING_AI,
+                    slot=1,
+                    model=object(),
+                ),
+            ),
+            ai_opponent_chance=0.0,
+            rng=PreferTrainedOpponentRng(),
+        )
+
+        self.assertTrue(
+            all(opponent.mode == OPPONENT_MODE_SIMPLE for opponent in schedule)
+        )
+
+    def test_existing_ai_mode_rolls_ai_probability_once_per_available_ship(self):
+        schedule = existing_ai_opponent_schedule(
+            1,
+            (
+                OpponentSpec(
+                    ship="Earthling",
+                    mode=OPPONENT_MODE_EXISTING_AI,
+                    slot=1,
+                    model=object(),
+                ),
+            ),
+            ai_opponent_chance=50.0,
+            rng=SequenceRng([0.49, 0.0]),
+        )
+
+        earthling_rounds = [
+            opponent for opponent in schedule if opponent.ship == "Earthling"
+        ]
+        self.assertEqual(len(earthling_rounds), 1)
+        self.assertEqual(earthling_rounds[0].mode, OPPONENT_MODE_EXISTING_AI)
+        self.assertEqual(earthling_rounds[0].slot, 1)
+
 
 class TrainingRoundTests(unittest.TestCase):
     def test_terminal_timeout_flushes_every_pending_sample(self):

@@ -12,6 +12,7 @@ pygame.font.init()
 
 import src.const as const
 import src.Menus.train_ai as train_ai
+from src.UI import ui, ui_slider
 from src.Menus.train_ai import (
     ACTION_TOP,
     EPSILON_VALUES,
@@ -26,6 +27,7 @@ from src.Menus.train_ai import (
     REPLAY_UPDATES_PER_BATCH_VALUES,
     ROUNDS_PER_BATCH_VALUES,
     BATCH_GROUPING_VALUES,
+    AI_OPPONENT_PERCENT_VALUES,
     SIMPLE_ACTIVITY_VALUES,
     RewardSlider,
     TRAINING_HUD_HEIGHT,
@@ -59,6 +61,7 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.slot_labels, ["", "", "", ""])
         self.assertEqual(state.rewards, {label: 0.0 for label in REWARD_LABELS})
         self.assertEqual(state.opponent_mode, "simple")
+        self.assertEqual(state.ai_opponent_chance, 0.0)
         self.assertEqual(state.forward_activity, 0.0)
         self.assertEqual(state.a1_activity, 0.0)
         self.assertEqual(state.a2_activity, 0.0)
@@ -89,6 +92,12 @@ class TrainingUIStateTests(unittest.TestCase):
     def test_simple_activity_values_are_five_percent_steps(self):
         self.assertEqual(
             SIMPLE_ACTIVITY_VALUES,
+            tuple(float(value) for value in range(0, 101, 5)),
+        )
+
+    def test_ai_opponent_percent_values_are_five_percent_steps(self):
+        self.assertEqual(
+            AI_OPPONENT_PERCENT_VALUES,
             tuple(float(value) for value in range(0, 101, 5)),
         )
 
@@ -181,6 +190,38 @@ class RewardSliderTests(unittest.TestCase):
 
         self.assertEqual(slider.value, 2.56)
 
+    def test_disabled_reward_slider_uses_gray_background(self):
+        slider = RewardSlider((0, 0, 550, 40), "Reward")
+        slider.enabled = False
+        surface = pygame.Surface((550, 40), pygame.SRCALPHA)
+        font = pygame.font.Font(None, 20)
+
+        slider.draw(surface, font, mouse_pos=(-1, -1))
+
+        self.assertEqual(surface.get_at((2, 2))[:3], ui.DARK_GREY)
+
+
+class GenericSliderTests(unittest.TestCase):
+    def test_disabled_slider_uses_gray_background(self):
+        slider = ui_slider.Slider(
+            0,
+            0,
+            200,
+            0.0,
+            100.0,
+            50.0,
+            "Value",
+            values=tuple(float(value) for value in range(0, 101, 5)),
+            height=44,
+        )
+        slider.enabled = False
+        surface = pygame.Surface((200, 44), pygame.SRCALPHA)
+        font = pygame.font.Font(None, 20)
+
+        slider.draw(surface, font)
+
+        self.assertEqual(surface.get_at((slider.rect.centerx, 4))[:3], ui.DARK_GREY)
+
 
 class RegimenSliderTests(unittest.TestCase):
     def test_regimen_sliders_expose_the_requested_discrete_values(self):
@@ -223,6 +264,8 @@ class TrainingConfigAdapterTests(unittest.TestCase):
     def test_training_config_from_state_carries_ui_values(self):
         state = TrainingUIState(selected_ship="Earthling")
         state.rewards["Kill enemy"] = 2.56
+        state.ai_opponent_chance = 50.0
+        state.opponent_mode = "all"
         state.forward_activity = 25.0
         state.a1_activity = 50.0
         state.a2_activity = 75.0
@@ -238,6 +281,8 @@ class TrainingConfigAdapterTests(unittest.TestCase):
 
         self.assertEqual(config.trainee_ship, "Earthling")
         self.assertEqual(config.reward_weights["Kill enemy"], 2.56)
+        self.assertEqual(config.opponent_mode, "all")
+        self.assertEqual(config.ai_opponent_chance, 50.0)
         self.assertEqual(config.forward_activity, 25.0)
         self.assertEqual(config.a1_activity, 50.0)
         self.assertEqual(config.a2_activity, 75.0)
