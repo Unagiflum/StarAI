@@ -71,11 +71,24 @@ REPLAY_BUFFER_SIZE_VALUES = (1000, 2000, 5000, 10000, 20000, 50000)
 ROUNDS_PER_BATCH_VALUES = (1, 2, 5, 10, 20, 50)
 BATCH_GROUPING_VALUES = (50, 100, 250, 500, 1000)
 MATCH_TIME_LIMIT_VALUES = (240, 480, 1200, 2400, 4800, 12000)
+MINIBATCH_SIZE_VALUES = (16, 32, 64, 128, 256)
+REPLAY_UPDATES_PER_BATCH_VALUES = (100, 200, 500, 1000, 2000)
 LEARNING_RATE_VALUES = (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01)
 EPSILON_VALUES = (0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.1, 0.2, 0.5)
 GAMMA_VALUES = (0.9, 0.95, 0.98, 0.99, 0.995, 0.999)
 HIDDEN_LAYER_SIZE_VALUES = (32, 64, 128, 256, 512, 1024, 2048)
 HIDDEN_LAYER_COUNT_VALUES = (1, 2, 4, 8, 16)
+REGIMEN_REPLAY_BUFFER_INDEX = 0
+REGIMEN_ROUNDS_PER_BATCH_INDEX = 1
+REGIMEN_BATCH_GROUPING_INDEX = 2
+REGIMEN_MATCH_TIME_LIMIT_INDEX = 3
+REGIMEN_MINIBATCH_SIZE_INDEX = 4
+REGIMEN_REPLAY_UPDATES_INDEX = 5
+REGIMEN_LEARNING_RATE_INDEX = 6
+REGIMEN_EPSILON_INDEX = 7
+REGIMEN_GAMMA_INDEX = 8
+REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 9
+REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 10
 CURRENT_BATCH_STATE_WIDTH = len("stopped (stopping)")
 CURRENT_BATCH_BATCH_WIDTH = 6
 CURRENT_BATCH_ROUND_WIDTH = 4
@@ -121,6 +134,8 @@ class TrainingUIState:
     learning_rate: float = 0.001
     epsilon: float = 0.1
     gamma: float = 0.99
+    minibatch_size: int = 32
+    replay_updates_per_batch: int = 100
     hidden_layer_size: int = 128
     hidden_layer_count: int = 2
     replay_buffer_size: int = 10000
@@ -822,6 +837,8 @@ def training_config_from_state(state: TrainingUIState) -> TrainingOrchestrationC
         epsilon=state.epsilon,
         hidden_layer_width=state.hidden_layer_size,
         hidden_layer_count=state.hidden_layer_count,
+        minibatch_size=state.minibatch_size,
+        replay_updates_per_batch=state.replay_updates_per_batch,
         display_on=state.display_on,
     )
 
@@ -887,6 +904,24 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         270,
         max_height=min(26, step),
         maximum=min(24, step - 4),
+    )
+    regimen_font = largest_fitting_font(
+        (
+            "Replay Buffer Size: 50000",
+            "Rounds per batch: 50",
+            "Batch grouping: 1000",
+            "Match Time Limit (frames): 12000",
+            "Minibatch size: 256",
+            "Updates per minibatch: 2000",
+            "Learning rate: 0.0100",
+            "Epsilon: 0.5000",
+            "Gamma: 0.999",
+            "Hidden layer size: 2048",
+            "Hidden layer count: 16",
+        ),
+        CONTROL_WIDTH - 64,
+        max_height=22,
+        maximum=21,
     )
     small_font = pygame.font.SysFont(None, 24)
     arena_font = pygame.font.SysFont(None, 32)
@@ -1055,7 +1090,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     regimen_left = 16
     regimen_width = CONTROL_WIDTH - 32
     regimen_top = CONTENT_TOP + 14
-    regimen_spacing = 60
+    regimen_spacing = 44
+    regimen_height = 38
     regimen_sliders = (
         ui_slider.Slider(
             regimen_left,
@@ -1067,7 +1103,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Replay Buffer Size",
             is_int=True,
             values=REPLAY_BUFFER_SIZE_VALUES,
-            height=46,
+            height=regimen_height,
         ),
         ui_slider.Slider(
             regimen_left,
@@ -1079,7 +1115,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Rounds per batch",
             is_int=True,
             values=ROUNDS_PER_BATCH_VALUES,
-            height=46,
+            height=regimen_height,
         ),
         ui_slider.Slider(
             regimen_left,
@@ -1091,7 +1127,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Batch grouping",
             is_int=True,
             values=BATCH_GROUPING_VALUES,
-            height=46,
+            height=regimen_height,
         ),
         ui_slider.Slider(
             regimen_left,
@@ -1103,11 +1139,35 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Match Time Limit (frames)",
             is_int=True,
             values=MATCH_TIME_LIMIT_VALUES,
-            height=46,
+            height=regimen_height,
         ),
         ui_slider.Slider(
             regimen_left,
             regimen_top + 4 * regimen_spacing,
+            regimen_width,
+            MINIBATCH_SIZE_VALUES[0],
+            MINIBATCH_SIZE_VALUES[-1],
+            state.minibatch_size,
+            "Minibatch size",
+            is_int=True,
+            values=MINIBATCH_SIZE_VALUES,
+            height=regimen_height,
+        ),
+        ui_slider.Slider(
+            regimen_left,
+            regimen_top + 5 * regimen_spacing,
+            regimen_width,
+            REPLAY_UPDATES_PER_BATCH_VALUES[0],
+            REPLAY_UPDATES_PER_BATCH_VALUES[-1],
+            state.replay_updates_per_batch,
+            "Updates per minibatch",
+            is_int=True,
+            values=REPLAY_UPDATES_PER_BATCH_VALUES,
+            height=regimen_height,
+        ),
+        ui_slider.Slider(
+            regimen_left,
+            regimen_top + 6 * regimen_spacing,
             regimen_width,
             LEARNING_RATE_VALUES[0],
             LEARNING_RATE_VALUES[-1],
@@ -1115,11 +1175,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Learning rate",
             step=0.0001,
             values=LEARNING_RATE_VALUES,
-            height=46,
+            height=regimen_height,
         ),
         ui_slider.Slider(
             regimen_left,
-            regimen_top + 5 * regimen_spacing,
+            regimen_top + 7 * regimen_spacing,
             regimen_width,
             EPSILON_VALUES[0],
             EPSILON_VALUES[-1],
@@ -1127,11 +1187,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Epsilon",
             step=0.0001,
             values=EPSILON_VALUES,
-            height=46,
+            height=regimen_height,
         ),
         ui_slider.Slider(
             regimen_left,
-            regimen_top + 6 * regimen_spacing,
+            regimen_top + 8 * regimen_spacing,
             regimen_width,
             GAMMA_VALUES[0],
             GAMMA_VALUES[-1],
@@ -1139,11 +1199,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Gamma",
             step=0.001,
             values=GAMMA_VALUES,
-            height=46,
+            height=regimen_height,
         ),
         ui_slider.Slider(
             regimen_left,
-            regimen_top + 7 * regimen_spacing,
+            regimen_top + 9 * regimen_spacing,
             regimen_width,
             HIDDEN_LAYER_SIZE_VALUES[0],
             HIDDEN_LAYER_SIZE_VALUES[-1],
@@ -1151,11 +1211,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Hidden layer size",
             is_int=True,
             values=HIDDEN_LAYER_SIZE_VALUES,
-            height=46,
+            height=regimen_height,
         ),
         ui_slider.Slider(
             regimen_left,
-            regimen_top + 8 * regimen_spacing,
+            regimen_top + 10 * regimen_spacing,
             regimen_width,
             HIDDEN_LAYER_COUNT_VALUES[0],
             HIDDEN_LAYER_COUNT_VALUES[-1],
@@ -1163,7 +1223,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Hidden layer count",
             is_int=True,
             values=HIDDEN_LAYER_COUNT_VALUES,
-            height=46,
+            height=regimen_height,
         ),
     )
 
@@ -1190,15 +1250,33 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             for label, checkbox in zip(MOVEMENT_BEHAVIORS, movement_checkboxes)
             if checkbox.value
         }
-        state.replay_buffer_size = int(regimen_sliders[0].value)
-        state.rounds_per_batch = int(regimen_sliders[1].value)
-        state.batch_grouping = int(regimen_sliders[2].value)
-        state.match_time_limit = int(regimen_sliders[3].value)
-        state.learning_rate = regimen_sliders[4].value
-        state.epsilon = regimen_sliders[5].value
-        state.gamma = regimen_sliders[6].value
-        state.hidden_layer_size = int(regimen_sliders[7].value)
-        state.hidden_layer_count = int(regimen_sliders[8].value)
+        state.replay_buffer_size = int(
+            regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value
+        )
+        state.rounds_per_batch = int(
+            regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX].value
+        )
+        state.batch_grouping = int(
+            regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX].value
+        )
+        state.match_time_limit = int(
+            regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX].value
+        )
+        state.minibatch_size = int(
+            regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX].value
+        )
+        state.replay_updates_per_batch = int(
+            regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].value
+        )
+        state.learning_rate = regimen_sliders[REGIMEN_LEARNING_RATE_INDEX].value
+        state.epsilon = regimen_sliders[REGIMEN_EPSILON_INDEX].value
+        state.gamma = regimen_sliders[REGIMEN_GAMMA_INDEX].value
+        state.hidden_layer_size = int(
+            regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX].value
+        )
+        state.hidden_layer_count = int(
+            regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX].value
+        )
 
     def architecture_metadata():
         return model_architecture_metadata(
@@ -1219,6 +1297,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 "rounds_per_batch": state.rounds_per_batch,
                 "batch_grouping": state.batch_grouping,
                 "match_time_limit": state.match_time_limit,
+                "minibatch_size": state.minibatch_size,
+                "replay_updates_per_batch": state.replay_updates_per_batch,
                 "learning_rate": state.learning_rate,
                 "epsilon": state.epsilon,
                 "gamma": state.gamma,
@@ -1419,13 +1499,43 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen = training.get("regimen", {})
             if isinstance(regimen, dict):
                 regimen_fields = (
-                    ("replay_buffer_size", regimen_sliders[0], int),
-                    ("rounds_per_batch", regimen_sliders[1], int),
-                    ("batch_grouping", regimen_sliders[2], int),
-                    ("match_time_limit", regimen_sliders[3], int),
-                    ("learning_rate", regimen_sliders[4], float),
-                    ("epsilon", regimen_sliders[5], float),
-                    ("gamma", regimen_sliders[6], float),
+                    (
+                        "replay_buffer_size",
+                        regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX],
+                        int,
+                    ),
+                    (
+                        "rounds_per_batch",
+                        regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX],
+                        int,
+                    ),
+                    (
+                        "batch_grouping",
+                        regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX],
+                        int,
+                    ),
+                    (
+                        "match_time_limit",
+                        regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX],
+                        int,
+                    ),
+                    (
+                        "minibatch_size",
+                        regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX],
+                        int,
+                    ),
+                    (
+                        "replay_updates_per_batch",
+                        regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX],
+                        int,
+                    ),
+                    (
+                        "learning_rate",
+                        regimen_sliders[REGIMEN_LEARNING_RATE_INDEX],
+                        float,
+                    ),
+                    ("epsilon", regimen_sliders[REGIMEN_EPSILON_INDEX], float),
+                    ("gamma", regimen_sliders[REGIMEN_GAMMA_INDEX], float),
                 )
                 for key, slider, caster in regimen_fields:
                     if key not in regimen:
@@ -1445,12 +1555,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         "hidden_layer_width",
                         architecture.get("hidden_layer_size"),
                     ),
-                    regimen_sliders[7],
+                    regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX],
                     "hidden layer size",
                 ),
                 (
                     architecture.get("hidden_layer_count"),
-                    regimen_sliders[8],
+                    regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX],
                     "hidden layer count",
                 ),
             )
@@ -1961,7 +2071,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             panel.fill((0, 0, 0, 155))
             screen.blit(panel, layout.content_rect)
             for slider in regimen_sliders:
-                slider.draw(screen, body_font)
+                slider.draw(screen, regimen_font)
 
         # Draw inactive tabs behind the content window border
         if not trainee_tab.active: trainee_tab.draw(screen, tab_font)

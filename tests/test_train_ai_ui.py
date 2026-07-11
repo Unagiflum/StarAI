@@ -20,9 +20,11 @@ from src.Menus.train_ai import (
     GAMMA_VALUES,
     LEARNING_RATE_VALUES,
     MATCH_TIME_LIMIT_VALUES,
+    MINIBATCH_SIZE_VALUES,
     MOVEMENT_BEHAVIORS,
     REWARD_LABELS,
     REWARD_VALUES,
+    REPLAY_UPDATES_PER_BATCH_VALUES,
     ROUNDS_PER_BATCH_VALUES,
     BATCH_GROUPING_VALUES,
     RewardSlider,
@@ -65,6 +67,8 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.learning_rate, 0.001)
         self.assertEqual(state.epsilon, 0.1)
         self.assertEqual(state.gamma, 0.99)
+        self.assertEqual(state.minibatch_size, 32)
+        self.assertEqual(state.replay_updates_per_batch, 100)
         self.assertFalse(state.display_on)
         self.assertFalse(state.running)
 
@@ -184,6 +188,11 @@ class RegimenSliderTests(unittest.TestCase):
             MATCH_TIME_LIMIT_VALUES,
             (240, 480, 1200, 2400, 4800, 12000),
         )
+        self.assertEqual(MINIBATCH_SIZE_VALUES, (16, 32, 64, 128, 256))
+        self.assertEqual(
+            REPLAY_UPDATES_PER_BATCH_VALUES,
+            (100, 200, 500, 1000, 2000),
+        )
         self.assertEqual(
             LEARNING_RATE_VALUES,
             (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01),
@@ -215,6 +224,8 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         state.movement_behaviors = {"Move forward continuously"}
         state.rounds_per_batch = 2
         state.gamma = 0.995
+        state.minibatch_size = 128
+        state.replay_updates_per_batch = 1000
         state.hidden_layer_size = 64
         state.hidden_layer_count = 1
 
@@ -222,9 +233,14 @@ class TrainingConfigAdapterTests(unittest.TestCase):
 
         self.assertEqual(config.trainee_ship, "Earthling")
         self.assertEqual(config.reward_weights["Kill enemy"], 2.56)
-        self.assertEqual(config.movement_behaviors, frozenset({"Move forward continuously"}))
+        self.assertEqual(
+            config.movement_behaviors,
+            frozenset({"Move forward continuously"}),
+        )
         self.assertEqual(config.rounds_per_batch, 2)
         self.assertEqual(config.gamma, 0.995)
+        self.assertEqual(config.minibatch_size, 128)
+        self.assertEqual(config.replay_updates_per_batch, 1000)
         self.assertEqual(config.hidden_layer_width, 64)
         self.assertEqual(config.hidden_layer_count, 1)
 
