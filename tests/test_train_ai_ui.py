@@ -34,6 +34,7 @@ from src.Menus.train_ai import (
     AI_OPPONENT_PERCENT_VALUES,
     SIMPLE_ACTIVITY_VALUES,
     RewardSlider,
+    SliderRow,
     TRAINING_HUD_HEIGHT,
     TrainingBatchLogBox,
     TrainingUIState,
@@ -41,6 +42,7 @@ from src.Menus.train_ai import (
     _display_off_console_lines,
     _draw_training_huds,
     _draw_training_battle,
+    _format_short_count,
     _progress_for_model_update,
     _set_slider_value,
     training_config_from_state,
@@ -207,6 +209,36 @@ class RewardSliderTests(unittest.TestCase):
         slider.draw(surface, font, mouse_pos=(-1, -1))
 
         self.assertEqual(surface.get_at((2, 2))[:3], ui.DARK_GREY)
+
+
+class SliderRowTests(unittest.TestCase):
+    def test_label_value_slider_uses_fixed_right_track_region(self):
+        first = SliderRow(
+            (16, 20, 544, 34),
+            "Replay size, batch=30k",
+            0,
+            100,
+            50,
+            layout=SliderRow.LABEL_VALUE_SLIDER,
+            slider_width=184,
+        )
+        second = SliderRow(
+            (16, 60, 544, 34),
+            "Gradient steps, UTD=1.1",
+            0,
+            100,
+            50,
+            layout=SliderRow.LABEL_VALUE_SLIDER,
+            slider_width=184,
+        )
+
+        self.assertEqual(first.line_rect.x, second.line_rect.x)
+        self.assertEqual(first.line_rect.width, second.line_rect.width)
+        self.assertEqual(first.line_rect.right, second.line_rect.right)
+
+    def test_short_count_formats_regimen_context_values(self):
+        self.assertEqual(_format_short_count(30000), "30k")
+        self.assertEqual(_format_short_count(15000000), "15M")
 
 
 class GenericSliderTests(unittest.TestCase):

@@ -23,7 +23,7 @@ from src.Menus.pick_fleet import (
     ShipPickerModal,
 )
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS
-from src.UI import ui, ui_button, ui_slider
+from src.UI import ui, ui_button
 from src.UI.ship_sprites import fit_ship_sprites, load_menu_ship_sprites
 from src.frame_timing import PresentationClock
 from src.training.model_registry import (
@@ -256,6 +256,23 @@ def _format_reward(value):
     return "0.00" if value == 0 else f"{value:+.2f}"
 
 
+def _format_percent(value):
+    return f"{int(value)}%"
+
+
+def _format_short_count(value):
+    value = int(value)
+    sign = "-" if value < 0 else ""
+    value = abs(value)
+    for suffix, divisor in (("M", 1_000_000), ("k", 1_000)):
+        if value >= divisor:
+            scaled = value / divisor
+            if scaled.is_integer():
+                return f"{sign}{int(scaled)}{suffix}"
+            return f"{sign}{scaled:.1f}{suffix}"
+    return f"{sign}{value}"
+
+
 def _set_slider_value(slider, value):
     if slider.values is not None and value not in slider.values:
         return False
@@ -300,79 +317,216 @@ def _draw_notice(screen, notice, font):
     screen.blit(surface, rect)
 
 
-class RewardSlider:
-    """Compact discrete slider with its label and value on one row."""
+class SliderRow:
+    """Training screen slider with one-line text and a fixed track region."""
 
-    def __init__(self, rect, label, value=0.0):
+    LABEL_SLIDER_VALUE = "label-slider-value"
+    LABEL_VALUE_SLIDER = "label-value-slider"
+
+    def __init__(
+        self,
+        rect,
+        label,
+        min_val,
+        max_val,
+        value,
+        *,
+        values=None,
+        is_int=False,
+        step=1,
+        decimal_places=None,
+        value_suffix="",
+        value_formatter=None,
+        layout=LABEL_SLIDER_VALUE,
+        label_width=278,
+        value_width=70,
+        slider_width=None,
+        track_height=4,
+        handle_radius=7,
+        bg_color=ui.SLIDER_BG,
+        hover_color=ui.SLIDER_BG_HI,
+    ):
         self.rect = pygame.Rect(rect)
         self.label = label
-        self.values = REWARD_VALUES
+        self.min_val = min_val
+        self.max_val = max_val
         self.value = value
+        self.values = tuple(values) if values is not None else None
+        if self.values is not None:
+            if len(self.values) < 2 or value not in self.values:
+                raise ValueError("Slider values must contain the starting value")
+        self.is_int = is_int
+        self.step = step
+        if decimal_places is not None:
+            self.decimal_places = decimal_places
+        else:
+            self.decimal_places = (
+                abs(len(str(step).split(".")[-1]))
+                if "." in str(step) and "e" not in str(step)
+                else 0
+            )
+        self.value_suffix = value_suffix
+        self.value_formatter = value_formatter
+        self.layout = layout
+        self.label_width = label_width
+        self.value_width = value_width
+        self.slider_width = slider_width
+        self.track_height = track_height
+        self.handle_radius = handle_radius
+        self.bg_color = (*bg_color, 255) if len(bg_color) == 3 else bg_color
+        self.hover_color = (*hover_color, 255) if len(hover_color) == 3 else hover_color
         self.dragging = False
         self.enabled = True
-        self.label_width = 278
-        self.value_width = 70
-        self.line_rect = pygame.Rect(
-            self.rect.x + self.label_width,
-            self.rect.centery - 2,
-            self.rect.width - self.label_width - self.value_width - 8,
-            4,
+        self.is_hovered = False
+        self.line_rect = self._line_rect()
+        self.handle_x = self.value_to_position(self.value)
+
+    def _line_rect(self):
+        if self.layout == self.LABEL_VALUE_SLIDER:
+            slider_width = self.slider_width or max(
+                1, self.rect.width - self.label_width - self.value_width - 8
+            )
+            x = self.rect.right - slider_width - 8
+            width = slider_width
+        else:
+            x = self.rect.x + self.label_width
+            width = self.rect.width - self.label_width - self.value_width - 8
+        return pygame.Rect(
+            x,
+            self.rect.centery - self.track_height // 2,
+            max(1, width),
+            self.track_height,
         )
 
-    @property
-    def handle_x(self):
-        index = self.values.index(self.value)
-        return self.line_rect.x + round(
-            index * self.line_rect.width / (len(self.values) - 1)
-        )
+    def value_to_position(self, value):
+        if self.values is not None:
+            ratio = self.values.index(value) / (len(self.values) - 1)
+        else:
+            ratio = (value - self.min_val) / (self.max_val - self.min_val)
+        return self.line_rect.x + round(ratio * self.line_rect.width)
+
+    def position_to_value(self, pos_x):
+        ratio = (pos_x - self.line_rect.left) / max(1, self.line_rect.width)
+        if self.values is not None:
+            index = round(ratio * (len(self.values) - 1))
+            index = max(0, min(len(self.values) - 1, index))
+            return self.values[index]
+        value = self.min_val + ratio * (self.max_val - self.min_val)
+        value = round(value / self.step) * self.step
+        return max(self.min_val, min(self.max_val, value))
 
     def set_from_x(self, x):
-        ratio = (x - self.line_rect.left) / max(1, self.line_rect.width)
-        index = round(ratio * (len(self.values) - 1))
-        index = max(0, min(len(self.values) - 1, index))
-        self.value = self.values[index]
+        x = max(self.line_rect.left, min(self.line_rect.right, x))
+        self.value = self.position_to_value(x)
+        self.handle_x = self.value_to_position(self.value)
+
+    def adjust_value(self, increment):
+        if self.values is not None:
+            index = self.values.index(self.value) + (1 if increment else -1)
+            index = max(0, min(len(self.values) - 1, index))
+            self.value = self.values[index]
+        else:
+            delta = self.step if increment else -self.step
+            self.value = max(self.min_val, min(self.max_val, self.value + delta))
+        self.handle_x = self.value_to_position(self.value)
+
+    def get_handle_rect(self):
+        return pygame.Rect(
+            self.handle_x - self.handle_radius,
+            self.line_rect.centery - self.handle_radius,
+            self.handle_radius * 2,
+            self.handle_radius * 2,
+        )
 
     def handle_event(self, event, sound_manager=None):
         if not self.enabled:
             self.dragging = False
             return
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            hit_rect = self.line_rect.inflate(0, 20)
-            if hit_rect.collidepoint(event.pos):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:
+                if self.line_rect.inflate(0, 20).collidepoint(event.pos):
+                    if sound_manager:
+                        sound_manager.play_sound("menu")
+                    self.dragging = True
+                    self.set_from_x(event.pos[0])
+            elif self.is_hovered and event.button in (4, 5):
                 if sound_manager:
                     sound_manager.play_sound("menu")
-                self.dragging = True
-                self.set_from_x(event.pos[0])
+                self.adjust_value(event.button == 4)
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             self.dragging = False
-        elif event.type == pygame.MOUSEMOTION and self.dragging:
-            self.set_from_x(event.pos[0])
+        elif event.type == pygame.MOUSEMOTION:
+            self.is_hovered = self.rect.collidepoint(event.pos)
+            if self.dragging:
+                self.set_from_x(event.pos[0])
+
+    def format_value(self):
+        if self.value_formatter is not None:
+            return f"{self.value_formatter(self.value)}{self.value_suffix}"
+        if self.is_int:
+            return f"{int(self.value)}{self.value_suffix}"
+        return f"{self.value:.{self.decimal_places}f}{self.value_suffix}"
 
     def draw(self, surface, font, mouse_pos=None):
         if mouse_pos is None:
             mouse_pos = pygame.mouse.get_pos()
-        hovered = self.rect.collidepoint(mouse_pos)
+        hovered = self.rect.collidepoint(mouse_pos) or self.is_hovered
         row = pygame.Surface(self.rect.size, pygame.SRCALPHA)
         if not self.enabled:
             row.fill((*ui.DARK_GREY, 255))
         else:
-            row.fill(ui.SLIDER_BG_HI if hovered else ui.SLIDER_BG)
+            row.fill(self.hover_color if hovered else self.bg_color)
         surface.blit(row, self.rect)
 
         label_color = ui.WHITE if self.enabled else ui.GREY
-        label = font.render(self.label, True, label_color)
-        surface.blit(
-            label,
-            label.get_rect(midleft=(self.rect.left + 8, self.rect.centery)),
-        )
+        value_color = ui.LIGHT_GREY if self.enabled else ui.GREY
+        label_text = f"{self.label}: " if self.layout == self.LABEL_VALUE_SLIDER else self.label
+        label = font.render(label_text, True, label_color)
+        label_rect = label.get_rect(midleft=(self.rect.left + 8, self.rect.centery))
+        old_clip = None
+        if self.layout == self.LABEL_VALUE_SLIDER:
+            old_clip = surface.get_clip()
+            text_clip = pygame.Rect(
+                self.rect.left + 8,
+                self.rect.top,
+                max(1, self.line_rect.left - self.rect.left - 16),
+                self.rect.height,
+            )
+            surface.set_clip(text_clip.clip(old_clip))
+        surface.blit(label, label_rect)
+
+        value = font.render(self.format_value(), True, value_color)
+        if self.layout == self.LABEL_VALUE_SLIDER:
+            value_rect = value.get_rect(
+                midleft=(min(label_rect.right + 2, self.line_rect.left - 8), self.rect.centery)
+            )
+        else:
+            value_rect = value.get_rect(midright=(self.rect.right - 8, self.rect.centery))
+        surface.blit(value, value_rect)
+        if old_clip is not None:
+            surface.set_clip(old_clip)
+
         pygame.draw.rect(surface, ui.SLIDER_LINE, self.line_rect)
         pygame.draw.circle(
-            surface, ui.HANDLE_COLOR if self.enabled else ui.GREY, (self.handle_x, self.line_rect.centery), 7
+            surface,
+            ui.HANDLE_COLOR if self.enabled else ui.GREY,
+            (self.handle_x, self.line_rect.centery),
+            self.handle_radius,
         )
-        value = font.render(_format_reward(self.value), True, label_color)
-        surface.blit(
+
+
+class RewardSlider(SliderRow):
+    """Compatibility wrapper for tests and older training UI callers."""
+
+    def __init__(self, rect, label, value=0.0):
+        super().__init__(
+            rect,
+            label,
+            REWARD_VALUES[0],
+            REWARD_VALUES[-1],
             value,
-            value.get_rect(midright=(self.rect.right - 8, self.rect.centery)),
+            values=REWARD_VALUES,
+            value_formatter=_format_reward,
         )
 
 
@@ -909,13 +1063,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     opponent_font = largest_fitting_font(
         (
-            "Simple vs. AI: 100",
-            "Forward Activity: 100.0",
-            "A1 Activity: 100.0",
-            "A2 Activity: 100.0",
-            "Face opponent: 100.0",
+            "Simple vs. AI",
+            "Forward Activity",
+            "A1 Activity",
+            "A2 Activity",
+            "Face opponent",
         ),
-        CONTROL_WIDTH - 80,
+        142,
         max_height=30,
         maximum=28,
     )
@@ -938,9 +1092,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Match frame limit: 12000",
             "Rounds per batch: 50",
             "Batch grouping: 1000",
-            "Replay buffer size (batch = 30000): 250000",
+            "Replay size, batch=15M: 250k (1250MB)",
             "Minibatch size: 512",
-            "Updates per minibatch (UTD = 0.43): 5000",
+            "Gradient steps, UTD=999.9: 5000",
             "Learning rate: 0.01000",
             "Starting Epsilon: 1.000",
             "Epsilon decay: 1.000",
@@ -949,9 +1103,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Hidden layer size: 4096",
             "Hidden layer count: 8",
         ),
-        CONTROL_WIDTH - 64,
-        max_height=19,
-        maximum=18,
+        336,
+        max_height=22,
+        maximum=20,
     )
     small_font = pygame.font.SysFont(None, 24)
     arena_font = pygame.font.SysFont(None, 32)
@@ -1034,8 +1188,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     rewards_top = 8
     reward_sliders = [
-        RewardSlider(
-            (12, rewards_top + index * step, CONTROL_WIDTH - 24, min(30, step - 2)), label
+        SliderRow(
+            (12, rewards_top + index * step, CONTROL_WIDTH - 24, min(30, step - 2)),
+            label,
+            REWARD_VALUES[0],
+            REWARD_VALUES[-1],
+            0.0,
+            values=REWARD_VALUES,
+            value_formatter=_format_reward,
+            label_width=278,
+            value_width=70,
         )
         for index, label in enumerate(REWARD_LABELS)
     ]
@@ -1045,67 +1207,69 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         pygame.Rect(12, 12, CONTROL_WIDTH - 24, 70),
         pygame.Rect(12, 92, CONTROL_WIDTH - 24, 222),
     )
-    ai_opponent_slider = ui_slider.Slider(
-        20,
-        22,
-        CONTROL_WIDTH - 40,
+    opponent_label_width = 150
+    opponent_value_width = 58
+    ai_opponent_slider = SliderRow(
+        (20, 22, CONTROL_WIDTH - 40, 44),
+        "Simple vs. AI",
         AI_OPPONENT_PERCENT_VALUES[0],
         AI_OPPONENT_PERCENT_VALUES[-1],
         state.ai_opponent_chance,
-        "Simple vs. AI",
         is_int=True,
         step=5.0,
         values=AI_OPPONENT_PERCENT_VALUES,
-        height=44,
+        value_formatter=_format_percent,
+        label_width=opponent_label_width,
+        value_width=opponent_value_width,
     )
     simple_activity_sliders = (
-        ui_slider.Slider(
-            20,
-            102,
-            CONTROL_WIDTH - 40,
+        SliderRow(
+            (20, 102, CONTROL_WIDTH - 40, 44),
+            "Forward Activity",
             SIMPLE_ACTIVITY_VALUES[0],
             SIMPLE_ACTIVITY_VALUES[-1],
             state.forward_activity,
-            "Forward Activity",
             step=5.0,
             values=SIMPLE_ACTIVITY_VALUES,
-            height=44,
+            value_formatter=_format_percent,
+            label_width=opponent_label_width,
+            value_width=opponent_value_width,
         ),
-        ui_slider.Slider(
-            20,
-            152,
-            CONTROL_WIDTH - 40,
+        SliderRow(
+            (20, 152, CONTROL_WIDTH - 40, 44),
+            "A1 Activity",
             SIMPLE_ACTIVITY_VALUES[0],
             SIMPLE_ACTIVITY_VALUES[-1],
             state.a1_activity,
-            "A1 Activity",
             step=5.0,
             values=SIMPLE_ACTIVITY_VALUES,
-            height=44,
+            value_formatter=_format_percent,
+            label_width=opponent_label_width,
+            value_width=opponent_value_width,
         ),
-        ui_slider.Slider(
-            20,
-            202,
-            CONTROL_WIDTH - 40,
+        SliderRow(
+            (20, 202, CONTROL_WIDTH - 40, 44),
+            "A2 Activity",
             SIMPLE_ACTIVITY_VALUES[0],
             SIMPLE_ACTIVITY_VALUES[-1],
             state.a2_activity,
-            "A2 Activity",
             step=5.0,
             values=SIMPLE_ACTIVITY_VALUES,
-            height=44,
+            value_formatter=_format_percent,
+            label_width=opponent_label_width,
+            value_width=opponent_value_width,
         ),
-        ui_slider.Slider(
-            20,
-            252,
-            CONTROL_WIDTH - 40,
+        SliderRow(
+            (20, 252, CONTROL_WIDTH - 40, 44),
+            "Face opponent",
             SIMPLE_ACTIVITY_VALUES[0],
             SIMPLE_ACTIVITY_VALUES[-1],
             state.face_opponent_activity,
-            "Face opponent",
             step=5.0,
             values=SIMPLE_ACTIVITY_VALUES,
-            height=44,
+            value_formatter=_format_percent,
+            label_width=opponent_label_width,
+            value_width=opponent_value_width,
         )
     )
 
@@ -1122,166 +1286,156 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     regimen_top = CONTENT_TOP + 14
     regimen_spacing = 40
     regimen_height = 34
+    regimen_slider_width = 184
+    regimen_layout = SliderRow.LABEL_VALUE_SLIDER
     regimen_sliders = (
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top, regimen_width, regimen_height),
+            "Match frame limit",
             MATCH_TIME_LIMIT_VALUES[0],
             MATCH_TIME_LIMIT_VALUES[-1],
             state.match_time_limit,
-            "Match frame limit",
             is_int=True,
             values=MATCH_TIME_LIMIT_VALUES,
-            height=regimen_height,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + regimen_spacing, regimen_width, regimen_height),
+            "Rounds per batch",
             ROUNDS_PER_BATCH_VALUES[0],
             ROUNDS_PER_BATCH_VALUES[-1],
             state.rounds_per_batch,
-            "Rounds per batch",
             is_int=True,
             values=ROUNDS_PER_BATCH_VALUES,
-            height=regimen_height,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + 2 * regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + 2 * regimen_spacing, regimen_width, regimen_height),
+            "Batch grouping",
             BATCH_GROUPING_VALUES[0],
             BATCH_GROUPING_VALUES[-1],
             state.batch_grouping,
-            "Batch grouping",
             is_int=True,
             values=BATCH_GROUPING_VALUES,
-            height=regimen_height,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + 3 * regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + 3 * regimen_spacing, regimen_width, regimen_height),
+            "Replay size, batch=30k",
             REPLAY_BUFFER_SIZE_VALUES[0],
             REPLAY_BUFFER_SIZE_VALUES[-1],
             state.replay_buffer_size,
-            "Replay buffer size",
             is_int=True,
             values=REPLAY_BUFFER_SIZE_VALUES,
-            height=regimen_height,
+            value_formatter=_format_short_count,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + 4 * regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + 4 * regimen_spacing, regimen_width, regimen_height),
+            "Minibatch size",
             MINIBATCH_SIZE_VALUES[0],
             MINIBATCH_SIZE_VALUES[-1],
             state.minibatch_size,
-            "Minibatch size",
             is_int=True,
             values=MINIBATCH_SIZE_VALUES,
-            height=regimen_height,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + 5 * regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + 5 * regimen_spacing, regimen_width, regimen_height),
+            "Gradient steps, UTD=1.1",
             REPLAY_UPDATES_PER_BATCH_VALUES[0],
             REPLAY_UPDATES_PER_BATCH_VALUES[-1],
             state.replay_updates_per_batch,
-            "Updates per minibatch",
             is_int=True,
             values=REPLAY_UPDATES_PER_BATCH_VALUES,
-            height=regimen_height,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + 6 * regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + 6 * regimen_spacing, regimen_width, regimen_height),
+            "Learning rate",
             LEARNING_RATE_VALUES[0],
             LEARNING_RATE_VALUES[-1],
             state.learning_rate,
-            "Learning rate",
             step=0.00001,
             values=LEARNING_RATE_VALUES,
-            height=regimen_height,
             decimal_places=5,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + 7 * regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + 7 * regimen_spacing, regimen_width, regimen_height),
+            "Starting Epsilon",
             EPSILON_VALUES[0],
             EPSILON_VALUES[-1],
             state.starting_epsilon,
-            "Starting Epsilon",
             step=0.025,
             values=EPSILON_VALUES,
-            height=regimen_height,
             decimal_places=3,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + 8 * regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + 8 * regimen_spacing, regimen_width, regimen_height),
+            "Epsilon decay",
             EPSILON_DECAY_VALUES[0],
             EPSILON_DECAY_VALUES[-1],
             state.epsilon_decay,
-            "Epsilon decay",
             step=0.001,
             values=EPSILON_DECAY_VALUES,
-            height=regimen_height,
             decimal_places=3,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + 9 * regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + 9 * regimen_spacing, regimen_width, regimen_height),
+            "Epsilon frame span",
             EPSILON_FRAME_SPAN_VALUES[0],
             EPSILON_FRAME_SPAN_VALUES[-1],
             state.epsilon_frame_span,
-            "Epsilon frame span",
             is_int=True,
             values=EPSILON_FRAME_SPAN_VALUES,
-            height=regimen_height,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + 10 * regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + 10 * regimen_spacing, regimen_width, regimen_height),
+            "Gamma",
             GAMMA_VALUES[0],
             GAMMA_VALUES[-1],
             state.gamma,
-            "Gamma",
             step=0.001,
             values=GAMMA_VALUES,
-            height=regimen_height,
             decimal_places=3,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + 11 * regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + 11 * regimen_spacing, regimen_width, regimen_height),
+            "Hidden layer size",
             HIDDEN_LAYER_SIZE_VALUES[0],
             HIDDEN_LAYER_SIZE_VALUES[-1],
             state.hidden_layer_size,
-            "Hidden layer size",
             is_int=True,
             values=HIDDEN_LAYER_SIZE_VALUES,
-            height=regimen_height,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
-        ui_slider.Slider(
-            regimen_left,
-            regimen_top + 12 * regimen_spacing,
-            regimen_width,
+        SliderRow(
+            (regimen_left, regimen_top + 12 * regimen_spacing, regimen_width, regimen_height),
+            "Hidden layer count",
             HIDDEN_LAYER_COUNT_VALUES[0],
             HIDDEN_LAYER_COUNT_VALUES[-1],
             state.hidden_layer_count,
-            "Hidden layer count",
             is_int=True,
             values=HIDDEN_LAYER_COUNT_VALUES,
-            height=regimen_height,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
         ),
     )
 
@@ -2017,14 +2171,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider.enabled = not state.running
             
         max_batch_frames = state.rounds_per_batch * state.match_time_limit * len(SHIP_DEFINITIONS)
-        regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].label = f"Replay buffer size (batch = {max_batch_frames})"
+        regimen_sliders[
+            REGIMEN_REPLAY_BUFFER_INDEX
+        ].label = f"Replay size, batch={_format_short_count(max_batch_frames)}"
         buffer_size_mb = int((state.replay_buffer_size / 1000) * 5)
         regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value_suffix = f" ({buffer_size_mb}MB)"
         if max_batch_frames > 0:
             utd = (state.minibatch_size * state.replay_updates_per_batch) / max_batch_frames
-            regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].label = f"Updates per minibatch (UTD = {utd:.2f})"
+            regimen_sliders[
+                REGIMEN_REPLAY_UPDATES_INDEX
+            ].label = f"Gradient steps, UTD={utd:.1f}"
         else:
-            regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].label = "Updates per minibatch"
+            regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].label = "Gradient steps"
 
         active_session = training_session[0]
         session_status = active_session.status if active_session is not None else None
