@@ -18,7 +18,7 @@ This document is the implementation source of truth for the feature.
 
 - `build.cmd` must continue to build the lightweight `StarAI` distribution.
 - `build.cmd` must not bundle PyTorch.
-- `buildtrain.cmd` must continue to build the training distribution.
+- `buildgpu.cmd` must build the training distribution.
 - The training distribution may continue to use GPU PyTorch.
 - The lightweight distribution must still launch when PyTorch is absent.
 
@@ -26,10 +26,11 @@ This document is the implementation source of truth for the feature.
 
 Add a third build target:
 
-- `buildcpuai.cmd`
+- `buildcpu.cmd`
 - `StarAI_CPUAI.spec`
 
-`buildcpuai.cmd` should call `build.ps1` with `-BuildName "StarAI_CPUAI"`.
+`buildcpu.cmd` should call `build.ps1` with `-BuildName "StarAI_CPUAI"` and the
+`.venv-cpuai` Python executable.
 
 `StarAI_CPUAI.spec` should be based on `StarAI.spec` with these differences:
 
@@ -72,7 +73,7 @@ Recommended local workflow:
    virtual environment to be selected without breaking existing commands.
 
 If `build.ps1` is updated for an explicit Python path, existing `build.cmd` and
-`buildtrain.cmd` behavior must remain unchanged.
+`buildgpu.cmd` must use the main `.venv` Python executable.
 
 ## Runtime Requirements
 
@@ -404,11 +405,11 @@ Add focused tests for:
 Existing smoke tests must continue to pass for:
 
 - `build.cmd`
-- `buildtrain.cmd`
+- `buildgpu.cmd`
 
 Add smoke coverage for:
 
-- `buildcpuai.cmd`, if PyTorch CPU is installed in the build environment.
+- `buildcpu.cmd`, if PyTorch CPU is installed in `.venv-cpuai`.
 
 If CI or local test environments do not have CPU PyTorch installed, CPU build
 smoke tests may be opt-in, but normal unit tests must still pass without
@@ -422,8 +423,8 @@ Deliverables:
 
 - Add `requirements-cpuai.txt`.
 - Add `StarAI_CPUAI.spec`.
-- Add `buildcpuai.cmd`.
-- Preserve `build.cmd` and `buildtrain.cmd`.
+- Add `buildcpu.cmd`.
+- Preserve `build.cmd` and add `buildgpu.cmd` for the training distribution.
 - Optionally update `build.ps1` to accept an explicit Python executable or venv
   without changing existing command behavior.
 - Add tests or static assertions for build/spec configuration.
@@ -432,7 +433,7 @@ Acceptance criteria:
 
 - `StarAI.spec` still excludes PyTorch.
 - `StarAI_CPUAI.spec` includes PyTorch by not excluding it.
-- `buildcpuai.cmd` targets `StarAI_CPUAI`.
+- `buildcpu.cmd` targets `StarAI_CPUAI` using `.venv-cpuai`.
 - No runtime code depends on PyTorch being installed.
 
 ### Phase 2: Battle AI Runtime Skeleton

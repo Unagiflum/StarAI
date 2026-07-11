@@ -38,3 +38,13 @@ def preferred_device():
     if _torch is None:
         return None
     return _torch.device("cuda" if _torch.cuda.is_available() else "cpu")
+
+
+def move_optimizer_state_to_device(optimizer, device) -> None:
+    """Move loaded optimizer tensor state to the selected training device."""
+    if _torch is None or optimizer is None or device is None:
+        return
+    for state in optimizer.state.values():
+        for key, value in list(state.items()):
+            if hasattr(value, "to"):
+                state[key] = value.to(device)

@@ -13,6 +13,7 @@ from typing import Any
 
 import src.const as const
 from src.audio import DisplayGatedAudioService, NullAudioService
+from src.training import torch_backend
 from src.training.contracts import (
     ACTION_SCHEMA_METADATA,
     ACTION_SCHEMA_VERSION,
@@ -483,8 +484,10 @@ class TrainingSession:
             ValueNetworkConfig(
                 hidden_layer_width=int(architecture["hidden_layer_width"]),
                 hidden_layer_count=int(architecture["hidden_layer_count"]),
-            )
+            ),
+            device=torch_backend.preferred_device(),
         )
+        device = next(model.parameters()).device
         optimizer = build_optimizer(model, learning_rate=self.config.learning_rate)
         replay_buffer = TrainingReplayBuffer(self.config.replay_capacity)
 
@@ -495,8 +498,9 @@ class TrainingSession:
                     model,
                     optimizer=optimizer,
                     replay_buffer=replay_buffer,
-                    map_location="cpu",
+                    map_location=device,
                 )
+                torch_backend.move_optimizer_state_to_device(optimizer, device)
         return model, optimizer, replay_buffer
 
     def _record_completed_batch(self, result: TrainingBatchResult) -> None:

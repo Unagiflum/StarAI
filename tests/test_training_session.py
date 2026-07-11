@@ -353,6 +353,55 @@ class TrainingSessionTests(unittest.TestCase):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")
 
+    def test_build_components_loads_checkpoint_on_preferred_device(self):
+        torch = torch_backend.require_torch()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            slot.pth_path.write_bytes(b"checkpoint")
+            session = TrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                ),
+                batch_grouping=1,
+            )
+            device = torch.device("cpu")
+
+            with (
+                mock.patch(
+                    "src.training.session.torch_backend.preferred_device",
+                    return_value=device,
+                ) as preferred_device,
+                mock.patch(
+                    "src.training.session.load_training_checkpoint",
+                ) as load_checkpoint,
+                mock.patch(
+                    "src.training.session.torch_backend.move_optimizer_state_to_device",
+                ) as move_optimizer_state,
+            ):
+                model, optimizer, _ = session._build_components()
+
+        preferred_device.assert_called_once_with()
+        self.assertEqual(next(model.parameters()).device, device)
+        load_checkpoint.assert_called_once()
+        self.assertEqual(load_checkpoint.call_args.kwargs["map_location"], device)
+        move_optimizer_state.assert_called_once_with(optimizer, device)
+
     def test_session_accepts_existing_batch_history_and_logs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

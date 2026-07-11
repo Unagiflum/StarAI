@@ -7,9 +7,9 @@ Status: Implemented, verification passed.
 Completed:
 
 - Added `requirements-cpuai.txt` for the CPU inference build environment.
-- Added `buildcpuai.cmd` targeting `StarAI_CPUAI`.
+- Added the CPU AI build command, now finalized as `buildcpu.cmd`, targeting `StarAI_CPUAI` through `.venv-cpuai`.
 - Added `StarAI_CPUAI.spec` based on the lightweight spec while allowing PyTorch to be bundled and excluding `torchvision` and `torchaudio`.
-- Left `build.cmd`, `buildtrain.cmd`, and `build.ps1` behavior unchanged.
+- Preserved `build.cmd`; the training build command is now finalized as `buildgpu.cmd`.
 - Added static unittest coverage for the build/spec split.
 
 Verification:
@@ -120,3 +120,46 @@ Notes:
 
 - The AI manager continues to expose raw label values such as `Earthling-01` or `None found`; the HUD draw layer owns the visible `AI: ` prefix.
 - Pixel-level layout tests were not added because the focused rendering test asserts the label text requested by the HUD path, matching the Phase 5 acceptance criteria.
+
+## Phase 6: End-To-End Verification
+
+Status: Partially verified; remaining blockers are environment/pre-existing test issues.
+
+Completed:
+
+- Re-ran the focused inference, menu handoff, HUD label, and build/static test set.
+- Ran full unittest discovery to check for regressions outside the focused Phase 1-5 coverage.
+- Ran the lightweight packaged smoke build through `build.cmd -SkipTests`.
+- Attempted the training packaged smoke build through the then-current training command; PyInstaller completed, produced the executable and zip, and a direct packaged smoke run exited cleanly.
+- Checked the active build environment for CPU AI smoke suitability.
+- Added explicit canonical build commands: `build.cmd` for the lightweight build, `buildcpu.cmd` for the CPU PyTorch inference build using `.venv-cpuai`, and `buildgpu.cmd` for the GPU/training build using `.venv`.
+- Removed legacy/extra command aliases so only `build.cmd`, `buildcpu.cmd`, and `buildgpu.cmd` are exposed.
+- Added an optional `build.ps1 -PythonPath` override so command files can pin the intended virtual environment.
+
+Verification:
+
+- Passed: `.venv\Scripts\python.exe -m unittest tests.test_cpuai_build tests.test_battle_ai tests.test_match_ui tests.test_fleet_picker tests.test_battle_entry tests.test_menu_state tests.test_configuration_registry`
+- Failed: `.venv\Scripts\python.exe -m unittest discover -s tests`
+  - Same non-inference failures previously observed: `test_collision_pipeline` KzerZa/Orz special-object crew-loss attributes, and `test_train_ai_ui` display-off console test doubles missing `previous_opponent`.
+- Passed: `.\build.cmd -SkipTests`
+  - Produced `dist\StarAI\StarAI.exe`.
+  - Produced `dist\StarAI-windows-x64.zip`.
+  - Packaged smoke test completed.
+- Timed out after 300 seconds: training packaged build command with `-SkipTests`
+  - PyInstaller completed and produced `dist\StarAI_Train\StarAI_Train.exe`.
+  - `dist\StarAI_Train-windows-x64.zip` exists.
+  - No `build\smoke-data\smoke-test-error.log` was produced.
+- Passed direct training smoke check: `dist\StarAI_Train\StarAI_Train.exe --smoke-test` with dummy SDL drivers and isolated smoke data.
+- Passed: `.venv\Scripts\python.exe -m unittest tests.test_cpuai_build`
+- Confirmed: `.venv-cpuai` has CPU PyTorch installed (`torch 2.7.0+cpu`, CUDA unavailable).
+
+Blocked:
+
+- CPU AI packaged smoke has not yet been rerun after restoring `.venv-cpuai` to CPU torch and adding the canonical `buildcpu.cmd` command. `.venv-cpuai` now has PyInstaller available, so the next verification command is `.\buildcpu.cmd -SkipTests`.
+- Manual interactive verification for human-vs-AI, AI-vs-human, AI-vs-AI, pause/resume, exit/end-match, and next-round selection was not performed in this non-interactive run.
+
+Notes:
+
+- No Phase 6 code changes were needed for the inference implementation.
+- The lightweight build remains smoke-verified without bundling PyTorch.
+- The training build remains launch-smoke verified from the produced executable, but `.\buildgpu.cmd -SkipTests` should be rerun with a longer timeout if a complete wrapper transcript is required.

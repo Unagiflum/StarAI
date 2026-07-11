@@ -205,8 +205,9 @@ def load_battle_ai_model(slot: TrainingModelSlot) -> BattleAIModel:
             hidden_layer_width=int(architecture["hidden_layer_width"]),
             hidden_layer_count=int(architecture["hidden_layer_count"]),
         )
-        model = build_value_network(config, device="cpu")
-        load_training_checkpoint(slot.pth_path, model, map_location="cpu")
+        device = torch_backend.preferred_device()
+        model = build_value_network(config, device=device)
+        load_training_checkpoint(slot.pth_path, model, map_location=device)
         model.eval()
     except Exception as exc:
         raise ModelLoadFailure(str(exc)) from exc

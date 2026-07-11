@@ -13,6 +13,7 @@ from src.Battle.battle_ai import (
     BattleAIModel,
     FallbackController,
     controls_for_action_index,
+    load_battle_ai_model,
 )
 from src.training.model_registry import (
     TrainingModelRepository,
@@ -41,6 +42,42 @@ def make_ship(name, player, position=(4000, 4000), rotation=0.0):
 
 
 class BattleAIModelResolutionTests(unittest.TestCase):
+    def test_model_loading_uses_preferred_device_for_inference(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            slot = self._write_user_slot(repository, "Earthling", 1, "Default")
+            model = mock.Mock()
+
+            with (
+                mock.patch(
+                    "src.Battle.battle_ai.torch_backend.get_torch",
+                    return_value=object(),
+                ),
+                mock.patch(
+                    "src.Battle.battle_ai.torch_backend.preferred_device",
+                    return_value="cuda",
+                ),
+                mock.patch(
+                    "src.Battle.battle_ai.build_value_network",
+                    return_value=model,
+                ) as build_network,
+                mock.patch(
+                    "src.Battle.battle_ai.load_training_checkpoint"
+                ) as load_checkpoint,
+            ):
+                loaded = load_battle_ai_model(slot)
+
+        self.assertIs(loaded.model, model)
+        build_network.assert_called_once()
+        self.assertEqual(build_network.call_args.kwargs["device"], "cuda")
+        load_checkpoint.assert_called_once_with(
+            slot.pth_path,
+            model,
+            map_location="cuda",
+        )
+        model.eval.assert_called_once_with()
+
     def test_default_model_priority_precedes_first_non_default_slot(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

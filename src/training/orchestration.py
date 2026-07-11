@@ -471,11 +471,13 @@ def controls_for_simple_behavior(simulation, config: TrainingOrchestrationConfig
 def build_training_components(config: TrainingOrchestrationConfig):
     """Construct the model, optimizer, and replay buffer for a new session."""
 
+    device = torch_backend.preferred_device()
     model = build_value_network(
         ValueNetworkConfig(
             hidden_layer_width=config.hidden_layer_width,
             hidden_layer_count=config.hidden_layer_count,
-        )
+        ),
+        device=device,
     )
     optimizer = build_optimizer(model, learning_rate=config.learning_rate)
     replay_buffer = TrainingReplayBuffer(config.replay_capacity)
@@ -655,8 +657,9 @@ def _load_opponent_model(slot: TrainingModelSlot):
             hidden_layer_width=int(architecture["hidden_layer_width"]),
             hidden_layer_count=int(architecture["hidden_layer_count"]),
         )
-        model = build_value_network(config)
-        load_training_checkpoint(slot.pth_path, model, map_location="cpu")
+        device = torch_backend.preferred_device()
+        model = build_value_network(config, device=device)
+        load_training_checkpoint(slot.pth_path, model, map_location=device)
         model.eval()
         return model
     except Exception as exc:

@@ -1,14 +1,21 @@
 [CmdletBinding()]
 param(
     [switch]$SkipTests,
-    [string]$BuildName = "StarAI"
+    [string]$BuildName = "StarAI",
+    [string]$PythonPath
 )
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 
-if (Test-Path $VenvPython) {
+if ($PythonPath) {
+    $ResolvedPython = Resolve-Path -LiteralPath $PythonPath -ErrorAction SilentlyContinue
+    if (-not $ResolvedPython) {
+        throw "PythonPath was not found: $PythonPath"
+    }
+    $Python = $ResolvedPython.Path
+} elseif (Test-Path $VenvPython) {
     $Python = $VenvPython
 } else {
     $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
@@ -20,9 +27,9 @@ if (Test-Path $VenvPython) {
 
 Push-Location $ProjectRoot
 try {
-    & $Python -c "import PyInstaller" 2>$null
+    & $Python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('PyInstaller') else 1)"
     if ($LASTEXITCODE -ne 0) {
-        throw "PyInstaller is not installed. Run: $Python -m pip install -r requirements-build.txt"
+        throw "PyInstaller is not installed. Run: $Python -m pip install -r requirements-build-tools.txt"
     }
 
     if (-not $SkipTests) {

@@ -59,10 +59,43 @@ class CpuAIBuildConfigurationTests(unittest.TestCase):
         )
 
     def test_cpuai_command_targets_cpuai_build_name(self):
-        command = (PROJECT_ROOT / "buildcpuai.cmd").read_text(encoding="utf-8")
+        command = (PROJECT_ROOT / "buildcpu.cmd").read_text(encoding="utf-8")
 
         self.assertIn('-BuildName "StarAI_CPUAI"', command)
+        self.assertIn(".venv-cpuai\\Scripts\\python.exe", command)
+        self.assertIn("-PythonPath", command)
         self.assertIn("build.ps1", command)
+
+    def test_gpu_command_targets_train_build_with_main_venv(self):
+        command = (PROJECT_ROOT / "buildgpu.cmd").read_text(encoding="utf-8")
+
+        self.assertIn('-BuildName "StarAI_Train"', command)
+        self.assertIn(".venv\\Scripts\\python.exe", command)
+        self.assertIn("-PythonPath", command)
+        self.assertIn("build.ps1", command)
+
+    def test_only_canonical_build_commands_are_exposed(self):
+        commands = {path.name for path in PROJECT_ROOT.glob("build*.cmd")}
+
+        self.assertEqual(commands, {"build.cmd", "buildcpu.cmd", "buildgpu.cmd"})
+
+    def test_build_script_keeps_default_venv_and_allows_python_path(self):
+        script = (PROJECT_ROOT / "build.ps1").read_text(encoding="utf-8")
+
+        self.assertIn('[string]$PythonPath', script)
+        self.assertIn('".venv\\Scripts\\python.exe"', script)
+        self.assertIn("if ($PythonPath)", script)
+        self.assertIn("Resolve-Path -LiteralPath $PythonPath", script)
+        self.assertIn("requirements-build-tools.txt", script)
+
+    def test_build_tools_requirements_do_not_pull_runtime_torch(self):
+        requirements = (
+            PROJECT_ROOT / "requirements-build-tools.txt"
+        ).read_text(encoding="utf-8").splitlines()
+
+        self.assertIn("pyinstaller==6.21.0", requirements)
+        self.assertFalse(any(line.startswith("-r ") for line in requirements))
+        self.assertFalse(any("torch" in line for line in requirements))
 
     def test_cpuai_requirements_use_cpu_torch_wheel_index(self):
         requirements = (
