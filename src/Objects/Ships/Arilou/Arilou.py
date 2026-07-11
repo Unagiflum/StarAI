@@ -104,13 +104,14 @@ class Arilou(SpaceShip):
             self.teleport_frame += 1
         return True
 
-    def take_damage(self, damage, *, shieldable=True, non_lethal=False):
+    def take_damage(self, damage, *, shieldable=True, non_lethal=False, source=None):
         if self.ability_actions_paused:
             return 0
         return super().take_damage(
             damage,
             shieldable=shieldable,
             non_lethal=non_lethal,
+            source=source,
         )
 
     def draw(self, screen, scale_factor, translation, interp_t=0.0):

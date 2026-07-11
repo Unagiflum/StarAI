@@ -1,6 +1,8 @@
 import unittest
 from types import SimpleNamespace
 
+from src.collision_capabilities import CollisionCapabilities, CollisionRole
+from src.training.event_ledger import BattleEventLedger
 from src.training.event_ledger import (
     EVENT_ACTION_USED,
     EVENT_CREW_CHANGED,
@@ -350,6 +352,76 @@ class TrainingRewardComponentTests(unittest.TestCase):
         )
 
         self.assertEqual(components[REWARD_KILL_ENEMY_OBJECT], 0.0)
+
+    def test_enemy_planet_crew_loss_receives_no_credit(self):
+        planet = SimpleNamespace(
+            collision_capabilities=CollisionCapabilities(CollisionRole.PLANET)
+        )
+        event = TrainingBattleEvent(
+            frame_id=1,
+            event_type=EVENT_CREW_CHANGED,
+            target=self.enemy,
+            obj=planet,
+            magnitude=-4,
+        )
+        start = decision(1, self.trainee, self.enemy)
+
+        components = calculate_reward_components(
+            start,
+            [start],
+            [outcome(1, events=(event,))],
+        )
+
+        self.assertEqual(components[REWARD_ENEMY_LOSES_CREW], 0.0)
+
+    def test_enemy_druuge_a2_crew_loss_receives_partial_credit(self):
+        event = TrainingBattleEvent(
+            frame_id=1,
+            event_type=EVENT_CREW_CHANGED,
+            target=self.enemy,
+            obj=SimpleNamespace(name="DruugeA2"),
+            ability_name="DruugeA2",
+            magnitude=-4,
+        )
+        start = decision(1, self.trainee, self.enemy)
+
+        components = calculate_reward_components(
+            start,
+            [start],
+            [outcome(1, events=(event,))],
+        )
+
+        self.assertEqual(components[REWARD_ENEMY_LOSES_CREW], 1.0)
+
+    def test_enemy_death_uses_accumulated_source_weighted_crew_loss_credit(self):
+        ledger = BattleEventLedger()
+        planet = SimpleNamespace(
+            collision_capabilities=CollisionCapabilities(CollisionRole.PLANET)
+        )
+        druuge_a2 = SimpleNamespace(name="DruugeA2")
+        weapon = SimpleNamespace(name="EarthlingA1")
+        enemy = SimpleNamespace(name="Druuge", current_hp=10)
+
+        enemy.current_hp = 8
+        ledger.record_crew_changed(enemy, -2, source=planet)
+        enemy.current_hp = 7
+        ledger.record_crew_changed(enemy, -1, source=druuge_a2)
+        enemy.current_hp = 0
+        ledger.record_crew_changed(enemy, -7, source=weapon)
+        death_event = ledger.events[-1]
+        start = decision(1, self.trainee, enemy)
+
+        components = calculate_reward_components(
+            start,
+            [start],
+            [outcome(1, events=(death_event,))],
+        )
+
+        self.assertEqual(death_event.event_type, EVENT_SHIP_DIED)
+        self.assertAlmostEqual(
+            components[REWARD_KILL_ENEMY],
+            (2 * 0.0 + 1 * 0.25 + 7 * 1.0) / 10,
+        )
 
 
 class RollingReturnPipelineTests(unittest.TestCase):

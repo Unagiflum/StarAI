@@ -6,6 +6,7 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
+import src.const as const
 from src.training import combat_adapters
 from src.training.event_ledger import (
     EVENT_ACTION_USED,
@@ -305,7 +306,9 @@ def calculate_immediate_reward_components(
                 components[REWARD_SPAWN_A2] = 1.0
         elif event.event_type == EVENT_CREW_CHANGED:
             if _same_entity(event.target, enemy_ship) and event.magnitude < 0:
-                components[REWARD_ENEMY_LOSES_CREW] += -event.magnitude
+                components[REWARD_ENEMY_LOSES_CREW] += (
+                    -event.magnitude * _source_reward_credit(event)
+                )
             elif _same_entity(event.target, self_ship) and event.magnitude < 0:
                 components[REWARD_LOSE_CREW] += -event.magnitude
             elif _same_entity(event.target, self_ship) and event.magnitude > 0:
@@ -320,7 +323,7 @@ def calculate_immediate_reward_components(
                 components[REWARD_KILL_ENEMY_OBJECT] += 1.0
         elif event.event_type == EVENT_SHIP_DIED:
             if _same_entity(event.target, enemy_ship):
-                components[REWARD_KILL_ENEMY] += 1.0
+                components[REWARD_KILL_ENEMY] += _kill_reward_credit(event)
             elif _same_entity(event.target, self_ship):
                 components[REWARD_DIE] += 1.0
 
@@ -485,6 +488,30 @@ def _owner_name(event: TrainingBattleEvent) -> str:
     return str(getattr(event.owner, "name", "") or "")
 
 
+def _source_reward_credit(event: TrainingBattleEvent) -> float:
+    metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
+    if "source_credit" in metadata:
+        return _clamp01(_finite_float(metadata["source_credit"], default=1.0))
+    source_name = _ability_name(event)
+    if source_name == "DruugeA2":
+        return const.DRUUGE_A2_KILL_CREDIT
+    role = getattr(getattr(event.obj, "collision_capabilities", None), "role", None)
+    if getattr(role, "name", None) == "PLANET":
+        return const.PLANET_KILL_CREDIT
+    return 1.0
+
+
+def _kill_reward_credit(event: TrainingBattleEvent) -> float:
+    metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
+    if "kill_credit" in metadata:
+        return _clamp01(_finite_float(metadata["kill_credit"], default=1.0))
+    return _source_reward_credit(event)
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
 def _same_entity(left, right) -> bool:
     if left is None or right is None:
         return False
@@ -514,9 +541,9 @@ def _vector(obj, attribute: str) -> tuple[float, float]:
     return _finite_float(value[0]), _finite_float(value[1])
 
 
-def _finite_float(value) -> float:
+def _finite_float(value, default: float = 0.0) -> float:
     if isinstance(value, bool):
         return float(value)
     if isinstance(value, (int, float)) and math.isfinite(value):
         return float(value)
-    return 0.0
+    return float(default)

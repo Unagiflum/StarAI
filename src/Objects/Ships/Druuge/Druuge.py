@@ -34,6 +34,7 @@ class Druuge(SpaceShip):
             2,
             energy_change=final_energy - self.current_energy,
             crew_change=-1,
+            crew_change_source=furnace,
             launch_sound=furnace.launch_sound,
             use_first_object_sound=False,
         )

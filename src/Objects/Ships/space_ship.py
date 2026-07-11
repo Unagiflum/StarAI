@@ -445,7 +445,7 @@ class SpaceShip(PlayerObject):
                 on_host_self_destruct()
         self.boarded_marines.clear()
 
-    def take_damage(self, damage, *, shieldable=True, non_lethal=False):
+    def take_damage(self, damage, *, shieldable=True, non_lethal=False, source=None):
         """Apply hull/crew damage and return the amount actually taken.
 
         Non-damage effects should not use this method. Exceptional damage that
@@ -461,7 +461,7 @@ class SpaceShip(PlayerObject):
         min_hp = 1 if non_lethal else 0
         self.current_hp = max(min_hp, self.current_hp - damage)
         applied = previous_hp - self.current_hp
-        event_ledger.record_crew_changed(self, -applied)
+        event_ledger.record_crew_changed(self, -applied, source=source)
         return applied
 
     def update(self):
@@ -645,6 +645,7 @@ class SpaceShip(PlayerObject):
         energy_change=None,
         resets_energy_wait=True,
         crew_change=0,
+        crew_change_source=None,
         side_effects=(),
         launch_sound=None,
         use_first_object_sound=True,
@@ -668,6 +669,7 @@ class SpaceShip(PlayerObject):
             energy_change=-cost if energy_change is None else energy_change,
             resets_energy_wait=resets_energy_wait,
             crew_change=crew_change,
+            crew_change_source=crew_change_source,
             cooldown_frames=const.cooldown_frames(wait),
             cooldown_committed=True,
             side_effects=tuple(side_effects),
@@ -689,7 +691,11 @@ class SpaceShip(PlayerObject):
         if plan.crew_change:
             self.current_hp += plan.crew_change
             if not self._crew_change_is_launched_unit_transfer(plan):
-                event_ledger.record_crew_changed(self, plan.crew_change)
+                event_ledger.record_crew_changed(
+                    self,
+                    plan.crew_change,
+                    source=plan.crew_change_source,
+                )
         cooldown_action = None
         if plan.cooldown_committed:
             cooldown_action = plan.action_number

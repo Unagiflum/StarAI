@@ -25,6 +25,7 @@ class ActionPlan:
     energy_change: int = 0
     resets_energy_wait: bool = True
     crew_change: int = 0
+    crew_change_source: Any | None = None
     cooldown_frames: int = 0
     cooldown_committed: bool = False
     side_effects: tuple[ActionEffect, ...] = ()

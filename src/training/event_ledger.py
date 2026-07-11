@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import src.const as const
+
 
 EVENT_OBJECT_SPAWNED = "object_spawned"
 EVENT_OBJECT_REMOVED = "object_removed"
@@ -45,6 +47,8 @@ class BattleEventLedger:
         self.current_frame = 0
         self.events: list[TrainingBattleEvent] = []
         self._removed_object_ids: set[int] = set()
+        self._crew_loss_totals: dict[int, float] = {}
+        self._credited_crew_loss_totals: dict[int, float] = {}
 
     def append(self, event_type: str, **fields) -> TrainingBattleEvent:
         event = TrainingBattleEvent(
@@ -101,6 +105,7 @@ class BattleEventLedger:
     def record_crew_changed(self, ship, delta: float, *, actor=None, source=None):
         if delta == 0:
             return None
+        source_credit = _source_reward_credit(source)
         event = self.append(
             EVENT_CREW_CHANGED,
             actor=actor,
@@ -110,7 +115,10 @@ class BattleEventLedger:
             magnitude=float(delta),
             ability_name=_ability_name(source),
             action=_action_for_object(source),
+            metadata={"source_credit": source_credit},
         )
+        if delta < 0:
+            self._record_crew_loss_credit(ship, -float(delta), source_credit)
         if delta < 0 and getattr(ship, "current_hp", 1) <= 0:
             self.append(
                 EVENT_SHIP_DIED,
@@ -120,8 +128,33 @@ class BattleEventLedger:
                 obj=source,
                 ability_name=_ability_name(source),
                 action=_action_for_object(source),
+                metadata={"kill_credit": self._kill_credit_for_ship(ship)},
             )
         return event
+
+    def _record_crew_loss_credit(
+        self,
+        ship,
+        crew_lost: float,
+        source_credit: float,
+    ) -> None:
+        ship_id = id(ship)
+        loss = max(0.0, float(crew_lost))
+        self._crew_loss_totals[ship_id] = (
+            self._crew_loss_totals.get(ship_id, 0.0) + loss
+        )
+        self._credited_crew_loss_totals[ship_id] = (
+            self._credited_crew_loss_totals.get(ship_id, 0.0)
+            + loss * source_credit
+        )
+
+    def _kill_credit_for_ship(self, ship) -> float:
+        ship_id = id(ship)
+        total_loss = self._crew_loss_totals.get(ship_id, 0.0)
+        if total_loss <= 0.0:
+            return 1.0
+        credited_loss = self._credited_crew_loss_totals.get(ship_id, 0.0)
+        return _clamp01(credited_loss / total_loss)
 
     def record_battery_changed(self, ship, delta: float, *, actor=None, source=None):
         if delta == 0:
@@ -285,3 +318,18 @@ def _action_for_object(obj) -> str | None:
     if name.endswith("A3"):
         return "A3"
     return None
+
+
+def _source_reward_credit(source) -> float:
+    if source is None:
+        return 1.0
+    role = getattr(getattr(source, "collision_capabilities", None), "role", None)
+    if getattr(role, "name", None) == "PLANET":
+        return const.PLANET_KILL_CREDIT
+    if _ability_name(source) == "DruugeA2":
+        return const.DRUUGE_A2_KILL_CREDIT
+    return 1.0
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))

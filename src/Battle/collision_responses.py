@@ -1,5 +1,6 @@
 """Gameplay policies applied after collision geometry identifies contact."""
 
+import inspect
 import math
 
 import src.const as const
@@ -53,10 +54,12 @@ def damage_ship(ship, damage, *, shieldable=True, non_lethal=False, source=None)
     """
     take_damage = getattr(ship, "take_damage", None)
     if take_damage is not None:
-        applied = take_damage(
+        applied = _take_damage(
+            take_damage,
             damage,
             shieldable=shieldable,
             non_lethal=non_lethal,
+            source=source,
         )
     else:
         previous_hp = ship.current_hp
@@ -67,6 +70,30 @@ def damage_ship(ship, damage, *, shieldable=True, non_lethal=False, source=None)
     if applied > 0 and ship.current_hp <= 0:
         ship.last_lethal_damage_source = source
     return applied
+
+
+def _take_planet_impact_damage(handler, damage, *, source):
+    try:
+        signature = inspect.signature(handler)
+    except (TypeError, ValueError):
+        return handler(damage)
+    if "source" in signature.parameters:
+        return handler(damage, source=source)
+    return handler(damage)
+
+
+def _take_damage(handler, damage, *, shieldable, non_lethal, source):
+    try:
+        signature = inspect.signature(handler)
+    except (TypeError, ValueError):
+        return handler(damage, shieldable=shieldable, non_lethal=non_lethal)
+    kwargs = {
+        "shieldable": shieldable,
+        "non_lethal": non_lethal,
+    }
+    if "source" in signature.parameters:
+        kwargs["source"] = source
+    return handler(damage, **kwargs)
 
 
 def ship_is_area_target(source, ship):
@@ -450,9 +477,13 @@ def resolve_ship_planet_collision(
                     ship, "take_planet_impact_damage", None
                 )
                 if take_planet_damage is None:
-                    damage_ship(ship, damage)
+                    damage_ship(ship, damage, source=planet)
                 else:
-                    take_planet_damage(damage)
+                    _take_planet_impact_damage(
+                        take_planet_damage,
+                        damage,
+                        source=planet,
+                    )
                 BattleEffect.play_boom(damage)
 
         ship_impact = getattr(ship, "impact_capabilities", None)
