@@ -727,7 +727,7 @@ class GenericSliderTests(unittest.TestCase):
 class RegimenSliderTests(unittest.TestCase):
     def test_regimen_sliders_expose_the_requested_discrete_values(self):
         self.assertEqual(ROUNDS_PER_BATCH_VALUES, tuple(range(1, 51, 1)))
-        self.assertEqual(BATCH_GROUPING_VALUES, tuple(range(25, 1001, 25)))
+        self.assertEqual(BATCH_GROUPING_VALUES, tuple(range(5, 201, 5)))
         self.assertEqual(
             MATCH_TIME_LIMIT_VALUES,
             tuple(range(240, 12001, 240)),
