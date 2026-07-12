@@ -1290,20 +1290,20 @@
         "collide_fighters": false,
         "omnidirectional": true,
         "has_sprites": false,
-        "anim_length": 5,
+        "anim_length": 7,
         "stroke_width": 2,
         "colors": [
             [
                 255,
                 100,
                 255,
-                255
+                50
             ],
             [
                 255,
                 100,
                 255,
-                50
+                255
             ]
         ],
         "file_path": "Objects/Ships/Syreen/A2/",

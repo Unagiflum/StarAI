@@ -11,7 +11,6 @@ from src.Objects.Ships.registry import create_ship
 from src.Objects.Ships.Syreen.A2.SyreenA2 import (
     SyreenA2,
     SyreenSongEffect,
-    _farthest_alpha_radius,
 )
 from src.Objects.Ships.Syreen.A2.SyreenCrew import SyreenCrew
 from src.collision_capabilities import (
@@ -298,7 +297,7 @@ class SyreenSongTests(unittest.TestCase):
         self.assertEqual(effect.position, origin)
         self.assertEqual(effect.render_layer, "after_lasers")
 
-    def test_starting_radius_is_cached_outside_every_alpha_pixel(self):
+    def test_song_effect_uses_full_range_and_anim_length(self):
         song = SyreenA2(self.parent)
         effect = next(
             spawned
@@ -306,42 +305,35 @@ class SyreenSongTests(unittest.TestCase):
             if isinstance(spawned, SyreenSongEffect)
         )
         definition = ABILITY_DEFINITIONS["SyreenA2"]
-        sprite = self.parent.resources.ship("Syreen").sprites[0]
-        gun_x, gun_y = definition.gun_locations[0]
-        farthest = _farthest_alpha_radius(sprite, (gun_x, gun_y))
 
-        self.assertAlmostEqual(
-            effect.starting_radius,
-            farthest + definition.stroke_width / 2.0,
-        )
-        self.assertGreater(effect.starting_radius, farthest)
+        self.assertEqual(effect.radius, definition.range)
+        self.assertEqual(effect.total_frames, definition.anim_length)
 
-    def test_ring_radius_and_color_interpolate_linearly(self):
+    def test_ring_radius_is_fixed_and_color_pulses(self):
         effect = SyreenSongEffect(
             position=[100.0, 100.0],
-            starting_radius=20.0,
-            target_radius=80.0,
+            radius=80.0,
             thickness=8,
             colors=((200, 100, 50, 240), (100, 50, 0, 40)),
-            total_frames=4,
+            total_frames=5,
         )
 
         samples = []
-        for frame in range(4):
+        for frame in range(5):
             effect.current_frame = frame
             samples.append(effect.radius_and_color())
 
-        self.assertEqual([sample[0] for sample in samples], [20.0, 40.0, 60.0, 80.0])
+        self.assertEqual([sample[0] for sample in samples], [80.0] * 5)
         self.assertEqual(samples[0][1], (200, 100, 50, 240))
-        self.assertEqual(samples[-1][1], (100, 50, 0, 40))
+        self.assertEqual(samples[2][1], (100, 50, 0, 40))
+        self.assertEqual(samples[-1][1], (200, 100, 50, 240))
 
     def test_ring_alpha_is_full_at_centerline_and_fades_at_edges(self):
         import pygame
 
         effect = SyreenSongEffect(
             position=[100.0, 100.0],
-            starting_radius=50.0,
-            target_radius=50.0,
+            radius=50.0,
             thickness=8,
             colors=((255, 100, 255, 200), (255, 100, 255, 200)),
             total_frames=2,
@@ -370,8 +362,7 @@ class SyreenSongTests(unittest.TestCase):
 
         effect = SyreenSongEffect(
             position=[50.0, 50.0],
-            starting_radius=200.0,
-            target_radius=200.0,
+            radius=200.0,
             thickness=8,
             colors=((255, 100, 255, 200), (255, 100, 255, 200)),
             total_frames=2,

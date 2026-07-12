@@ -1,6 +1,5 @@
 import math
 from collections import OrderedDict
-from weakref import WeakKeyDictionary
 
 import pygame
 import pygame.gfxdraw
@@ -8,30 +7,13 @@ import pygame.gfxdraw
 import src.const as const
 from src.Battle.effects import BattleEffect
 from src.Objects.Ships.ability import Ability
-from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.launch_geometry import direction_vector, mask_projection_bounds
 from src.Objects.Ships.Syreen.A2.SyreenCrew import SyreenCrew
-from src.resources import default_assets
-
-
-def _farthest_alpha_radius(surface, origin):
-    """Return the farthest alpha>0 pixel-center distance from origin."""
-    mask = pygame.mask.from_surface(surface, threshold=0)
-    origin_x, origin_y = origin
-    maximum_squared = 0.0
-    for bounds in mask.get_bounding_rects():
-        for y in range(bounds.top, bounds.bottom):
-            for x in range(bounds.left, bounds.right):
-                if mask.get_at((x, y)):
-                    maximum_squared = max(
-                        maximum_squared,
-                        (x - origin_x) ** 2 + (y - origin_y) ** 2,
-                    )
-    return math.sqrt(maximum_squared)
 
 
 class SyreenSongEffect(BattleEffect):
-    """Fixed-origin, expanding visual wave for the Syreen song."""
+    """Fixed-origin, fixed-radius visual pulse for the Syreen song."""
 
     render_layer = "after_lasers"
     _overlay_cache = OrderedDict()
@@ -40,15 +22,13 @@ class SyreenSongEffect(BattleEffect):
     def __init__(
         self,
         position,
-        starting_radius,
-        target_radius,
+        radius,
         thickness,
         colors,
         total_frames,
     ):
         super().__init__(position=position, frames=(), frame_delay=1)
-        self.starting_radius = starting_radius
-        self.target_radius = target_radius
+        self.radius = radius
         self.thickness = thickness
         self.colors = colors
         self.total_frames = total_frames
@@ -60,15 +40,16 @@ class SyreenSongEffect(BattleEffect):
     def radius_and_color(self, interp_t=0.0):
         denominator = max(1, self.total_frames - 1)
         progress = min(1.0, max(0.0, (self.current_frame + interp_t) / denominator))
-        radius = self.starting_radius + (
-            self.target_radius - self.starting_radius
-        ) * progress
+        color_progress = 1.0 - abs(2.0 * progress - 1.0)
         start, end = self.colors
         color = tuple(
-            round(start[channel] + (end[channel] - start[channel]) * progress)
+            round(
+                start[channel]
+                + (end[channel] - start[channel]) * color_progress
+            )
             for channel in range(4)
         )
-        return radius, color
+        return self.radius, color
 
     @classmethod
     def _overlay(cls, size):
@@ -202,32 +183,6 @@ class SyreenSongEffect(BattleEffect):
 
 
 class SyreenA2(Ability):
-    _starting_radius_cache = WeakKeyDictionary()
-
-    @classmethod
-    def preload_resources(cls, ability_name, resources=None):
-        resources = resources or default_assets()
-        ability_assets = super().preload_resources(ability_name, resources)
-        if resources in cls._starting_radius_cache:
-            return ability_assets
-
-        definition = ABILITY_DEFINITIONS[ability_name]
-        ship_definition = SHIP_DEFINITIONS[definition.ship_name]
-        ship_sprite = resources.ship(definition.ship_name).sprites[0]
-        gun_x, gun_y = definition.gun_locations[0]
-        gun_origin = (
-            gun_x * ship_definition.sprite_scale,
-            gun_y * ship_definition.sprite_scale,
-        )
-        farthest_radius = _farthest_alpha_radius(ship_sprite, gun_origin)
-        starting_radius = farthest_radius + definition.stroke_width / 2.0
-        if starting_radius >= definition.range:
-            raise ValueError(
-                f"Ability '{ability_name}' circle starts outside its configured range"
-            )
-        cls._starting_radius_cache[resources] = starting_radius
-        return ability_assets
-
     def __init__(self, parent):
         super().__init__("SyreenA2", parent)
         definition = ABILITY_DEFINITIONS["SyreenA2"]
@@ -242,17 +197,13 @@ class SyreenA2(Ability):
             if definition.spawn_angle_increment is not None
             else 25
         )
-        resources = getattr(parent, "resources", None) or default_assets()
-        if resources not in self._starting_radius_cache:
-            self.preload_resources("SyreenA2", resources)
 
         self._spawned_objects = []
         self.place_self()
         self._spawned_objects.append(
             SyreenSongEffect(
                 position=self.position,
-                starting_radius=self._starting_radius_cache[resources],
-                target_radius=self.range,
+                radius=self.range,
                 thickness=definition.stroke_width,
                 colors=definition.colors,
                 total_frames=definition.anim_length,
