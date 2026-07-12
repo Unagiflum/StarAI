@@ -98,6 +98,12 @@ INSTANCE_CONTROL_HEIGHT = 30
 INSTANCE_GAP = 8
 INSTANCE_DROPDOWN_VISIBLE_ROWS = 8
 INSTANCE_SEPARATOR_HEIGHT = 4
+TRAINING_INSTANCE_SOFT_MAX = 4
+TRAINING_INSTANCE_SUPPORTED_MAX = 25
+INSTANCE_POSITION_WIDTH = 56
+INSTANCE_RUNNING_WIDTH = 42
+INSTANCE_CLOSE_WIDTH = 60
+INSTANCE_ADD_WIDTH = 50
 INSTANCE_DROPDOWN_COLOR = (0, 70, 75, 235)
 INSTANCE_DROPDOWN_HOVER_COLOR = (0, 100, 110, 255)
 UI_TOP_MARGIN = INSTANCE_TOP + INSTANCE_CONTROL_HEIGHT + 12
@@ -179,7 +185,14 @@ class TrainingInstance:
 
 
 class TrainingInstanceManager:
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        soft_max=TRAINING_INSTANCE_SOFT_MAX,
+        supported_max=TRAINING_INSTANCE_SUPPORTED_MAX,
+    ):
+        self.soft_max = int(soft_max)
+        self.supported_max = int(supported_max)
         self._next_instance_id = 2
         self._writer_reservations: dict[tuple[str, int], int] = {}
         self.instances = [
@@ -223,6 +236,10 @@ class TrainingInstanceManager:
         instance.last_running = False
 
     def add_instance(self):
+        if not self.can_add_instance():
+            raise ValueError(
+                f"Only {self.supported_max} training instances are supported"
+            )
         instance_id = self._next_instance_id
         self._next_instance_id += 1
         self.disable_display(self.active_instance)
@@ -234,6 +251,12 @@ class TrainingInstanceManager:
         self.instances.append(instance)
         self.active_instance_id = instance_id
         return instance
+
+    def can_add_instance(self):
+        return len(self.instances) < self.supported_max
+
+    def add_requires_confirmation(self):
+        return len(self.instances) >= self.soft_max
 
     def select_instance(self, instance_id):
         previous = self.active_instance
@@ -294,7 +317,14 @@ class TrainingInstanceManager:
         return "last"
 
     def active_position_text(self):
-        return f"[{self.active_index + 1}/{len(self.instances)}]"
+        width = max(2, len(str(len(self.instances))))
+        return f"{self.active_index + 1:0{width}d}/{len(self.instances):0{width}d}"
+
+    def running_count(self):
+        return len(self.running_instances())
+
+    def running_count_text(self):
+        return f"{self.running_count():02d}>"
 
     def status_for(self, instance):
         return instance.session.status if instance.session is not None else None
@@ -2081,10 +2111,30 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     def add_training_instance():
         nonlocal state
         sync_state_from_ui()
-        instance = instance_manager.add_instance()
-        state = instance.state
-        apply_state_to_ui()
-        show_notice(f"Added {instance.label}")
+        if not instance_manager.can_add_instance():
+            show_notice(
+                f"Only {instance_manager.supported_max} training instances are supported"
+            )
+            return
+
+        def create_instance():
+            nonlocal state
+            instance = instance_manager.add_instance()
+            state = instance.state
+            apply_state_to_ui()
+            show_notice(f"Added {instance.label}")
+
+        if instance_manager.add_requires_confirmation():
+            confirmation_prompt[0] = ConfirmationPrompt(
+                (
+                    f"You already have {len(instance_manager.instances)} training "
+                    "instances. Add another?"
+                ),
+                create_instance,
+            )
+            return
+
+        create_instance()
 
     def close_active_training_instance():
         nonlocal state
@@ -2632,26 +2682,31 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     instance_indicator_rect = pygame.Rect(
         TAB_MARGIN,
         INSTANCE_TOP,
-        52,
+        INSTANCE_POSITION_WIDTH,
         INSTANCE_CONTROL_HEIGHT,
     )
-    instance_button_width = 68
-    close_instance_width = 82
-    instance_dropdown_rect = pygame.Rect(
+    running_indicator_rect = pygame.Rect(
         instance_indicator_rect.right + INSTANCE_GAP,
+        INSTANCE_TOP,
+        INSTANCE_RUNNING_WIDTH,
+        INSTANCE_CONTROL_HEIGHT,
+    )
+    instance_dropdown_rect = pygame.Rect(
+        running_indicator_rect.right + INSTANCE_GAP,
         INSTANCE_TOP,
         CONTROL_WIDTH
         - 2 * TAB_MARGIN
         - instance_indicator_rect.width
-        - close_instance_width
-        - instance_button_width
-        - 3 * INSTANCE_GAP,
+        - running_indicator_rect.width
+        - INSTANCE_CLOSE_WIDTH
+        - INSTANCE_ADD_WIDTH
+        - 4 * INSTANCE_GAP,
         INSTANCE_CONTROL_HEIGHT,
     )
     close_instance_button = ui_button.Button(
         instance_dropdown_rect.right + INSTANCE_GAP,
         INSTANCE_TOP,
-        close_instance_width,
+        INSTANCE_CLOSE_WIDTH,
         INSTANCE_CONTROL_HEIGHT,
         "Close",
         close_active_training_instance,
@@ -2661,7 +2716,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     add_instance_button = ui_button.Button(
         close_instance_button.rect.right + INSTANCE_GAP,
         INSTANCE_TOP,
-        instance_button_width,
+        INSTANCE_ADD_WIDTH,
         INSTANCE_CONTROL_HEIGHT,
         "Add",
         add_training_instance,
@@ -2888,6 +2943,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             len(instance_manager.instances) > 1
             or instance_manager.is_running_or_stopping(active_instance)
         )
+        add_instance_button.enabled = instance_manager.can_add_instance()
         start_stop_button.enabled = (
             state.selected_ship is not None
             and selected_slot is not None
@@ -3086,6 +3142,20 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         screen.blit(
             indicator_text,
             indicator_text.get_rect(center=instance_indicator_rect.center),
+        )
+        running_color = (
+            ui.BRIGHT_GREEN if instance_manager.running_count() > 0 else ui.LIGHT_GREY
+        )
+        pygame.draw.rect(screen, ui.BLACK, running_indicator_rect, border_radius=5)
+        pygame.draw.rect(screen, running_color, running_indicator_rect, 1, border_radius=5)
+        running_text = small_font.render(
+            instance_manager.running_count_text(),
+            True,
+            running_color,
+        )
+        screen.blit(
+            running_text,
+            running_text.get_rect(center=running_indicator_rect.center),
         )
         instance_dropdown.draw(screen, small_font)
         close_instance_button.draw(screen, small_font)

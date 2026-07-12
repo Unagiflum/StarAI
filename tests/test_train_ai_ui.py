@@ -24,7 +24,11 @@ from src.Menus.train_ai import (
     FOOTER_CONTROL_HEIGHT,
     GAMMA_VALUES,
     INSTANCE_CONTROL_HEIGHT,
+    INSTANCE_ADD_WIDTH,
+    INSTANCE_CLOSE_WIDTH,
     INSTANCE_GAP,
+    INSTANCE_POSITION_WIDTH,
+    INSTANCE_RUNNING_WIDTH,
     INSTANCE_SEPARATOR_HEIGHT,
     INSTANCE_TOP,
     LEARNING_RATE_VALUES,
@@ -37,6 +41,8 @@ from src.Menus.train_ai import (
     BATCH_GROUPING_VALUES,
     AI_OPPONENT_PERCENT_VALUES,
     SIMPLE_ACTIVITY_VALUES,
+    TRAINING_INSTANCE_SOFT_MAX,
+    TRAINING_INSTANCE_SUPPORTED_MAX,
     RewardSlider,
     SliderRow,
     TRAINING_HUD_HEIGHT,
@@ -173,7 +179,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertIs(manager.active_instance, instance)
         self.assertEqual(instance.label, "Instance 2")
         self.assertIsNone(manager.active_state.selected_ship)
-        self.assertEqual(manager.active_position_text(), "[2/2]")
+        self.assertEqual(manager.active_position_text(), "02/02")
         self.assertEqual(manager.instances[0].state.selected_ship, "Earthling")
 
     def test_select_instance_switches_active_state(self):
@@ -200,8 +206,63 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
         self.assertEqual(manager.instances, [first])
         self.assertIs(manager.active_instance, first)
-        self.assertEqual(manager.active_position_text(), "[1/1]")
+        self.assertEqual(manager.active_position_text(), "01/01")
         self.assertNotIn(second, manager.instances)
+
+    def test_manager_selects_through_supported_instance_count(self):
+        manager = TrainingInstanceManager()
+        while len(manager.instances) < TRAINING_INSTANCE_SUPPORTED_MAX:
+            manager.add_instance()
+
+        self.assertEqual(len(manager.instances), 25)
+        for index, instance in enumerate(manager.instances, start=1):
+            manager.select_instance(instance.instance_id)
+            self.assertIs(manager.active_instance, instance)
+            self.assertEqual(manager.active_position_text(), f"{index:02d}/25")
+
+    def test_manager_enforces_supported_instance_count(self):
+        manager = TrainingInstanceManager()
+        while manager.can_add_instance():
+            manager.add_instance()
+
+        self.assertFalse(manager.can_add_instance())
+        with self.assertRaises(ValueError):
+            manager.add_instance()
+
+    def test_manager_reports_soft_limit_confirmation_need(self):
+        manager = TrainingInstanceManager()
+        while len(manager.instances) < TRAINING_INSTANCE_SOFT_MAX:
+            self.assertFalse(manager.add_requires_confirmation())
+            manager.add_instance()
+
+        self.assertTrue(manager.add_requires_confirmation())
+
+    def test_instance_labels_and_rows_remain_unique_for_selection(self):
+        manager = TrainingInstanceManager()
+        while len(manager.instances) < TRAINING_INSTANCE_SUPPORTED_MAX:
+            manager.add_instance()
+
+        labels = [instance.label for instance in manager.instances]
+        row_prefixes = [
+            _instance_row_parts(index, instance)[0]
+            for index, instance in enumerate(manager.instances, start=1)
+        ]
+
+        self.assertEqual(len(labels), len(set(labels)))
+        self.assertEqual(len(row_prefixes), len(set(row_prefixes)))
+
+    def test_position_and_running_count_are_zero_padded(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.session = self.FakeSession(running=True)
+        second = manager.add_instance()
+        second.session = self.FakeSession(running=False, stopping=True)
+        third = manager.add_instance()
+        third.session = self.FakeSession(running=False)
+
+        self.assertEqual(manager.active_position_text(), "03/03")
+        self.assertEqual(manager.running_count(), 2)
+        self.assertEqual(manager.running_count_text(), "02>")
 
     def test_remove_active_instance_refuses_last_or_running_instance(self):
         manager = TrainingInstanceManager()
@@ -375,6 +436,26 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertTrue(first.session.stop_requested)
         self.assertIs(manager.active_instance, second)
 
+    def test_close_running_instance_remains_graceful_at_supported_count(self):
+        manager = TrainingInstanceManager()
+        while len(manager.instances) < TRAINING_INSTANCE_SUPPORTED_MAX:
+            manager.add_instance()
+        first = manager.instances[0]
+        second = manager.instances[1]
+        first.session = self.FakeSession(running=True)
+        first.state.display_on = True
+        manager.select_instance(first.instance_id)
+        first.session.display_events.clear()
+
+        result = manager.request_close_active_instance()
+
+        self.assertEqual(result, "pending")
+        self.assertEqual(len(manager.instances), TRAINING_INSTANCE_SUPPORTED_MAX)
+        self.assertTrue(first.pending_removal)
+        self.assertTrue(first.session.stop_requested)
+        self.assertEqual(first.session.display_events, [False])
+        self.assertIs(manager.active_instance, second)
+
     def test_close_last_running_instance_creates_replacement(self):
         manager = TrainingInstanceManager()
         first = manager.active_instance
@@ -421,16 +502,14 @@ class TrainingLayoutTests(unittest.TestCase):
 
     def test_instance_buttons_leave_room_for_dropdown_label(self):
         layout = training_layout()
-        indicator_width = 52
-        close_width = 82
-        add_width = 68
         dropdown_width = (
             layout.control_rect.width
             - 2 * 8
-            - indicator_width
-            - close_width
-            - add_width
-            - 3 * INSTANCE_GAP
+            - INSTANCE_POSITION_WIDTH
+            - INSTANCE_RUNNING_WIDTH
+            - INSTANCE_CLOSE_WIDTH
+            - INSTANCE_ADD_WIDTH
+            - 4 * INSTANCE_GAP
         )
 
         self.assertGreaterEqual(dropdown_width, 320)

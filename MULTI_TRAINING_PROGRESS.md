@@ -134,9 +134,38 @@ Remaining:
 - Manual observation of background instance speed without live arena updates
   remains pending.
 
+## Phase 6: Scaling Controls Up To 25 Instances
+
+Status: Complete.
+
+Completed:
+
+- Added configurable training-instance soft and supported maximums:
+  `TRAINING_INSTANCE_SOFT_MAX = 4` and
+  `TRAINING_INSTANCE_SUPPORTED_MAX = 25`.
+- Added manager checks for supported-capacity enforcement and soft-limit
+  confirmation before creating more than four instances.
+- Replaced the bracketed active-position indicator with zero-padded
+  `current/total` text such as `03/25`.
+- Added the compact running/stopping-count indicator such as `02>` beside the
+  active-position indicator, with green rendering when any instance is running
+  or stopping.
+- Narrowed the instance strip controls and added explicit layout constants for
+  the position indicator, running-count indicator, `Close`, and `Add` controls.
+- Preserved dropdown scrolling and graceful running-instance close behavior at
+  the supported 25-instance count.
+- Added focused unit coverage for creating/selecting 25 instances, label and
+  row uniqueness, soft/supported limits, zero-padded indicator text, running
+  count text, and graceful close behavior at the supported count.
+- Verified focused UI/session suites pass:
+  `python -m unittest tests.test_train_ai_ui tests.test_training_session`.
+- Verified related model/orchestration suites pass:
+  `python -m unittest tests.test_training_orchestration tests.test_training_models`.
+
+Remaining:
+
+- Manual smoke with many stopped instances remains pending.
+
 ## Later Phases
 
-Status: Phase 6 not started.
-
-- Phase 6: Scaling controls up to 25 instances.
 - Phase 7: Performance characterization.

@@ -50,9 +50,12 @@ content.
 
 The instance section must include:
 
-- An active-position indicator, starting from the left, in the form `[1/4]`.
-  This means the active instance is first in the current instance list, out of
-  four open instances.
+- An active-position indicator, starting from the left, in zero-padded
+  `current/total` form such as `01/11`. This means the active instance is first
+  in the current instance list, out of eleven open instances.
+- A compact running-count indicator to the right of the active-position
+  indicator, in the form `04>`, rendered in green when one or more instances are
+  running. This means four instances are currently running or stopping.
 - A dropdown selector for the active instance.
 - A `Close Instance` button for the active instance.
 - An `Add Instance` button.
@@ -77,11 +80,15 @@ Example rows:
 Selecting a dropdown item must bring that instance into view and make it the
 active instance.
 
-The four controls should be arranged left-to-right in this order:
+The controls should be arranged left-to-right in this order:
 
 ```text
-[1/4]  [instance dropdown]  [Close Instance]  [Add Instance]
+01/11  04>  [instance dropdown]  [Close Instance]  [Add Instance]
 ```
+
+The dropdown, `Close Instance`, and `Add Instance` controls may be made slightly
+narrower to keep this row compact. Button labels may use the shorter visible
+text `Close` and `Add` when needed to fit the row.
 
 If the dropdown renderer cannot color only the status word, it should use the
 closest available custom row rendering so that running and stopped states remain
@@ -574,21 +581,31 @@ Status: Planned.
 Goals:
 
 - Make the UI and manager robust for at least 25 instances.
-- Add warnings and diagnostic status without imposing a low hard limit.
+- Add compact instance-strip status without imposing a low hard limit.
 
 Work:
 
 - Add a configurable soft maximum and absolute supported maximum.
 - Set the absolute supported maximum to at least 25.
 - Add warning/confirmation when exceeding the soft maximum.
+- Replace the bracketed active-position text with zero-padded `current/total`
+  text such as `01/11`.
+- Add a compact green running-count indicator such as `04>` beside the position
+  indicator. This count should include running and stopping instances.
+- Narrow the dropdown, `Close`, and `Add` controls as needed so the full row
+  remains on one line.
 - Ensure selector remains usable with 25 instances.
 - Ensure update loops iterate cleanly over all instances.
-- Add aggregate status text such as `3 running / 8 total`.
+- Preserve the existing graceful close semantics: closing a running or stopping
+  instance disables display, requests stop, marks it pending removal, and removes
+  it only after the session stops.
 
 Verification:
 
 - Unit tests create 25 manager instances and select each one.
 - Unit tests ensure labels remain unique enough for selection.
+- Unit tests cover zero-padded position text and compact running-count text.
+- Unit tests preserve graceful close behavior for running instances.
 - Manual smoke with many stopped instances verifies layout and event handling.
 
 ### Phase 7: Performance Characterization
