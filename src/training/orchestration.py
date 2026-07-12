@@ -13,7 +13,6 @@ import src.const as const
 from src.Battle.battle import BattleSimulation
 from src.Objects.Ships.registry import create_ship
 from src.audio import NullAudioService
-from src.persistence import EXPECTED_READ_ERRORS, read_json
 from src.toroidal import wrapped_delta
 from src.training import event_ledger, torch_backend
 from src.training.contracts import (
@@ -26,13 +25,12 @@ from src.training.model_registry import (
     SLOT_EMPTY,
     TrainingModelRepository,
     TrainingModelSlot,
-    normalize_architecture_metadata,
 )
+from src.training.opponent_cache import load_opponent_model
 from src.training.observation import encode_observation
 from src.training.replay import (
     ActionSelection,
     TrainingReplayBuffer,
-    load_training_checkpoint,
     optimize_from_replay,
     select_action_epsilon_greedy,
 )
@@ -831,33 +829,4 @@ def _battle_view_from_simulation(simulation) -> dict[str, Any]:
 
 
 def _load_opponent_model(slot: TrainingModelSlot):
-    if slot.pth_path is None or not slot.pth_path.exists():
-        return "missing weights"
-    if slot.pth_path.stat().st_size <= 0:
-        return "empty weights"
-    metadata = _metadata_for_slot(slot)
-    architecture = normalize_architecture_metadata(metadata.get("architecture", {}))
-    try:
-        config = ValueNetworkConfig(
-            hidden_layer_width=int(architecture["hidden_layer_width"]),
-            hidden_layer_count=int(architecture["hidden_layer_count"]),
-        )
-        device = torch_backend.preferred_device()
-        model = build_value_network(config, device=device)
-        load_training_checkpoint(slot.pth_path, model, map_location=device)
-        model.eval()
-        return model
-    except Exception as exc:
-        return str(exc)
-
-
-def _metadata_for_slot(slot: TrainingModelSlot) -> Mapping[str, Any]:
-    if isinstance(slot.metadata, Mapping):
-        return slot.metadata
-    if slot.metadata_path is None or not slot.metadata_path.exists():
-        return {}
-    try:
-        metadata = read_json(slot.metadata_path)
-    except EXPECTED_READ_ERRORS:
-        return {}
-    return metadata if isinstance(metadata, Mapping) else {}
+    return load_opponent_model(slot)

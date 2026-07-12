@@ -23,7 +23,9 @@ from src.training.model_registry import (
     replay_checkpoint_path,
     trained_model_counts_for_ships,
 )
+from src.training.opponent_cache import OpponentModelCache, OpponentModelKey
 from src.training import torch_backend
+from src.training.replay import save_training_checkpoint
 from src.training.value_network import (
     ValueNetworkConfig,
     build_optimizer,
@@ -263,6 +265,81 @@ class TrainingModelRepositoryTests(unittest.TestCase):
         self.assertEqual(metadata["architecture"]["output_count"], ACTION_OUTPUT_SIZE)
         self.assertEqual(metadata["game_settings"]["ship_directions"], 32)
         self.assertEqual(metadata["progress"]["completed_batches"], 12)
+
+
+class OpponentModelCacheTests(unittest.TestCase):
+    def setUp(self):
+        if torch_backend.get_torch() is None:
+            self.skipTest("PyTorch is not installed")
+
+    def test_initial_load_reuses_one_shared_model_per_slot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            self._save_model(repository, "Earthling", 1, completed_batches=7)
+            cache = OpponentModelCache()
+
+            cache.load_initial(repository)
+            first_snapshot = cache.snapshot()
+            cache.load_initial(repository)
+            second_snapshot = cache.snapshot()
+
+        self.assertEqual(len(first_snapshot), 1)
+        self.assertEqual(len(second_snapshot), 1)
+        self.assertEqual(first_snapshot[0].ship, "Earthling")
+        self.assertEqual(first_snapshot[0].slot, 1)
+        self.assertIs(first_snapshot[0].model, second_snapshot[0].model)
+        diagnostics = cache.diagnostics()
+        self.assertEqual(
+            diagnostics.loaded_keys,
+            (OpponentModelKey("Earthling", 1),),
+        )
+        self.assertEqual(diagnostics.last_errors, {})
+
+    def test_snapshot_is_immutable_and_stable_after_later_loads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            self._save_model(repository, "Earthling", 1, completed_batches=1)
+            cache = OpponentModelCache()
+            cache.load_initial(repository)
+            first_snapshot = cache.snapshot()
+
+            self._save_model(repository, "Mycon", 2, completed_batches=2)
+            cache.load_initial(repository)
+            second_snapshot = cache.snapshot()
+
+        self.assertIsInstance(first_snapshot, tuple)
+        self.assertEqual(
+            [(opponent.ship, opponent.slot) for opponent in first_snapshot],
+            [("Earthling", 1)],
+        )
+        self.assertEqual(
+            [(opponent.ship, opponent.slot) for opponent in second_snapshot],
+            [("Earthling", 1), ("Mycon", 2)],
+        )
+        self.assertIs(first_snapshot[0].model, second_snapshot[0].model)
+
+    def _save_model(
+        self,
+        repository: TrainingModelRepository,
+        ship: str,
+        slot: int,
+        *,
+        completed_batches: int,
+    ):
+        metadata = metadata_from_state(
+            ship=ship,
+            slot=slot,
+            description="Opponent",
+            architecture=model_architecture_metadata(8, 1),
+            training={"regimen": {"rounds_per_batch": 1}},
+            progress={"completed_batches": completed_batches},
+        )
+        model_slot = repository.create_or_update_user_model(metadata)
+        model = build_value_network(ValueNetworkConfig(8, 1))
+        save_training_checkpoint(model_slot.pth_path, model)
+        return model_slot
 
 
 if __name__ == "__main__":
