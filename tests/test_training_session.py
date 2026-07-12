@@ -525,6 +525,67 @@ class TrainingSessionTests(unittest.TestCase):
 
         self.assertEqual(len(session.log_lines), 1)
 
+    def test_session_records_current_run_throughput(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+                progress={"completed_batches": 7},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+
+            def batch_runner(**kwargs):
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(0.125,),
+                    round_results=(_round_result(5.0),),
+                )
+
+            session = TrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon_decay=1.0,
+                ),
+                batch_grouping=1,
+                batch_runner=batch_runner,
+            )
+
+            times = iter((100.0, 100.0, 130.0, 130.0, 130.0))
+            current_time = [130.0]
+
+            def fake_perf_counter():
+                try:
+                    current_time[0] = next(times)
+                except StopIteration:
+                    pass
+                return current_time[0]
+
+            with mock.patch(
+                "src.training.session.time.perf_counter",
+                side_effect=fake_perf_counter,
+            ):
+                session.run_synchronously(max_batches=1)
+
+        status = session.status
+        self.assertEqual(status.completed_batches, 8)
+        self.assertEqual(status.elapsed_training_seconds, 30.0)
+        self.assertEqual(status.last_batch_seconds, 30.0)
+        self.assertEqual(status.average_batch_seconds, 30.0)
+        self.assertEqual(status.batches_per_hour, 120.0)
+
     def test_session_decays_current_epsilon_after_each_completed_batch(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

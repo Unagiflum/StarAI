@@ -166,6 +166,39 @@ Remaining:
 
 - Manual smoke with many stopped instances remains pending.
 
-## Later Phases
+## Phase 7: Performance Characterization
 
-- Phase 7: Performance characterization.
+Status: Complete.
+
+Completed:
+
+- Added lightweight per-session throughput instrumentation on the thread-safe
+  `TrainingSession.status` snapshot:
+  `elapsed_training_seconds`, `current_batch_seconds`, `last_batch_seconds`,
+  `average_batch_seconds`, and `batches_per_hour`.
+- Kept throughput rates scoped to batches completed in the current session run,
+  so resumed models with existing `completed_batches` do not inflate the live
+  batches/hour rate.
+- Surfaced elapsed time and batches/hour in the display-off training console for
+  the active instance, making manual benchmark runs recordable from the normal
+  training UI.
+- Added focused unit coverage for runtime throughput metrics and console
+  formatting.
+
+Manual benchmark checklist:
+
+1. Use distinct ship/slot pairs for each active instance count.
+2. Keep Display Off except for a separate visualization-cost comparison run.
+3. Run simple-opponent mode first, then repeat with existing-AI mode if stored
+   models are available.
+4. Record aggregate and per-instance batches/hour for 1, 2, 4, 8, and optionally
+   25 running instances.
+5. Record CPU utilization, GPU utilization, and GPU memory use for each count.
+6. Note the regimen values, especially `rounds_per_batch`, `match_time_limit`,
+   `minibatch_size`, `replay_updates_per_batch`, replay size, and model size.
+7. Compare whether adding instances improves aggregate batches/hour or mainly
+   increases memory/CPU contention.
+
+Remaining:
+
+- Manual benchmark results on target CPU/GPU hardware remain pending.

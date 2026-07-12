@@ -88,6 +88,8 @@ CURRENT_BATCH_ROUND_WIDTH = 4
 CURRENT_BATCH_REPLAY_WIDTH = 6
 CURRENT_BATCH_RETURN_WIDTH = 9
 CURRENT_BATCH_LOSS_WIDTH = 10
+CURRENT_BATCH_TIME_WIDTH = 8
+CURRENT_BATCH_RATE_WIDTH = 8
 CURRENT_BATCH_REWARD_NAME_WIDTH = max((len(label) for label in REWARD_LABELS), default=0)
 CURRENT_BATCH_REWARD_VALUE_WIDTH = 8
 
@@ -1310,10 +1312,19 @@ def _draw_training_status(screen, rect, status, font, small_font):
         y += rendered.get_height() + 6
 
 
+def _format_training_duration(seconds):
+    seconds = max(0, int(float(seconds)))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:d}:{minutes:02d}:{seconds:02d}"
+
+
 def _current_batch_console_lines(status):
     state_label = "running" if status.running else "stopped"
     if status.stopping:
         state_label += " (stopping)"
+    elapsed = getattr(status, "elapsed_training_seconds", 0.0)
+    batches_per_hour = getattr(status, "batches_per_hour", 0.0)
     total_round_width = max(
         CURRENT_BATCH_ROUND_WIDTH,
         len(str(status.current_round)),
@@ -1322,6 +1333,8 @@ def _current_batch_console_lines(status):
     lines = [
         "Current batch",
         f"{'State:':<10}{state_label:<{CURRENT_BATCH_STATE_WIDTH}}",
+        f"{'Elapsed:':<10}{_format_training_duration(elapsed):>{CURRENT_BATCH_TIME_WIDTH}}",
+        f"{'Rate:':<10}{batches_per_hour:>{CURRENT_BATCH_RATE_WIDTH}.2f}/h",
         f"{'Batch:':<10}{status.completed_batches + 1:>{CURRENT_BATCH_BATCH_WIDTH}d}",
         f"{'Round:':<10}{status.current_round:>{total_round_width}d}/{status.total_rounds:>{total_round_width}d}",
         f"{'Opponent:':<10}{status.current_opponent or '-':<{CURRENT_BATCH_REWARD_NAME_WIDTH}}",

@@ -56,6 +56,7 @@ from src.Menus.train_ai import (
     _draw_training_battle,
     _epsilon_for_model_update,
     _format_short_count,
+    _format_training_duration,
     _instance_row_parts,
     _instance_status_text,
     _training_settings_match,
@@ -883,6 +884,8 @@ class TrainingConsoleTests(unittest.TestCase):
             "component_totals": {"Kill enemy": 2.0},
             "previous_opponent": "Chenjesu",
             "batch_component_totals": {},
+            "elapsed_training_seconds": 3723.0,
+            "batches_per_hour": 12.5,
         }
         values.update(overrides)
         return SimpleNamespace(**values)
@@ -900,6 +903,8 @@ class TrainingConsoleTests(unittest.TestCase):
             lines.index("Current batch"),
         )
         self.assertIn("Batch:         3", lines)
+        self.assertIn("Elapsed:   1:02:03", lines)
+        self.assertIn("Rate:        12.50/h", lines)
         reward_name_width = max(len(label) for label in REWARD_LABELS)
         self.assertIn(f"{'Opponent:':<10}{'Earthling':<{reward_name_width}}", lines)
         self.assertIn("Replay:       99", lines)
@@ -926,6 +931,11 @@ class TrainingConsoleTests(unittest.TestCase):
         placeholder_rows = lines_without_components[-len(REWARD_LABELS) :]
         self.assertEqual(len(placeholder_rows), len(REWARD_LABELS))
         self.assertTrue(all(row.endswith("|        -") for row in placeholder_rows))
+
+    def test_training_duration_formats_for_benchmark_notes(self):
+        self.assertEqual(_format_training_duration(0), "0:00:00")
+        self.assertEqual(_format_training_duration(65.9), "0:01:05")
+        self.assertEqual(_format_training_duration(3723), "1:02:03")
 
 
 class TrainingBatchLogBoxTests(unittest.TestCase):

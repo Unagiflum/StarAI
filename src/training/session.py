@@ -130,6 +130,11 @@ class TrainingSessionStatus:
     running: bool = False
     stopping: bool = False
     completed_batches: int = 0
+    elapsed_training_seconds: float = 0.0
+    current_batch_seconds: float = 0.0
+    last_batch_seconds: float = 0.0
+    average_batch_seconds: float = 0.0
+    batches_per_hour: float = 0.0
     current_round: int = 0
     total_rounds: int = 0
     current_opponent: str = ""
@@ -338,6 +343,11 @@ class TrainingSession:
             self._display_on.is_set,
         )
         self._next_display_frame_time = time.perf_counter()
+        self._run_started_at: float | None = None
+        self._run_stopped_at: float | None = None
+        self._current_batch_started_at: float | None = None
+        self._completed_batches_at_run_start = self._status.completed_batches
+        self._completed_batch_seconds: list[float] = []
         self._thread: threading.Thread | None = None
 
         report = validate_model_metadata(
@@ -356,10 +366,21 @@ class TrainingSession:
     @property
     def status(self) -> TrainingSessionStatus:
         with self._lock:
+            elapsed_training_seconds = self._elapsed_training_seconds_locked()
+            current_batch_seconds = self._current_batch_seconds_locked()
+            average_batch_seconds = self._average_batch_seconds_locked()
+            batches_per_hour = self._batches_per_hour_locked(
+                elapsed_training_seconds
+            )
             return TrainingSessionStatus(
                 running=self._status.running,
                 stopping=self._status.stopping,
                 completed_batches=self._status.completed_batches,
+                elapsed_training_seconds=elapsed_training_seconds,
+                current_batch_seconds=current_batch_seconds,
+                last_batch_seconds=self._status.last_batch_seconds,
+                average_batch_seconds=average_batch_seconds,
+                batches_per_hour=batches_per_hour,
                 current_round=self._status.current_round,
                 total_rounds=self._status.total_rounds,
                 current_opponent=self._status.current_opponent,
@@ -444,9 +465,7 @@ class TrainingSession:
         try:
             self._run_loop(max_batches=max_batches)
         finally:
-            with self._lock:
-                self._status.running = False
-                self._status.stopping = False
+            self._mark_stopped()
 
     def _run_worker(self) -> None:
         try:
@@ -455,9 +474,7 @@ class TrainingSession:
             with self._lock:
                 self._status.error = str(exc)
         finally:
-            with self._lock:
-                self._status.running = False
-                self._status.stopping = False
+            self._mark_stopped()
 
     def _run_loop(self, *, max_batches: int | None = None) -> None:
         model, optimizer, replay_buffer = self._build_components()
@@ -465,6 +482,16 @@ class TrainingSession:
         with self._lock:
             self._status.running = True
             self._status.error = ""
+            self._run_started_at = time.perf_counter()
+            self._run_stopped_at = None
+            self._current_batch_started_at = None
+            self._completed_batches_at_run_start = self._status.completed_batches
+            self._completed_batch_seconds = []
+            self._status.elapsed_training_seconds = 0.0
+            self._status.current_batch_seconds = 0.0
+            self._status.last_batch_seconds = 0.0
+            self._status.average_batch_seconds = 0.0
+            self._status.batches_per_hour = 0.0
 
         while not self._stop_requested.is_set():
             with self._lock:
@@ -475,6 +502,8 @@ class TrainingSession:
                     epsilon=self._current_epsilon,
                     display_on=False,
                 )
+                batch_started_at = time.perf_counter()
+                self._current_batch_started_at = batch_started_at
             try:
                 result = self.batch_runner(
                     model=model,
@@ -490,9 +519,16 @@ class TrainingSession:
                 )
             except TrainingBatchAborted:
                 break
+            finally:
+                batch_finished_at = time.perf_counter()
+                with self._lock:
+                    self._current_batch_started_at = None
             if self._stop_requested.is_set():
                 break
-            self._record_completed_batch(result)
+            self._record_completed_batch(
+                result,
+                batch_seconds=max(0.0, batch_finished_at - batch_started_at),
+            )
             self._save_state(model, optimizer, replay_buffer)
             batches_run += 1
             if max_batches is not None and batches_run >= max_batches:
@@ -531,10 +567,23 @@ class TrainingSession:
                 torch_backend.move_optimizer_state_to_device(optimizer, device)
         return model, optimizer, replay_buffer
 
-    def _record_completed_batch(self, result: TrainingBatchResult) -> None:
+    def _record_completed_batch(
+        self,
+        result: TrainingBatchResult,
+        *,
+        batch_seconds: float = 0.0,
+    ) -> None:
         with self._lock:
             self._status.completed_batches += 1
             batch_number = self._status.completed_batches
+            self._completed_batch_seconds.append(max(0.0, float(batch_seconds)))
+            self._status.last_batch_seconds = self._completed_batch_seconds[-1]
+            elapsed_training_seconds = self._elapsed_training_seconds_locked()
+            self._status.elapsed_training_seconds = elapsed_training_seconds
+            self._status.average_batch_seconds = self._average_batch_seconds_locked()
+            self._status.batches_per_hour = self._batches_per_hour_locked(
+                elapsed_training_seconds
+            )
             self._current_epsilon = max(
                 0.0,
                 min(1.0, self._current_epsilon * float(self.config.epsilon_decay)),
@@ -638,6 +687,55 @@ class TrainingSession:
         limit = max(1, int(self.batch_grouping))
         if len(self._history) > limit:
             del self._history[: len(self._history) - limit]
+
+    def _mark_stopped(self) -> None:
+        stopped_at = time.perf_counter()
+        with self._lock:
+            self._status.running = False
+            self._status.stopping = False
+            self._run_stopped_at = stopped_at
+            self._current_batch_started_at = None
+            self._status.elapsed_training_seconds = self._elapsed_training_seconds_locked()
+            self._status.current_batch_seconds = 0.0
+            self._status.average_batch_seconds = self._average_batch_seconds_locked()
+            self._status.batches_per_hour = self._batches_per_hour_locked(
+                self._status.elapsed_training_seconds
+            )
+
+    def _elapsed_training_seconds_locked(self) -> float:
+        started_at = getattr(self, "_run_started_at", None)
+        if started_at is None:
+            return float(getattr(self._status, "elapsed_training_seconds", 0.0))
+        if self._status.running:
+            ended_at = time.perf_counter()
+        else:
+            ended_at = getattr(self, "_run_stopped_at", None) or started_at
+        return max(0.0, float(ended_at) - float(started_at))
+
+    def _current_batch_seconds_locked(self) -> float:
+        started_at = getattr(self, "_current_batch_started_at", None)
+        if started_at is None or not self._status.running:
+            return 0.0
+        return max(0.0, time.perf_counter() - float(started_at))
+
+    def _average_batch_seconds_locked(self) -> float:
+        durations = getattr(self, "_completed_batch_seconds", ())
+        if not durations:
+            return 0.0
+        return sum(durations) / len(durations)
+
+    def _batches_per_hour_locked(self, elapsed_seconds: float) -> float:
+        completed_this_run = (
+            self._status.completed_batches
+            - getattr(
+                self,
+                "_completed_batches_at_run_start",
+                self._status.completed_batches,
+            )
+        )
+        if completed_this_run <= 0 or elapsed_seconds <= 0.0:
+            return 0.0
+        return completed_this_run * 3600.0 / elapsed_seconds
 
     def _on_progress(self, payload: Mapping[str, Any]) -> None:
         event = payload.get("event")
