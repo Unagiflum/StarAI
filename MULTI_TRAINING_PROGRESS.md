@@ -108,10 +108,35 @@ Remaining:
 
 - Manual smoke of visualization switching and audio behavior remains pending.
 
+## Phase 5: Headless Battle-View Cost Reduction
+
+Status: Complete.
+
+Completed:
+
+- Preserved the training-round battle-view predicate path so battle-view payloads
+  are only built and emitted when display is enabled for the visualized session.
+- Ensured disabled battle-view progress still emits frame/status metrics for the
+  console and session status.
+- Updated the older display throttle path so an explicitly disabled battle-view
+  predicate cannot sleep as a visualized round.
+- Preserved display-on frozen battle-view storage and display-off dropped-view
+  behavior in `TrainingSession`.
+- Added focused unit coverage for disabled battle-view payload construction and
+  disabled display-throttle behavior.
+- Verified focused suites pass:
+  `python -m unittest tests.test_training_orchestration tests.test_training_session`.
+- Verified focused UI suite passes:
+  `python -m unittest tests.test_train_ai_ui`.
+
+Remaining:
+
+- Manual observation of background instance speed without live arena updates
+  remains pending.
+
 ## Later Phases
 
-Status: Phase 5 not started.
+Status: Phase 6 not started.
 
-- Phase 5: Headless battle-view cost reduction.
 - Phase 6: Scaling controls up to 25 instances.
 - Phase 7: Performance characterization.

@@ -427,6 +427,34 @@ class TrainingRoundTests(unittest.TestCase):
 
         build_view.assert_not_called()
         self.assertFalse(any("battle_view" in event for event in events))
+        self.assertTrue(any(event.get("event") == "frame" for event in events))
+
+    def test_disabled_battle_view_avoids_display_throttle(self):
+        replay = TrainingReplayBuffer(capacity=8)
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            display_on=True,
+            gamma=0.0,
+            match_time_limit=1,
+        )
+
+        with (
+            mock.patch(
+                "src.training.orchestration.time.perf_counter",
+                return_value=100.0,
+            ),
+            mock.patch("src.training.orchestration.time.sleep") as sleep,
+        ):
+            run_training_round(
+                opponent=OpponentSpec("Earthling"),
+                trainee_policy=FixedPolicy(0),
+                replay_buffer=replay,
+                config=config,
+                rng=random.Random(9),
+                battle_view_enabled=lambda: False,
+            )
+
+        sleep.assert_not_called()
 
     def test_training_batch_announces_optimization_phase(self):
         if torch_backend.get_torch() is None:

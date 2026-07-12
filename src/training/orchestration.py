@@ -513,11 +513,12 @@ def run_training_round(
             "weighted_total_return": normalized_return,
             "component_totals": _average_components(component_sums, mature_count),
         }
-        if _battle_view_enabled(battle_view_enabled):
+        view_enabled = _battle_view_enabled(battle_view_enabled)
+        if view_enabled:
             progress_payload["battle_view"] = _battle_view_from_simulation(simulation)
         _emit_progress(progress_callback, **progress_payload)
         _raise_if_stop_requested(stop_requested)
-        if config.display_on:
+        if config.display_on and view_enabled:
             next_display_frame_time += 1.0 / const.FPS
             sleep_seconds = next_display_frame_time - time.perf_counter()
             if sleep_seconds > 0:
