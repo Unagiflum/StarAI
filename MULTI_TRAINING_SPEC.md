@@ -41,16 +41,51 @@ and performance controls.
 ### Instance Strip
 
 Add an instance control section at the top of the left control pane, above the
-existing tabs. Move the tab row and all tab content downward to make room.
+existing tabs.
+
+The needed vertical space above the existing tabs has already been created. The
+remaining implementation work should use that space for the controls below
+without reintroducing overlap between the instance controls, tab row, and tab
+content.
 
 The instance section must include:
 
-- A compact selector for the active instance.
-- An add control.
-- A remove control for the active instance.
-- A status signal for each listed instance: stopped, running, stopping, or error.
-- Enough identity text to distinguish instances, preferably using the selected
-  trainee and slot when available.
+- An active-position indicator, starting from the left, in the form `[1/4]`.
+  This means the active instance is first in the current instance list, out of
+  four open instances.
+- A dropdown selector for the active instance.
+- A `Close Instance` button for the active instance.
+- An `Add Instance` button.
+
+The dropdown must list every open instance. Each row should:
+
+- Be numbered by current instance-list order, starting at `01]`.
+- Show the selected trainee ship and AI slot when both are selected.
+- Show dashes for missing ship or slot information.
+- Show the instance status.
+- Render `Stopped` in red text and `Running` in green text.
+
+Example rows:
+
+```text
+01]  Earthling-01 Stopped
+02] Androsynth-01 Running
+03]        Orz-01 Running
+04] ------------- Stopped
+```
+
+Selecting a dropdown item must bring that instance into view and make it the
+active instance.
+
+The four controls should be arranged left-to-right in this order:
+
+```text
+[1/4]  [instance dropdown]  [Close Instance]  [Add Instance]
+```
+
+If the dropdown renderer cannot color only the status word, it should use the
+closest available custom row rendering so that running and stopped states remain
+visually distinguishable.
 
 The first screen of the training menu should still be the usable training
 interface, not a separate setup page.
@@ -354,16 +389,13 @@ The exact pixel values can change, but existing constraints still apply:
 
 ### Instance Selector Scaling
 
-The selector must support more instances than can fit horizontally.
-
-Acceptable first implementation options:
-
-- A compact vertical list with scrolling.
-- A dropdown-like selector.
-- A row showing the active instance plus previous/next controls.
+The selector must be a dropdown so the instance section remains a compact
+single row even when many instances are open.
 
 The first implementation does not need to display 25 instances at once, but the
-user must be able to select any of them without layout breakage.
+user must be able to select any of them without layout breakage. If 25 entries
+do not fit in the expanded dropdown, the dropdown list should scroll or page
+within the available menu area.
 
 ### Control Enablement
 
@@ -675,4 +707,3 @@ non-visualized instances.
 These questions do not block the first implementation. The first pass should
 favor a simple in-memory manager and clear behavior over premature scheduling or
 device-management abstractions.
-
