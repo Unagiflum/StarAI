@@ -19,6 +19,7 @@ from src.training.value_network import (
     build_optimizer,
     build_value_network,
     predict_action_values,
+    predict_action_values_read_only,
     selected_action_regression_loss,
 )
 
@@ -88,6 +89,18 @@ class TrainingPolicyAndOptimizationTests(unittest.TestCase):
         self.assertFalse(selection.exploratory)
         self.assertEqual(selection.action_index, ACTION_OUTPUT_SIZE - 1)
         self.assertEqual(len(selection.action_values), ACTION_OUTPUT_SIZE)
+
+    def test_read_only_prediction_does_not_change_model_mode(self):
+        model = build_value_network(ValueNetworkConfig(8, 1))
+        model.train()
+
+        values = predict_action_values_read_only(
+            model,
+            [[0.0] * OBSERVATION_INPUT_SIZE],
+        )
+
+        self.assertTrue(model.training)
+        self.assertEqual(tuple(values.shape), (1, ACTION_OUTPUT_SIZE))
 
     def test_epsilon_one_uses_controlled_exploration_rng(self):
         model = build_value_network(ValueNetworkConfig(8, 1))

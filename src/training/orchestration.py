@@ -45,6 +45,7 @@ from src.training.value_network import (
     ValueNetworkConfig,
     build_optimizer,
     build_value_network,
+    predict_action_values_read_only,
 )
 
 
@@ -684,6 +685,7 @@ def _opponent_controls(
         opponent.model,
         observation,
         epsilon=0.0,
+        value_predictor=predict_action_values_read_only,
     )
     return controls_for_action_index(selection.action_index)
 

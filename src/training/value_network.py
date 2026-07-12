@@ -80,6 +80,16 @@ def predict_action_values(model, observations):
         return model(tensor)
 
 
+def predict_action_values_read_only(model, observations):
+    """Return raw action values without mutating model mode."""
+    torch = torch_backend.require_torch()
+    device = next(model.parameters()).device
+    tensor = _as_observation_tensor(observations, torch, device)
+    inference_context = getattr(torch, "inference_mode", torch.no_grad)
+    with inference_context():
+        return model(tensor)
+
+
 def selected_action_regression_loss(model, observations, action_indices, returns):
     """Compute Huber loss for only the selected action output per sample."""
     torch = torch_backend.require_torch()

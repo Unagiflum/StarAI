@@ -139,6 +139,7 @@ def select_action_epsilon_greedy(
     *,
     epsilon: float,
     rng: Any | None = None,
+    value_predictor=predict_action_values,
 ) -> ActionSelection:
     if not 0.0 <= float(epsilon) <= 1.0:
         raise ValueError("epsilon must be between 0 and 1")
@@ -149,7 +150,7 @@ def select_action_epsilon_greedy(
             exploratory=True,
         )
 
-    values = predict_action_values(model, [observation])
+    values = value_predictor(model, [observation])
     row = values[0].detach().cpu()
     return ActionSelection(
         action_index=int(row.argmax().item()),

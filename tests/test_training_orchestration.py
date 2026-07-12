@@ -18,7 +18,7 @@ pygame.display.set_mode((1, 1))
 import src.const as const
 from src.Objects.Ships.registry import create_ship
 from src.training import torch_backend
-from src.training.contracts import SHIP_TYPE_CATALOG_ORDER
+from src.training.contracts import OBSERVATION_INPUT_SIZE, SHIP_TYPE_CATALOG_ORDER
 from src.training.model_registry import (
     TrainingModelRepository,
     metadata_from_state,
@@ -33,6 +33,7 @@ from src.training.orchestration import (
     TrainingOrchestrationConfig,
     ValueNetworkPolicy,
     _fully_arm_training_shofixti,
+    _opponent_controls,
     _round_terminal_state,
     controls_for_action_index,
     discover_existing_ai_opponents,
@@ -46,6 +47,7 @@ from src.training.value_network import (
     ValueNetworkConfig,
     build_optimizer,
     build_value_network,
+    predict_action_values_read_only,
 )
 
 
@@ -579,6 +581,41 @@ class ExistingAIOpponentTests(unittest.TestCase):
     def setUp(self):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")
+
+    def test_trained_opponent_controls_use_read_only_inference(self):
+        simulation = SimpleNamespace(
+            player1=SimpleNamespace(),
+            player2=SimpleNamespace(),
+            frame_id=12,
+            world=(),
+        )
+        opponent = OpponentSpec("Earthling", model=object())
+        config = TrainingOrchestrationConfig(trainee_ship="Earthling")
+        simple_controller = mock.Mock()
+
+        with (
+            mock.patch(
+                "src.training.orchestration.encode_observation",
+                return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+            ),
+            mock.patch(
+                "src.training.orchestration.select_action_epsilon_greedy",
+                return_value=ActionSelection(0, exploratory=False),
+            ) as select_action,
+        ):
+            controls = _opponent_controls(
+                opponent,
+                simulation,
+                config,
+                simple_controller,
+            )
+
+        self.assertEqual(controls, controls_for_action_index(0))
+        self.assertIs(
+            select_action.call_args.kwargs["value_predictor"],
+            predict_action_values_read_only,
+        )
+        simple_controller.controls_for_frame.assert_not_called()
 
     def test_existing_ai_discovery_skips_empty_slots_and_loads_available_models(self):
         with tempfile.TemporaryDirectory() as directory:
