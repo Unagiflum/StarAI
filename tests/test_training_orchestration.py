@@ -52,9 +52,43 @@ from src.training.value_network import (
 class FixedPolicy:
     def __init__(self, action_index):
         self.action_index = action_index
+        self.selection_count = 0
 
     def select_action(self, observation):
+        self.selection_count += 1
         return ActionSelection(self.action_index, exploratory=False)
+
+
+class PendingRebirthSimulation:
+    def __init__(
+        self,
+        _screen,
+        player1,
+        player2,
+        *,
+        audio_service=None,
+        rng=None,
+        include_stars=False,
+        training_event_ledger=None,
+    ):
+        self.player1 = player1
+        self.player2 = player2
+        self.frame_id = 0
+        self.world = []
+        self.aftermath = SimpleNamespace(pending_rebirths={object(): object()})
+        for player, position in (
+            (self.player1, [4000.0, 4000.0]),
+            (self.player2, [4100.0, 4000.0]),
+        ):
+            player.position = position
+            player.velocity = [0.0, 0.0]
+            player.rotation = 0.0
+            player.current_hp = max(1, getattr(player, "current_hp", 1))
+            player.currently_alive = True
+
+    def step(self, actions=None):
+        self.frame_id += 1
+        return {"frame_id": self.frame_id}
 
 
 class SequenceRng:
@@ -259,6 +293,29 @@ class TrainingRoundTests(unittest.TestCase):
         self.assertEqual(result.frames, 3)
         self.assertEqual(len(replay), 3)
         self.assertTrue(all(sample.return_value == 0.0 for sample in replay))
+
+    def test_nonterminal_timeout_flush_does_not_select_unapplied_action(self):
+        replay = TrainingReplayBuffer(capacity=16)
+        policy = FixedPolicy(0)
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=2,
+        )
+
+        result = run_training_round(
+            opponent=OpponentSpec("Earthling"),
+            trainee_policy=policy,
+            replay_buffer=replay,
+            config=config,
+            rng=random.Random(1),
+            simulation_factory=PendingRebirthSimulation,
+            battle_view_enabled=lambda: False,
+        )
+
+        self.assertEqual(result.terminal_reason, "timeout")
+        self.assertEqual(result.frames, 2)
+        self.assertEqual(policy.selection_count, 2)
+        self.assertEqual(len(replay), 2)
 
     def test_simple_opponent_activity_toggles_keys_per_frame(self):
         config = TrainingOrchestrationConfig(

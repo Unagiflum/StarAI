@@ -537,7 +537,6 @@ def run_training_round(
         mature_samples = _flush_timeout_frame(
             pipeline,
             simulation,
-            trainee_policy,
             replay_buffer,
         )
         mature_count += len(mature_samples)
@@ -747,33 +746,9 @@ def _round_terminal_state(simulation, *, elapsed_frames: int, frame_limit: int):
 def _flush_timeout_frame(
     pipeline: RollingReturnPipeline,
     simulation,
-    trainee_policy,
     replay_buffer: TrainingReplayBuffer,
 ) -> tuple[MatureTrainingSample, ...]:
-    self_ship = simulation.player1
-    enemy_ship = simulation.player2
-    observation = encode_observation(
-        self_ship,
-        enemy_ship,
-        frame_id=simulation.frame_id,
-        game_objects=simulation.world,
-    )
-    selection = _select_policy_action(trainee_policy, observation)
-    decision = decision_frame_from_battle_state(
-        frame_id=simulation.frame_id,
-        observation=observation,
-        action_index=selection.action_index,
-        self_ship=self_ship,
-        enemy_ship=enemy_ship,
-        world=simulation.world,
-    )
-    outcome = frame_outcome_from_battle_state(
-        frame_id=simulation.frame_id,
-        self_ship=self_ship,
-        events=(),
-        terminal=True,
-    )
-    mature_samples = tuple(pipeline.add_frame(decision, outcome))
+    mature_samples = tuple(pipeline.flush_pending(end_frame_id=simulation.frame_id))
     replay_buffer.extend(mature_samples)
     return mature_samples
 

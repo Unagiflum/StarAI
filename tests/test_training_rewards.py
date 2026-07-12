@@ -693,6 +693,36 @@ class RollingReturnPipelineTests(unittest.TestCase):
                 outcome(4),
             )
 
+    def test_explicit_flush_matures_pending_windows_without_new_frame(self):
+        gamma = 0.5
+        pipeline = RollingReturnPipeline(
+            gamma=gamma,
+            reward_weights={REWARD_POINT_A1: 10.0},
+        )
+        pipeline.add_frame(
+            decision(1, self.trainee, self.enemy, a1_pointing=True),
+            outcome(1),
+        )
+        pipeline.add_frame(
+            decision(2, self.trainee, self.enemy, a1_pointing=False),
+            outcome(2),
+        )
+
+        matured = pipeline.flush_pending(end_frame_id=99)
+
+        self.assertEqual([sample.start_frame_id for sample in matured], [1, 2])
+        self.assertEqual([sample.end_frame_id for sample in matured], [99, 99])
+        self.assertEqual([sample.actual_frame_count for sample in matured], [2, 1])
+        self.assertTrue(all(sample.terminal_truncated for sample in matured))
+        self.assertAlmostEqual(matured[0].return_value, 10.0 / (1.0 + gamma))
+        self.assertAlmostEqual(matured[1].return_value, 0.0)
+        self.assertEqual(pipeline.pending_count, 0)
+        with self.assertRaises(RuntimeError):
+            pipeline.add_frame(
+                decision(3, self.trainee, self.enemy),
+                outcome(3),
+            )
+
     def test_ship_death_rewards_are_discounted_sums_not_window_averages(self):
         gamma = 0.5
         pipeline = RollingReturnPipeline(

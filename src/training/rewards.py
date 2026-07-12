@@ -248,6 +248,25 @@ class RollingReturnPipeline:
             self._terminal_seen = True
         return matured
 
+    def flush_pending(self, *, end_frame_id: int) -> list[MatureTrainingSample]:
+        if self._terminal_seen:
+            raise RuntimeError("cannot flush after a terminal outcome")
+        matured = [
+            build_discounted_training_sample(
+                pending.decision,
+                pending.components,
+                self.reward_weights,
+                self.gamma,
+                end_frame_id=end_frame_id,
+                terminal_truncated=True,
+            )
+            for pending in self._pending
+            if pending.components
+        ]
+        self._pending.clear()
+        self._terminal_seen = True
+        return matured
+
 
 def normalize_reward_weights(weights: Mapping[str, float]) -> dict[str, float]:
     normalized = {}
