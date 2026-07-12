@@ -175,11 +175,13 @@ class TrainingInstance:
     session: TrainingSession | None = None
     pending_removal: bool = False
     last_running: bool = False
+    writer_key: tuple[str, int] | None = None
 
 
 class TrainingInstanceManager:
     def __init__(self):
         self._next_instance_id = 2
+        self._writer_reservations: dict[tuple[str, int], int] = {}
         self.instances = [
             TrainingInstance(
                 instance_id=1,
@@ -216,6 +218,7 @@ class TrainingInstanceManager:
 
     def clear_active_session_continuity(self):
         instance = self.active_instance
+        self.release_writer(instance)
         instance.session = None
         instance.last_running = False
 
@@ -238,21 +241,150 @@ class TrainingInstanceManager:
                 return instance
         raise ValueError(f"Unknown training instance {instance_id}")
 
+    def _insert_new_instance(self):
+        instance_id = self._next_instance_id
+        self._next_instance_id += 1
+        instance = TrainingInstance(
+            instance_id=instance_id,
+            label=f"Instance {instance_id}",
+            state=TrainingUIState(),
+        )
+        self.instances.append(instance)
+        return instance
+
     def remove_active_stopped_instance(self):
         if len(self.instances) <= 1:
             return False
         index = self.active_index
         instance = self.instances[index]
-        status = instance.session.status if instance.session is not None else None
-        if getattr(status, "running", False) or getattr(status, "stopping", False):
+        if self.is_running_or_stopping(instance):
             return False
+        self.release_writer(instance)
         self.instances.pop(index)
         next_index = min(index, len(self.instances) - 1)
         self.active_instance_id = self.instances[next_index].instance_id
         return True
 
+    def request_close_active_instance(self):
+        index = self.active_index
+        instance = self.instances[index]
+        if self.is_running_or_stopping(instance):
+            self.disable_display(instance)
+            self.request_stop(instance)
+            instance.pending_removal = True
+            if len(self.instances) == 1:
+                replacement = self._insert_new_instance()
+                self.active_instance_id = replacement.instance_id
+            else:
+                next_index = (index + 1) % len(self.instances)
+                if self.instances[next_index] is instance:
+                    next_index = 0
+                self.active_instance_id = self.instances[next_index].instance_id
+            return "pending"
+        if self.remove_active_stopped_instance():
+            return "removed"
+        return "last"
+
     def active_position_text(self):
         return f"[{self.active_index + 1}/{len(self.instances)}]"
+
+    def status_for(self, instance):
+        return instance.session.status if instance.session is not None else None
+
+    def is_running_or_stopping(self, instance):
+        status = self.status_for(instance)
+        return bool(
+            getattr(status, "running", False)
+            or getattr(status, "stopping", False)
+        )
+
+    def running_instances(self):
+        return [
+            instance
+            for instance in self.instances
+            if self.is_running_or_stopping(instance)
+        ]
+
+    def non_active_running_instances(self):
+        return [
+            instance
+            for instance in self.running_instances()
+            if instance.instance_id != self.active_instance_id
+        ]
+
+    def back_action(self):
+        if self.non_active_running_instances():
+            return "stop_all"
+        if self.is_running_or_stopping(self.active_instance):
+            return "active_running"
+        return "exit"
+
+    def background_instances_running(self):
+        return bool(self.non_active_running_instances())
+
+    def any_instance_running(self):
+        return bool(self.running_instances())
+
+    def disable_display(self, instance):
+        instance.state.display_on = False
+        if instance.session is not None:
+            instance.session.set_display_on(False)
+
+    def request_stop(self, instance):
+        if instance.session is not None:
+            instance.session.request_stop()
+
+    def request_stop_active(self):
+        self.disable_display(self.active_instance)
+        self.request_stop(self.active_instance)
+
+    def request_stop_all_running(self):
+        for instance in self.running_instances():
+            self.disable_display(instance)
+            self.request_stop(instance)
+
+    def reserve_writer(self, instance, ship, slot):
+        self.release_stopped_writers()
+        key = (ship, int(slot))
+        owner_id = self._writer_reservations.get(key)
+        if owner_id is not None and owner_id != instance.instance_id:
+            return False
+        self._writer_reservations[key] = instance.instance_id
+        instance.writer_key = key
+        return True
+
+    def writer_owner(self, ship, slot):
+        return self._writer_reservations.get((ship, int(slot)))
+
+    def release_writer(self, instance):
+        key = instance.writer_key
+        if key is not None and self._writer_reservations.get(key) == instance.instance_id:
+            del self._writer_reservations[key]
+        instance.writer_key = None
+
+    def release_stopped_writers(self):
+        for instance in self.instances:
+            if instance.writer_key is not None and not self.is_running_or_stopping(instance):
+                self.release_writer(instance)
+
+    def cleanup_stopped_pending_removals(self):
+        removed_active = False
+        kept = []
+        for instance in self.instances:
+            if instance.pending_removal and not self.is_running_or_stopping(instance):
+                self.release_writer(instance)
+                removed_active = removed_active or instance.instance_id == self.active_instance_id
+                continue
+            kept.append(instance)
+        if not kept:
+            kept.append(self._insert_new_instance())
+        self.instances = kept
+        if removed_active or not any(
+            instance.instance_id == self.active_instance_id
+            for instance in self.instances
+        ):
+            self.active_instance_id = self.instances[0].instance_id
+        self.release_stopped_writers()
 
 
 def _instance_status_text(instance):
@@ -1750,6 +1882,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     display_checkbox = None  # Instantiated later with other action buttons
     exited = [False]
+    stopping_background_instances = [False]
     last_starting_epsilon_slider_value = [state.starting_epsilon]
     batch_log_box = TrainingBatchLogBox()
 
@@ -1935,18 +2068,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     def close_active_training_instance():
         nonlocal state
         sync_state_from_ui()
-        active_session = instance_manager.active_session
-        if active_session is not None:
-            status = active_session.status
-            if getattr(status, "running", False) or getattr(status, "stopping", False):
-                show_notice("Stop training before closing this instance")
-                return
-        if not instance_manager.remove_active_stopped_instance():
+        result = instance_manager.request_close_active_instance()
+        if result == "last":
             show_notice("At least one training instance must remain")
             return
+        if result == "pending":
+            show_notice("Closing instance after training stops")
+        else:
+            show_notice("Closed training instance")
         state = instance_manager.active_state
         apply_state_to_ui()
-        show_notice("Closed training instance")
 
     def refresh_slot_controls(*, load_labels=True):
         if state.selected_ship is None:
@@ -2307,16 +2438,26 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         return active_session.history, active_session.log_lines
 
     def request_back():
-        active_session = instance_manager.active_session
-        if active_session is not None and active_session.status.running:
-            if state.display_on:
-                display_checkbox.is_checked = False
-                state.display_on = False
-                active_session.set_display_on(False)
-            active_session.request_stop()
-            show_notice("Training pausing; current batch will be abandoned")
-        else:
+        def stop_all_running_instances():
+            instance_manager.request_stop_all_running()
+            stopping_background_instances[0] = True
+            display_checkbox.is_checked = False
+            show_notice("Stopping background instances")
+
+        def leave_training_screen():
             exited[0] = True
+
+        action = instance_manager.back_action()
+        if action == "stop_all":
+            confirmation_prompt[0] = ConfirmationPrompt(
+                "Do you want to stop all running training instances?",
+                stop_all_running_instances,
+            )
+        elif action == "exit":
+            confirmation_prompt[0] = ConfirmationPrompt(
+                "Do you want to leave AI training?",
+                leave_training_screen,
+            )
 
     def begin_training():
         model_slot = selected_model_slot()
@@ -2343,6 +2484,17 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if report.warnings:
             show_notice(report.warnings[0])
 
+        active_instance = instance_manager.active_instance
+        if not instance_manager.reserve_writer(
+            active_instance,
+            model_slot.ship,
+            model_slot.slot,
+        ):
+            show_notice(
+                f"{model_slot.ship}-{model_slot.slot:02d} is already training"
+            )
+            return
+
         try:
             initial_history, initial_log_lines = session_continuity_for(model_slot)
             session = TrainingSession(
@@ -2360,16 +2512,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             session.start()
             show_notice(f"Training {describe_model(model_slot)}")
         except (TrainingSessionError, RuntimeError, ValueError) as exc:
+            instance_manager.release_writer(active_instance)
             show_notice(str(exc))
 
     def start_selected_model():
         active_session = instance_manager.active_session
-        if active_session is not None and active_session.status.running:
-            if state.display_on:
-                display_checkbox.is_checked = False
-                state.display_on = False
-                active_session.set_display_on(False)
-            active_session.request_stop()
+        if instance_manager.is_running_or_stopping(instance_manager.active_instance):
+            instance_manager.request_stop_active()
+            display_checkbox.is_checked = False
             show_notice("Training pausing; current batch will be abandoned")
             return
 
@@ -2651,42 +2801,85 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].label = "Gradient steps"
 
+        previous_active_id = instance_manager.active_instance_id
+        for instance in list(instance_manager.instances):
+            session = instance.session
+            status = session.status if session is not None else None
+            if session is None or status is None:
+                instance.state.running = False
+                instance.last_running = False
+                continue
+
+            if instance.instance_id == instance_manager.active_instance_id and status.running:
+                session.set_display_on(state.display_on)
+
+            instance.state.running = status.running
+            if instance.instance_id == instance_manager.active_instance_id:
+                state.current_epsilon = float(
+                    getattr(status, "current_epsilon", state.current_epsilon)
+                )
+                batch_log_box.set_lines(
+                    _display_off_console_lines(status, session.log_lines)
+                )
+                if not instance.last_running and status.running:
+                    refresh_slot_controls()
+                if instance.last_running and not status.running:
+                    display_checkbox.is_checked = False
+                    state.display_on = False
+                    session.set_display_on(False)
+                    if status.error:
+                        show_notice(status.error)
+                    else:
+                        show_notice("Training stopped")
+                    refresh_slot_controls()
+
+            if instance.last_running and not status.running:
+                instance_manager.disable_display(instance)
+                instance_manager.release_writer(instance)
+            instance.last_running = status.running
+
+        instance_manager.cleanup_stopped_pending_removals()
+        if instance_manager.active_instance_id != previous_active_id:
+            state = instance_manager.active_state
+            apply_state_to_ui()
+
         active_instance = instance_manager.active_instance
         active_session = active_instance.session
         session_status = active_session.status if active_session is not None else None
-        if active_session is not None:
-            if session_status.running:
-                active_session.set_display_on(state.display_on)
-            state.current_epsilon = float(
-                getattr(session_status, "current_epsilon", state.current_epsilon)
-            )
-            batch_log_box.set_lines(
-                _display_off_console_lines(session_status, active_session.log_lines)
-            )
-            state.running = session_status.running
-            if not active_instance.last_running and session_status.running:
-                refresh_slot_controls()
-            if active_instance.last_running and not session_status.running:
-                display_checkbox.is_checked = False
-                state.display_on = False
-                active_session.set_display_on(False)
-                if session_status.error:
-                    show_notice(session_status.error)
-                else:
-                    show_notice("Training stopped")
-                refresh_slot_controls()
-            active_instance.last_running = session_status.running
+        background_running = instance_manager.background_instances_running()
+        active_running = instance_manager.is_running_or_stopping(active_instance)
+        any_running = instance_manager.any_instance_running()
+
+        if stopping_background_instances[0]:
+            if background_running:
+                if notice[0] is None or notice[0].text == "Stopping background instances":
+                    show_notice("Stopping background instances")
+            elif not any_running:
+                stopping_background_instances[0] = False
 
         update_field_colors()
         selected_slot = selected_model_slot()
-        back_button.enabled = not state.running
-        close_instance_button.enabled = len(instance_manager.instances) > 1 and not state.running
+        back_button.text = "Stop All" if background_running else "Back"
+        back_button.enabled = background_running or not active_running
+        if background_running:
+            back_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
+            back_button.hover_color = ui.CAN_RED_HI
+        else:
+            back_button.bg_color = ui.CAN_RED
+            back_button.hover_color = ui.CAN_RED_HI
+        close_instance_button.enabled = (
+            len(instance_manager.instances) > 1
+            or instance_manager.is_running_or_stopping(active_instance)
+        )
         start_stop_button.enabled = (
             state.selected_ship is not None
             and selected_slot is not None
             and not selected_slot.is_bundled
             and (
-                (session_status is not None and session_status.running)
+                (
+                    session_status is not None
+                    and (session_status.running or session_status.stopping)
+                )
                 or bool(slot_fields[state.selected_slot - 1].text.strip())
             )
         )
@@ -2705,8 +2898,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             load_button.text = "Load"
             load_button.enabled = selected_slot is not None and selected_slot.is_user and not state.running
 
-        if session_status is not None and session_status.running:
-            start_stop_button.text = "Stopping" if session_status.stopping else "Stop"
+        if session_status is not None and (
+            session_status.running or session_status.stopping
+        ):
+            start_stop_button.text = "Stop"
             start_stop_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
             start_stop_button.hover_color = ui.CAN_RED_HI
             
@@ -2894,6 +3089,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if state.running:
             pygame.draw.rect(screen, ui.BLACK, display_checkbox.rect, 2, border_radius=5)
             pygame.draw.rect(screen, ui.BLACK, start_stop_button.rect, 2, border_radius=5)
+        if background_running:
+            pygame.draw.rect(screen, ui.BLACK, back_button.rect, 2, border_radius=5)
         if state.display_on and session_status is not None:
             _draw_training_huds(
                 screen,

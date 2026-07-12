@@ -49,13 +49,45 @@ Completed:
 Remaining:
 
 - Manual smoke of add/select/remove behavior remains pending.
-- Running-instance close/pending-removal behavior is deferred to Phase 3.
+
+## Phase 3: Multi-Session Start/Stop And Writer Reservations
+
+Status: Complete.
+
+Completed:
+
+- Added UI-thread writer reservations keyed by `(ship, slot)` to prevent two
+  running or stopping instances from writing the same user model slot.
+- Routed active Start/Stop through instance-scoped manager helpers so stopping
+  the active instance leaves other running instances alone.
+- Updated the footer Back control to become `Stop All` when background
+  instances are running, then confirm before requesting stops for every running
+  instance.
+- Added confirmation to the enabled `Back` path before leaving the training
+  screen.
+- Added running-instance close behavior: display is disabled first, stop is
+  requested, and the instance remains pending removal until its session stops.
+- Added automatic cleanup for stopped pending-removal instances and stopped
+  writer reservations across all instances, not just the active one.
+- Added a replacement instance when closing the only running instance so the UI
+  never has zero open instances.
+- Added focused unit coverage for distinct-slot concurrent reservations,
+  same-slot conflicts, active-only stop, Back action selection, stop-all,
+  pending-removal cleanup, and display-off-before-close behavior.
+- Verified focused suites pass:
+  `python -m unittest tests.test_train_ai_ui tests.test_training_session`.
+- Verified related model/orchestration suites pass:
+  `python -m unittest tests.test_training_orchestration tests.test_training_models`.
+
+Remaining:
+
+- Manual smoke of multi-instance start/stop, Stop All, and running close
+  behavior remains pending.
 
 ## Later Phases
 
-Status: Not started.
+Status: Phase 4 not started.
 
-- Phase 3: Multi-session start/stop and writer reservations.
 - Phase 4: Single visualization ownership.
 - Phase 5: Headless battle-view cost reduction.
 - Phase 6: Scaling controls up to 25 instances.

@@ -123,6 +123,23 @@ class TrainingUIStateTests(unittest.TestCase):
 
 
 class TrainingInstanceManagerTests(unittest.TestCase):
+    class FakeSession:
+        def __init__(self, *, running=True, stopping=False, error=""):
+            self.status = SimpleNamespace(
+                running=running,
+                stopping=stopping,
+                error=error,
+            )
+            self.stop_requested = False
+            self.display_events = []
+
+        def request_stop(self):
+            self.stop_requested = True
+            self.status.stopping = True
+
+        def set_display_on(self, enabled):
+            self.display_events.append(enabled)
+
     def test_default_manager_creates_one_active_instance(self):
         manager = TrainingInstanceManager()
 
@@ -213,6 +230,141 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertIn("01]", prefix)
         self.assertIn("Earthling-01", prefix)
         self.assertEqual(_instance_status_text(manager.active_instance), "Running")
+
+    def test_writer_reservation_blocks_same_running_slot(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.session = self.FakeSession(running=True)
+        self.assertTrue(manager.reserve_writer(first, "Earthling", 1))
+
+        second = manager.add_instance()
+        second.session = self.FakeSession(running=True)
+
+        self.assertFalse(manager.reserve_writer(second, "Earthling", 1))
+        self.assertEqual(manager.writer_owner("Earthling", 1), first.instance_id)
+
+    def test_writer_reservation_allows_distinct_running_slots(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.session = self.FakeSession(running=True)
+        self.assertTrue(manager.reserve_writer(first, "Earthling", 1))
+
+        second = manager.add_instance()
+        second.session = self.FakeSession(running=True)
+
+        self.assertTrue(manager.reserve_writer(second, "Androsynth", 1))
+        self.assertEqual(manager.writer_owner("Earthling", 1), first.instance_id)
+        self.assertEqual(manager.writer_owner("Androsynth", 1), second.instance_id)
+
+    def test_stopped_session_releases_writer_reservation(self):
+        manager = TrainingInstanceManager()
+        instance = manager.active_instance
+        instance.session = self.FakeSession(running=True)
+        self.assertTrue(manager.reserve_writer(instance, "Earthling", 1))
+
+        instance.session.status.running = False
+        manager.release_stopped_writers()
+
+        self.assertIsNone(manager.writer_owner("Earthling", 1))
+        self.assertIsNone(instance.writer_key)
+
+    def test_stop_active_instance_leaves_other_running(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.session = self.FakeSession(running=True)
+        second = manager.add_instance()
+        second.session = self.FakeSession(running=True)
+        manager.select_instance(first.instance_id)
+
+        manager.request_stop_active()
+
+        self.assertTrue(first.session.stop_requested)
+        self.assertFalse(second.session.stop_requested)
+
+    def test_back_action_stops_all_when_non_active_instance_is_running(self):
+        manager = TrainingInstanceManager()
+        manager.active_instance.session = self.FakeSession(running=True)
+
+        self.assertEqual(manager.back_action(), "active_running")
+
+        second = manager.add_instance()
+        second.session = self.FakeSession(running=True)
+        manager.select_instance(manager.instances[0].instance_id)
+
+        self.assertEqual(manager.back_action(), "stop_all")
+        self.assertTrue(manager.background_instances_running())
+
+    def test_stop_all_running_requests_stop_without_touching_stopped_instances(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.display_on = True
+        first.session = self.FakeSession(running=True)
+        second = manager.add_instance()
+        second.state.display_on = True
+        second.session = self.FakeSession(running=False)
+
+        manager.request_stop_all_running()
+
+        self.assertTrue(first.session.stop_requested)
+        self.assertFalse(second.session.stop_requested)
+        self.assertFalse(first.state.display_on)
+        self.assertEqual(first.session.display_events, [False])
+
+    def test_stop_all_running_includes_selected_instance(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.session = self.FakeSession(running=True)
+        second = manager.add_instance()
+        second.session = self.FakeSession(running=True)
+        manager.select_instance(first.instance_id)
+
+        manager.request_stop_all_running()
+
+        self.assertTrue(first.session.stop_requested)
+        self.assertTrue(second.session.stop_requested)
+
+    def test_close_running_active_instance_disables_display_before_stop(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.display_on = True
+        first.session = self.FakeSession(running=True)
+        second = manager.add_instance()
+        manager.select_instance(first.instance_id)
+
+        result = manager.request_close_active_instance()
+
+        self.assertEqual(result, "pending")
+        self.assertTrue(first.pending_removal)
+        self.assertEqual(first.session.display_events, [False])
+        self.assertTrue(first.session.stop_requested)
+        self.assertIs(manager.active_instance, second)
+
+    def test_close_last_running_instance_creates_replacement(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.session = self.FakeSession(running=True)
+
+        result = manager.request_close_active_instance()
+
+        self.assertEqual(result, "pending")
+        self.assertEqual(len(manager.instances), 2)
+        self.assertTrue(first.pending_removal)
+        self.assertIsNot(manager.active_instance, first)
+
+    def test_cleanup_removes_stopped_pending_instance(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.session = self.FakeSession(running=True)
+        second = manager.add_instance()
+        manager.select_instance(first.instance_id)
+        manager.request_close_active_instance()
+
+        first.session.status.running = False
+        first.session.status.stopping = False
+        manager.cleanup_stopped_pending_removals()
+
+        self.assertEqual(manager.instances, [second])
+        self.assertIs(manager.active_instance, second)
 
 
 class TrainingLayoutTests(unittest.TestCase):
