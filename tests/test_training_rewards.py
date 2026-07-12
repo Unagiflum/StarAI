@@ -37,6 +37,7 @@ from src.training.rewards import (
     RollingReturnPipeline,
     calculate_reward_components,
     discount_cutoff_frames,
+    frame_outcome_from_battle_state,
     normalize_reward_weights,
 )
 
@@ -71,12 +72,22 @@ def decision(
     )
 
 
-def outcome(frame_id, *, battery=10, speed=0, max_thrust=12, events=(), terminal=False):
+def outcome(
+    frame_id,
+    *,
+    battery=10,
+    speed=0,
+    max_thrust=12,
+    sustained_a2_active=False,
+    events=(),
+    terminal=False,
+):
     return RewardFrameOutcome(
         frame_id=frame_id,
         self_battery=battery,
         self_speed=speed,
         self_max_thrust=max_thrust,
+        self_sustained_a2_active=sustained_a2_active,
         events=tuple(events),
         terminal=terminal,
     )
@@ -318,6 +329,62 @@ class TrainingRewardComponentTests(unittest.TestCase):
             [outcome(1, events=(marine_launch,))],
         )
         self.assertEqual(components[REWARD_SPAWN_A2], 1.0)
+
+    def test_ilwrath_and_androsynth_use_a2_counts_active_state_per_frame(self):
+        for ship in (
+            SimpleNamespace(name="Ilwrath"),
+            SimpleNamespace(name="Androsynth"),
+        ):
+            decisions = [
+                decision(1, ship, self.enemy),
+                decision(2, ship, self.enemy),
+                decision(3, ship, self.enemy),
+            ]
+            outcomes = [
+                outcome(1, sustained_a2_active=True),
+                outcome(2, sustained_a2_active=True),
+                outcome(3, sustained_a2_active=False),
+            ]
+
+            with self.subTest(ship=ship.name):
+                components = calculate_reward_components(
+                    decisions[0], decisions, outcomes
+                )
+                self.assertEqual(components[REWARD_SPAWN_A2], 2 / 3)
+
+    def test_ilwrath_and_androsynth_toggle_events_do_not_count_as_use_a2(self):
+        for ship in (
+            SimpleNamespace(name="Ilwrath"),
+            SimpleNamespace(name="Androsynth"),
+        ):
+            event = TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_ACTION_USED,
+                owner=ship,
+                action="A2",
+            )
+            start = decision(1, ship, self.enemy)
+
+            with self.subTest(ship=ship.name):
+                components = calculate_reward_components(
+                    start,
+                    [start],
+                    [outcome(1, events=(event,))],
+                )
+                self.assertEqual(components[REWARD_SPAWN_A2], 0.0)
+
+    def test_sustained_a2_outcome_snapshots_ship_state(self):
+        states = (
+            (SimpleNamespace(name="Ilwrath", cloaked=True), True),
+            (SimpleNamespace(name="Ilwrath", cloaked=False), False),
+            (SimpleNamespace(name="Androsynth", form="A2"), True),
+            (SimpleNamespace(name="Androsynth", form="Base"), False),
+        )
+
+        for ship, expected in states:
+            with self.subTest(ship=ship.name, state=ship.__dict__):
+                result = frame_outcome_from_battle_state(frame_id=1, self_ship=ship)
+                self.assertEqual(result.self_sustained_a2_active, expected)
 
     def test_battery_loss_and_zero_are_endpoint_rewards(self):
         start = decision(1, self.trainee, self.enemy, battery=4)

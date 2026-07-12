@@ -21,9 +21,9 @@ from src.training.contracts import (
     action_for_index,
 )
 from src.training.model_registry import (
-    MODEL_SLOT_COUNT,
     TrainingModelRepository,
     TrainingModelSlot,
+    model_slot_has_checkpoint,
     model_architecture_metadata,
     model_basename,
     normalize_architecture_metadata,
@@ -253,13 +253,7 @@ def _is_default_slot(slot: TrainingModelSlot) -> bool:
 
 
 def _slot_has_candidate_weights(slot: TrainingModelSlot) -> bool:
-    return bool(
-        1 <= int(slot.slot) <= MODEL_SLOT_COUNT
-        and slot.exists
-        and slot.pth_path is not None
-        and slot.pth_path.exists()
-        and slot.pth_path.stat().st_size > 0
-    )
+    return model_slot_has_checkpoint(slot)
 
 
 def _ships_for_player(simulation, player: int):

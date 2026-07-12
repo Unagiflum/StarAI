@@ -35,6 +35,7 @@ from src.training.model_registry import (
     TrainingModelSlot,
     metadata_from_state,
     model_architecture_metadata,
+    trained_model_counts_for_ships,
 )
 from src.training.orchestration import TrainingOrchestrationConfig
 from src.training.rewards import LEGACY_REWARD_ALIASES, REWARD_COMPONENTS
@@ -2108,6 +2109,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             return None
         return slot_models[state.selected_slot - 1]
 
+    def catalog_model_counts():
+        return trained_model_counts_for_ships(model_repository, SHIP_DEFINITIONS.keys())
+
     def show_notice(text):
         notice[0] = TrainingNotice(text)
 
@@ -2817,6 +2821,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                                     SHIP_DEFINITIONS,
                                     source_sprites,
                                     title_label="Select Trainee Ship",
+                                    model_counts=catalog_model_counts(),
                                 )
                             else:
                                 clear_selected_ship()

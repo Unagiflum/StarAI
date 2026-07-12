@@ -109,6 +109,7 @@ class RewardFrameOutcome:
     self_battery: float = 0.0
     self_speed: float = 0.0
     self_max_thrust: float = 0.0
+    self_sustained_a2_active: bool = False
     events: tuple[TrainingBattleEvent, ...] = ()
     terminal: bool = False
 
@@ -183,6 +184,7 @@ def frame_outcome_from_battle_state(
         self_battery=_number(self_ship, "current_energy"),
         self_speed=math.hypot(velocity[0], velocity[1]),
         self_max_thrust=_number(self_ship, "max_thrust"),
+        self_sustained_a2_active=_sustained_a2_active(self_ship),
         events=tuple(events),
         terminal=bool(terminal),
     )
@@ -300,11 +302,16 @@ def calculate_immediate_reward_components(
 
     self_ship = decision.self_ship
     enemy_ship = decision.enemy_ship
+    if _uses_sustained_a2_reward(self_ship) and outcome.self_sustained_a2_active:
+        components[REWARD_SPAWN_A2] = 1.0
     for event in outcome.events:
         if _is_self_action_use_event(event, self_ship):
             if _is_a1_use_event(event):
                 components[REWARD_SPAWN_A1] = 1.0
-            elif _is_a2_use_event(event):
+            elif (
+                not _uses_sustained_a2_reward(self_ship)
+                and _is_a2_use_event(event)
+            ):
                 components[REWARD_SPAWN_A2] = 1.0
         elif event.event_type == EVENT_CREW_CHANGED:
             if _same_entity(event.target, enemy_ship) and event.magnitude < 0:
@@ -481,6 +488,22 @@ def _is_orz_turret_turn_event(event: TrainingBattleEvent) -> bool:
         and event.action == "A2"
         and _owner_name(event) == "Orz"
     )
+
+
+def _uses_sustained_a2_reward(ship: object | None) -> bool:
+    return getattr(ship, "name", None) in {"Ilwrath", "Androsynth"}
+
+
+def _sustained_a2_active(ship: object | None) -> bool:
+    ship_name = getattr(ship, "name", None)
+    if ship_name == "Ilwrath":
+        return bool(getattr(ship, "cloaked", False))
+    if ship_name == "Androsynth":
+        is_blazer = getattr(ship, "is_blazer", None)
+        if isinstance(is_blazer, bool):
+            return is_blazer
+        return getattr(ship, "form", None) == "A2"
+    return False
 
 
 def _ability_name(event: TrainingBattleEvent) -> str:

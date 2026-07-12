@@ -593,6 +593,52 @@ class ShipPickerModalTests(unittest.TestCase):
             )
         )
 
+    def test_catalog_draws_model_count_dots_below_cost(self):
+        catalog = {"Earthling": SimpleNamespace(cost=11, ship_type="Cruiser")}
+        sprites = {"Earthling": pygame.Surface((20, 10), pygame.SRCALPHA)}
+        picker = ShipPickerModal(
+            1,
+            0,
+            catalog,
+            sprites,
+            model_counts={"Earthling": 2},
+        )
+        screen = pygame.Surface((Const.SCREEN_WIDTH, Const.SCREEN_HEIGHT))
+
+        old_mouse_pos = pygame.mouse.get_pos
+        pygame.mouse.get_pos = lambda: (-1, -1)
+        try:
+            picker.draw(
+                screen,
+                pygame.font.SysFont(None, 40),
+                pygame.font.SysFont(None, Const.SHIP_TOOLTIP_FONT_SIZE),
+            )
+        finally:
+            pygame.mouse.get_pos = old_mouse_pos
+
+        cell_rect = picker.cell_rects[0]
+        cost_surface = picker.cost_font.render(
+            "11", True, Const.SHIP_CATALOG_COST_COLOR
+        )
+        dot_top = cell_rect.top + 2 + cost_surface.get_height() + 2
+        first_dot = pygame.Rect(cell_rect.left + 2, dot_top, 4, 4)
+        second_dot = pygame.Rect(cell_rect.left + 8, dot_top, 4, 4)
+
+        self.assertTrue(
+            any(
+                screen.get_at((x, y))[:3] == (0, 255, 0)
+                for x in range(first_dot.left, first_dot.right)
+                for y in range(first_dot.top, first_dot.bottom)
+            )
+        )
+        self.assertTrue(
+            any(
+                screen.get_at((x, y))[:3] == (0, 255, 0)
+                for x in range(second_dot.left, second_dot.right)
+                for y in range(second_dot.top, second_dot.bottom)
+            )
+        )
+
     def test_catalog_larger_than_grid_is_rejected(self):
         catalog = {
             f"Ship {index}": SimpleNamespace(cost=index, ship_type="Scout")

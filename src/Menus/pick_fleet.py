@@ -14,6 +14,10 @@ from src.configuration import Fleets, FleetsRepository, PlayerFleet
 from src.Menus import pick_ship
 from src.persistence import PersistenceValidationError
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS
+from src.training.model_registry import (
+    TrainingModelRepository,
+    trained_model_counts_for_ships,
+)
 
 # Display settings
 SELECTION_ICON_SIZE = const.SELECTION_ICON_SIZE
@@ -29,6 +33,9 @@ PICKER_BOX_COLOR = const.SHIP_BOX_BACKGROUND_COLOR
 PICKER_CELL_GAP = 3
 PICKER_BORDER_WIDTH = 5
 PICKER_TOOLTIP_FONT_SIZE = const.SHIP_TOOLTIP_FONT_SIZE
+PICKER_AI_DOT_DIAMETER = 4
+PICKER_AI_DOT_GAP = 2
+PICKER_AI_DOT_COLOR = (0, 255, 0)
 FLEET_CONTROL_WEIGHTS = {
     "ai": 18,
     "one_of_each": 25,
@@ -68,11 +75,16 @@ class ShipPickerModal:
         sprites,
         quantity=1,
         title_label=None,
+        model_counts=None,
     ):
         self.player = player
         self.slot_index = slot_index
         self.quantity = quantity
         self.title_label = title_label
+        self.model_counts = {
+            str(name): max(0, int(count))
+            for name, count in dict(model_counts or {}).items()
+        }
         self.color = const.P1_COLOR if player == 1 else const.P2_COLOR
         if len(ships_data) > PICKER_CAPACITY:
             raise ValueError(
@@ -207,12 +219,19 @@ class ShipPickerModal:
 
             if index >= len(self.ships):
                 continue
-            _, _, cost, sprite = self.ships[index]
+            name, _, cost, sprite = self.ships[index]
             screen.blit(sprite, sprite.get_rect(center=cell_rect.center))
             cost_surface = self.cost_font.render(
                 str(cost), True, const.SHIP_CATALOG_COST_COLOR
             )
-            screen.blit(cost_surface, (cell_rect.left + 2, cell_rect.top + 2))
+            cost_pos = (cell_rect.left + 2, cell_rect.top + 2)
+            screen.blit(cost_surface, cost_pos)
+            self._draw_ai_dots(
+                screen,
+                cell_rect,
+                cost_surface.get_rect(topleft=cost_pos),
+                self.model_counts.get(name, 0),
+            )
 
         hovered = self._hovered_ship(mouse_pos)
         if hovered is not None:
@@ -227,6 +246,23 @@ class ShipPickerModal:
                 cell_rect,
             )
 
+    def _draw_ai_dots(self, screen, cell_rect, cost_rect, count):
+        y = cost_rect.bottom + 2
+        if count <= 0 or y + PICKER_AI_DOT_DIAMETER > cell_rect.bottom:
+            return
+        left = cell_rect.left + 2
+        step = PICKER_AI_DOT_DIAMETER + PICKER_AI_DOT_GAP
+        for index in range(count):
+            dot_rect = pygame.Rect(
+                left + index * step,
+                y,
+                PICKER_AI_DOT_DIAMETER,
+                PICKER_AI_DOT_DIAMETER,
+            )
+            if dot_rect.right > cell_rect.right:
+                break
+            pygame.draw.ellipse(screen, PICKER_AI_DOT_COLOR, dot_rect)
+
 
 def load_ships():
     """Return the authoritative typed catalog (compatibility entry point)."""
@@ -240,6 +276,14 @@ def load_ship_sprites(ships_data, resources=None):
         return surface
 
     return load_menu_ship_sprites(ships_data, resources=resources, fallback=fallback)
+
+
+def load_ship_model_counts(ships_data, repository=None):
+    repository = repository or TrainingModelRepository(
+        const.DEFAULT_MODELS_PATH,
+        const.MODELS_PATH,
+    )
+    return trained_model_counts_for_ships(repository, ships_data.keys())
 
 
 def create_sprite_sets(ships_data):
@@ -302,6 +346,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     # Load ships data and sprites
     ships_data = load_ships()
+    ship_model_counts = load_ship_model_counts(ships_data)
 
     # Scale sprites for selection and fleet views, maintaining proportions
     selection_sprites, fleet_sprites = create_sprite_sets(ships_data)
@@ -372,6 +417,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             ships_data,
             selection_sprites,
             quantity=quantity,
+            model_counts=ship_model_counts,
         )
 
     bulk_buttons = {
@@ -544,6 +590,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                                 slot_index,
                                 ships_data,
                                 selection_sprites,
+                                model_counts=ship_model_counts,
                             )
                             if menu_sound_manager:
                                 menu_sound_manager.play_sound("menu")

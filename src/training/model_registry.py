@@ -206,3 +206,34 @@ class TrainingModelRepository:
                 path.unlink()
             except FileNotFoundError:
                 pass
+
+
+def model_slot_has_checkpoint(slot: TrainingModelSlot) -> bool:
+    """Return whether a model slot has usable checkpoint bytes."""
+    if (
+        not slot.exists
+        or slot.pth_path is None
+        or not 1 <= int(slot.slot) <= MODEL_SLOT_COUNT
+    ):
+        return False
+    try:
+        return slot.pth_path.exists() and slot.pth_path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def trained_model_count_for_ship(
+    repository: TrainingModelRepository, ship: str
+) -> int:
+    return sum(
+        1 for slot in repository.slots_for_ship(ship) if model_slot_has_checkpoint(slot)
+    )
+
+
+def trained_model_counts_for_ships(
+    repository: TrainingModelRepository, ships
+) -> dict[str, int]:
+    return {
+        str(ship): trained_model_count_for_ship(repository, str(ship))
+        for ship in ships
+    }

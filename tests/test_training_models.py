@@ -20,6 +20,7 @@ from src.training.model_registry import (
     metadata_from_state,
     model_architecture_metadata,
     model_paths,
+    trained_model_counts_for_ships,
 )
 from src.training import torch_backend
 from src.training.value_network import (
@@ -192,6 +193,27 @@ class TrainingModelRepositoryTests(unittest.TestCase):
 
         self.assertEqual(slot.source, SLOT_USER)
         self.assertEqual(slot.description, "")
+
+    def test_trained_model_counts_include_only_non_empty_checkpoints(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundled_pth, _ = model_paths(root / "bundled", "Earthling", 2)
+            bundled_pth.parent.mkdir()
+            bundled_pth.write_bytes(b"default checkpoint")
+            user_pth, _ = model_paths(root / "user", "Earthling", 1)
+            user_pth.parent.mkdir()
+            user_pth.write_bytes(b"user checkpoint")
+            empty_pth, _ = model_paths(root / "user", "Earthling", 3)
+            empty_pth.touch()
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+
+            counts = trained_model_counts_for_ships(
+                repository,
+                ("Earthling", "Mycon"),
+            )
+
+        self.assertEqual(counts["Earthling"], 2)
+        self.assertEqual(counts["Mycon"], 0)
 
     def test_metadata_round_trips_training_schema_and_architecture_contracts(self):
         metadata = metadata_from_state(
