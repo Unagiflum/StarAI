@@ -482,12 +482,19 @@ class TrainingConsoleTests(unittest.TestCase):
             lines.index("Current batch"),
         )
         self.assertIn("Batch:         3", lines)
-        self.assertIn("Opponent: Earthling        ", lines)
+        reward_name_width = max(len(label) for label in REWARD_LABELS)
+        self.assertIn(f"{'Opponent:':<10}{'Earthling':<{reward_name_width}}", lines)
         self.assertIn("Replay:       99", lines)
         self.assertIn("Return:       12.50", lines)
         self.assertIn("Loss:              -", lines)
-        self.assertIn("Reward components|   Chenjesu |  Batch -", lines)
-        self.assertIn("Kill enemy       |     2.0000 |        -", lines)
+        self.assertIn(
+            f"{'Reward components':<{reward_name_width}}|   Chenjesu |  Batch -",
+            lines,
+        )
+        self.assertIn(
+            f"{'Kill enemy':<{reward_name_width}}|     2.0000 |        -",
+            lines,
+        )
 
     def test_display_off_console_keeps_current_batch_block_height_stable(self):
         lines_with_component = _display_off_console_lines(
