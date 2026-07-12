@@ -93,7 +93,14 @@ CURRENT_BATCH_REWARD_VALUE_WIDTH = 8
 
 CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
 TAB_MARGIN = 8
-UI_TOP_MARGIN = 44
+INSTANCE_TOP = 8
+INSTANCE_CONTROL_HEIGHT = 30
+INSTANCE_GAP = 8
+INSTANCE_DROPDOWN_VISIBLE_ROWS = 8
+INSTANCE_SEPARATOR_HEIGHT = 4
+INSTANCE_DROPDOWN_COLOR = (0, 70, 75, 235)
+INSTANCE_DROPDOWN_HOVER_COLOR = (0, 100, 110, 255)
+UI_TOP_MARGIN = INSTANCE_TOP + INSTANCE_CONTROL_HEIGHT + 12
 TAB_GAP = 8
 TAB_HEIGHT = 32
 TAB_COLOR = (155, 0, 105, 75)
@@ -172,6 +179,7 @@ class TrainingInstance:
 
 class TrainingInstanceManager:
     def __init__(self):
+        self._next_instance_id = 2
         self.instances = [
             TrainingInstance(
                 instance_id=1,
@@ -189,6 +197,13 @@ class TrainingInstanceManager:
         raise RuntimeError("Active training instance is missing")
 
     @property
+    def active_index(self):
+        for index, instance in enumerate(self.instances):
+            if instance.instance_id == self.active_instance_id:
+                return index
+        raise RuntimeError("Active training instance is missing")
+
+    @property
     def active_state(self):
         return self.active_instance.state
 
@@ -203,6 +218,74 @@ class TrainingInstanceManager:
         instance = self.active_instance
         instance.session = None
         instance.last_running = False
+
+    def add_instance(self):
+        instance_id = self._next_instance_id
+        self._next_instance_id += 1
+        instance = TrainingInstance(
+            instance_id=instance_id,
+            label=f"Instance {instance_id}",
+            state=TrainingUIState(),
+        )
+        self.instances.append(instance)
+        self.active_instance_id = instance_id
+        return instance
+
+    def select_instance(self, instance_id):
+        for instance in self.instances:
+            if instance.instance_id == instance_id:
+                self.active_instance_id = instance_id
+                return instance
+        raise ValueError(f"Unknown training instance {instance_id}")
+
+    def remove_active_stopped_instance(self):
+        if len(self.instances) <= 1:
+            return False
+        index = self.active_index
+        instance = self.instances[index]
+        status = instance.session.status if instance.session is not None else None
+        if getattr(status, "running", False) or getattr(status, "stopping", False):
+            return False
+        self.instances.pop(index)
+        next_index = min(index, len(self.instances) - 1)
+        self.active_instance_id = self.instances[next_index].instance_id
+        return True
+
+    def active_position_text(self):
+        return f"[{self.active_index + 1}/{len(self.instances)}]"
+
+
+def _instance_status_text(instance):
+    status = instance.session.status if instance.session is not None else None
+    if status is None:
+        return "Stopped"
+    if getattr(status, "error", None):
+        return "Error"
+    if getattr(status, "stopping", False):
+        return "Stopping"
+    if getattr(status, "running", False):
+        return "Running"
+    return "Stopped"
+
+
+def _instance_model_text(instance):
+    state = instance.state
+    if state.selected_ship is None or state.selected_slot is None:
+        return "-------------"
+    return f"{state.selected_ship}-{state.selected_slot:02d}"
+
+
+def _instance_row_parts(position, instance):
+    status = _instance_status_text(instance)
+    return f"{position:02d}] {_instance_model_text(instance):>13} ", status
+
+
+def _instance_status_color(status):
+    if status == "Running":
+        return ui.BRIGHT_GREEN
+    if status in {"Stopped", "Error"}:
+        return (255, 80, 80)
+    return (255, 255, 0)
 
 
 @dataclass(frozen=True)
@@ -284,6 +367,147 @@ class TabButton(ui_button.Button):
         button_surface.blit(text_surf, text_rect)
 
         surface.blit(button_surface, self.rect)
+
+
+class InstanceDropdown:
+    def __init__(self, rect, manager, callback):
+        self.rect = pygame.Rect(rect)
+        self.manager = manager
+        self.callback = callback
+        self.expanded = False
+        self.scroll_index = 0
+        self.row_height = INSTANCE_CONTROL_HEIGHT
+        self.max_visible_rows = INSTANCE_DROPDOWN_VISIBLE_ROWS
+
+    def list_rect(self):
+        visible_rows = min(self.max_visible_rows, len(self.manager.instances))
+        return pygame.Rect(
+            self.rect.x,
+            self.rect.bottom + 4,
+            self.rect.width,
+            self.row_height * visible_rows,
+        )
+
+    def _visible_instances(self):
+        max_scroll = max(0, len(self.manager.instances) - self.max_visible_rows)
+        self.scroll_index = max(0, min(self.scroll_index, max_scroll))
+        end = self.scroll_index + self.max_visible_rows
+        return self.manager.instances[self.scroll_index:end]
+
+    def _select_at_pos(self, pos):
+        list_rect = self.list_rect()
+        if not list_rect.collidepoint(pos):
+            return False
+        row = (pos[1] - list_rect.y) // self.row_height
+        index = self.scroll_index + row
+        if 0 <= index < len(self.manager.instances):
+            self.callback(self.manager.instances[index].instance_id)
+            self.expanded = False
+            return True
+        return False
+
+    def handle_event(self, event, sound_manager=None):
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.rect.collidepoint(event.pos):
+                self.expanded = not self.expanded
+                if sound_manager:
+                    sound_manager.play_sound("menu")
+                return True
+            if self.expanded:
+                selected = self._select_at_pos(event.pos)
+                if selected and sound_manager:
+                    sound_manager.play_sound("menu")
+                if not selected:
+                    self.expanded = False
+                return selected
+        elif (
+            event.type == pygame.MOUSEBUTTONDOWN
+            and event.button in (4, 5)
+            and self.expanded
+            and self.list_rect().collidepoint(event.pos)
+        ):
+            direction = -1 if event.button == 4 else 1
+            max_scroll = max(0, len(self.manager.instances) - self.max_visible_rows)
+            self.scroll_index = max(0, min(max_scroll, self.scroll_index + direction))
+            return True
+        elif (
+            event.type == pygame.MOUSEWHEEL
+            and self.expanded
+            and self.list_rect().collidepoint(getattr(event, "pos", pygame.mouse.get_pos()))
+        ):
+            max_scroll = max(0, len(self.manager.instances) - self.max_visible_rows)
+            self.scroll_index = max(0, min(max_scroll, self.scroll_index - event.y))
+            return True
+        return False
+
+    def draw(self, surface, font, mouse_pos=None):
+        if mouse_pos is None:
+            mouse_pos = pygame.mouse.get_pos()
+        bg_color = (
+            INSTANCE_DROPDOWN_HOVER_COLOR
+            if self.rect.collidepoint(mouse_pos)
+            else INSTANCE_DROPDOWN_COLOR
+        )
+        pygame.draw.rect(surface, bg_color, self.rect, border_radius=5)
+        pygame.draw.rect(surface, ui.WHITE, self.rect, 3, border_radius=5)
+        active_position = self.manager.active_index + 1
+        prefix, status = _instance_row_parts(
+            active_position,
+            self.manager.active_instance,
+        )
+        self._draw_row_text(surface, font, self.rect.inflate(-6, -4), prefix, status)
+        arrow = font.render("^" if self.expanded else "v", True, ui.WHITE)
+        surface.blit(arrow, arrow.get_rect(midright=(self.rect.right - 8, self.rect.centery)))
+
+        if not self.expanded:
+            return
+
+        list_rect = self.list_rect()
+        pygame.draw.rect(surface, ui.BLACK, list_rect)
+        pygame.draw.rect(surface, ui.WHITE, list_rect, 3)
+        old_clip = surface.get_clip()
+        inner_rect = list_rect.inflate(-6, -6)
+        surface.set_clip(inner_rect.clip(old_clip))
+        for offset, instance in enumerate(self._visible_instances()):
+            index = self.scroll_index + offset
+            row = pygame.Rect(
+                inner_rect.x,
+                inner_rect.y + offset * self.row_height,
+                inner_rect.width,
+                self.row_height,
+            )
+            if instance.instance_id == self.manager.active_instance_id:
+                pygame.draw.rect(surface, (55, 80, 120), row.inflate(-2, -2))
+            elif row.collidepoint(mouse_pos):
+                pygame.draw.rect(surface, ui.DARK_GREY, row.inflate(-2, -2))
+            prefix, status = _instance_row_parts(index + 1, instance)
+            self._draw_row_text(surface, font, row, prefix, status)
+        surface.set_clip(old_clip)
+
+        if len(self.manager.instances) > self.max_visible_rows:
+            track = pygame.Rect(list_rect.right - 7, list_rect.y + 5, 3, list_rect.height - 10)
+            pygame.draw.rect(surface, ui.DARK_GREY, track)
+            ratio = self.max_visible_rows / len(self.manager.instances)
+            thumb_h = max(12, int(track.height * ratio))
+            max_scroll = len(self.manager.instances) - self.max_visible_rows
+            thumb_y = track.y
+            if max_scroll:
+                thumb_y += int((track.height - thumb_h) * (self.scroll_index / max_scroll))
+            pygame.draw.rect(surface, ui.LIGHT_GREY, pygame.Rect(track.x, thumb_y, track.width, thumb_h))
+
+    def _draw_row_text(self, surface, font, rect, prefix, status):
+        text_clip = rect.inflate(-16, 0)
+        old_clip = surface.get_clip()
+        surface.set_clip(text_clip.clip(old_clip))
+        prefix_surf = font.render(prefix, True, ui.WHITE)
+        x = rect.x + 8
+        surface.blit(prefix_surf, prefix_surf.get_rect(midleft=(x, rect.centery)))
+        status_surf = font.render(status, True, _instance_status_color(status))
+        surface.blit(
+            status_surf,
+            status_surf.get_rect(midleft=(x + prefix_surf.get_width(), rect.centery)),
+        )
+        surface.set_clip(old_clip)
 
 
 def largest_fitting_font(texts, max_width, max_height=36, maximum=36, minimum=16):
@@ -1584,6 +1808,65 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX].value
         )
 
+    def apply_state_to_ui():
+        nonlocal trainee_scroll_y, rewards_scroll_y
+        display_checkbox.is_checked = state.display_on
+        refresh_slot_controls(load_labels=False)
+        for slider in reward_sliders:
+            _set_slider_value(slider, state.rewards.get(slider.label, 0.0))
+        _set_slider_value(ai_opponent_slider, state.ai_opponent_chance)
+        _set_slider_value(simple_activity_sliders[0], state.forward_activity)
+        _set_slider_value(simple_activity_sliders[1], state.a1_activity)
+        _set_slider_value(simple_activity_sliders[2], state.a2_activity)
+        _set_slider_value(simple_activity_sliders[3], state.face_opponent_activity)
+        _set_slider_value(
+            regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX],
+            state.replay_buffer_size,
+        )
+        _set_slider_value(
+            regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX],
+            state.rounds_per_batch,
+        )
+        _set_slider_value(
+            regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX],
+            state.batch_grouping,
+        )
+        _set_slider_value(
+            regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX],
+            state.match_time_limit,
+        )
+        _set_slider_value(
+            regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX],
+            state.minibatch_size,
+        )
+        _set_slider_value(
+            regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX],
+            state.replay_updates_per_batch,
+        )
+        _set_slider_value(regimen_sliders[REGIMEN_LEARNING_RATE_INDEX], state.learning_rate)
+        _set_slider_value(
+            regimen_sliders[REGIMEN_STARTING_EPSILON_INDEX],
+            state.starting_epsilon,
+        )
+        _set_slider_value(regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX], state.epsilon_decay)
+        _set_slider_value(
+            regimen_sliders[REGIMEN_EPSILON_FRAME_SPAN_INDEX],
+            state.epsilon_frame_span,
+        )
+        _set_slider_value(regimen_sliders[REGIMEN_GAMMA_INDEX], state.gamma)
+        _set_slider_value(
+            regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX],
+            state.hidden_layer_size,
+        )
+        _set_slider_value(
+            regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX],
+            state.hidden_layer_count,
+        )
+        last_starting_epsilon_slider_value[0] = state.starting_epsilon
+        trainee_scroll_y = 0
+        rewards_scroll_y = 0
+        batch_log_box.set_lines(())
+
     def architecture_metadata():
         return model_architecture_metadata(
             state.hidden_layer_size,
@@ -1631,18 +1914,53 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     def show_notice(text):
         notice[0] = TrainingNotice(text)
 
-    def refresh_slot_controls():
+    def select_training_instance(instance_id):
+        nonlocal state
+        if instance_id == instance_manager.active_instance_id:
+            return
+        sync_state_from_ui()
+        instance_manager.select_instance(instance_id)
+        state = instance_manager.active_state
+        apply_state_to_ui()
+        refresh_slot_controls(load_labels=False)
+
+    def add_training_instance():
+        nonlocal state
+        sync_state_from_ui()
+        instance = instance_manager.add_instance()
+        state = instance.state
+        apply_state_to_ui()
+        show_notice(f"Added {instance.label}")
+
+    def close_active_training_instance():
+        nonlocal state
+        sync_state_from_ui()
+        active_session = instance_manager.active_session
+        if active_session is not None:
+            status = active_session.status
+            if getattr(status, "running", False) or getattr(status, "stopping", False):
+                show_notice("Stop training before closing this instance")
+                return
+        if not instance_manager.remove_active_stopped_instance():
+            show_notice("At least one training instance must remain")
+            return
+        state = instance_manager.active_state
+        apply_state_to_ui()
+        show_notice("Closed training instance")
+
+    def refresh_slot_controls(*, load_labels=True):
         if state.selected_ship is None:
-            for field, delete_button in zip(slot_fields, delete_buttons):
-                field.text = ""
+            for index, (field, delete_button) in enumerate(zip(slot_fields, delete_buttons)):
+                field.text = "" if load_labels else state.slot_labels[index]
                 field.enabled = False
                 field.text_color = ui.GREY
                 delete_button.enabled = False
+            state.slot_labels[:] = [field.text for field in slot_fields]
             return
 
         slot_models[:] = model_repository.slots_for_ship(state.selected_ship)
-        for field, delete_button, model_slot in zip(slot_fields, delete_buttons, slot_models):
-            field.text = model_slot.description
+        for index, (field, delete_button, model_slot) in enumerate(zip(slot_fields, delete_buttons, slot_models)):
+            field.text = model_slot.description if load_labels else state.slot_labels[index]
             if model_slot.source == SLOT_BUNDLED:
                 field.enabled = False
                 field.text_color = (80, 160, 255)
@@ -1655,6 +1973,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 field.enabled = not state.running
                 field.text_color = ui.WHITE
                 delete_button.enabled = False
+        state.slot_labels[:] = [field.text for field in slot_fields]
 
     def update_field_colors():
         if state.selected_ship is None:
@@ -2139,6 +2458,50 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ui.CAN_RED,
         ui.CAN_RED_HI,
     )
+    instance_indicator_rect = pygame.Rect(
+        TAB_MARGIN,
+        INSTANCE_TOP,
+        52,
+        INSTANCE_CONTROL_HEIGHT,
+    )
+    instance_button_width = 68
+    close_instance_width = 82
+    instance_dropdown_rect = pygame.Rect(
+        instance_indicator_rect.right + INSTANCE_GAP,
+        INSTANCE_TOP,
+        CONTROL_WIDTH
+        - 2 * TAB_MARGIN
+        - instance_indicator_rect.width
+        - close_instance_width
+        - instance_button_width
+        - 3 * INSTANCE_GAP,
+        INSTANCE_CONTROL_HEIGHT,
+    )
+    close_instance_button = ui_button.Button(
+        instance_dropdown_rect.right + INSTANCE_GAP,
+        INSTANCE_TOP,
+        close_instance_width,
+        INSTANCE_CONTROL_HEIGHT,
+        "Close",
+        close_active_training_instance,
+        ui.CAN_RED,
+        ui.CAN_RED_HI,
+    )
+    add_instance_button = ui_button.Button(
+        close_instance_button.rect.right + INSTANCE_GAP,
+        INSTANCE_TOP,
+        instance_button_width,
+        INSTANCE_CONTROL_HEIGHT,
+        "Add",
+        add_training_instance,
+        ui.OK_GREEN,
+        ui.OK_GREEN_HI,
+    )
+    instance_dropdown = InstanceDropdown(
+        instance_dropdown_rect,
+        instance_manager,
+        select_training_instance,
+    )
     load_button = ui_button.Button(
         load_button_rect.x,
         load_button_rect.y,
@@ -2185,6 +2548,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                                 menu_sound_manager.play_sound("menu")
                             ship_picker = None
                 continue
+
+            if instance_dropdown.handle_event(event, menu_sound_manager):
+                continue
+            close_instance_button.handle_event(event, menu_sound_manager)
+            add_instance_button.handle_event(event, menu_sound_manager)
 
             trainee_tab.handle_event(event, menu_sound_manager)
             opponent_tab.handle_event(event, menu_sound_manager)
@@ -2312,6 +2680,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         update_field_colors()
         selected_slot = selected_model_slot()
         back_button.enabled = not state.running
+        close_instance_button.enabled = len(instance_manager.instances) > 1 and not state.running
         start_stop_button.enabled = (
             state.selected_ship is not None
             and selected_slot is not None
@@ -2494,6 +2863,29 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if opponent_tab.active: opponent_tab.draw(screen, tab_font)
         if rewards_tab.active: rewards_tab.draw(screen, tab_font)
         if regimen_tab.active: regimen_tab.draw(screen, tab_font)
+
+        pygame.draw.rect(screen, ui.BLACK, instance_indicator_rect, border_radius=5)
+        pygame.draw.rect(screen, ui.LIGHT_GREY, instance_indicator_rect, 1, border_radius=5)
+        indicator_text = small_font.render(
+            instance_manager.active_position_text(),
+            True,
+            ui.WHITE,
+        )
+        screen.blit(
+            indicator_text,
+            indicator_text.get_rect(center=instance_indicator_rect.center),
+        )
+        instance_dropdown.draw(screen, small_font)
+        close_instance_button.draw(screen, small_font)
+        add_instance_button.draw(screen, small_font)
+        separator_y = INSTANCE_TOP + INSTANCE_CONTROL_HEIGHT + 5
+        pygame.draw.line(
+            screen,
+            ui.WHITE,
+            (TAB_MARGIN, separator_y),
+            (CONTROL_WIDTH - TAB_MARGIN, separator_y),
+            INSTANCE_SEPARATOR_HEIGHT,
+        )
 
         display_checkbox.draw(screen, body_font)
         start_stop_button.draw(screen, body_font)

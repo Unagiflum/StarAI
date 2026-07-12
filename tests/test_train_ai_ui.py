@@ -23,6 +23,10 @@ from src.Menus.train_ai import (
     DISPLAY_TOP,
     FOOTER_CONTROL_HEIGHT,
     GAMMA_VALUES,
+    INSTANCE_CONTROL_HEIGHT,
+    INSTANCE_GAP,
+    INSTANCE_SEPARATOR_HEIGHT,
+    INSTANCE_TOP,
     LEARNING_RATE_VALUES,
     MATCH_TIME_LIMIT_VALUES,
     MINIBATCH_SIZE_VALUES,
@@ -39,12 +43,15 @@ from src.Menus.train_ai import (
     TrainingBatchLogBox,
     TrainingInstanceManager,
     TrainingUIState,
+    UI_TOP_MARGIN,
     _clear_reset_model_artifacts,
     _display_off_console_lines,
     _draw_training_huds,
     _draw_training_battle,
     _epsilon_for_model_update,
     _format_short_count,
+    _instance_row_parts,
+    _instance_status_text,
     _training_settings_match,
     _progress_for_model_update,
     _set_slider_value,
@@ -139,8 +146,107 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertIsNone(manager.active_session)
         self.assertFalse(manager.active_instance.last_running)
 
+    def test_add_instance_makes_new_default_instance_active(self):
+        manager = TrainingInstanceManager()
+        manager.active_state.selected_ship = "Earthling"
+
+        instance = manager.add_instance()
+
+        self.assertEqual(len(manager.instances), 2)
+        self.assertIs(manager.active_instance, instance)
+        self.assertEqual(instance.label, "Instance 2")
+        self.assertIsNone(manager.active_state.selected_ship)
+        self.assertEqual(manager.active_position_text(), "[2/2]")
+        self.assertEqual(manager.instances[0].state.selected_ship, "Earthling")
+
+    def test_select_instance_switches_active_state(self):
+        manager = TrainingInstanceManager()
+        first_id = manager.active_instance.instance_id
+        second = manager.add_instance()
+        second.state.selected_ship = "Androsynth"
+
+        manager.select_instance(first_id)
+
+        self.assertIs(manager.active_instance, manager.instances[0])
+        self.assertIsNone(manager.active_state.selected_ship)
+
+        manager.select_instance(second.instance_id)
+
+        self.assertEqual(manager.active_state.selected_ship, "Androsynth")
+
+    def test_remove_active_stopped_instance_selects_neighbor(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        second = manager.add_instance()
+
+        self.assertTrue(manager.remove_active_stopped_instance())
+
+        self.assertEqual(manager.instances, [first])
+        self.assertIs(manager.active_instance, first)
+        self.assertEqual(manager.active_position_text(), "[1/1]")
+        self.assertNotIn(second, manager.instances)
+
+    def test_remove_active_instance_refuses_last_or_running_instance(self):
+        manager = TrainingInstanceManager()
+
+        self.assertFalse(manager.remove_active_stopped_instance())
+
+        manager.add_instance()
+        manager.active_instance.session = SimpleNamespace(
+            status=SimpleNamespace(running=True, stopping=False)
+        )
+
+        self.assertFalse(manager.remove_active_stopped_instance())
+        self.assertEqual(len(manager.instances), 2)
+
+    def test_instance_row_uses_ship_slot_and_status(self):
+        manager = TrainingInstanceManager()
+        manager.active_state.selected_ship = "Earthling"
+        manager.active_state.selected_slot = 1
+        manager.active_instance.session = SimpleNamespace(
+            status=SimpleNamespace(running=True, stopping=False, error=None)
+        )
+
+        prefix, status = _instance_row_parts(1, manager.active_instance)
+
+        self.assertEqual(status, "Running")
+        self.assertIn("01]", prefix)
+        self.assertIn("Earthling-01", prefix)
+        self.assertEqual(_instance_status_text(manager.active_instance), "Running")
+
 
 class TrainingLayoutTests(unittest.TestCase):
+    def test_instance_strip_sits_above_tabs_and_content(self):
+        layout = training_layout()
+        instance_rect = pygame.Rect(
+            8,
+            INSTANCE_TOP,
+            layout.control_rect.width - 16,
+            INSTANCE_CONTROL_HEIGHT,
+        )
+        tab_rect = pygame.Rect(8, UI_TOP_MARGIN, layout.control_rect.width - 16, 40)
+
+        self.assertLessEqual(instance_rect.bottom, tab_rect.top)
+        self.assertLessEqual(tab_rect.bottom, layout.content_rect.top)
+        self.assertFalse(instance_rect.colliderect(layout.content_rect))
+        self.assertGreaterEqual(UI_TOP_MARGIN - instance_rect.bottom, INSTANCE_SEPARATOR_HEIGHT)
+
+    def test_instance_buttons_leave_room_for_dropdown_label(self):
+        layout = training_layout()
+        indicator_width = 52
+        close_width = 82
+        add_width = 68
+        dropdown_width = (
+            layout.control_rect.width
+            - 2 * 8
+            - indicator_width
+            - close_width
+            - add_width
+            - 3 * INSTANCE_GAP
+        )
+
+        self.assertGreaterEqual(dropdown_width, 320)
+
     def test_arena_uses_the_full_height_at_the_right_edge(self):
         layout = training_layout()
 
