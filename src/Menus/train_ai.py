@@ -93,12 +93,13 @@ CURRENT_BATCH_REWARD_VALUE_WIDTH = 8
 
 CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
 TAB_MARGIN = 8
+UI_TOP_MARGIN = 44
 TAB_GAP = 8
-TAB_HEIGHT = 36
+TAB_HEIGHT = 32
 TAB_COLOR = (155, 0, 105, 75)
 TAB_COLOR_HI = (155, 0, 105, 255)
 TAB_HEADER_COLOR = (100, 100, 100)
-CONTENT_TOP = TAB_MARGIN + TAB_HEIGHT + TAB_GAP
+CONTENT_TOP = UI_TOP_MARGIN + TAB_HEIGHT + TAB_GAP
 FOOTER_CONTROL_HEIGHT = 36
 ACTION_TOP = 678
 TRAINING_HUD_HEIGHT = MARINE_REGION_HEIGHT + VIEWPORT_SIZE + HUD_BOTTOM_PADDING
@@ -1151,7 +1152,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     tab_height = TAB_HEIGHT + TAB_GAP
     trainee_tab = TabButton(
         TAB_MARGIN,
-        TAB_MARGIN,
+        UI_TOP_MARGIN,
         tab_width,
         tab_height,
         "Trainee",
@@ -1159,7 +1160,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     opponent_tab = TabButton(
         TAB_MARGIN + tab_width + TAB_GAP,
-        TAB_MARGIN,
+        UI_TOP_MARGIN,
         tab_width,
         tab_height,
         "Opponent",
@@ -1167,7 +1168,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     rewards_tab = TabButton(
         TAB_MARGIN + 2 * (tab_width + TAB_GAP),
-        TAB_MARGIN,
+        UI_TOP_MARGIN,
         tab_width,
         tab_height,
         "Rewards",
@@ -1175,7 +1176,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     regimen_tab = TabButton(
         TAB_MARGIN + 3 * (tab_width + TAB_GAP),
-        TAB_MARGIN,
+        UI_TOP_MARGIN,
         tab_width,
         tab_height,
         "Regimen",
