@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import threading
 from collections.abc import Mapping
@@ -46,6 +46,7 @@ class OpponentCacheDiagnostics:
     loaded_keys: tuple[OpponentModelKey, ...]
     last_errors: Mapping[OpponentModelKey, str]
     blocked_keys: tuple[OpponentModelKey, ...]
+    entries: Mapping[OpponentModelKey, OpponentCacheEntry] = field(default_factory=dict)
 
 
 class ModelSaveCoordinator:
@@ -177,6 +178,7 @@ class OpponentModelCache:
                 blocked_keys=tuple(
                     sorted(self._blocked_keys, key=lambda item: (item.ship, item.slot))
                 ),
+                entries=dict(self._entries),
             )
 
     def _load_slot(self, key: OpponentModelKey, slot: TrainingModelSlot) -> None:

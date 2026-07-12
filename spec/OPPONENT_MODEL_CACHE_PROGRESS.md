@@ -46,6 +46,18 @@ Status: Implemented and verified.
 - Added a UI regression test proving the run path passes an `OpponentModelCache` and matching `ModelSaveCoordinator` into a started session.
 - Verified with `python -m unittest tests.test_training_orchestration tests.test_training_session tests.test_training_models tests.test_train_ai_ui`.
 
+## Phase 5: Diagnostics And Regression Tests
+
+Status: Implemented and verified.
+
+- Extended `OpponentCacheDiagnostics` with an `entries` mapping so callers can inspect last successful load identity details per key, including completed batches, checkpoint size, checkpoint mtime, and the shared model object.
+- Added diagnostics coverage for successful initial loads and save-driven refreshes.
+- Added regression coverage proving failed initial loads and failed refreshes record errors without creating or replacing snapshot entries.
+- Added regression coverage proving last known-good cache entries remain active after a bad newer checkpoint.
+- Added regression coverage proving blocked initial loads and blocked refreshes record blocked keys without reading or evicting cached entries.
+- Added regression coverage for no-model fallback: when a key has no known-good model and the load fails, the snapshot remains empty so existing scheduler fallback behavior can apply.
+- Verified with `python -m unittest tests.test_training_orchestration tests.test_training_session tests.test_training_models tests.test_train_ai_ui`.
+
 ## Pending Phases
 
-- Phase 5: Diagnostics and regression tests.
+- None.

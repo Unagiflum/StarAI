@@ -299,6 +299,11 @@ class OpponentModelCacheTests(unittest.TestCase):
             (OpponentModelKey("Earthling", 1),),
         )
         self.assertEqual(diagnostics.last_errors, {})
+        loaded_entry = diagnostics.entries[OpponentModelKey("Earthling", 1)]
+        self.assertEqual(loaded_entry.completed_batches, 7)
+        self.assertGreater(loaded_entry.checkpoint_size, 0)
+        self.assertIsNotNone(loaded_entry.checkpoint_mtime_ns)
+        self.assertIs(loaded_entry.model, first_snapshot[0].model)
 
     def test_snapshot_is_immutable_and_stable_after_later_loads(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -324,6 +329,29 @@ class OpponentModelCacheTests(unittest.TestCase):
         )
         self.assertIs(first_snapshot[0].model, second_snapshot[0].model)
 
+    def test_initial_load_records_failed_load_diagnostics_without_snapshot_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            slot = self._create_metadata_only_slot(
+                repository,
+                "Earthling",
+                1,
+                completed_batches=1,
+            )
+            slot.pth_path.write_bytes(b"not a checkpoint")
+            cache = OpponentModelCache()
+
+            cache.load_initial(repository)
+            snapshot = cache.snapshot()
+            diagnostics = cache.diagnostics()
+
+        key = OpponentModelKey("Earthling", 1)
+        self.assertEqual(snapshot, ())
+        self.assertEqual(diagnostics.loaded_keys, ())
+        self.assertIn(key, diagnostics.last_errors)
+        self.assertNotIn(key, diagnostics.entries)
+
     def test_notify_model_saved_refreshes_cached_entry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -336,11 +364,16 @@ class OpponentModelCacheTests(unittest.TestCase):
             self._save_model(repository, "Earthling", 1, completed_batches=2)
             cache.notify_model_saved(repository, "Earthling", 1)
             snapshot = cache.snapshot()
+            diagnostics = cache.diagnostics()
 
         self.assertEqual(len(snapshot), 1)
         self.assertEqual(snapshot[0].slot, 1)
         self.assertIsNot(snapshot[0].model, old_model)
-        self.assertEqual(cache.diagnostics().last_errors, {})
+        self.assertEqual(diagnostics.last_errors, {})
+        self.assertEqual(
+            diagnostics.entries[OpponentModelKey("Earthling", 1)].completed_batches,
+            2,
+        )
 
     def test_notify_model_saved_keeps_last_good_when_refresh_load_fails(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -366,6 +399,31 @@ class OpponentModelCacheTests(unittest.TestCase):
         self.assertEqual(len(snapshot), 1)
         self.assertIs(snapshot[0].model, old_model)
         self.assertIn(key, diagnostics.last_errors)
+        self.assertEqual(diagnostics.entries[key].completed_batches, 1)
+        self.assertIs(diagnostics.entries[key].model, old_model)
+
+    def test_notify_model_saved_leaves_missing_key_absent_when_load_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            slot = self._create_metadata_only_slot(
+                repository,
+                "Earthling",
+                1,
+                completed_batches=1,
+            )
+            slot.pth_path.write_bytes(b"not a checkpoint")
+            cache = OpponentModelCache()
+
+            cache.notify_model_saved(repository, "Earthling", 1)
+            snapshot = cache.snapshot()
+            diagnostics = cache.diagnostics()
+
+        key = OpponentModelKey("Earthling", 1)
+        self.assertEqual(snapshot, ())
+        self.assertEqual(diagnostics.loaded_keys, ())
+        self.assertIn(key, diagnostics.last_errors)
+        self.assertNotIn(key, diagnostics.entries)
 
     def test_notify_model_saved_skips_active_save_and_keeps_old_entry(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -390,8 +448,35 @@ class OpponentModelCacheTests(unittest.TestCase):
 
         self.assertIs(blocked_snapshot[0].model, old_model)
         self.assertEqual(blocked_diagnostics.blocked_keys, (key,))
+        self.assertEqual(blocked_diagnostics.entries[key].completed_batches, 1)
+        self.assertIs(blocked_diagnostics.entries[key].model, old_model)
         self.assertIsNot(refreshed_snapshot[0].model, old_model)
         self.assertEqual(refreshed_diagnostics.blocked_keys, ())
+        self.assertEqual(refreshed_diagnostics.entries[key].completed_batches, 2)
+
+    def test_initial_load_skips_active_save_and_records_blocked_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            self._save_model(repository, "Earthling", 1, completed_batches=1)
+            coordinator = ModelSaveCoordinator()
+            cache = OpponentModelCache(save_coordinator=coordinator)
+            key = OpponentModelKey("Earthling", 1)
+
+            with coordinator.saving(key):
+                cache.load_initial(repository)
+                blocked_snapshot = cache.snapshot()
+                blocked_diagnostics = cache.diagnostics()
+
+            cache.load_initial(repository)
+            loaded_snapshot = cache.snapshot()
+            loaded_diagnostics = cache.diagnostics()
+
+        self.assertEqual(blocked_snapshot, ())
+        self.assertEqual(blocked_diagnostics.blocked_keys, (key,))
+        self.assertNotIn(key, blocked_diagnostics.entries)
+        self.assertEqual(len(loaded_snapshot), 1)
+        self.assertEqual(loaded_diagnostics.loaded_keys, (key,))
 
     def _save_model(
         self,
