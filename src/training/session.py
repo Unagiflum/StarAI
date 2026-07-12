@@ -315,6 +315,7 @@ class TrainingSession:
         rng: Any | None = None,
         initial_history: tuple[BatchMetrics, ...] = (),
         initial_log_lines: tuple[str, ...] = (),
+        opponent_model_cache: Any | None = None,
     ):
         if slot.is_bundled:
             raise TrainingSessionError("Bundled training models are read-only")
@@ -357,6 +358,8 @@ class TrainingSession:
         self._last_saved_replay_completed_batches = self._status.completed_batches
         self._cached_existing_ai_opponents = None
         self._cached_existing_ai_opponents_at: int | None = None
+        self.opponent_model_cache = opponent_model_cache
+        self._opponent_model_cache_initial_loaded = False
         self._completed_batch_seconds: list[float] = []
         self._thread: threading.Thread | None = None
 
@@ -554,6 +557,19 @@ class TrainingSession:
     def _existing_ai_opponents_for_batch(self):
         if self.config.opponent_mode != OPPONENT_MODE_EXISTING_AI:
             return None
+        if self.opponent_model_cache is not None:
+            with self._lock:
+                self._status.display_message = "Loading AI opponents"
+                self._status.battle_view = None
+                needs_initial_load = not self._opponent_model_cache_initial_loaded
+            if needs_initial_load:
+                self.opponent_model_cache.load_initial(self.repository)
+                with self._lock:
+                    self._opponent_model_cache_initial_loaded = True
+            opponents = self.opponent_model_cache.snapshot()
+            with self._lock:
+                self._status.display_message = ""
+            return opponents
         with self._lock:
             completed_batches = self._status.completed_batches
             cached = self._cached_existing_ai_opponents

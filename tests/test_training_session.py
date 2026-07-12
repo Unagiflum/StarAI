@@ -10,10 +10,12 @@ from src.training import torch_backend
 from src.audio import RecordingAudioService
 from src.training.contracts import OBSERVATION_SCHEMA_VERSION
 from src.training.model_registry import (
+    TrainingModelRepository,
     metadata_from_state,
     model_architecture_metadata,
     replay_checkpoint_path,
 )
+from src.training.opponent_cache import OpponentModelCache
 from src.training.orchestration import (
     OPPONENT_MODE_EXISTING_AI,
     OpponentDiscoveryResult,
@@ -23,7 +25,7 @@ from src.training.orchestration import (
     TrainingOrchestrationConfig,
     TrainingRoundResult,
 )
-from src.training.replay import TrainingReplayBuffer
+from src.training.replay import TrainingReplayBuffer, save_training_checkpoint
 from src.training.render_view import freeze_battle_view
 from src.training.session import (
     BatchMetrics,
@@ -37,6 +39,7 @@ from src.training.session import (
     rolling_metrics,
     validate_model_metadata,
 )
+from src.training.value_network import ValueNetworkConfig, build_value_network
 
 
 def _round_result(total_return=0.0, *, win=False, loss=False, draw=True):
@@ -67,6 +70,23 @@ class _RecordingSaveSession(TrainingSession):
         )
         self.saved_batches.append(self.status.completed_batches)
         self.saved_replay_flags.append(include_replay)
+
+
+class _NoSaveSession(TrainingSession):
+    def _save_state(self, model, optimizer, replay_buffer, *, include_replay=True):
+        return None
+
+
+class _MutableOpponentCache:
+    def __init__(self, snapshot):
+        self.snapshot_value = snapshot
+        self.load_initial_calls = 0
+
+    def load_initial(self, repository):
+        self.load_initial_calls += 1
+
+    def snapshot(self):
+        return self.snapshot_value
 
 
 class TrainingMetricsTests(unittest.TestCase):
@@ -796,7 +816,6 @@ class TrainingSessionTests(unittest.TestCase):
     def test_session_caches_existing_ai_discovery_until_group_boundary(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            from src.training.model_registry import TrainingModelRepository
 
             repository = TrainingModelRepository(root / "bundled", root / "user")
             metadata = metadata_from_state(
@@ -846,6 +865,115 @@ class TrainingSessionTests(unittest.TestCase):
 
         self.assertEqual(discover.call_count, 2)
         self.assertEqual(seen_opponents, [first, first, first, second, second])
+
+    def test_sessions_with_shared_cache_receive_same_opponent_model(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            opponent_metadata = metadata_from_state(
+                ship="Earthling",
+                slot=2,
+                description="Opponent",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            opponent_slot = repository.create_or_update_user_model(opponent_metadata)
+            save_training_checkpoint(
+                opponent_slot.pth_path,
+                build_value_network(ValueNetworkConfig(8, 1)),
+            )
+            cache = OpponentModelCache()
+            seen_opponents = []
+
+            def batch_runner(**kwargs):
+                seen_opponents.append(kwargs["discovered_opponents"])
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(),
+                    round_results=(_round_result(),),
+                )
+
+            for slot_number in (1, 3):
+                metadata = metadata_from_state(
+                    ship="Earthling",
+                    slot=slot_number,
+                    description="Test",
+                    architecture=model_architecture_metadata(8, 1),
+                    training={"regimen": {"rounds_per_batch": 1}},
+                )
+                slot = repository.create_or_update_user_model(metadata)
+                session = _NoSaveSession(
+                    repository=repository,
+                    slot=slot,
+                    metadata=metadata,
+                    config=TrainingOrchestrationConfig(
+                        trainee_ship="Earthling",
+                        opponent_mode=OPPONENT_MODE_EXISTING_AI,
+                        hidden_layer_width=8,
+                        hidden_layer_count=1,
+                        epsilon_decay=1.0,
+                    ),
+                    batch_grouping=99,
+                    batch_runner=batch_runner,
+                    opponent_model_cache=cache,
+                )
+                session.run_synchronously(max_batches=1)
+
+        self.assertEqual(len(seen_opponents), 2)
+        self.assertEqual(len(seen_opponents[0]), 1)
+        self.assertEqual(len(seen_opponents[1]), 1)
+        self.assertEqual(seen_opponents[0][0].slot, 2)
+        self.assertIs(seen_opponents[0][0].model, seen_opponents[1][0].model)
+
+    def test_shared_cache_snapshot_is_captured_per_batch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            first = (OpponentSpec("Earthling", slot=1, model=object()),)
+            second = (OpponentSpec("Mycon", slot=2, model=object()),)
+            cache = _MutableOpponentCache(first)
+            seen_opponents = []
+
+            def batch_runner(**kwargs):
+                seen_opponents.append(kwargs["discovered_opponents"])
+                if len(seen_opponents) == 1:
+                    cache.snapshot_value = second
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(),
+                    round_results=(_round_result(),),
+                )
+
+            session = _NoSaveSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    opponent_mode=OPPONENT_MODE_EXISTING_AI,
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon_decay=1.0,
+                ),
+                batch_grouping=99,
+                batch_runner=batch_runner,
+                opponent_model_cache=cache,
+            )
+            session.run_synchronously(max_batches=2)
+
+        self.assertEqual(cache.load_initial_calls, 1)
+        self.assertIs(seen_opponents[0], first)
+        self.assertIs(seen_opponents[1], second)
 
     def test_session_resume_preserves_partial_grouping_average(self):
         with tempfile.TemporaryDirectory() as directory:
