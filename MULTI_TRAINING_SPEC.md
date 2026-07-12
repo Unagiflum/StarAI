@@ -106,7 +106,8 @@ Each instance must independently track:
 - Reward settings.
 - Opponent mode and simple behavior settings.
 - Regimen settings.
-- Display-on preference.
+- Display-on state while it is the active instance. Switching to another
+  instance turns display off.
 - Current or most recent `TrainingSession`.
 - Recent batch history and log lines.
 
@@ -142,6 +143,10 @@ Removing a running or stopping instance should not kill it abruptly. The UI
 should request stop and mark the instance as pending removal. Once the session
 has stopped, the instance can be removed automatically.
 
+Closing the active instance should turn display off for that instance before
+requesting stop or removal. This keeps the close path headless and as quick as
+possible.
+
 The final remaining instance should not be removable unless a replacement
 instance is created immediately.
 
@@ -166,13 +171,20 @@ Stopping an instance should:
 
 Back navigation should:
 
-- If any instance is running, request stop for all running instances and remain
-  on the training screen until they stop.
+- If any non-active instance is running, show a confirmation popup asking
+  whether to close all running instances.
+- If the user confirms the popup, turn display off, request stop for all running
+  instances, and remain on the training screen until they stop.
+- If the user cancels the popup, leave all instances unchanged and remain on the
+  training screen.
+- If only the active instance is running, request stop for the active instance
+  and remain on the training screen until it stops.
 - If no instance is running, return to the previous menu.
 
 ### Visualization
 
 Only one instance can have live display enabled at a time.
+Display On is only available for the active instance.
 
 When the user enables Display On for the active instance:
 
@@ -183,10 +195,12 @@ When the user enables Display On for the active instance:
 
 When the active instance changes:
 
-- If the newly active instance has display enabled, all other instances remain
-  display off.
-- If it does not, the right arena should show that instance's text console when
-  stopped or running headlessly.
+- Display must be turned off for the previously active instance.
+- No instance should remain visualized after the switch.
+- The newly active instance starts in headless display-off mode until the user
+  explicitly enables Display On for it.
+- The right arena should show the newly active instance's text console when it
+  is stopped or running headlessly.
 
 The existing training battle and HUD renderers should continue to draw only the
 active instance's `TrainingSessionStatus`.
@@ -375,14 +389,15 @@ The left pane should be vertically reorganized:
 instance section
 tabs
 tab content
-display toggle
-start/back controls
+footer control row: display toggle, start/stop, back
 HUD placeholders
 ```
 
 The exact pixel values can change, but existing constraints still apply:
 
 - Footer controls must not overlap HUD placeholders.
+- The display toggle and Start/Stop/Back controls are on one horizontal footer
+  row.
 - Tab content must remain clipped to its content rect.
 - Scrolling behavior must continue to work for trainee and rewards content.
 - Text must fit within buttons and selector rows at the supported resolution.
@@ -481,15 +496,22 @@ Work:
 - Reserve before session start and release after session stops.
 - Detect conflicts and show a user-facing notice.
 - Ensure stopped instances can be edited while other instances run.
-- Update back behavior to request stop on all running instances.
+- Update back behavior to confirm before closing running non-active instances.
 - Keep pending-removal instances until their sessions stop.
+- Ensure closing the active instance first turns display off for that instance.
 
 Verification:
 
 - Unit tests cover concurrent distinct-slot starts using fake sessions.
 - Unit tests cover same-slot conflict.
 - Unit tests cover stop active instance while another keeps running.
-- Unit tests cover back requesting stop for all running instances.
+- Unit tests cover back showing a confirmation popup when non-active instances
+  are running.
+- Unit tests cover confirming that popup requesting stop for all running
+  instances.
+- Unit tests cover canceling that popup leaving all instances unchanged.
+- Unit tests cover closing the active instance turning display off before stop
+  or pending removal.
 
 ### Phase 4: Single Visualization Ownership
 
@@ -505,16 +527,21 @@ Work:
 - Route Display On through the manager.
 - When enabling display on one instance, call `set_display_on(False)` for every
   other instance.
-- Ensure display checkbox reflects the active instance.
+- Ensure Display On can only be toggled for the active instance.
+- When changing the active instance, call `set_display_on(False)` for the
+  previously active instance and leave the newly active instance display-off
+  until the user explicitly enables it.
 - Draw live battle or console for only the active instance.
 - Stop audio when visualization changes.
 
 Verification:
 
 - Unit tests cover display ownership transfer.
+- Unit tests cover active-instance switching turning display off.
 - Existing battle/HUD training render tests still pass.
-- Manual smoke: enabling display for one running instance disables display for
-  the previous visualized instance.
+- Manual smoke: switching away from a displayed running instance disables the
+  live battle, and enabling display for the newly active instance starts only
+  that one battle view.
 
 ### Phase 5: Headless Battle-View Cost Reduction
 
@@ -601,7 +628,10 @@ Add or update tests for:
 - Different model slots can train concurrently.
 - Active instance controls reflect only active instance state.
 - Display ownership is exclusive.
-- Back requests stop on all running instances.
+- Active-instance switching turns display off.
+- Back asks for confirmation before closing running non-active instances.
+- Confirmed back requests stop on all running instances.
+- Cancelled back leaves all instances running.
 - 25 instances can be created and selected.
 
 ### Existing Tests To Preserve
@@ -622,13 +652,20 @@ Manual checks after implementation:
 
 1. Start one instance and verify current behavior is unchanged.
 2. Add a second instance with a different ship/slot and start it.
-3. Switch between instances while both run.
-4. Enable display on one, then on the other, and verify only one battle renders.
-5. Stop one instance and verify the other keeps training.
-6. Attempt to start two instances on the same ship/slot and verify the second is
+3. Enable Display On, switch to the other instance, and verify display turns
+   off automatically.
+4. Enable display on the new active instance and verify only one battle renders.
+5. Close the active displayed instance and verify display turns off before the
+   instance begins stopping or pending removal.
+6. Press Back while a non-active instance is running, cancel the popup, and
+   verify training continues.
+7. Press Back again, confirm closing all running instances, and verify all
+   running sessions are asked to stop.
+8. Stop one instance and verify the other keeps training.
+9. Attempt to start two instances on the same ship/slot and verify the second is
    blocked.
-7. Create at least 25 stopped instances and verify selection remains usable.
-8. Optionally start many instances and observe GPU memory, CPU use, and training
+10. Create at least 25 stopped instances and verify selection remains usable.
+11. Optionally start many instances and observe GPU memory, CPU use, and training
    progress stability.
 
 ## Risks And Mitigations
