@@ -160,6 +160,51 @@ class TrainingUIState:
         self.current_epsilon = float(value)
 
 
+@dataclass
+class TrainingInstance:
+    instance_id: int
+    label: str
+    state: TrainingUIState
+    session: TrainingSession | None = None
+    pending_removal: bool = False
+    last_running: bool = False
+
+
+class TrainingInstanceManager:
+    def __init__(self):
+        self.instances = [
+            TrainingInstance(
+                instance_id=1,
+                label="Instance 1",
+                state=TrainingUIState(),
+            )
+        ]
+        self.active_instance_id = 1
+
+    @property
+    def active_instance(self):
+        for instance in self.instances:
+            if instance.instance_id == self.active_instance_id:
+                return instance
+        raise RuntimeError("Active training instance is missing")
+
+    @property
+    def active_state(self):
+        return self.active_instance.state
+
+    @property
+    def active_session(self):
+        return self.active_instance.session
+
+    def set_active_session(self, session):
+        self.active_instance.session = session
+
+    def clear_active_session_continuity(self):
+        instance = self.active_instance
+        instance.session = None
+        instance.last_running = False
+
+
 @dataclass(frozen=True)
 class TrainingLayout:
     control_rect: pygame.Rect
@@ -1079,7 +1124,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     """Show the AI-training configuration UI without starting training yet."""
     clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
     layout = training_layout()
-    state = TrainingUIState()
+    instance_manager = TrainingInstanceManager()
+    state = instance_manager.active_state
     model_repository = TrainingModelRepository(
         const.DEFAULT_MODELS_PATH,
         const.MODELS_PATH,
@@ -1480,8 +1526,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     display_checkbox = None  # Instantiated later with other action buttons
     exited = [False]
-    training_session = [None]
-    last_session_running = [False]
     last_starting_epsilon_slider_value = [state.starting_epsilon]
     batch_log_box = TrainingBatchLogBox()
 
@@ -1523,7 +1567,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             state.starting_epsilon = starting_epsilon
             state.current_epsilon = starting_epsilon
             last_starting_epsilon_slider_value[0] = starting_epsilon
-            active_session = training_session[0]
+            active_session = instance_manager.active_session
             if active_session is not None:
                 active_session.set_starting_epsilon(starting_epsilon)
         else:
@@ -1931,11 +1975,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.loaded_training = training_metadata()
 
     def clear_session_continuity():
-        training_session[0] = None
-        last_session_running[0] = False
+        instance_manager.clear_active_session_continuity()
 
     def session_continuity_for(model_slot):
-        active_session = training_session[0]
+        active_session = instance_manager.active_session
         if (
             active_session is None
             or active_session.slot.ship != model_slot.ship
@@ -1945,12 +1988,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         return active_session.history, active_session.log_lines
 
     def request_back():
-        if training_session[0] is not None and training_session[0].status.running:
+        active_session = instance_manager.active_session
+        if active_session is not None and active_session.status.running:
             if state.display_on:
                 display_checkbox.is_checked = False
                 state.display_on = False
-                training_session[0].set_display_on(False)
-            training_session[0].request_stop()
+                active_session.set_display_on(False)
+            active_session.request_stop()
             show_notice("Training pausing; current batch will be abandoned")
         else:
             exited[0] = True
@@ -1992,7 +2036,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 initial_history=initial_history,
                 initial_log_lines=initial_log_lines,
             )
-            training_session[0] = session
+            instance_manager.set_active_session(session)
             state.running = True
             session.start()
             show_notice(f"Training {describe_model(model_slot)}")
@@ -2000,12 +2044,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             show_notice(str(exc))
 
     def start_selected_model():
-        if training_session[0] is not None and training_session[0].status.running:
+        active_session = instance_manager.active_session
+        if active_session is not None and active_session.status.running:
             if state.display_on:
                 display_checkbox.is_checked = False
                 state.display_on = False
-                training_session[0].set_display_on(False)
-            training_session[0].request_stop()
+                active_session.set_display_on(False)
+            active_session.request_stop()
             show_notice("Training pausing; current batch will be abandoned")
             return
 
@@ -2238,7 +2283,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].label = "Gradient steps"
 
-        active_session = training_session[0]
+        active_instance = instance_manager.active_instance
+        active_session = active_instance.session
         session_status = active_session.status if active_session is not None else None
         if active_session is not None:
             if session_status.running:
@@ -2250,9 +2296,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 _display_off_console_lines(session_status, active_session.log_lines)
             )
             state.running = session_status.running
-            if not last_session_running[0] and session_status.running:
+            if not active_instance.last_running and session_status.running:
                 refresh_slot_controls()
-            if last_session_running[0] and not session_status.running:
+            if active_instance.last_running and not session_status.running:
                 display_checkbox.is_checked = False
                 state.display_on = False
                 active_session.set_display_on(False)
@@ -2261,7 +2307,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 else:
                     show_notice("Training stopped")
                 refresh_slot_controls()
-            last_session_running[0] = session_status.running
+            active_instance.last_running = session_status.running
 
         update_field_colors()
         selected_slot = selected_model_slot()

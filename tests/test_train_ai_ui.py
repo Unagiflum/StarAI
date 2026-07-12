@@ -37,6 +37,7 @@ from src.Menus.train_ai import (
     SliderRow,
     TRAINING_HUD_HEIGHT,
     TrainingBatchLogBox,
+    TrainingInstanceManager,
     TrainingUIState,
     _clear_reset_model_artifacts,
     _display_off_console_lines,
@@ -112,6 +113,31 @@ class TrainingUIStateTests(unittest.TestCase):
             AI_OPPONENT_PERCENT_VALUES,
             tuple(float(value) for value in range(0, 101, 5)),
         )
+
+
+class TrainingInstanceManagerTests(unittest.TestCase):
+    def test_default_manager_creates_one_active_instance(self):
+        manager = TrainingInstanceManager()
+
+        self.assertEqual(len(manager.instances), 1)
+        self.assertEqual(manager.active_instance.instance_id, 1)
+        self.assertEqual(manager.active_instance.label, "Instance 1")
+        self.assertIs(manager.active_state, manager.active_instance.state)
+        self.assertIsNone(manager.active_session)
+
+    def test_active_session_and_continuity_are_instance_scoped(self):
+        manager = TrainingInstanceManager()
+        session = SimpleNamespace()
+
+        manager.set_active_session(session)
+
+        self.assertIs(manager.active_session, session)
+
+        manager.active_instance.last_running = True
+        manager.clear_active_session_continuity()
+
+        self.assertIsNone(manager.active_session)
+        self.assertFalse(manager.active_instance.last_running)
 
 
 class TrainingLayoutTests(unittest.TestCase):
