@@ -135,20 +135,29 @@ class TrainingUIState:
     selected_slot: int = 1
     slot_labels: list[str] = field(default_factory=lambda: ["", "", "", ""])
     rewards: dict[str, float] = field(
-        default_factory=lambda: {label: 0.0 for label in REWARD_LABELS}
+        default_factory=lambda: {
+            label: {
+                "Kill enemy": 40.96,
+                "Enemy loses crew": 5.12,
+                "Get debuffed": -1.28,
+                "Lose crew": -2.56,
+                "Die": -20.48,
+            }.get(label, 0.0)
+            for label in REWARD_LABELS
+        }
     )
     opponent_mode: str = "simple"
-    ai_opponent_chance: float = 0.0
+    ai_opponent_chance: float = 100.0
     forward_activity: float = 0.0
-    a1_activity: float = 0.0
+    a1_activity: float = 25.0
     a2_activity: float = 0.0
-    face_opponent_activity: float = 0.0
+    face_opponent_activity: float = 100.0
     rounds_per_batch: int = 1
-    batch_grouping: int = 50
+    batch_grouping: int = 10
     match_time_limit: int = 1200
     learning_rate: float = 0.00010
-    starting_epsilon: float = 0.100
-    current_epsilon: float = 0.100
+    starting_epsilon: float = 0.500
+    current_epsilon: float = 0.500
     epsilon_decay: float = 0.998
     epsilon_frame_span: int = 8
     gamma: float = 0.990
@@ -156,7 +165,7 @@ class TrainingUIState:
     replay_updates_per_batch: int = 500
     hidden_layer_size: int = 256
     hidden_layer_count: int = 2
-    replay_buffer_size: int = 50000
+    replay_buffer_size: int = 30000
     display_on: bool = False
     running: bool = False
     loaded_ship: str | None = None
@@ -1707,7 +1716,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             label,
             REWARD_VALUES[0],
             REWARD_VALUES[-1],
-            0.0,
+            state.rewards.get(label, 0.0),
             values=REWARD_VALUES,
             value_formatter=_format_reward,
             label_width=278,
