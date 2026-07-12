@@ -65,7 +65,15 @@ from src.Menus.train_ai import (
     training_config_from_state,
     training_layout,
 )
-from src.training.model_registry import replay_checkpoint_path
+from src.training.model_registry import (
+    SLOT_EMPTY,
+    SLOT_USER,
+    TrainingModelSlot,
+    metadata_from_state,
+    model_architecture_metadata,
+    replay_checkpoint_path,
+)
+from src.training.opponent_cache import ModelSaveCoordinator, OpponentModelCache
 from src.Battle.battle_draw import (
     BAR_WIDTH,
     BattleDrawController,
@@ -484,6 +492,118 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
         self.assertEqual(manager.instances, [second])
         self.assertIs(manager.active_instance, second)
+
+
+class TrainingUIRunWiringTests(unittest.TestCase):
+    class StopRun(Exception):
+        pass
+
+    class FakeRepository:
+        def __init__(self, *_args):
+            self.user_dir = Path("unused")
+            self.slot = TrainingModelSlot(
+                "Earthling",
+                1,
+                SLOT_USER,
+                description="Ready",
+                metadata=metadata_from_state(
+                    ship="Earthling",
+                    slot=1,
+                    description="Ready",
+                    architecture=model_architecture_metadata(256, 2),
+                    training={},
+                ),
+            )
+
+        def slot_for(self, ship, slot):
+            if ship == "Earthling" and int(slot) == 1:
+                return self.slot
+            return TrainingModelSlot(str(ship), int(slot), SLOT_EMPTY)
+
+        def slots_for_ship(self, ship):
+            return [self.slot_for(ship, slot) for slot in range(1, 5)]
+
+    class FakeSession:
+        created = []
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.slot = kwargs["slot"]
+            self.history = ()
+            self.log_lines = ()
+            self.status = SimpleNamespace(
+                running=True,
+                stopping=False,
+                error="",
+                current_epsilon=0.1,
+            )
+            self.started = False
+            self.__class__.created.append(self)
+
+        def start(self):
+            self.started = True
+
+        def set_display_on(self, _enabled):
+            pass
+
+    def test_run_passes_shared_cache_and_save_coordinator_to_sessions(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        manager.active_state.selected_ship = "Earthling"
+        manager.active_state.selected_slot = 1
+        self.FakeSession.created = []
+
+        action_gap = 10
+        action_width = (
+            train_ai.CONTROL_WIDTH - 2 * train_ai.TAB_MARGIN - 2 * action_gap
+        ) // 3
+        start_pos = (
+            train_ai.TAB_MARGIN + action_width + action_gap + 1,
+            ACTION_TOP + 1,
+        )
+        start_event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": start_pos},
+        )
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.TrainingInstanceManager",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeRepository,
+            ),
+            mock.patch("src.Menus.train_ai.TrainingSession", self.FakeSession),
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite},
+            ),
+            mock.patch(
+                "src.Menus.train_ai._display_off_console_lines",
+                return_value=("running",),
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[start_event]),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+        self.assertEqual(len(self.FakeSession.created), 1)
+        created = self.FakeSession.created[0]
+        cache = created.kwargs["opponent_model_cache"]
+        coordinator = created.kwargs["save_coordinator"]
+
+        self.assertTrue(created.started)
+        self.assertIs(manager.active_session, created)
+        self.assertIsInstance(cache, OpponentModelCache)
+        self.assertIsInstance(coordinator, ModelSaveCoordinator)
+        self.assertIs(cache._save_coordinator, coordinator)
 
 
 class TrainingLayoutTests(unittest.TestCase):

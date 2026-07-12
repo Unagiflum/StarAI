@@ -39,6 +39,7 @@ from src.training.model_registry import (
     trained_model_counts_for_ships,
 )
 from src.training.orchestration import TrainingOrchestrationConfig
+from src.training.opponent_cache import ModelSaveCoordinator, OpponentModelCache
 from src.training.rewards import LEGACY_REWARD_ALIASES, REWARD_COMPONENTS
 from src.training.session import (
     TrainingSession,
@@ -1556,6 +1557,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         const.DEFAULT_MODELS_PATH,
         const.MODELS_PATH,
     )
+    save_coordinator = ModelSaveCoordinator()
+    opponent_model_cache = OpponentModelCache(save_coordinator=save_coordinator)
     slot_models = [
         TrainingModelSlot("", slot, SLOT_EMPTY)
         for slot in range(1, MODEL_SLOT_COUNT + 1)
@@ -2599,6 +2602,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 audio_service=audio_service,
                 initial_history=initial_history,
                 initial_log_lines=initial_log_lines,
+                opponent_model_cache=opponent_model_cache,
+                save_coordinator=save_coordinator,
             )
             instance_manager.set_active_session(session)
             state.running = True

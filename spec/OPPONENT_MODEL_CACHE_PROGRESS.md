@@ -36,7 +36,16 @@ Status: Implemented and verified.
 - Added tests proving saved models refresh the cache, failed refreshes keep the old model, blocked refreshes do not load or evict, and failed saves do not notify.
 - Verified with `python -m unittest tests.test_training_models tests.test_training_session tests.test_training_orchestration`.
 
+## Phase 4: Training UI Wiring
+
+Status: Implemented and verified.
+
+- Created one `ModelSaveCoordinator` and one coordinator-backed `OpponentModelCache` per `train_ai.run()` invocation.
+- Passed the shared cache and coordinator into every `TrainingSession` created by the training UI.
+- Kept writer reservations unchanged so same-slot writers remain blocked independently of shared opponent reads.
+- Added a UI regression test proving the run path passes an `OpponentModelCache` and matching `ModelSaveCoordinator` into a started session.
+- Verified with `python -m unittest tests.test_training_orchestration tests.test_training_session tests.test_training_models tests.test_train_ai_ui`.
+
 ## Pending Phases
 
-- Phase 4: Training UI wiring.
 - Phase 5: Diagnostics and regression tests.
