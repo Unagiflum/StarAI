@@ -65,6 +65,7 @@ from src.Menus.train_ai import (
     training_config_from_state,
     training_layout,
 )
+from src.training.model_registry import replay_checkpoint_path
 from src.Battle.battle_draw import (
     BAR_WIDTH,
     BattleDrawController,
@@ -848,13 +849,16 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             pth_path = Path(directory) / "Earthling-01.pth"
             csv_path = Path(directory) / "Earthling-01.csv"
+            replay_path = replay_checkpoint_path(pth_path)
             pth_path.write_bytes(b"checkpoint")
             csv_path.write_text("old,csv\n", encoding="utf-8")
+            replay_path.write_bytes(b"replay")
 
             _clear_reset_model_artifacts(SimpleNamespace(pth_path=pth_path))
 
             self.assertEqual(pth_path.read_bytes(), b"")
             self.assertFalse(csv_path.exists())
+            self.assertFalse(replay_path.exists())
 
 
 class TrainingBatchLogBoxTests(unittest.TestCase):

@@ -20,6 +20,7 @@ from src.training.model_registry import (
     metadata_from_state,
     model_architecture_metadata,
     model_paths,
+    replay_checkpoint_path,
     trained_model_counts_for_ships,
 )
 from src.training import torch_backend
@@ -180,6 +181,29 @@ class TrainingModelRepositoryTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "require a description"):
                 repository.create_or_update_user_model(metadata)
+
+    def test_delete_user_model_removes_replay_sidecar(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Mycon",
+                slot=2,
+                description="Aggressive",
+                architecture=model_architecture_metadata(128, 2),
+                training={"regimen": {"rounds_per_batch": 10}},
+            )
+            repository.create_or_update_user_model(metadata)
+            pth_path, metadata_path = model_paths(root / "user", "Mycon", 2)
+            pth_path.write_bytes(b"checkpoint")
+            replay_path = replay_checkpoint_path(pth_path)
+            replay_path.write_bytes(b"replay")
+
+            repository.delete_user_model("Mycon", 2)
+
+        self.assertFalse(pth_path.exists())
+        self.assertFalse(metadata_path.exists())
+        self.assertFalse(replay_path.exists())
 
     def test_pth_without_json_is_existing_model_with_empty_description(self):
         with tempfile.TemporaryDirectory() as directory:

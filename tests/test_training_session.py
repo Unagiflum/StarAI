@@ -12,8 +12,11 @@ from src.training.contracts import OBSERVATION_SCHEMA_VERSION
 from src.training.model_registry import (
     metadata_from_state,
     model_architecture_metadata,
+    replay_checkpoint_path,
 )
 from src.training.orchestration import (
+    OPPONENT_MODE_EXISTING_AI,
+    OpponentDiscoveryResult,
     OpponentSpec,
     TrainingBatchAborted,
     TrainingBatchResult,
@@ -47,6 +50,23 @@ def _round_result(total_return=0.0, *, win=False, loss=False, draw=True):
         loss=loss,
         draw=draw,
     )
+
+
+class _RecordingSaveSession(TrainingSession):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.saved_batches = []
+        self.saved_replay_flags = []
+
+    def _save_state(self, model, optimizer, replay_buffer, *, include_replay=True):
+        super()._save_state(
+            model,
+            optimizer,
+            replay_buffer,
+            include_replay=include_replay,
+        )
+        self.saved_batches.append(self.status.completed_batches)
+        self.saved_replay_flags.append(include_replay)
 
 
 class TrainingMetricsTests(unittest.TestCase):
@@ -525,6 +545,97 @@ class TrainingSessionTests(unittest.TestCase):
 
         self.assertEqual(len(session.log_lines), 1)
 
+    def test_session_saves_checkpoint_on_group_boundary_and_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+
+            def batch_runner(**kwargs):
+                if len(session.saved_batches) == 1:
+                    self.assertFalse(replay_checkpoint_path(slot.pth_path).exists())
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(0.125,),
+                    round_results=(_round_result(5.0),),
+                )
+
+            session = _RecordingSaveSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon_decay=1.0,
+                ),
+                batch_grouping=3,
+                batch_runner=batch_runner,
+            )
+            session.run_synchronously(max_batches=5)
+
+            saved_slot = repository.slot_for("Earthling", 1)
+            replay_exists = replay_checkpoint_path(saved_slot.pth_path).exists()
+
+        self.assertEqual(session.saved_batches, [3, 5])
+        self.assertEqual(session.saved_replay_flags, [False, True])
+        self.assertEqual(saved_slot.metadata["progress"]["completed_batches"], 5)
+        self.assertTrue(replay_exists)
+
+    def test_session_saves_replay_on_exit_after_group_boundary_model_save(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+
+            def batch_runner(**kwargs):
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(0.125,),
+                    round_results=(_round_result(5.0),),
+                )
+
+            session = _RecordingSaveSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon_decay=1.0,
+                ),
+                batch_grouping=3,
+                batch_runner=batch_runner,
+            )
+            session.run_synchronously(max_batches=6)
+            replay_exists = replay_checkpoint_path(slot.pth_path).exists()
+
+        self.assertEqual(session.saved_batches, [3, 6, 6])
+        self.assertEqual(session.saved_replay_flags, [False, False, True])
+        self.assertTrue(replay_exists)
+
     def test_session_records_current_run_throughput(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -682,6 +793,60 @@ class TrainingSessionTests(unittest.TestCase):
             )
             session.run_synchronously(max_batches=1)
 
+    def test_session_caches_existing_ai_discovery_until_group_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            first = (OpponentSpec("Earthling", slot=1),)
+            second = (OpponentSpec("Mycon", slot=2),)
+            seen_opponents = []
+
+            def batch_runner(**kwargs):
+                seen_opponents.append(kwargs["discovered_opponents"])
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(),
+                    round_results=(_round_result(),),
+                )
+
+            session = TrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    opponent_mode=OPPONENT_MODE_EXISTING_AI,
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon_decay=1.0,
+                ),
+                batch_grouping=3,
+                batch_runner=batch_runner,
+            )
+
+            with mock.patch(
+                "src.training.session.discover_existing_ai_opponents",
+                side_effect=(
+                    OpponentDiscoveryResult(first),
+                    OpponentDiscoveryResult(second),
+                ),
+            ) as discover:
+                session.run_synchronously(max_batches=5)
+
+        self.assertEqual(discover.call_count, 2)
+        self.assertEqual(seen_opponents, [first, first, first, second, second])
+
     def test_session_resume_preserves_partial_grouping_average(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -797,6 +962,54 @@ class TrainingSessionTests(unittest.TestCase):
         self.assertEqual(completed, 0)
         self.assertEqual(session.status.completed_batches, 0)
         self.assertEqual(session.log_lines, ())
+
+    def test_stop_after_completed_batch_flushes_unsaved_progress(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+
+            session = None
+
+            def batch_runner(**kwargs):
+                session.request_stop()
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(0.125,),
+                    round_results=(_round_result(5.0),),
+                )
+
+            session = _RecordingSaveSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon_decay=1.0,
+                ),
+                batch_grouping=3,
+                batch_runner=batch_runner,
+            )
+            session.run_synchronously(max_batches=3)
+
+            saved_slot = repository.slot_for("Earthling", 1)
+
+        self.assertEqual(session.saved_batches, [1])
+        self.assertEqual(session.saved_replay_flags, [True])
+        self.assertEqual(saved_slot.metadata["progress"]["completed_batches"], 1)
+        self.assertEqual(session.status.completed_batches, 1)
 
 
 if __name__ == "__main__":

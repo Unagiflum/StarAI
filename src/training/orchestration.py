@@ -317,6 +317,7 @@ def run_training_batch(
     config: TrainingOrchestrationConfig,
     rng: Any | None = None,
     model_repository: TrainingModelRepository | None = None,
+    discovered_opponents: Sequence[OpponentSpec] | None = None,
     simulation_factory: Callable[..., BattleSimulation] = BattleSimulation,
     audio_service: Any | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
@@ -329,12 +330,13 @@ def run_training_batch(
     if config.opponent_mode == OPPONENT_MODE_SIMPLE:
         opponents = simple_opponent_schedule(config.rounds_per_batch)
     else:
-        if model_repository is None:
-            raise ValueError("model_repository is required for existing-AI mode")
-        discovered = discover_existing_ai_opponents(model_repository)
+        if discovered_opponents is None:
+            if model_repository is None:
+                raise ValueError("model_repository is required for existing-AI mode")
+            discovered_opponents = discover_existing_ai_opponents(model_repository).opponents
         opponents = existing_ai_opponent_schedule(
             config.rounds_per_batch,
-            discovered.opponents,
+            discovered_opponents,
             ai_opponent_chance=config.ai_opponent_chance,
             rng=rng,
         )

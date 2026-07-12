@@ -35,6 +35,7 @@ from src.training.model_registry import (
     TrainingModelSlot,
     metadata_from_state,
     model_architecture_metadata,
+    replay_checkpoint_path,
     trained_model_counts_for_ships,
 )
 from src.training.orchestration import TrainingOrchestrationConfig
@@ -1538,10 +1539,11 @@ def _clear_reset_model_artifacts(model_slot):
     if model_slot.pth_path is not None:
         model_slot.pth_path.write_bytes(b"")
         csv_path = model_slot.pth_path.with_suffix(".csv")
-        try:
-            csv_path.unlink()
-        except FileNotFoundError:
-            pass
+        for path in (csv_path, replay_checkpoint_path(model_slot.pth_path)):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):

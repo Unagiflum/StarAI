@@ -31,9 +31,11 @@ from src.training.model_registry import (
     normalize_architecture_metadata,
 )
 from src.training.orchestration import (
+    OPPONENT_MODE_EXISTING_AI,
     TrainingBatchAborted,
     TrainingBatchResult,
     TrainingOrchestrationConfig,
+    discover_existing_ai_opponents,
     run_training_batch,
 )
 from src.training.replay import (
@@ -351,6 +353,10 @@ class TrainingSession:
         self._run_stopped_at: float | None = None
         self._current_batch_started_at: float | None = None
         self._completed_batches_at_run_start = self._status.completed_batches
+        self._last_saved_completed_batches = self._status.completed_batches
+        self._last_saved_replay_completed_batches = self._status.completed_batches
+        self._cached_existing_ai_opponents = None
+        self._cached_existing_ai_opponents_at: int | None = None
         self._completed_batch_seconds: list[float] = []
         self._thread: threading.Thread | None = None
 
@@ -500,6 +506,7 @@ class TrainingSession:
             self._status.batches_per_hour = 0.0
 
         while not self._stop_requested.is_set():
+            discovered_opponents = self._existing_ai_opponents_for_batch()
             with self._lock:
                 self._status.display_message = "Preparing new batch"
                 self._status.battle_view = None
@@ -518,6 +525,7 @@ class TrainingSession:
                     config=batch_config,
                     rng=self.rng,
                     model_repository=self.repository,
+                    discovered_opponents=discovered_opponents,
                     audio_service=self.audio_service,
                     progress_callback=self._on_progress,
                     stop_requested=self._stop_requested.is_set,
@@ -529,16 +537,45 @@ class TrainingSession:
                 batch_finished_at = time.perf_counter()
                 with self._lock:
                     self._current_batch_started_at = None
-            if self._stop_requested.is_set():
-                break
-            self._record_completed_batch(
+            completed_batches = self._record_completed_batch(
                 result,
                 batch_seconds=max(0.0, batch_finished_at - batch_started_at),
             )
-            self._save_state(model, optimizer, replay_buffer)
+            if completed_batches % self.batch_grouping == 0:
+                self._save_state(model, optimizer, replay_buffer, include_replay=False)
             batches_run += 1
             if max_batches is not None and batches_run >= max_batches:
                 break
+        if self.status.completed_batches > self._last_saved_completed_batches:
+            self._save_state(model, optimizer, replay_buffer, include_replay=True)
+        elif self.status.completed_batches > self._last_saved_replay_completed_batches:
+            self._save_state(model, optimizer, replay_buffer, include_replay=True)
+
+    def _existing_ai_opponents_for_batch(self):
+        if self.config.opponent_mode != OPPONENT_MODE_EXISTING_AI:
+            return None
+        with self._lock:
+            completed_batches = self._status.completed_batches
+            cached = self._cached_existing_ai_opponents
+            cached_at = self._cached_existing_ai_opponents_at
+            refresh = (
+                cached is None
+                or cached_at is None
+                or (
+                    completed_batches > cached_at
+                    and completed_batches % self.batch_grouping == 0
+                )
+            )
+            if not refresh:
+                return cached
+            self._status.display_message = "Loading AI opponents"
+            self._status.battle_view = None
+
+        discovery = discover_existing_ai_opponents(self.repository)
+        with self._lock:
+            self._cached_existing_ai_opponents = discovery.opponents
+            self._cached_existing_ai_opponents_at = completed_batches
+        return discovery.opponents
 
     def _build_components(self):
         architecture = normalize_architecture_metadata(
@@ -578,7 +615,7 @@ class TrainingSession:
         result: TrainingBatchResult,
         *,
         batch_seconds: float = 0.0,
-    ) -> None:
+    ) -> int:
         with self._lock:
             self._status.completed_batches += 1
             batch_number = self._status.completed_batches
@@ -629,15 +666,23 @@ class TrainingSession:
         if batch_number % self.batch_grouping == 0:
             append_grouped_metrics_csv(self._csv_path(), rolling)
         self._trim_history()
+        return batch_number
 
-    def _save_state(self, model, optimizer, replay_buffer: TrainingReplayBuffer) -> None:
+    def _save_state(
+        self,
+        model,
+        optimizer,
+        replay_buffer: TrainingReplayBuffer,
+        *,
+        include_replay: bool = True,
+    ) -> None:
         pth_path, _ = model_paths(self.repository.user_dir, self.slot.ship, self.slot.slot)
         completed_batches = self.status.completed_batches
         save_training_checkpoint(
             pth_path,
             model,
             optimizer=optimizer,
-            replay_buffer=replay_buffer,
+            replay_buffer=replay_buffer if include_replay else None,
             extra_state={"completed_batches": completed_batches},
         )
         metadata = metadata_from_state(
@@ -662,6 +707,9 @@ class TrainingSession:
         )
         self.metadata = metadata
         self.slot = self.repository.create_or_update_user_model(metadata)
+        self._last_saved_completed_batches = completed_batches
+        if include_replay:
+            self._last_saved_replay_completed_batches = completed_batches
 
     def _training_metadata_for_save(self) -> dict[str, Any]:
         training = self.metadata.get("training", {})

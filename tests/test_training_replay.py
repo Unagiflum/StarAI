@@ -10,6 +10,7 @@ from src.training.replay import (
     TrainingReplayBuffer,
     load_training_checkpoint,
     optimize_from_replay,
+    replay_checkpoint_path,
     save_training_checkpoint,
     select_action_epsilon_greedy,
 )
@@ -162,6 +163,7 @@ class TrainingPolicyAndOptimizationTests(unittest.TestCase):
                 replay_buffer=replay,
                 extra_state={"completed_batches": 2},
             )
+            self.assertTrue(replay_checkpoint_path(path).exists())
 
             restored_model = build_value_network(ValueNetworkConfig(8, 1))
             restored_optimizer = build_optimizer(restored_model, learning_rate=0.001)
@@ -179,6 +181,36 @@ class TrainingPolicyAndOptimizationTests(unittest.TestCase):
         self.assertEqual(loaded.replay_sample_count, 3)
         self.assertEqual(loaded.extra_state["completed_batches"], 2)
         self.assertEqual(len(restored_replay), 3)
+
+    def test_checkpoint_main_file_does_not_embed_replay_buffer(self):
+        torch = torch_backend.require_torch()
+        model = build_value_network(ValueNetworkConfig(8, 1))
+        replay = TrainingReplayBuffer(capacity=4)
+        replay.extend(sample(identifier) for identifier in range(3))
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Earthling-01.pth"
+            save_training_checkpoint(path, model, replay_buffer=replay)
+            try:
+                payload = torch.load(path, weights_only=False)
+            except TypeError:
+                payload = torch.load(path)
+
+        self.assertNotIn("replay_buffer", payload)
+
+    def test_model_only_checkpoint_removes_stale_replay_sidecar(self):
+        model = build_value_network(ValueNetworkConfig(8, 1))
+        replay = TrainingReplayBuffer(capacity=4)
+        replay.extend(sample(identifier) for identifier in range(3))
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Earthling-01.pth"
+            save_training_checkpoint(path, model, replay_buffer=replay)
+            self.assertTrue(replay_checkpoint_path(path).exists())
+
+            save_training_checkpoint(path, model)
+
+            self.assertFalse(replay_checkpoint_path(path).exists())
 
 
 if __name__ == "__main__":

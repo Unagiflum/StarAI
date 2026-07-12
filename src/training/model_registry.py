@@ -58,6 +58,10 @@ def model_paths(directory: Path, ship: str, slot: int) -> tuple[Path, Path]:
     return base.with_suffix(".pth"), base.with_suffix(".json")
 
 
+def replay_checkpoint_path(model_path: Path) -> Path:
+    return Path(model_path).with_suffix(".replay.pth")
+
+
 def model_architecture_metadata(
     hidden_layer_width: int,
     hidden_layer_count: int,
@@ -201,7 +205,7 @@ class TrainingModelRepository:
         if not model_slot.is_user:
             return
         pth_path, metadata_path = model_paths(self.user_dir, ship, slot)
-        for path in (pth_path, metadata_path):
+        for path in (pth_path, metadata_path, replay_checkpoint_path(pth_path)):
             try:
                 path.unlink()
             except FileNotFoundError:
