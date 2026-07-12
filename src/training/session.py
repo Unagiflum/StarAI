@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 import csv
 from pathlib import Path
@@ -38,6 +39,7 @@ from src.training.orchestration import (
     discover_existing_ai_opponents,
     run_training_batch,
 )
+from src.training.opponent_cache import OpponentModelKey
 from src.training.replay import (
     TrainingReplayBuffer,
     load_training_checkpoint,
@@ -316,6 +318,7 @@ class TrainingSession:
         initial_history: tuple[BatchMetrics, ...] = (),
         initial_log_lines: tuple[str, ...] = (),
         opponent_model_cache: Any | None = None,
+        save_coordinator: Any | None = None,
     ):
         if slot.is_bundled:
             raise TrainingSessionError("Bundled training models are read-only")
@@ -359,6 +362,7 @@ class TrainingSession:
         self._cached_existing_ai_opponents = None
         self._cached_existing_ai_opponents_at: int | None = None
         self.opponent_model_cache = opponent_model_cache
+        self.save_coordinator = save_coordinator
         self._opponent_model_cache_initial_loaded = False
         self._completed_batch_seconds: list[float] = []
         self._thread: threading.Thread | None = None
@@ -692,40 +696,57 @@ class TrainingSession:
         *,
         include_replay: bool = True,
     ) -> None:
-        pth_path, _ = model_paths(self.repository.user_dir, self.slot.ship, self.slot.slot)
+        key = OpponentModelKey(self.slot.ship, self.slot.slot)
+        context = (
+            self.save_coordinator.saving(key)
+            if self.save_coordinator is not None
+            else nullcontext()
+        )
         completed_batches = self.status.completed_batches
-        save_training_checkpoint(
-            pth_path,
-            model,
-            optimizer=optimizer,
-            replay_buffer=replay_buffer if include_replay else None,
-            extra_state={"completed_batches": completed_batches},
-        )
-        metadata = metadata_from_state(
-            ship=self.slot.ship,
-            slot=self.slot.slot,
-            description=str(self.metadata.get("description", self.slot.description)),
-            architecture=self.metadata.get(
-                "architecture",
-                model_architecture_metadata(
-                    self.config.hidden_layer_width,
-                    self.config.hidden_layer_count,
+        with context:
+            pth_path, _ = model_paths(
+                self.repository.user_dir,
+                key.ship,
+                key.slot,
+            )
+            save_training_checkpoint(
+                pth_path,
+                model,
+                optimizer=optimizer,
+                replay_buffer=replay_buffer if include_replay else None,
+                extra_state={"completed_batches": completed_batches},
+            )
+            metadata = metadata_from_state(
+                ship=key.ship,
+                slot=key.slot,
+                description=str(self.metadata.get("description", self.slot.description)),
+                architecture=self.metadata.get(
+                    "architecture",
+                    model_architecture_metadata(
+                        self.config.hidden_layer_width,
+                        self.config.hidden_layer_count,
+                    ),
                 ),
-            ),
-            training=self._training_metadata_for_save(),
-            progress={
-                "completed_batches": completed_batches,
-                RECENT_BATCH_METRICS_KEY: [
-                    batch_metrics_to_metadata(metrics)
-                    for metrics in self.history[-self.batch_grouping :]
-                ],
-            },
-        )
-        self.metadata = metadata
-        self.slot = self.repository.create_or_update_user_model(metadata)
+                training=self._training_metadata_for_save(),
+                progress={
+                    "completed_batches": completed_batches,
+                    RECENT_BATCH_METRICS_KEY: [
+                        batch_metrics_to_metadata(metrics)
+                        for metrics in self.history[-self.batch_grouping :]
+                    ],
+                },
+            )
+            self.metadata = metadata
+            self.slot = self.repository.create_or_update_user_model(metadata)
         self._last_saved_completed_batches = completed_batches
         if include_replay:
             self._last_saved_replay_completed_batches = completed_batches
+        if self.opponent_model_cache is not None:
+            self.opponent_model_cache.notify_model_saved(
+                self.repository,
+                key.ship,
+                key.slot,
+            )
 
     def _training_metadata_for_save(self) -> dict[str, Any]:
         training = self.metadata.get("training", {})

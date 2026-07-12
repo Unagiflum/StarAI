@@ -23,7 +23,11 @@ from src.training.model_registry import (
     replay_checkpoint_path,
     trained_model_counts_for_ships,
 )
-from src.training.opponent_cache import OpponentModelCache, OpponentModelKey
+from src.training.opponent_cache import (
+    ModelSaveCoordinator,
+    OpponentModelCache,
+    OpponentModelKey,
+)
 from src.training import torch_backend
 from src.training.replay import save_training_checkpoint
 from src.training.value_network import (
@@ -320,7 +324,94 @@ class OpponentModelCacheTests(unittest.TestCase):
         )
         self.assertIs(first_snapshot[0].model, second_snapshot[0].model)
 
+    def test_notify_model_saved_refreshes_cached_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            self._save_model(repository, "Earthling", 1, completed_batches=1)
+            cache = OpponentModelCache()
+            cache.load_initial(repository)
+            old_model = cache.snapshot()[0].model
+
+            self._save_model(repository, "Earthling", 1, completed_batches=2)
+            cache.notify_model_saved(repository, "Earthling", 1)
+            snapshot = cache.snapshot()
+
+        self.assertEqual(len(snapshot), 1)
+        self.assertEqual(snapshot[0].slot, 1)
+        self.assertIsNot(snapshot[0].model, old_model)
+        self.assertEqual(cache.diagnostics().last_errors, {})
+
+    def test_notify_model_saved_keeps_last_good_when_refresh_load_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            self._save_model(repository, "Earthling", 1, completed_batches=1)
+            cache = OpponentModelCache()
+            cache.load_initial(repository)
+            old_model = cache.snapshot()[0].model
+
+            slot = self._create_metadata_only_slot(
+                repository,
+                "Earthling",
+                1,
+                completed_batches=2,
+            )
+            slot.pth_path.write_bytes(b"not a checkpoint")
+            cache.notify_model_saved(repository, "Earthling", 1)
+            snapshot = cache.snapshot()
+            diagnostics = cache.diagnostics()
+
+        key = OpponentModelKey("Earthling", 1)
+        self.assertEqual(len(snapshot), 1)
+        self.assertIs(snapshot[0].model, old_model)
+        self.assertIn(key, diagnostics.last_errors)
+
+    def test_notify_model_saved_skips_active_save_and_keeps_old_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            self._save_model(repository, "Earthling", 1, completed_batches=1)
+            coordinator = ModelSaveCoordinator()
+            cache = OpponentModelCache(save_coordinator=coordinator)
+            cache.load_initial(repository)
+            old_model = cache.snapshot()[0].model
+            key = OpponentModelKey("Earthling", 1)
+
+            self._save_model(repository, "Earthling", 1, completed_batches=2)
+            with coordinator.saving(key):
+                cache.notify_model_saved(repository, "Earthling", 1)
+                blocked_snapshot = cache.snapshot()
+                blocked_diagnostics = cache.diagnostics()
+
+            cache.notify_model_saved(repository, "Earthling", 1)
+            refreshed_snapshot = cache.snapshot()
+            refreshed_diagnostics = cache.diagnostics()
+
+        self.assertIs(blocked_snapshot[0].model, old_model)
+        self.assertEqual(blocked_diagnostics.blocked_keys, (key,))
+        self.assertIsNot(refreshed_snapshot[0].model, old_model)
+        self.assertEqual(refreshed_diagnostics.blocked_keys, ())
+
     def _save_model(
+        self,
+        repository: TrainingModelRepository,
+        ship: str,
+        slot: int,
+        *,
+        completed_batches: int,
+    ):
+        model_slot = self._create_metadata_only_slot(
+            repository,
+            ship,
+            slot,
+            completed_batches=completed_batches,
+        )
+        model = build_value_network(ValueNetworkConfig(8, 1))
+        save_training_checkpoint(model_slot.pth_path, model)
+        return model_slot
+
+    def _create_metadata_only_slot(
         self,
         repository: TrainingModelRepository,
         ship: str,
@@ -336,10 +427,7 @@ class OpponentModelCacheTests(unittest.TestCase):
             training={"regimen": {"rounds_per_batch": 1}},
             progress={"completed_batches": completed_batches},
         )
-        model_slot = repository.create_or_update_user_model(metadata)
-        model = build_value_network(ValueNetworkConfig(8, 1))
-        save_training_checkpoint(model_slot.pth_path, model)
-        return model_slot
+        return repository.create_or_update_user_model(metadata)
 
 
 if __name__ == "__main__":

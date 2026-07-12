@@ -15,7 +15,11 @@ from src.training.model_registry import (
     model_architecture_metadata,
     replay_checkpoint_path,
 )
-from src.training.opponent_cache import OpponentModelCache
+from src.training.opponent_cache import (
+    ModelSaveCoordinator,
+    OpponentModelCache,
+    OpponentModelKey,
+)
 from src.training.orchestration import (
     OPPONENT_MODE_EXISTING_AI,
     OpponentDiscoveryResult,
@@ -655,6 +659,121 @@ class TrainingSessionTests(unittest.TestCase):
         self.assertEqual(session.saved_batches, [3, 6, 6])
         self.assertEqual(session.saved_replay_flags, [False, False, True])
         self.assertTrue(replay_exists)
+
+    def test_save_state_coordinates_and_notifies_cache_after_metadata_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            coordinator = ModelSaveCoordinator()
+            key = OpponentModelKey("Earthling", 1)
+            notifications = []
+
+            def notify_model_saved(repository, ship, slot):
+                saved_slot = repository.slot_for(ship, slot)
+                notifications.append(
+                    (
+                        ship,
+                        slot,
+                        saved_slot.metadata["progress"]["completed_batches"],
+                        coordinator.is_saving(key),
+                    )
+                )
+
+            cache = SimpleNamespace(notify_model_saved=notify_model_saved)
+            original_save = save_training_checkpoint
+
+            def saving_checkpoint(*args, **kwargs):
+                self.assertTrue(coordinator.is_saving(key))
+                return original_save(*args, **kwargs)
+
+            def batch_runner(**kwargs):
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(0.125,),
+                    round_results=(_round_result(5.0),),
+                )
+
+            session = TrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon_decay=1.0,
+                ),
+                batch_grouping=99,
+                batch_runner=batch_runner,
+                opponent_model_cache=cache,
+                save_coordinator=coordinator,
+            )
+
+            with mock.patch(
+                "src.training.session.save_training_checkpoint",
+                side_effect=saving_checkpoint,
+            ):
+                session.run_synchronously(max_batches=1)
+
+        self.assertEqual(notifications, [("Earthling", 1, 1, False)])
+
+    def test_failed_save_does_not_notify_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            coordinator = ModelSaveCoordinator()
+            key = OpponentModelKey("Earthling", 1)
+            cache = SimpleNamespace(notify_model_saved=mock.Mock())
+            session = TrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon_decay=1.0,
+                ),
+                batch_grouping=1,
+                opponent_model_cache=cache,
+                save_coordinator=coordinator,
+            )
+            model = build_value_network(ValueNetworkConfig(8, 1))
+            replay_buffer = TrainingReplayBuffer(10)
+
+            with (
+                mock.patch(
+                    "src.training.session.save_training_checkpoint",
+                    side_effect=RuntimeError("save failed"),
+                ),
+                self.assertRaisesRegex(RuntimeError, "save failed"),
+            ):
+                session._save_state(
+                    model,
+                    None,
+                    replay_buffer,
+                    include_replay=False,
+                )
+
+        cache.notify_model_saved.assert_not_called()
+        self.assertFalse(coordinator.is_saving(key))
 
     def test_session_records_current_run_throughput(self):
         with tempfile.TemporaryDirectory() as directory:

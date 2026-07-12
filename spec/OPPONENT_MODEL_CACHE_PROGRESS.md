@@ -23,8 +23,20 @@ Status: Implemented and verified.
 - Added tests proving the batch runner receives the immutable snapshot captured at batch start and later batches can see cache updates.
 - Verified with `python -m unittest tests.test_training_session tests.test_training_models tests.test_training_orchestration`.
 
+## Phase 3: Save Coordinator And Save Notifications
+
+Status: Implemented and verified.
+
+- Added `ModelSaveCoordinator` with counted per-key save tracking and context-manager support for `(ship, slot)` model keys.
+- Added `OpponentModelCache.notify_model_saved(repository, ship, slot)` to refresh one saved user model slot without evicting the previous known-good cached model on load failure.
+- Added blocked-refresh handling so notifications or initial loads received while a key is actively saving keep the old entry and record blocked diagnostics.
+- Added optional `save_coordinator` dependency to `TrainingSession`.
+- Wrapped `_save_state()` checkpoint and metadata writes in the coordinator when provided.
+- Notified the shared opponent cache only after checkpoint save and metadata update completed successfully.
+- Added tests proving saved models refresh the cache, failed refreshes keep the old model, blocked refreshes do not load or evict, and failed saves do not notify.
+- Verified with `python -m unittest tests.test_training_models tests.test_training_session tests.test_training_orchestration`.
+
 ## Pending Phases
 
-- Phase 3: Save coordinator and save notifications.
 - Phase 4: Training UI wiring.
 - Phase 5: Diagnostics and regression tests.
