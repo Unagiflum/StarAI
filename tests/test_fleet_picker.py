@@ -203,6 +203,72 @@ class ShipSelectionAutomationTests(unittest.TestCase):
 
         self.assertFalse(automation.update(state, 2.0))
 
+    def test_human_random_lock_allows_auto_continue_after_ai_selects(self):
+        state = self.state([self.ship("Human")], [self.ship("AI")])
+        self.assertTrue(state.select_random_index(1, 0))
+        automation = ShipSelectionAutomation(
+            {1: False, 2: True},
+            rng=ChoiceRng([0]),
+            delay_seconds=0.5,
+        )
+
+        self.assertFalse(automation.update(state, 0.5))
+        self.assertTrue(state.confirmation_ready)
+        self.assertFalse(automation.update(state, 0.49))
+        self.assertTrue(automation.update(state, 0.01))
+
+    def test_human_forced_first_lock_allows_ai_to_auto_continue(self):
+        state = self.state(
+            [self.ship("Human")],
+            [self.ship("AI")],
+            choose_second_player=2,
+        )
+        self.assertTrue(state.select_index(1, 0))
+        self.assertFalse(state.selection_allowed(1))
+        automation = ShipSelectionAutomation(
+            {1: False, 2: True},
+            rng=ChoiceRng([0]),
+            delay_seconds=0.5,
+        )
+
+        self.assertFalse(automation.update(state, 0.5))
+        self.assertTrue(state.confirmation_ready)
+        self.assertFalse(automation.update(state, 0.49))
+        self.assertTrue(automation.update(state, 0.01))
+
+    def test_human_survivor_lock_allows_ai_to_auto_continue(self):
+        survivor = self.ship("Human Survivor")
+        state = self.state(
+            [survivor],
+            [self.ship("AI")],
+            preselected={1: survivor},
+        )
+        automation = ShipSelectionAutomation(
+            {1: False, 2: True},
+            rng=ChoiceRng([0]),
+            delay_seconds=0.5,
+        )
+
+        self.assertFalse(state.selection_allowed(1))
+        self.assertFalse(automation.update(state, 0.5))
+        self.assertTrue(state.confirmation_ready)
+        self.assertFalse(automation.update(state, 0.49))
+        self.assertTrue(automation.update(state, 0.01))
+
+    def test_both_humans_random_locked_auto_continue(self):
+        state = self.state([self.ship("P1")], [self.ship("P2")])
+        state.select_random_index(1, 0)
+        state.select_random_index(2, 0)
+        automation = ShipSelectionAutomation(
+            {1: False, 2: False},
+            rng=ChoiceRng([]),
+            delay_seconds=0.5,
+        )
+
+        self.assertTrue(state.confirmation_ready)
+        self.assertFalse(automation.update(state, 0.49))
+        self.assertTrue(automation.update(state, 0.01))
+
     def test_forced_order_starts_ai_timer_only_for_active_player(self):
         state = self.state(
             [self.ship("P1")],

@@ -238,15 +238,20 @@ class ShipSelectionAutomation:
             return False
 
         if (
-            self.ai_enabled[1]
-            and self.ai_enabled[2]
-            and selection_state.confirmation_ready
+            selection_state.confirmation_ready
+            and not self._human_can_change_selection(selection_state)
         ):
             self._continue_elapsed += elapsed_seconds
             return self._continue_elapsed >= self.delay_seconds
 
         self._continue_elapsed = 0.0
         return False
+
+    def _human_can_change_selection(self, selection_state):
+        return any(
+            not self.ai_enabled[player] and selection_state.selection_allowed(player)
+            for player in (1, 2)
+        )
 
     @staticmethod
     def _state_fingerprint(selection_state):
