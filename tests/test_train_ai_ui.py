@@ -42,6 +42,7 @@ from src.Menus.train_ai import (
     _display_off_console_lines,
     _draw_training_huds,
     _draw_training_battle,
+    _epsilon_for_model_update,
     _format_short_count,
     _training_settings_match,
     _progress_for_model_update,
@@ -424,6 +425,24 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(progress, {"completed_batches": 0})
+
+    def test_checkpoint_reset_returns_to_starting_epsilon(self):
+        epsilon = _epsilon_for_model_update(
+            starting_epsilon=0.3,
+            current_epsilon=0.125,
+            reset_checkpoint=True,
+        )
+
+        self.assertEqual(epsilon, 0.3)
+
+    def test_non_reset_update_preserves_current_epsilon(self):
+        epsilon = _epsilon_for_model_update(
+            starting_epsilon=0.3,
+            current_epsilon=0.125,
+            reset_checkpoint=False,
+        )
+
+        self.assertEqual(epsilon, 0.125)
 
     def test_checkpoint_reset_clears_existing_csv(self):
         with tempfile.TemporaryDirectory() as directory:

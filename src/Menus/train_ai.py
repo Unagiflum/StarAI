@@ -1061,6 +1061,10 @@ def _progress_for_model_update(existing_metadata, progress=None, *, reset_checkp
     return None
 
 
+def _epsilon_for_model_update(starting_epsilon, current_epsilon, *, reset_checkpoint=False):
+    return float(starting_epsilon if reset_checkpoint else current_epsilon)
+
+
 def _clear_reset_model_artifacts(model_slot):
     if model_slot.pth_path is not None:
         model_slot.pth_path.write_bytes(b"")
@@ -1542,7 +1546,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             state.hidden_layer_count,
         )
 
-    def training_metadata():
+    def training_metadata(*, reset_checkpoint=False):
+        current_epsilon = _epsilon_for_model_update(
+            state.starting_epsilon,
+            state.current_epsilon,
+            reset_checkpoint=reset_checkpoint,
+        )
         return {
             "opponent": {
                 "mode": state.opponent_mode,
@@ -1562,8 +1571,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 "replay_updates_per_batch": state.replay_updates_per_batch,
                 "learning_rate": state.learning_rate,
                 "starting_epsilon": state.starting_epsilon,
-                "current_epsilon": state.current_epsilon,
-                "epsilon": state.current_epsilon,
+                "current_epsilon": current_epsilon,
+                "epsilon": current_epsilon,
                 "epsilon_decay": state.epsilon_decay,
                 "epsilon_frame_span": state.epsilon_frame_span,
                 "gamma": state.gamma,
@@ -1665,12 +1674,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         existing_metadata = (
             model_slot.metadata if isinstance(model_slot.metadata, dict) else {}
         )
+        updated_training = training_metadata(reset_checkpoint=reset_checkpoint)
         metadata = metadata_from_state(
             ship=state.selected_ship,
             slot=state.selected_slot,
             description=description,
             architecture=architecture_metadata(),
-            training=training_metadata(),
+            training=updated_training,
             progress=_progress_for_model_update(
                 existing_metadata,
                 progress,
@@ -1680,11 +1690,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         updated_slot = model_repository.create_or_update_user_model(metadata)
         if reset_checkpoint:
             _clear_reset_model_artifacts(updated_slot)
+            state.current_epsilon = _epsilon_for_model_update(
+                state.starting_epsilon,
+                state.current_epsilon,
+                reset_checkpoint=True,
+            )
             
         state.loaded_ship = state.selected_ship
         state.loaded_slot = state.selected_slot
         state.loaded_architecture = architecture_metadata()
-        state.loaded_training = training_metadata()
+        state.loaded_training = updated_training
         
         refresh_slot_controls()
         return updated_slot
