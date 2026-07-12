@@ -881,6 +881,9 @@ class TrainingConsoleTests(unittest.TestCase):
             "last_action_exploratory": True,
             "weighted_total_return": 12.5,
             "recent_loss": None,
+            "current_epsilon": 0.125,
+            "epsilon_decay": 0.997,
+            "gamma": 0.99,
             "component_totals": {"Kill enemy": 2.0},
             "previous_opponent": "Chenjesu",
             "batch_component_totals": {},
@@ -910,6 +913,9 @@ class TrainingConsoleTests(unittest.TestCase):
         self.assertIn("Replay:       99", lines)
         self.assertIn("Return:       12.50", lines)
         self.assertIn("Loss:              -", lines)
+        self.assertIn(f"{'Gamma:':<10}{0.99:>10.3f}", lines)
+        self.assertIn(f"{'Epsilon:':<10}{0.125:>10.5f}", lines)
+        self.assertIn(f"{'Eps decay:':<10}{0.997:>10.3f}", lines)
         self.assertIn(
             f"{'Reward components':<{reward_name_width}}|   Chenjesu |  Batch -",
             lines,

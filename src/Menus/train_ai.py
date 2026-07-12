@@ -1344,6 +1344,9 @@ def _current_batch_console_lines(status):
         f"{'Loss:':<10}{status.recent_loss:>{CURRENT_BATCH_LOSS_WIDTH}.4f}"
         if status.recent_loss is not None
         else f"{'Loss:':<10}{'-':>{CURRENT_BATCH_LOSS_WIDTH}}",
+        f"{'Gamma:':<10}{getattr(status, 'gamma', 0.0):>{CURRENT_BATCH_LOSS_WIDTH}.3f}",
+        f"{'Epsilon:':<10}{getattr(status, 'current_epsilon', 0.0):>{CURRENT_BATCH_LOSS_WIDTH}.5f}",
+        f"{'Eps decay:':<10}{getattr(status, 'epsilon_decay', 0.0):>{CURRENT_BATCH_LOSS_WIDTH}.3f}",
         "",
     ]
     

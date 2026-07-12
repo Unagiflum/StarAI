@@ -143,6 +143,8 @@ class TrainingSessionStatus:
     replay_size: int = 0
     recent_loss: float | None = None
     current_epsilon: float = 0.0
+    epsilon_decay: float = 0.0
+    gamma: float = 0.0
     last_action_exploratory: bool | None = None
     weighted_total_return: float = 0.0
     component_totals: dict[str, float] = field(default_factory=dict)
@@ -327,6 +329,8 @@ class TrainingSession:
                 self.metadata.get("progress", {}).get("completed_batches", 0)
             ),
             current_epsilon=self._current_epsilon,
+            epsilon_decay=float(config.epsilon_decay),
+            gamma=float(config.gamma),
         )
         self._history: list[BatchMetrics] = list(
             initial_history or batch_metrics_history_from_metadata(self.metadata)
@@ -389,6 +393,8 @@ class TrainingSession:
                 replay_size=self._status.replay_size,
                 recent_loss=self._status.recent_loss,
                 current_epsilon=self._status.current_epsilon,
+                epsilon_decay=self._status.epsilon_decay,
+                gamma=self._status.gamma,
                 last_action_exploratory=self._status.last_action_exploratory,
                 weighted_total_return=self._status.weighted_total_return,
                 component_totals=dict(self._status.component_totals),
