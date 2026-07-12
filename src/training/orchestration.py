@@ -379,6 +379,12 @@ def run_training_batch(
             result=result,
         )
 
+    _emit_progress(
+        progress_callback,
+        event="batch_optimization_start",
+        replay_updates=config.replay_updates_per_batch,
+        replay_size=len(replay_buffer),
+    )
     losses: list[float] = []
     for _ in range(config.replay_updates_per_batch):
         _raise_if_stop_requested(stop_requested)

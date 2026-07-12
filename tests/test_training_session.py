@@ -347,6 +347,20 @@ class TrainingSessionDisplayTests(unittest.TestCase):
         freeze.assert_called_once()
         self.assertIs(session.status.battle_view, frozen_view)
 
+    def test_batch_optimization_progress_shows_display_message_and_clears_view(self):
+        session = TrainingSession.__new__(TrainingSession)
+        session._lock = threading.Lock()
+        session._status = TrainingSessionStatus(
+            battle_view={"game_objects": ("last-frame",)}
+        )
+        session._display_on = threading.Event()
+        session._display_on.set()
+
+        session._on_progress({"event": "batch_optimization_start"})
+
+        self.assertEqual(session.status.display_message, "Applying gradient descent")
+        self.assertIsNone(session.status.battle_view)
+
     def test_live_display_toggle_starts_and_stops_training_audio(self):
         session = TrainingSession.__new__(TrainingSession)
         session._status = TrainingSessionStatus(battle_view={"game_objects": ()})

@@ -428,6 +428,41 @@ class TrainingRoundTests(unittest.TestCase):
         build_view.assert_not_called()
         self.assertFalse(any("battle_view" in event for event in events))
 
+    def test_training_batch_announces_optimization_phase(self):
+        if torch_backend.get_torch() is None:
+            self.skipTest("PyTorch is not installed")
+
+        model = build_value_network(ValueNetworkConfig(8, 1))
+        optimizer = build_optimizer(model, learning_rate=0.001)
+        replay = TrainingReplayBuffer(capacity=16)
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            rounds_per_batch=1,
+            gamma=0.0,
+            match_time_limit=1,
+            minibatch_size=1,
+            replay_updates_per_batch=2,
+            hidden_layer_width=8,
+            hidden_layer_count=1,
+        )
+        events = []
+
+        run_training_batch(
+            model=model,
+            optimizer=optimizer,
+            replay_buffer=replay,
+            config=config,
+            rng=random.Random(12),
+            progress_callback=events.append,
+        )
+
+        optimization_events = [
+            event for event in events if event.get("event") == "batch_optimization_start"
+        ]
+        self.assertEqual(len(optimization_events), 1)
+        self.assertEqual(optimization_events[0]["replay_updates"], 2)
+        self.assertEqual(optimization_events[0]["replay_size"], len(replay))
+
     def test_training_round_aborts_when_stop_is_requested_mid_round(self):
         replay = TrainingReplayBuffer(capacity=8)
         config = TrainingOrchestrationConfig(

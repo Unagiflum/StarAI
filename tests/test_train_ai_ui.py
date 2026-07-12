@@ -608,6 +608,40 @@ class TrainingBattleDisplayTests(unittest.TestCase):
         self.assertFalse(options.draw_huds)
         display_flip.assert_not_called()
 
+    def test_display_on_without_battle_view_draws_status_instead_of_stale_frame(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        rect = training_layout().arena_rect
+        controller = mock.Mock()
+        status = SimpleNamespace(
+            running=True,
+            completed_batches=2,
+            current_round=1,
+            total_rounds=1,
+            current_opponent="Earthling",
+            replay_size=128,
+            weighted_total_return=0.0,
+            recent_loss=None,
+            component_totals={},
+            battle_view=None,
+            display_message="Applying gradient descent",
+        )
+        font = pygame.font.SysFont(None, 36)
+        small_font = pygame.font.SysFont(None, 24)
+
+        with mock.patch("src.Menus.train_ai._draw_training_status") as draw_status:
+            _draw_training_battle(
+                screen,
+                rect,
+                status,
+                object(),
+                controller,
+                font,
+                small_font,
+            )
+
+        controller.draw.assert_not_called()
+        draw_status.assert_called_once_with(screen, rect, status, font, small_font)
+
     def test_display_on_huds_use_shared_controller_with_training_rects(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         hud_rects = training_layout().hud_rects

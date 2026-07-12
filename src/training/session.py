@@ -143,6 +143,7 @@ class TrainingSessionStatus:
     component_totals: dict[str, float] = field(default_factory=dict)
     batch_component_totals: dict[str, float] = field(default_factory=dict)
     battle_view: Mapping[str, Any] | None = None
+    display_message: str = ""
     error: str = ""
 
 
@@ -372,6 +373,7 @@ class TrainingSession:
                 component_totals=dict(self._status.component_totals),
                 batch_component_totals=dict(self._status.batch_component_totals),
                 battle_view=self._status.battle_view,
+                display_message=self._status.display_message,
                 error=self._status.error,
             )
 
@@ -466,6 +468,8 @@ class TrainingSession:
 
         while not self._stop_requested.is_set():
             with self._lock:
+                self._status.display_message = "Preparing new batch"
+                self._status.battle_view = None
                 batch_config = replace(
                     self.config,
                     epsilon=self._current_epsilon,
@@ -641,11 +645,16 @@ class TrainingSession:
         opponent_label = getattr(opponent, "ship", "") if opponent is not None else ""
         with self._lock:
             if event == "round_start":
+                self._status.display_message = ""
+                self._status.battle_view = None
                 self._status.current_round = int(payload.get("round_index", 0))
                 self._status.total_rounds = int(payload.get("total_rounds", 0))
                 self._status.current_opponent = opponent_label
                 self._status.current_frame = 0
                 self._status.weighted_total_return = 0.0
+            if event == "batch_optimization_start":
+                self._status.display_message = "Applying gradient descent"
+                self._status.battle_view = None
             if event == "round_end":
                 if "result" in payload:
                     self._status.component_totals = dict(

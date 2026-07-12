@@ -102,6 +102,7 @@ TAB_HEADER_COLOR = (100, 100, 100)
 CONTENT_TOP = UI_TOP_MARGIN + TAB_HEIGHT + TAB_GAP
 FOOTER_CONTROL_HEIGHT = 36
 ACTION_TOP = 678
+DISPLAY_TOP = ACTION_TOP
 TRAINING_HUD_HEIGHT = MARINE_REGION_HEIGHT + VIEWPORT_SIZE + HUD_BOTTOM_PADDING
 HUD_TOP = const.SCREEN_HEIGHT - TRAINING_HUD_HEIGHT
 HUD_BOTTOM_MARGIN = 0
@@ -831,8 +832,11 @@ def _draw_arena_placeholder(screen, rect, state, font):
 def _draw_training_status(screen, rect, status, font, small_font):
     pygame.draw.rect(screen, ui.BLACK, rect)
     pygame.draw.rect(screen, ui.GREY, rect, 2)
+    title = getattr(status, "display_message", "") or (
+        "Training running" if status.running else "Training stopped"
+    )
     lines = (
-        "Training running" if status.running else "Training stopped",
+        title,
         f"Batch {status.completed_batches + 1} | Round {status.current_round}/{status.total_rounds}",
         f"Opponent: {status.current_opponent or '-'}",
         f"Replay: {status.replay_size}",
@@ -940,7 +944,15 @@ def _draw_training_battle(
     status,
     star_field_renderer,
     battle_draw_controller=None,
+    status_font=None,
+    status_small_font=None,
 ):
+    if not getattr(status, "battle_view", None):
+        status_font = status_font or pygame.font.SysFont(None, 36)
+        status_small_font = status_small_font or pygame.font.SysFont(None, 24)
+        _draw_training_status(screen, rect, status, status_font, status_small_font)
+        return
+
     battle_view = _training_battle_view_args(status)
     controller = battle_draw_controller or BattleDrawController()
     controller.draw(
@@ -2295,6 +2307,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     session_status,
                     training_battle_renderer,
                     training_battle_controller,
+                    arena_font,
+                    small_font,
                 )
             else:
                 batch_log_box.draw(screen, layout.arena_rect, log_font)
