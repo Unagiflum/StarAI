@@ -92,19 +92,29 @@ class TrainingUIStateTests(unittest.TestCase):
 
         self.assertEqual(state.selected_slot, 1)
         self.assertEqual(state.slot_labels, ["", "", "", ""])
-        self.assertEqual(state.rewards, {label: 0.0 for label in REWARD_LABELS})
+        expected_rewards = {label: 0.0 for label in REWARD_LABELS}
+        expected_rewards.update(
+            {
+                "Kill enemy": 40.96,
+                "Enemy loses crew": 5.12,
+                "Get debuffed": -1.28,
+                "Lose crew": -2.56,
+                "Die": -20.48,
+            }
+        )
+        self.assertEqual(state.rewards, expected_rewards)
         self.assertEqual(state.opponent_mode, "simple")
-        self.assertEqual(state.ai_opponent_chance, 0.0)
+        self.assertEqual(state.ai_opponent_chance, 100.0)
         self.assertEqual(state.forward_activity, 0.0)
-        self.assertEqual(state.a1_activity, 0.0)
+        self.assertEqual(state.a1_activity, 25.0)
         self.assertEqual(state.a2_activity, 0.0)
-        self.assertEqual(state.face_opponent_activity, 0.0)
+        self.assertEqual(state.face_opponent_activity, 100.0)
         self.assertEqual(state.rounds_per_batch, 1)
-        self.assertEqual(state.batch_grouping, 50)
+        self.assertEqual(state.batch_grouping, 10)
         self.assertEqual(state.match_time_limit, 1200)
         self.assertEqual(state.learning_rate, 0.0001)
-        self.assertEqual(state.starting_epsilon, 0.1)
-        self.assertEqual(state.current_epsilon, 0.1)
+        self.assertEqual(state.starting_epsilon, 0.5)
+        self.assertEqual(state.current_epsilon, 0.5)
         self.assertEqual(state.epsilon_decay, 0.998)
         self.assertEqual(state.epsilon_frame_span, 8)
         self.assertEqual(state.gamma, 0.99)

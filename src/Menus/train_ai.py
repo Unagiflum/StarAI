@@ -2613,6 +2613,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 initial_log_lines=initial_log_lines,
                 opponent_model_cache=opponent_model_cache,
                 save_coordinator=save_coordinator,
+                timing_diagnostics_enabled=True,
+                instance_id=active_instance.instance_id,
+                running_instances_provider=instance_manager.running_count,
+                multi_instance_events_path=(
+                    model_repository.user_dir / "training-multi-instance-events.csv"
+                ),
             )
             instance_manager.set_active_session(session)
             state.running = True
