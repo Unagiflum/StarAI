@@ -94,18 +94,17 @@ CURRENT_BATCH_REWARD_VALUE_WIDTH = 8
 CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
 TAB_MARGIN = 8
 TAB_GAP = 8
-TAB_HEIGHT = 48
+TAB_HEIGHT = 36
 TAB_COLOR = (155, 0, 105, 75)
 TAB_COLOR_HI = (155, 0, 105, 255)
 TAB_HEADER_COLOR = (100, 100, 100)
 CONTENT_TOP = TAB_MARGIN + TAB_HEIGHT + TAB_GAP
-DISPLAY_TOP = 614
-FOOTER_CONTROL_HEIGHT = 46
-ACTION_TOP = 668
+FOOTER_CONTROL_HEIGHT = 36
+ACTION_TOP = 678
 TRAINING_HUD_HEIGHT = MARINE_REGION_HEIGHT + VIEWPORT_SIZE + HUD_BOTTOM_PADDING
 HUD_TOP = const.SCREEN_HEIGHT - TRAINING_HUD_HEIGHT
 HUD_BOTTOM_MARGIN = 0
-CONTENT_BOTTOM = DISPLAY_TOP - TAB_GAP
+CONTENT_BOTTOM = ACTION_TOP - TAB_GAP
 CONTENT_VIEW_HEIGHT = CONTENT_BOTTOM - CONTENT_TOP
 
 
@@ -1462,13 +1461,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
     )
 
-    display_checkbox = ui_button.Checkbox(
-        TAB_MARGIN,
-        DISPLAY_TOP,
-        CONTROL_WIDTH - 2 * TAB_MARGIN,
-        FOOTER_CONTROL_HEIGHT,
-        "Display On",
-    )
+    display_checkbox = None  # Instantiated later with other action buttons
     exited = [False]
     training_session = [None]
     last_session_running = [False]
@@ -2045,9 +2038,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         begin_training()
 
     action_gap = 10
-    action_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - action_gap) // 2
-    start_stop_button = ui_button.Button(
+    action_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 2 * action_gap) // 3
+    display_checkbox = ui_button.Checkbox(
         TAB_MARGIN,
+        ACTION_TOP,
+        action_width,
+        FOOTER_CONTROL_HEIGHT,
+        "Display On",
+    )
+    start_stop_button = ui_button.Button(
+        TAB_MARGIN + action_width + action_gap,
         ACTION_TOP,
         action_width,
         FOOTER_CONTROL_HEIGHT,
@@ -2057,7 +2057,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ui.OK_GREEN_HI,
     )
     back_button = ui_button.Button(
-        TAB_MARGIN + action_width + action_gap,
+        TAB_MARGIN + 2 * (action_width + action_gap),
         ACTION_TOP,
         action_width,
         FOOTER_CONTROL_HEIGHT,
