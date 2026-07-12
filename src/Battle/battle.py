@@ -26,6 +26,8 @@ from src.audio import (
 from src.resources import use_asset_manager
 from src.frame_timing import PresentationClock
 from src.UI.match_dialog import confirm_end_match
+from src.training.model_loader import InferenceModelCache
+from src.training.model_registry import TrainingModelRepository
 import src.const as const
 
 CONTROL_NAMES = ("Forward", "Left", "Right", "Action 1", "Action 2")
@@ -520,9 +522,18 @@ def run(
         player2_ships,
         audio_service=audio_service,
     )
+    ai_model_repository = TrainingModelRepository(
+        const.DEFAULT_MODELS_PATH,
+        const.MODELS_PATH,
+    )
+    ai_model_cache = InferenceModelCache()
+    if player1_ai or player2_ai:
+        ai_model_cache.load_initial(ai_model_repository)
     ai_manager = BattleAIManager(
         {1: player1_ai, 2: player2_ai},
+        repository=ai_model_repository,
         rng=getattr(simulation, "rng", random),
+        model_cache=ai_model_cache,
     )
     ai_manager.bind_round(simulation)
     reset_ai_player_inputs(simulation, ai_manager)

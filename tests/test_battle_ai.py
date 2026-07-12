@@ -10,10 +10,14 @@ from src.Battle.battle import (
 )
 from src.Battle.battle_ai import (
     BattleAIManager,
-    BattleAIModel,
     FallbackController,
     controls_for_action_index,
     load_battle_ai_model,
+)
+from src.training.model_loader import (
+    InferenceModelCache,
+    LoadedInferenceModel,
+    InferenceModelKey,
 )
 from src.training.model_registry import (
     TrainingModelRepository,
@@ -28,6 +32,21 @@ class SequenceRng:
 
     def random(self):
         return self.values.pop(0)
+
+
+class StaticInferenceModelCache:
+    def __init__(self, entries=(), errors=None):
+        self.entries = {
+            (entry.key.ship, entry.key.slot): entry
+            for entry in entries
+        }
+        self.errors = dict(errors or {})
+
+    def entry_for(self, ship, slot):
+        return self.entries.get((str(ship), int(slot)))
+
+    def error_for(self, ship, slot):
+        return self.errors.get((str(ship), int(slot)))
 
 
 def make_ship(name, player, position=(4000, 4000), rotation=0.0):
@@ -51,19 +70,19 @@ class BattleAIModelResolutionTests(unittest.TestCase):
 
             with (
                 mock.patch(
-                    "src.Battle.battle_ai.torch_backend.get_torch",
+                    "src.training.model_loader.torch_backend.get_torch",
                     return_value=object(),
                 ),
                 mock.patch(
-                    "src.Battle.battle_ai.torch_backend.preferred_device",
+                    "src.training.model_loader.torch_backend.preferred_device",
                     return_value="cuda",
                 ),
                 mock.patch(
-                    "src.Battle.battle_ai.build_value_network",
+                    "src.training.model_loader.build_value_network",
                     return_value=model,
                 ) as build_network,
                 mock.patch(
-                    "src.Battle.battle_ai.load_training_checkpoint"
+                    "src.training.model_loader.load_training_checkpoint"
                 ) as load_checkpoint,
             ):
                 loaded = load_battle_ai_model(slot)
@@ -83,17 +102,19 @@ class BattleAIModelResolutionTests(unittest.TestCase):
             root = Path(directory)
             repository = TrainingModelRepository(root / "bundled", root / "user")
             self._write_user_slot(repository, "Earthling", 1, "Aggressive")
-            self._write_user_slot(repository, "Earthling", 2, "Default")
-            loaded_slots = []
-
-            def loader(slot):
-                loaded_slots.append(slot.slot)
-                return BattleAIModel(object(), slot, f"loaded-{slot.slot}")
+            preferred_slot = self._write_user_slot(repository, "Earthling", 2, "Default")
+            fallback_slot = repository.slot_for("Earthling", 1)
+            cache = StaticInferenceModelCache(
+                (
+                    self._loaded_entry(preferred_slot, object()),
+                    self._loaded_entry(fallback_slot, object()),
+                )
+            )
 
             manager = BattleAIManager(
                 {1: True},
                 repository=repository,
-                model_loader=loader,
+                model_cache=cache,
             )
             simulation = SimpleNamespace(
                 player1=make_ship("Earthling", 1),
@@ -102,25 +123,23 @@ class BattleAIModelResolutionTests(unittest.TestCase):
 
             manager.bind_round(simulation)
 
-        self.assertEqual(loaded_slots, [2])
-        self.assertEqual(manager.label_for_player(1), "loaded-2")
+        self.assertEqual(manager.label_for_player(1), "Earthling-02")
 
     def test_default_load_failure_falls_back_to_first_loadable_model(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repository = TrainingModelRepository(root / "bundled", root / "user")
             self._write_user_slot(repository, "Earthling", 1, "Default")
-            self._write_user_slot(repository, "Earthling", 3, "Backup")
-
-            def loader(slot):
-                if slot.slot == 1:
-                    raise RuntimeError("bad checkpoint")
-                return BattleAIModel(object(), slot, f"loaded-{slot.slot}")
+            backup_slot = self._write_user_slot(repository, "Earthling", 3, "Backup")
+            cache = StaticInferenceModelCache(
+                (self._loaded_entry(backup_slot, object()),),
+                errors={("Earthling", 1): "bad checkpoint"},
+            )
 
             manager = BattleAIManager(
                 {1: True},
                 repository=repository,
-                model_loader=loader,
+                model_cache=cache,
             )
             simulation = SimpleNamespace(
                 player1=make_ship("Earthling", 1),
@@ -129,7 +148,7 @@ class BattleAIModelResolutionTests(unittest.TestCase):
 
             manager.bind_round(simulation)
 
-        self.assertEqual(manager.label_for_player(1), "loaded-3")
+        self.assertEqual(manager.label_for_player(1), "Earthling-03")
         self.assertIn("bad checkpoint", manager.load_failures[1][0])
 
     def test_load_failure_results_in_fallback_label(self):
@@ -140,7 +159,9 @@ class BattleAIModelResolutionTests(unittest.TestCase):
             manager = BattleAIManager(
                 {1: True},
                 repository=repository,
-                model_loader=lambda slot: (_ for _ in ()).throw(RuntimeError("nope")),
+                model_cache=StaticInferenceModelCache(
+                    errors={("Earthling", 1): "nope"},
+                ),
             )
             simulation = SimpleNamespace(
                 player1=make_ship("Earthling", 1),
@@ -160,19 +181,26 @@ class BattleAIModelResolutionTests(unittest.TestCase):
             root = Path(directory)
             repository = TrainingModelRepository(root / "bundled", root / "user")
             self._write_user_slot(repository, "Earthling", 1, "Default")
-            manager = BattleAIManager({1: True}, repository=repository)
+            model_cache = InferenceModelCache()
             simulation = SimpleNamespace(
                 player1=make_ship("Earthling", 1),
                 player2=make_ship("Chenjesu", 2),
             )
 
             with mock.patch("src.training.torch_backend._torch", None):
+                model_cache.load_initial(repository)
+                manager = BattleAIManager(
+                    {1: True},
+                    repository=repository,
+                    model_cache=model_cache,
+                )
                 manager.bind_round(simulation)
 
         self.assertEqual(manager.label_for_player(1), "None found")
+        self.assertIn("PyTorch unavailable", manager.load_failures[1][0])
 
     def test_human_player_has_no_label(self):
-        manager = BattleAIManager({1: False, 2: True}, model_loader=lambda slot: object())
+        manager = BattleAIManager({1: False, 2: True})
 
         self.assertIsNone(manager.label_for_player(1))
 
@@ -187,6 +215,14 @@ class BattleAIModelResolutionTests(unittest.TestCase):
         model_slot = repository.create_or_update_user_model(metadata)
         model_slot.pth_path.write_bytes(b"checkpoint")
         return model_slot
+
+    def _loaded_entry(self, slot, model):
+        return LoadedInferenceModel(
+            key=InferenceModelKey(slot.ship, slot.slot),
+            model=model,
+            slot=slot,
+            description=slot.description,
+        )
 
 
 class BattleAIFallbackControllerTests(unittest.TestCase):

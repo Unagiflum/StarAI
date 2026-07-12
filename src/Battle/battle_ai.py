@@ -6,31 +6,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import math
 import random
-from pathlib import Path
 from typing import Any
 
 import src.const as const
-from src.persistence import EXPECTED_READ_ERRORS, read_json
 from src.toroidal import wrapped_delta
-from src.training import torch_backend
-from src.training.contracts import (
-    ACTION_SCHEMA_METADATA,
-    ACTION_SCHEMA_VERSION,
-    OBSERVATION_INPUT_SIZE,
-    OBSERVATION_SCHEMA_VERSION,
-    action_for_index,
+from src.training.contracts import action_for_index
+from src.training.model_loader import (
+    InferenceModelCache,
+    load_inference_model,
 )
 from src.training.model_registry import (
     TrainingModelRepository,
     TrainingModelSlot,
     model_slot_has_checkpoint,
-    model_architecture_metadata,
     model_basename,
-    normalize_architecture_metadata,
 )
 from src.training.observation import encode_observation
-from src.training.replay import load_training_checkpoint, select_action_epsilon_greedy
-from src.training.value_network import ValueNetworkConfig, build_value_network
+from src.training.replay import select_action_epsilon_greedy
 
 
 @dataclass(frozen=True)
@@ -107,7 +99,7 @@ class BattleAIManager:
         ai_enabled: Mapping[int, bool],
         repository: TrainingModelRepository | None = None,
         rng=None,
-        model_loader=None,
+        model_cache: InferenceModelCache | None = None,
     ):
         self.ai_enabled = {
             1: bool(ai_enabled.get(1, ai_enabled.get("1", False))),
@@ -118,8 +110,7 @@ class BattleAIManager:
             const.MODELS_PATH,
         )
         self.rng = rng or random
-        self._model_loader = model_loader or load_battle_ai_model
-        self._model_cache: dict[tuple[str, int, Path], BattleAIModel] = {}
+        self.model_cache = model_cache or InferenceModelCache()
         self._controllers: dict[int, Any] = {}
         self._labels: dict[int, str] = {}
         self.load_failures: dict[int, tuple[str, ...]] = {}
@@ -167,85 +158,30 @@ class BattleAIManager:
         for slot in (*default_slots, *remaining_slots):
             if not _slot_has_candidate_weights(slot):
                 continue
-            cache_key = (slot.ship, slot.slot, Path(slot.pth_path))
-            cached = self._model_cache.get(cache_key)
-            if cached is not None:
-                return cached, failures
-            try:
-                loaded = self._model_loader(slot)
-            except Exception as exc:
-                failures.append(f"{slot.ship}-{slot.slot:02d}: {exc}")
+            loaded = self.model_cache.entry_for(slot.ship, slot.slot)
+            if loaded is None:
+                error = self.model_cache.error_for(slot.ship, slot.slot)
+                if error:
+                    failures.append(f"{slot.ship}-{slot.slot:02d}: {error}")
                 continue
-            if not isinstance(loaded, BattleAIModel):
-                loaded = BattleAIModel(
-                    model=loaded,
-                    slot=slot,
-                    label=model_basename(slot.ship, slot.slot),
-                )
-            self._model_cache[cache_key] = loaded
-            return loaded, failures
+            return BattleAIModel(
+                model=loaded.model,
+                slot=loaded.slot,
+                label=model_basename(loaded.slot.ship, loaded.slot.slot),
+            ), failures
         return None, failures
 
 
 def load_battle_ai_model(slot: TrainingModelSlot) -> BattleAIModel:
-    if slot.pth_path is None or not slot.pth_path.exists():
-        raise ModelLoadFailure("missing weights")
-    if slot.pth_path.stat().st_size <= 0:
-        raise ModelLoadFailure("empty weights")
-    if torch_backend.get_torch() is None:
-        raise ModelLoadFailure("PyTorch unavailable")
-
-    metadata = _metadata_for_slot(slot)
-    _validate_schema_metadata(metadata)
-    architecture = normalize_architecture_metadata(
-        metadata.get("architecture", model_architecture_metadata(128, 2))
-    )
     try:
-        config = ValueNetworkConfig(
-            hidden_layer_width=int(architecture["hidden_layer_width"]),
-            hidden_layer_count=int(architecture["hidden_layer_count"]),
-        )
-        device = torch_backend.preferred_device()
-        model = build_value_network(config, device=device)
-        load_training_checkpoint(slot.pth_path, model, map_location=device)
-        model.eval()
+        loaded = load_inference_model(slot)
     except Exception as exc:
         raise ModelLoadFailure(str(exc)) from exc
     return BattleAIModel(
-        model=model,
+        model=loaded.model,
         slot=slot,
         label=model_basename(slot.ship, slot.slot),
     )
-
-
-def _metadata_for_slot(slot: TrainingModelSlot) -> Mapping[str, Any]:
-    if isinstance(slot.metadata, Mapping):
-        return slot.metadata
-    if slot.metadata_path is None or not slot.metadata_path.exists():
-        return {}
-    try:
-        metadata = read_json(slot.metadata_path)
-    except EXPECTED_READ_ERRORS:
-        return {}
-    return metadata if isinstance(metadata, Mapping) else {}
-
-
-def _validate_schema_metadata(metadata: Mapping[str, Any]) -> None:
-    if not metadata:
-        return
-    expected = {
-        "observation_schema_version": OBSERVATION_SCHEMA_VERSION,
-        "observation_input_size": OBSERVATION_INPUT_SIZE,
-        "action_schema_version": ACTION_SCHEMA_VERSION,
-    }
-    for key, value in expected.items():
-        if key in metadata and int(metadata[key]) != int(value):
-            raise ModelLoadFailure(f"incompatible {key}")
-    ordering = metadata.get("action_ordering")
-    if ordering is not None and list(ordering) != [
-        dict(action) for action in ACTION_SCHEMA_METADATA
-    ]:
-        raise ModelLoadFailure("incompatible action_ordering")
 
 
 def _is_default_slot(slot: TrainingModelSlot) -> bool:

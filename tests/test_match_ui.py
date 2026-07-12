@@ -460,11 +460,21 @@ class BattleResumeFlowTests(unittest.TestCase):
             1: "Earthling-01",
             2: "None found",
         }[player]
+        repository = mock.Mock()
+        model_cache = mock.Mock()
         escape = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE)
 
         with (
             mock.patch("src.Battle.battle.BattleSimulation", return_value=simulation),
-            mock.patch("src.Battle.battle.BattleAIManager", return_value=manager),
+            mock.patch(
+                "src.Battle.battle.TrainingModelRepository",
+                return_value=repository,
+            ),
+            mock.patch("src.Battle.battle.InferenceModelCache", return_value=model_cache),
+            mock.patch(
+                "src.Battle.battle.BattleAIManager",
+                return_value=manager,
+            ) as manager_cls,
             mock.patch("src.Battle.battle.reset_ai_player_inputs"),
             mock.patch("src.Battle.battle.PresentationClock", return_value=fake_clock),
             mock.patch("src.Battle.battle.confirm_end_match", return_value=True),
@@ -481,6 +491,11 @@ class BattleResumeFlowTests(unittest.TestCase):
             1: "Earthling-01",
             2: "None found",
         })
+        model_cache.load_initial.assert_called_once_with(repository)
+        self.assertIs(
+            manager_cls.call_args.kwargs["model_cache"],
+            model_cache,
+        )
 
     def test_canceling_escape_does_not_step_or_redraw_before_countdown(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
