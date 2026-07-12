@@ -18,6 +18,7 @@ from src.training.rewards import (
     REWARD_BATTERY_AT_ZERO,
     REWARD_DEBUFF_ENEMY,
     REWARD_DIE,
+    REWARD_DESTROY_OWN_OBJECT,
     REWARD_ENEMY_LOSES_CREW,
     REWARD_GAIN_BATTERY,
     REWARD_GAIN_CREW,
@@ -106,6 +107,7 @@ class TrainingRewardComponentTests(unittest.TestCase):
         self.assertEqual(REWARD_A2_RANGE, "In A2 range")
         self.assertEqual(REWARD_SPAWN_A1, "Use A1")
         self.assertEqual(REWARD_SPAWN_A2, "Use A2")
+        self.assertEqual(REWARD_DESTROY_OWN_OBJECT, "Destroy own object")
 
         weights = normalize_reward_weights(
             {
@@ -169,7 +171,12 @@ class TrainingRewardComponentTests(unittest.TestCase):
                 frame_id=1,
                 event_type=EVENT_OBJECT_REMOVED,
                 owner=self.enemy,
+                obj=SimpleNamespace(type="projectile"),
                 destroyed=True,
+                metadata={
+                    "source_owner": self.trainee,
+                    "source_type": "projectile",
+                },
             ),
             TrainingBattleEvent(
                 frame_id=1,
@@ -200,6 +207,7 @@ class TrainingRewardComponentTests(unittest.TestCase):
         self.assertEqual(components[REWARD_DIE], 1.0)
         self.assertEqual(components[REWARD_GAIN_BATTERY], 2.0)
         self.assertEqual(components[REWARD_LOSE_BATTERY], 0.0)
+        self.assertEqual(components[REWARD_DESTROY_OWN_OBJECT], 0.0)
 
     def test_use_rewards_count_successful_action_commits(self):
         events = (
@@ -341,7 +349,12 @@ class TrainingRewardComponentTests(unittest.TestCase):
             frame_id=1,
             event_type=EVENT_OBJECT_REMOVED,
             owner=self.enemy,
+            obj=SimpleNamespace(type="projectile"),
             destroyed=False,
+            metadata={
+                "source_owner": self.trainee,
+                "source_type": "projectile",
+            },
         )
         start = decision(1, self.trainee, self.enemy)
 
@@ -351,6 +364,110 @@ class TrainingRewardComponentTests(unittest.TestCase):
             [outcome(1, events=(event,))],
         )
 
+        self.assertEqual(components[REWARD_KILL_ENEMY_OBJECT], 0.0)
+
+    def test_enemy_object_kill_requires_trainee_owned_source(self):
+        enemy_projectile = SimpleNamespace(type="projectile")
+        trainee_projectile = SimpleNamespace(type="projectile")
+        events = (
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_REMOVED,
+                owner=self.enemy,
+                obj=enemy_projectile,
+                destroyed=True,
+            ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_REMOVED,
+                owner=self.enemy,
+                obj=enemy_projectile,
+                destroyed=True,
+                metadata={
+                    "source_owner": self.enemy,
+                    "source_type": "projectile",
+                },
+            ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_REMOVED,
+                owner=self.enemy,
+                obj=enemy_projectile,
+                destroyed=True,
+                metadata={
+                    "source_owner": self.trainee,
+                    "source_type": "area",
+                },
+            ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_REMOVED,
+                owner=self.enemy,
+                obj=trainee_projectile,
+                destroyed=True,
+                metadata={
+                    "source_owner": self.trainee,
+                    "source_type": "laser",
+                },
+            ),
+        )
+        start = decision(1, self.trainee, self.enemy)
+
+        components = calculate_reward_components(
+            start,
+            [start],
+            [outcome(1, events=events)],
+        )
+
+        self.assertEqual(components[REWARD_KILL_ENEMY_OBJECT], 1.0)
+
+    def test_destroy_own_object_counts_friendly_weapon_killing_friendly_object(self):
+        friendly_projectile = SimpleNamespace(type="projectile")
+        friendly_special = SimpleNamespace(type="special_object")
+        events = (
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_REMOVED,
+                owner=self.trainee,
+                obj=friendly_projectile,
+                destroyed=True,
+                metadata={
+                    "source_owner": self.trainee,
+                    "source_type": "laser",
+                },
+            ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_REMOVED,
+                owner=self.trainee,
+                obj=friendly_special,
+                destroyed=True,
+                metadata={
+                    "source_owner": self.trainee,
+                    "source_type": "special_object",
+                },
+            ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_REMOVED,
+                owner=self.trainee,
+                obj=friendly_projectile,
+                destroyed=True,
+                metadata={
+                    "source_owner": self.enemy,
+                    "source_type": "projectile",
+                },
+            ),
+        )
+        start = decision(1, self.trainee, self.enemy)
+
+        components = calculate_reward_components(
+            start,
+            [start],
+            [outcome(1, events=events)],
+        )
+
+        self.assertEqual(components[REWARD_DESTROY_OWN_OBJECT], 2.0)
         self.assertEqual(components[REWARD_KILL_ENEMY_OBJECT], 0.0)
 
     def test_enemy_planet_crew_loss_receives_no_credit(self):

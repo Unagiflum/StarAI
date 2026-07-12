@@ -1113,7 +1113,16 @@ def _handle_laser_collisions(
                 effects,
                 hit_info["normal"],
                 hit_info["contact"],
-                _apply_laser_impact,
+                lambda target, effects, normal, damage, contact, laser=laser: (
+                    _apply_laser_impact(
+                        laser,
+                        target,
+                        effects,
+                        normal,
+                        damage,
+                        contact,
+                    )
+                ),
                 segment_index=hit_info.get("segment_index"),
             )
             invalidate_geometry(target)
@@ -1185,13 +1194,14 @@ def _assert_no_omitted_laser_hit(
             )
 
 
-def _apply_laser_impact(target, effects, normal, damage, contact):
+def _apply_laser_impact(laser, target, effects, normal, damage, contact):
     LASER_TARGET_REGISTRY.apply_impact(
         target,
         effects,
         normal,
         damage,
         contact,
+        source=laser,
     )
 
 

@@ -186,7 +186,7 @@ def apply_projectile_area_damage(
             if distance > 0
             else [0, -1]
         )
-        destroy_projectile(projectile, effects, direction, damage)
+        destroy_projectile(projectile, effects, direction, damage, source=source)
     else:
         set_projectile_hp(projectile, remaining_hp)
     return previous_hp - projectile.current_hp
@@ -556,9 +556,17 @@ def _finalize_dead_projectile_like(
     direction,
     damage,
     contact,
+    source=None,
 ):
     if projectile.current_hp <= 0:
-        destroy_projectile(projectile, effects, direction, damage, contact)
+        destroy_projectile(
+            projectile,
+            effects,
+            direction,
+            damage,
+            contact,
+            source=source,
+        )
 
 
 def _resolve_configured_special_object_pair(
@@ -595,8 +603,15 @@ def _resolve_configured_special_object_pair(
 
     if outcome is SpecialObjectPairOutcome.DESTROY_FIRST:
         set_projectile_hp(first, 0)
+        first_source = second
+        second_source = None
     elif outcome is SpecialObjectPairOutcome.DESTROY_SECOND:
         set_projectile_hp(second, 0)
+        first_source = None
+        second_source = first
+    else:
+        first_source = second
+        second_source = first
 
     damage = max(first.current_damage, second.current_damage)
     BattleEffect.play_boom(damage)
@@ -606,6 +621,7 @@ def _resolve_configured_special_object_pair(
         impact_normal,
         damage,
         contact,
+        source=first_source,
     )
     _finalize_dead_projectile_like(
         second,
@@ -613,6 +629,7 @@ def _resolve_configured_special_object_pair(
         [-impact_normal[0], -impact_normal[1]],
         damage,
         contact,
+        source=second_source,
     )
     return _consumption_outcome(first, second)
 
@@ -670,7 +687,14 @@ def _resolve_configured_projectile_contact(
         (first, impact_normal),
         (second, [-impact_normal[0], -impact_normal[1]]),
     ):
-        _finalize_dead_projectile_like(obj, effects, direction, damage, contact)
+        _finalize_dead_projectile_like(
+            obj,
+            effects,
+            direction,
+            damage,
+            contact,
+            source=second if obj is first else first,
+        )
     return _consumption_outcome(first, second)
 
 
@@ -729,6 +753,7 @@ def resolve_projectile_projectile_collision(
                 impact_normal,
                 first.current_damage,
                 contact,
+                source=second,
             )
         if second.current_hp <= 0:
             destroy_projectile(
@@ -737,6 +762,7 @@ def resolve_projectile_projectile_collision(
                 [-impact_normal[0], -impact_normal[1]],
                 second.current_damage,
                 contact,
+                source=first,
             )
         return _consumption_outcome(first, second)
 
@@ -761,6 +787,7 @@ def resolve_projectile_projectile_collision(
             impact_normal,
             first.current_damage,
             contact,
+            source=second,
         )
         destroy_projectile(
             second,
@@ -768,6 +795,7 @@ def resolve_projectile_projectile_collision(
             [-impact_normal[0], -impact_normal[1]],
             second.current_damage,
             contact,
+            source=first,
         )
         return CollisionOutcome.CONSUMED_BOTH
 
@@ -796,6 +824,7 @@ def resolve_projectile_projectile_collision(
             impact_normal,
             first.current_damage,
             contact,
+            source=second,
         )
         destroy_projectile(
             second,
@@ -803,6 +832,7 @@ def resolve_projectile_projectile_collision(
             [-impact_normal[0], -impact_normal[1]],
             second.current_damage,
             contact,
+            source=first,
         )
     elif first_hp > 0 and first_hp > second_hp:
         set_projectile_hp(first, first_hp)
@@ -812,6 +842,7 @@ def resolve_projectile_projectile_collision(
             [-impact_normal[0], -impact_normal[1]],
             second.current_damage,
             contact,
+            source=first,
         )
     elif second_hp > 0 and second_hp > first_hp:
         destroy_projectile(
@@ -820,6 +851,7 @@ def resolve_projectile_projectile_collision(
             impact_normal,
             first.current_damage,
             contact,
+            source=second,
         )
         set_projectile_hp(second, second_hp)
     else:
@@ -829,6 +861,7 @@ def resolve_projectile_projectile_collision(
             impact_normal,
             first.current_damage,
             contact,
+            source=second,
         )
         destroy_projectile(
             second,
@@ -836,6 +869,7 @@ def resolve_projectile_projectile_collision(
             [-impact_normal[0], -impact_normal[1]],
             second.current_damage,
             contact,
+            source=first,
         )
     return _consumption_outcome(first, second)
 
@@ -1193,14 +1227,29 @@ def _laser_target_is_active(laser, target, *, require_targetable):
     return True
 
 
-def apply_ship_laser_impact(ship, effects, normal, damage, contact):
+def apply_ship_laser_impact(ship, effects, normal, damage, contact, *, source=None):
     damage_ship(ship, damage)
 
 
-def apply_projectile_laser_impact(projectile, effects, normal, damage, contact):
+def apply_projectile_laser_impact(
+    projectile,
+    effects,
+    normal,
+    damage,
+    contact,
+    *,
+    source=None,
+):
     set_projectile_hp(projectile, projectile.current_hp - damage)
     if projectile.current_hp <= 0:
-        destroy_projectile(projectile, effects, normal, damage, contact)
+        destroy_projectile(
+            projectile,
+            effects,
+            normal,
+            damage,
+            contact,
+            source=source,
+        )
 
 
 def apply_special_object_laser_impact(
@@ -1209,6 +1258,8 @@ def apply_special_object_laser_impact(
     normal,
     damage,
     contact,
+    *,
+    source=None,
 ):
     apply_projectile_laser_impact(
         special_object,
@@ -1216,18 +1267,27 @@ def apply_special_object_laser_impact(
         normal,
         damage,
         contact,
+        source=source,
     )
 
 
-def apply_asteroid_laser_impact(asteroid, effects, normal, damage, contact):
+def apply_asteroid_laser_impact(
+    asteroid,
+    effects,
+    normal,
+    damage,
+    contact,
+    *,
+    source=None,
+):
     destroy_asteroid(asteroid, effects)
 
 
-def apply_planet_laser_impact(planet, effects, normal, damage, contact):
+def apply_planet_laser_impact(planet, effects, normal, damage, contact, *, source=None):
     return None
 
 
-def apply_area_laser_impact(area, effects, normal, damage, contact):
+def apply_area_laser_impact(area, effects, normal, damage, contact, *, source=None):
     area.set_hp(area.current_hp - damage)
 
 
@@ -1278,7 +1338,16 @@ def resolve_laser_hit(
     BattleEffect.play_boom(damage)
 
 
-def destroy_projectile(projectile, effects, direction, damage, contact_position=None, attached_target=None):
+def destroy_projectile(
+    projectile,
+    effects,
+    direction,
+    damage,
+    contact_position=None,
+    attached_target=None,
+    *,
+    source=None,
+):
     if getattr(projectile, "_destruction_finalized", False):
         return
     if not projectile.currently_alive and getattr(projectile, "current_hp", 0) > 0:
@@ -1316,6 +1385,7 @@ def destroy_projectile(projectile, effects, direction, damage, contact_position=
         projectile,
         destroyed=True,
         reason="destruction",
+        source=source,
     )
     on_destroyed = getattr(projectile, "on_destroyed", None)
     if on_destroyed is not None:

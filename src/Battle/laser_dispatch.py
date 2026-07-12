@@ -8,7 +8,7 @@ from src.collision_capabilities import CollisionRole
 
 
 LaserEligibilityPolicy = Callable[[Any, Any, bool], bool]
-LaserImpactPolicy = Callable[[Any, list, Any, float, Any], None]
+LaserImpactPolicy = Callable[..., None]
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,27 @@ class LaserTargetRegistry:
         policy = self.policy_for(target)
         return bool(policy and policy.is_eligible(laser, target, explicit))
 
-    def apply_impact(self, target, effects, normal, damage, contact) -> None:
+    def apply_impact(
+        self,
+        target,
+        effects,
+        normal,
+        damage,
+        contact,
+        *,
+        source=None,
+    ) -> None:
         policy = self.policy_for(target)
-        if policy is not None:
+        if policy is None:
+            return
+        if source is None:
             policy.apply_impact(target, effects, normal, damage, contact)
+        else:
+            policy.apply_impact(
+                target,
+                effects,
+                normal,
+                damage,
+                contact,
+                source=source,
+            )

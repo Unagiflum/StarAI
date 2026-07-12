@@ -25,6 +25,7 @@ REWARD_SPAWN_A1 = "Use A1"
 REWARD_POINT_A2 = "Point A2 at enemy"
 REWARD_A2_RANGE = "In A2 range"
 REWARD_SPAWN_A2 = "Use A2"
+REWARD_DESTROY_OWN_OBJECT = "Destroy own object"
 REWARD_HIGH_SPEED = "Be at high speed"
 REWARD_ENEMY_LOSES_CREW = "Enemy loses crew"
 REWARD_DEBUFF_ENEMY = "Debuff enemy"
@@ -52,6 +53,7 @@ REWARD_COMPONENTS = (
     REWARD_POINT_A2,
     REWARD_A2_RANGE,
     REWARD_SPAWN_A2,
+    REWARD_DESTROY_OWN_OBJECT,
     REWARD_LOSE_BATTERY,
     REWARD_BATTERY_AT_ZERO,
     REWARD_GET_DEBUFFED,
@@ -319,8 +321,10 @@ def calculate_immediate_reward_components(
             elif _same_entity(event.target, self_ship):
                 components[REWARD_GET_DEBUFFED] += event.magnitude
         elif event.event_type == EVENT_OBJECT_REMOVED:
-            if event.destroyed and _same_entity(event.owner, enemy_ship):
+            if _object_removed_by_owner_weapon(event, enemy_ship, self_ship):
                 components[REWARD_KILL_ENEMY_OBJECT] += 1.0
+            elif _object_removed_by_owner_weapon(event, self_ship, self_ship):
+                components[REWARD_DESTROY_OWN_OBJECT] += 1.0
         elif event.event_type == EVENT_SHIP_DIED:
             if _same_entity(event.target, enemy_ship):
                 components[REWARD_KILL_ENEMY] += _kill_reward_credit(event)
@@ -506,6 +510,23 @@ def _kill_reward_credit(event: TrainingBattleEvent) -> float:
     if "kill_credit" in metadata:
         return _clamp01(_finite_float(metadata["kill_credit"], default=1.0))
     return _source_reward_credit(event)
+
+
+def _object_removed_by_owner_weapon(
+    event: TrainingBattleEvent,
+    target_owner: object | None,
+    source_owner: object | None,
+) -> bool:
+    if event.event_type != EVENT_OBJECT_REMOVED or not event.destroyed:
+        return False
+    if getattr(event.obj, "type", None) not in {"projectile", "special_object"}:
+        return False
+    if not _same_entity(event.owner, target_owner):
+        return False
+    metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
+    if not _same_entity(metadata.get("source_owner"), source_owner):
+        return False
+    return metadata.get("source_type") in {"projectile", "special_object", "laser"}
 
 
 def _clamp01(value: float) -> float:

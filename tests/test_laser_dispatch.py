@@ -42,6 +42,36 @@ class LaserTargetRegistryTests(unittest.TestCase):
             [100, 100],
         )
 
+    def test_registry_forwards_optional_impact_source(self):
+        registry = LaserTargetRegistry()
+        apply_impact = mock.Mock()
+        registry.register(
+            CollisionRole.PROJECTILE,
+            is_eligible=mock.Mock(return_value=True),
+            apply_impact=apply_impact,
+        )
+        target = target_with_role(CollisionRole.PROJECTILE)
+        source = object()
+        effects = []
+
+        registry.apply_impact(
+            target,
+            effects,
+            [1.0, 0.0],
+            2,
+            [100, 100],
+            source=source,
+        )
+
+        apply_impact.assert_called_once_with(
+            target,
+            effects,
+            [1.0, 0.0],
+            2,
+            [100, 100],
+            source=source,
+        )
+
     def test_unregistered_role_is_ineligible_and_ignores_impact(self):
         registry = LaserTargetRegistry()
         target = target_with_role(CollisionRole.NONE)

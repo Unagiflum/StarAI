@@ -6,6 +6,11 @@ from src.Battle import collision_responses, collisions
 from src.collision_capabilities import (
     SpecialObjectCollisionCapabilities,
 )
+from src.training.event_ledger import (
+    BattleEventLedger,
+    EVENT_OBJECT_REMOVED,
+    bind_ledger,
+)
 
 
 class ParentCollisionTests(CollisionTestCase):
@@ -90,6 +95,40 @@ class ProjectileDestructionTests(CollisionTestCase):
         from_blast.assert_called_once()
         projectile.on_destroyed.assert_called_once_with()
         self.assertEqual(len(effects), 1)
+
+    def test_destruction_records_source_metadata(self):
+        owner = self.make_ship()
+        owner.player = 1
+        enemy = self.make_ship()
+        enemy.player = 2
+        projectile = self.make_projectile(enemy)
+        source = self.make_projectile(owner)
+        ledger = BattleEventLedger()
+        bind_ledger(projectile, ledger)
+        effects = []
+
+        with mock.patch.object(
+            collision_responses.BattleEffect,
+            "from_blast",
+            return_value=object(),
+        ):
+            collision_responses.destroy_projectile(
+                projectile,
+                effects,
+                [1.0, 0.0],
+                projectile.current_damage,
+                source=source,
+            )
+
+        removal_events = [
+            event for event in ledger.events if event.event_type == EVENT_OBJECT_REMOVED
+        ]
+        self.assertEqual(len(removal_events), 1)
+        event = removal_events[0]
+        self.assertIs(event.owner, enemy)
+        self.assertIs(event.metadata["source"], source)
+        self.assertIs(event.metadata["source_owner"], owner)
+        self.assertEqual(event.metadata["source_type"], "projectile")
 
 if __name__ == '__main__':
     unittest.main()

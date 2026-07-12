@@ -78,19 +78,22 @@ class BattleEventLedger:
         destroyed: bool,
         reason: str,
         actor=None,
+        source=None,
     ) -> TrainingBattleEvent | None:
         if not _is_reward_relevant_object(obj) or id(obj) in self._removed_object_ids:
             return None
+        source_owner = _root_owner(source) if source is not None else None
         self._removed_object_ids.add(id(obj))
         return self.append(
             EVENT_OBJECT_REMOVED,
-            actor=actor,
+            actor=actor if actor is not None else source_owner,
             owner=_root_owner(obj),
             obj=obj,
             ability_name=_ability_name(obj),
             action=_action_for_object(obj),
             removal_reason=reason,
             destroyed=bool(destroyed),
+            metadata=_removal_source_metadata(source, source_owner),
         )
 
     def record_action_used(self, ship, action_number: int) -> TrainingBattleEvent:
@@ -217,7 +220,14 @@ def record_spawned(obj) -> None:
         ledger.record_object_spawned(obj)
 
 
-def record_removed(obj, *, destroyed: bool, reason: str, actor=None) -> None:
+def record_removed(
+    obj,
+    *,
+    destroyed: bool,
+    reason: str,
+    actor=None,
+    source=None,
+) -> None:
     ledger = ledger_for(obj)
     if ledger is not None:
         ledger.record_object_removed(
@@ -225,6 +235,7 @@ def record_removed(obj, *, destroyed: bool, reason: str, actor=None) -> None:
             destroyed=destroyed,
             reason=reason,
             actor=actor,
+            source=source,
         )
 
 
@@ -318,6 +329,18 @@ def _action_for_object(obj) -> str | None:
     if name.endswith("A3"):
         return "A3"
     return None
+
+
+def _removal_source_metadata(source, source_owner) -> dict[str, Any]:
+    if source is None:
+        return {}
+    return {
+        "source": source,
+        "source_owner": source_owner,
+        "source_type": getattr(source, "type", None),
+        "source_ability_name": _ability_name(source),
+        "source_action": _action_for_object(source),
+    }
 
 
 def _source_reward_credit(source) -> float:
