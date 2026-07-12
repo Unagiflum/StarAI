@@ -261,7 +261,7 @@ class TrainingInstanceManager:
         return len(self.instances) < self.supported_max
 
     def add_requires_confirmation(self):
-        return len(self.instances) >= self.soft_max
+        return False
 
     def select_instance(self, instance_id):
         previous = self.active_instance

@@ -239,13 +239,13 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             manager.add_instance()
 
-    def test_manager_reports_soft_limit_confirmation_need(self):
+    def test_manager_does_not_require_confirmation_when_adding_many_instances(self):
         manager = TrainingInstanceManager()
         while len(manager.instances) < TRAINING_INSTANCE_SOFT_MAX:
             self.assertFalse(manager.add_requires_confirmation())
             manager.add_instance()
 
-        self.assertTrue(manager.add_requires_confirmation())
+        self.assertFalse(manager.add_requires_confirmation())
 
     def test_instance_labels_and_rows_remain_unique_for_selection(self):
         manager = TrainingInstanceManager()
