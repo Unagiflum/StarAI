@@ -281,6 +281,40 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertTrue(first.session.stop_requested)
         self.assertFalse(second.session.stop_requested)
 
+    def test_enabling_active_display_disables_other_instances(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.session = self.FakeSession(running=True)
+        second = manager.add_instance()
+        second.session = self.FakeSession(running=True)
+        first.session.display_events.clear()
+        first.state.display_on = True
+
+        manager.set_active_display(True)
+
+        self.assertFalse(first.state.display_on)
+        self.assertTrue(second.state.display_on)
+        self.assertEqual(first.session.display_events, [False])
+        self.assertEqual(second.session.display_events, [True])
+
+    def test_select_instance_turns_display_off_for_old_and_new_active(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.session = self.FakeSession(running=True)
+        second = manager.add_instance()
+        second.session = self.FakeSession(running=True)
+        first.session.display_events.clear()
+        first.state.display_on = True
+        second.state.display_on = True
+
+        manager.select_instance(first.instance_id)
+
+        self.assertIs(manager.active_instance, first)
+        self.assertFalse(first.state.display_on)
+        self.assertFalse(second.state.display_on)
+        self.assertEqual(first.session.display_events, [False])
+        self.assertEqual(second.session.display_events, [False])
+
     def test_back_action_stops_all_when_non_active_instance_is_running(self):
         manager = TrainingInstanceManager()
         manager.active_instance.session = self.FakeSession(running=True)
@@ -302,6 +336,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         second = manager.add_instance()
         second.state.display_on = True
         second.session = self.FakeSession(running=False)
+        first.session.display_events.clear()
 
         manager.request_stop_all_running()
 
@@ -330,6 +365,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         first.session = self.FakeSession(running=True)
         second = manager.add_instance()
         manager.select_instance(first.instance_id)
+        first.session.display_events.clear()
 
         result = manager.request_close_active_instance()
 

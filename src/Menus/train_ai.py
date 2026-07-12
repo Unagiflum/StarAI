@@ -225,6 +225,7 @@ class TrainingInstanceManager:
     def add_instance(self):
         instance_id = self._next_instance_id
         self._next_instance_id += 1
+        self.disable_display(self.active_instance)
         instance = TrainingInstance(
             instance_id=instance_id,
             label=f"Instance {instance_id}",
@@ -235,8 +236,12 @@ class TrainingInstanceManager:
         return instance
 
     def select_instance(self, instance_id):
+        previous = self.active_instance
         for instance in self.instances:
             if instance.instance_id == instance_id:
+                if instance.instance_id != self.active_instance_id:
+                    self.disable_display(previous)
+                    self.disable_display(instance)
                 self.active_instance_id = instance_id
                 return instance
         raise ValueError(f"Unknown training instance {instance_id}")
@@ -259,10 +264,12 @@ class TrainingInstanceManager:
         instance = self.instances[index]
         if self.is_running_or_stopping(instance):
             return False
+        self.disable_display(instance)
         self.release_writer(instance)
         self.instances.pop(index)
         next_index = min(index, len(self.instances) - 1)
         self.active_instance_id = self.instances[next_index].instance_id
+        self.disable_display(self.active_instance)
         return True
 
     def request_close_active_instance(self):
@@ -280,6 +287,7 @@ class TrainingInstanceManager:
                 if self.instances[next_index] is instance:
                     next_index = 0
                 self.active_instance_id = self.instances[next_index].instance_id
+                self.disable_display(self.active_instance)
             return "pending"
         if self.remove_active_stopped_instance():
             return "removed"
@@ -329,6 +337,18 @@ class TrainingInstanceManager:
         instance.state.display_on = False
         if instance.session is not None:
             instance.session.set_display_on(False)
+
+    def set_active_display(self, enabled):
+        active_instance = self.active_instance
+        if enabled:
+            for instance in self.instances:
+                if instance is not active_instance:
+                    self.disable_display(instance)
+            active_instance.state.display_on = True
+            if active_instance.session is not None:
+                active_instance.session.set_display_on(True)
+        else:
+            self.disable_display(active_instance)
 
     def request_stop(self, instance):
         if instance.session is not None:
@@ -384,6 +404,7 @@ class TrainingInstanceManager:
             for instance in self.instances
         ):
             self.active_instance_id = self.instances[0].instance_id
+            self.disable_display(self.active_instance)
         self.release_stopped_writers()
 
 
@@ -1887,7 +1908,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     batch_log_box = TrainingBatchLogBox()
 
     def sync_state_from_ui():
-        state.display_on = display_checkbox.value
+        instance_manager.set_active_display(display_checkbox.value)
         state.slot_labels[:] = [field.text for field in slot_fields]
         state.rewards.update(
             (slider.label, slider.value) for slider in reward_sliders
@@ -2810,9 +2831,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 instance.last_running = False
                 continue
 
-            if instance.instance_id == instance_manager.active_instance_id and status.running:
-                session.set_display_on(state.display_on)
-
             instance.state.running = status.running
             if instance.instance_id == instance_manager.active_instance_id:
                 state.current_epsilon = float(
@@ -2825,8 +2843,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     refresh_slot_controls()
                 if instance.last_running and not status.running:
                     display_checkbox.is_checked = False
-                    state.display_on = False
-                    session.set_display_on(False)
+                    instance_manager.disable_display(instance)
                     if status.error:
                         show_notice(status.error)
                     else:

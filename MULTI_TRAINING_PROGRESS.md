@@ -84,11 +84,34 @@ Remaining:
 - Manual smoke of multi-instance start/stop, Stop All, and running close
   behavior remains pending.
 
+## Phase 4: Single Visualization Ownership
+
+Status: Complete.
+
+Completed:
+
+- Routed Display On changes through `TrainingInstanceManager` so enabling
+  display for the active instance disables display for every other instance.
+- Updated instance add/select/remove/close cleanup paths to force visualization
+  off when active ownership changes.
+- Replaced remaining active-session display toggles in the UI loop with manager
+  calls.
+- Preserved active-instance-only battle and HUD rendering.
+- Added focused unit coverage for display ownership transfer and
+  active-instance switching turning display off.
+- Verified focused suites pass:
+  `python -m unittest tests.test_train_ai_ui tests.test_training_session`.
+- Verified related model/orchestration suites pass:
+  `python -m unittest tests.test_training_orchestration tests.test_training_models`.
+
+Remaining:
+
+- Manual smoke of visualization switching and audio behavior remains pending.
+
 ## Later Phases
 
-Status: Phase 4 not started.
+Status: Phase 5 not started.
 
-- Phase 4: Single visualization ownership.
 - Phase 5: Headless battle-view cost reduction.
 - Phase 6: Scaling controls up to 25 instances.
 - Phase 7: Performance characterization.
