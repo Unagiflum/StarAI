@@ -36,6 +36,7 @@ from src.training.model_registry import (
     TrainingModelSlot,
     metadata_from_state,
     model_architecture_metadata,
+    normalize_architecture_metadata,
     replay_checkpoint_path,
     trained_model_counts_for_ships,
 )
@@ -93,6 +94,26 @@ REGIMEN_EPSILON_FRAME_SPAN_INDEX = 10
 REGIMEN_GAMMA_INDEX = 11
 REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 12
 REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 13
+BATCH_MATCH_TIME_LIMIT_INDEX = 0
+BATCH_ROUNDS_PER_BATCH_INDEX = 1
+BATCH_BATCH_GROUPING_INDEX = 2
+BATCH_MINIBATCH_SIZE_INDEX = 3
+BATCH_REPLAY_UPDATES_INDEX = 4
+BATCH_LEARNING_RATE_INDEX = 5
+BATCH_CONTROLLED_FIELDS = (
+    "match_time_limit",
+    "rounds_per_batch",
+    "batch_grouping",
+    "minibatch_size",
+    "replay_updates_per_batch",
+    "learning_rate",
+)
+COORDINATED_ARCHITECTURE_KEYS = (
+    "input_size",
+    "output_count",
+    "hidden_layer_width",
+    "hidden_layer_count",
+)
 CURRENT_BATCH_STATE_WIDTH = len("stopped (stopping)")
 CURRENT_BATCH_BATCH_WIDTH = 6
 CURRENT_BATCH_ROUND_WIDTH = 4
@@ -210,6 +231,199 @@ class TrainingInstance:
     writer_key: tuple[str, int] | None = None
 
 
+@dataclass
+class TrainingBatchSchedulingState:
+    apply_to_all_open_instances: bool = False
+
+
+@dataclass(frozen=True)
+class CoordinatedBatchValidation:
+    included_instances: tuple[TrainingInstance, ...] = ()
+    blocking_reason: str = ""
+    blocking_code: str = ""
+
+    @property
+    def can_start_all(self):
+        return not self.blocking_reason
+
+    @property
+    def coordinated_scope_available(self):
+        return self.can_start_all
+
+
+def batch_settings_from_state(state: TrainingUIState) -> dict[str, int | float]:
+    return {field_name: getattr(state, field_name) for field_name in BATCH_CONTROLLED_FIELDS}
+
+
+def apply_batch_settings(source: TrainingUIState, target: TrainingUIState) -> None:
+    for field_name, value in batch_settings_from_state(source).items():
+        setattr(target, field_name, value)
+
+
+def batch_settings_match(first: TrainingUIState, second: TrainingUIState) -> bool:
+    return batch_settings_from_state(first) == batch_settings_from_state(second)
+
+
+def instances_with_different_batch_settings(
+    instances,
+    source_state: TrainingUIState,
+) -> tuple[TrainingInstance, ...]:
+    return tuple(
+        instance
+        for instance in instances
+        if not batch_settings_match(source_state, instance.state)
+    )
+
+
+def coordinated_architecture_signature(architecture) -> tuple[tuple[str, object], ...]:
+    normalized = normalize_architecture_metadata(architecture or {})
+    return tuple((key, normalized.get(key)) for key in COORDINATED_ARCHITECTURE_KEYS)
+
+
+def architecture_for_state(state: TrainingUIState) -> dict:
+    return model_architecture_metadata(
+        state.hidden_layer_size,
+        state.hidden_layer_count,
+    )
+
+
+def architecture_for_slot_or_state(
+    slot: TrainingModelSlot,
+    state: TrainingUIState,
+) -> dict:
+    metadata = slot.metadata if isinstance(slot.metadata, dict) else {}
+    architecture = metadata.get("architecture") if metadata else None
+    return architecture if isinstance(architecture, dict) else architecture_for_state(state)
+
+
+def coordination_scope_status_text(validation: CoordinatedBatchValidation) -> str:
+    if validation.coordinated_scope_available:
+        return ""
+    if validation.blocking_code == "architecture":
+        return "Coordinated mode disabled; incompatible instances"
+    if validation.blocking_code == "running":
+        return "Coordinated mode disabled; training in progress"
+    return "Coordinated mode disabled"
+
+
+def validate_coordinated_batch_start(
+    manager,
+    slot_resolver,
+    *,
+    torch_module=None,
+    cuda_available=None,
+    training_device_key_func=None,
+) -> CoordinatedBatchValidation:
+    if manager.any_instance_running():
+        return CoordinatedBatchValidation(
+            blocking_reason="Training is already in progress",
+            blocking_code="running",
+        )
+
+    if len(manager.instances) < 2:
+        return CoordinatedBatchValidation(
+            blocking_reason="At least two training instances are required",
+            blocking_code="eligible_count",
+        )
+
+    resolved_slots: list[tuple[TrainingInstance, TrainingModelSlot]] = []
+    seen_writer_keys: set[tuple[str, int]] = set()
+    for instance in manager.instances:
+        state = instance.state
+        if state.selected_ship is None or state.selected_slot is None:
+            return CoordinatedBatchValidation(
+                blocking_reason="Every open instance needs a trainee ship and slot",
+                blocking_code="incomplete",
+            )
+        slot = slot_resolver(state.selected_ship, state.selected_slot)
+        if slot.source == SLOT_BUNDLED:
+            return CoordinatedBatchValidation(
+                blocking_reason=f"{slot.ship}-{slot.slot:02d} is read-only",
+                blocking_code="read_only_slot",
+            )
+        if slot.source == SLOT_EMPTY and not state.slot_labels[state.selected_slot - 1].strip():
+            return CoordinatedBatchValidation(
+                blocking_reason="Every new AI slot needs a model description",
+                blocking_code="description",
+            )
+        if slot.source == SLOT_USER and not isinstance(slot.metadata, dict):
+            return CoordinatedBatchValidation(
+                blocking_reason=f"{slot.ship}-{slot.slot:02d} is missing metadata",
+                blocking_code="metadata",
+            )
+        writer_key = (str(slot.ship), int(slot.slot))
+        if writer_key in seen_writer_keys:
+            return CoordinatedBatchValidation(
+                blocking_reason=f"{slot.ship}-{slot.slot:02d} is selected more than once",
+                blocking_code="duplicate_writer",
+            )
+        seen_writer_keys.add(writer_key)
+        resolved_slots.append((instance, slot))
+
+    if len(resolved_slots) < 2:
+        return CoordinatedBatchValidation(
+            blocking_reason="At least two startable training instances are required",
+            blocking_code="eligible_count",
+        )
+
+    signatures = []
+    for instance, slot in resolved_slots:
+        state = instance.state
+        architecture = architecture_for_state(state)
+        metadata = slot.metadata if isinstance(slot.metadata, dict) else {}
+        report = validate_model_metadata(metadata, architecture=architecture)
+        if report.errors:
+            return CoordinatedBatchValidation(
+                blocking_reason=report.errors[0],
+                blocking_code="metadata",
+            )
+        signatures.append(coordinated_architecture_signature(architecture_for_slot_or_state(slot, state)))
+    if len(set(signatures)) > 1:
+        return CoordinatedBatchValidation(
+            blocking_reason="Model architectures differ",
+            blocking_code="architecture",
+        )
+
+    torch_obj = torch_backend.get_torch() if torch_module is None else torch_module
+    cuda_ok = torch_backend.cuda_available() if cuda_available is None else bool(cuda_available)
+    if torch_obj is None or not cuda_ok:
+        return CoordinatedBatchValidation(
+            blocking_reason="GPU PyTorch is required for Start All",
+            blocking_code="cuda",
+        )
+
+    device_key_func = training_device_key_func or torch_backend.training_device_key
+    device_keys = []
+    for instance, _slot in resolved_slots:
+        try:
+            device_keys.append(device_key_func(instance.state.training_device))
+        except Exception as exc:
+            return CoordinatedBatchValidation(
+                blocking_reason=str(exc),
+                blocking_code="device",
+            )
+    if len(set(device_keys)) > 1:
+        return CoordinatedBatchValidation(
+            blocking_reason="Training devices differ",
+            blocking_code="device",
+        )
+    if not device_keys or device_keys[0] != torch_backend.DEVICE_GPU:
+        return CoordinatedBatchValidation(
+            blocking_reason="Start All requires a CUDA/GPU device",
+            blocking_code="device",
+        )
+
+    if any(instance.state.display_on for instance, _slot in resolved_slots):
+        return CoordinatedBatchValidation(
+            blocking_reason="Display must be off for every instance",
+            blocking_code="display",
+        )
+
+    return CoordinatedBatchValidation(
+        included_instances=tuple(instance for instance, _slot in resolved_slots)
+    )
+
+
 class TrainingInstanceManager:
     def __init__(
         self,
@@ -221,6 +435,7 @@ class TrainingInstanceManager:
         self.supported_max = int(supported_max)
         self._next_instance_id = 2
         self._writer_reservations: dict[tuple[str, int], int] = {}
+        self.batch_scheduling = TrainingBatchSchedulingState()
         self.instances = [
             TrainingInstance(
                 instance_id=1,
@@ -422,6 +637,29 @@ class TrainingInstanceManager:
         for instance in self.running_instances():
             self.disable_display(instance)
             self.request_stop(instance)
+
+    def set_batch_apply_to_all(self, enabled):
+        self.batch_scheduling.apply_to_all_open_instances = bool(enabled)
+        if enabled:
+            self.apply_batch_settings_to_all()
+
+    def force_batch_active_only(self):
+        self.batch_scheduling.apply_to_all_open_instances = False
+
+    def apply_batch_settings_to_all(self, source_state=None):
+        source = source_state or self.active_state
+        for instance in self.instances:
+            apply_batch_settings(source, instance.state)
+
+    def coordinated_batch_validation(self, slot_resolver, **kwargs):
+        validation = validate_coordinated_batch_start(
+            self,
+            slot_resolver,
+            **kwargs,
+        )
+        if not validation.coordinated_scope_available:
+            self.force_batch_active_only()
+        return validation
 
     def reserve_writer(self, instance, ship, slot):
         self.release_stopped_writers()
@@ -1675,8 +1913,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         maximum=28,
     )
     tab_font = largest_fitting_font(
-        ("Trainee", "Opponent", "Rewards", "Regimen"),
-        (CONTROL_WIDTH - 5 * TAB_MARGIN) // 4 - 16,
+        ("Trainee", "Opponent", "Rewards", "Regimen", "Batch"),
+        (CONTROL_WIDTH - 6 * TAB_MARGIN) // 5 - 16,
         max_height=34,
         maximum=32,
     )
@@ -1708,6 +1946,17 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         max_height=24,
         maximum=22,
     )
+    batch_font = largest_fitting_font(
+        (
+            "Apply to all open instances",
+            "Coordinated mode disabled; incompatible instances",
+            "Match frame limit: 12000",
+            "Gradient steps: 500",
+        ),
+        320,
+        max_height=26,
+        maximum=24,
+    )
     small_font = pygame.font.SysFont(None, 24)
     instance_font = pygame.font.SysFont("Consolas", 19)
     arena_font = pygame.font.SysFont(None, 32)
@@ -1727,7 +1976,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     selector_sprites = fit_ship_sprites(source_sprites, 188)
 
-    tab_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 3 * TAB_GAP) // 4
+    tab_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 4 * TAB_GAP) // 5
     tab_height = TAB_HEIGHT + TAB_GAP
     trainee_tab = TabButton(
         TAB_MARGIN,
@@ -1760,6 +2009,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         tab_height,
         "Regimen",
         lambda: setattr(state, "active_tab", "regimen"),
+    )
+    batch_tab = TabButton(
+        TAB_MARGIN + 4 * (tab_width + TAB_GAP),
+        UI_TOP_MARGIN,
+        tab_width,
+        tab_height,
+        "Batch",
+        lambda: setattr(state, "active_tab", "batch"),
     )
 
     ship_tile = pygame.Rect(16, 48, 200, 200)
@@ -2065,6 +2322,101 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
     )
 
+    batch_left = 16
+    batch_width = CONTROL_WIDTH - 32
+    batch_top = CONTENT_TOP + 18
+    batch_spacing = 40
+    batch_height = 36
+    batch_slider_width = 204
+    batch_sliders = (
+        SliderRow(
+            (batch_left, batch_top, batch_width, batch_height),
+            "Match frame limit",
+            MATCH_TIME_LIMIT_VALUES[0],
+            MATCH_TIME_LIMIT_VALUES[-1],
+            state.match_time_limit,
+            is_int=True,
+            values=MATCH_TIME_LIMIT_VALUES,
+            layout=regimen_layout,
+            slider_width=batch_slider_width,
+        ),
+        SliderRow(
+            (batch_left, batch_top + batch_spacing, batch_width, batch_height),
+            "Rounds per batch",
+            ROUNDS_PER_BATCH_VALUES[0],
+            ROUNDS_PER_BATCH_VALUES[-1],
+            state.rounds_per_batch,
+            is_int=True,
+            values=ROUNDS_PER_BATCH_VALUES,
+            layout=regimen_layout,
+            slider_width=batch_slider_width,
+        ),
+        SliderRow(
+            (batch_left, batch_top + 2 * batch_spacing, batch_width, batch_height),
+            "Batch grouping",
+            BATCH_GROUPING_VALUES[0],
+            BATCH_GROUPING_VALUES[-1],
+            state.batch_grouping,
+            is_int=True,
+            values=BATCH_GROUPING_VALUES,
+            layout=regimen_layout,
+            slider_width=batch_slider_width,
+        ),
+        SliderRow(
+            (batch_left, batch_top + 3 * batch_spacing, batch_width, batch_height),
+            "Minibatch size",
+            MINIBATCH_SIZE_VALUES[0],
+            MINIBATCH_SIZE_VALUES[-1],
+            state.minibatch_size,
+            is_int=True,
+            values=MINIBATCH_SIZE_VALUES,
+            layout=regimen_layout,
+            slider_width=batch_slider_width,
+        ),
+        SliderRow(
+            (batch_left, batch_top + 4 * batch_spacing, batch_width, batch_height),
+            "Gradient steps",
+            REPLAY_UPDATES_PER_BATCH_VALUES[0],
+            REPLAY_UPDATES_PER_BATCH_VALUES[-1],
+            state.replay_updates_per_batch,
+            is_int=True,
+            values=REPLAY_UPDATES_PER_BATCH_VALUES,
+            layout=regimen_layout,
+            slider_width=batch_slider_width,
+        ),
+        SliderRow(
+            (batch_left, batch_top + 5 * batch_spacing, batch_width, batch_height),
+            "Learning rate",
+            LEARNING_RATE_VALUES[0],
+            LEARNING_RATE_VALUES[-1],
+            state.learning_rate,
+            step=0.00001,
+            values=LEARNING_RATE_VALUES,
+            decimal_places=5,
+            layout=regimen_layout,
+            slider_width=batch_slider_width,
+        ),
+    )
+    batch_scope_rect = pygame.Rect(
+        batch_left,
+        batch_top + 6 * batch_spacing + 6,
+        batch_width,
+        38,
+    )
+    batch_scope_checkbox = ui_button.Checkbox(
+        batch_scope_rect.x,
+        batch_scope_rect.y,
+        batch_scope_rect.width,
+        batch_scope_rect.height,
+        "Apply to all open instances",
+    )
+    batch_start_all_rect = pygame.Rect(
+        batch_left,
+        batch_scope_rect.bottom + 12,
+        batch_width,
+        42,
+    )
+
     display_checkbox = None  # Instantiated later with other action buttons
     exited = [False]
     stopping_background_instances = [False]
@@ -2087,25 +2439,35 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.a1_activity = simple_activity_sliders[1].value
         state.a2_activity = simple_activity_sliders[2].value
         state.face_opponent_activity = simple_activity_sliders[3].value
-        state.replay_buffer_size = int(
-            regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value
-        )
-        state.rounds_per_batch = int(
-            regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX].value
-        )
-        state.batch_grouping = int(
-            regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX].value
-        )
-        state.match_time_limit = int(
-            regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX].value
-        )
-        state.minibatch_size = int(
-            regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX].value
-        )
-        state.replay_updates_per_batch = int(
-            regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].value
-        )
-        state.learning_rate = regimen_sliders[REGIMEN_LEARNING_RATE_INDEX].value
+        if state.active_tab == "batch":
+            state.match_time_limit = int(batch_sliders[BATCH_MATCH_TIME_LIMIT_INDEX].value)
+            state.rounds_per_batch = int(batch_sliders[BATCH_ROUNDS_PER_BATCH_INDEX].value)
+            state.batch_grouping = int(batch_sliders[BATCH_BATCH_GROUPING_INDEX].value)
+            state.minibatch_size = int(batch_sliders[BATCH_MINIBATCH_SIZE_INDEX].value)
+            state.replay_updates_per_batch = int(batch_sliders[BATCH_REPLAY_UPDATES_INDEX].value)
+            state.learning_rate = batch_sliders[BATCH_LEARNING_RATE_INDEX].value
+            if instance_manager.batch_scheduling.apply_to_all_open_instances:
+                instance_manager.apply_batch_settings_to_all(state)
+        else:
+            state.replay_buffer_size = int(
+                regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value
+            )
+            state.rounds_per_batch = int(
+                regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX].value
+            )
+            state.batch_grouping = int(
+                regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX].value
+            )
+            state.match_time_limit = int(
+                regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX].value
+            )
+            state.minibatch_size = int(
+                regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX].value
+            )
+            state.replay_updates_per_batch = int(
+                regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].value
+            )
+            state.learning_rate = regimen_sliders[REGIMEN_LEARNING_RATE_INDEX].value
         starting_epsilon = regimen_sliders[
             REGIMEN_STARTING_EPSILON_INDEX
         ].value
@@ -2130,6 +2492,20 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.hidden_layer_count = int(
             regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX].value
         )
+        if state.active_tab == "batch":
+            _set_slider_value(regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX], state.rounds_per_batch)
+            _set_slider_value(regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX], state.batch_grouping)
+            _set_slider_value(regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX], state.match_time_limit)
+            _set_slider_value(regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX], state.minibatch_size)
+            _set_slider_value(regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX], state.replay_updates_per_batch)
+            _set_slider_value(regimen_sliders[REGIMEN_LEARNING_RATE_INDEX], state.learning_rate)
+        else:
+            _set_slider_value(batch_sliders[BATCH_MATCH_TIME_LIMIT_INDEX], state.match_time_limit)
+            _set_slider_value(batch_sliders[BATCH_ROUNDS_PER_BATCH_INDEX], state.rounds_per_batch)
+            _set_slider_value(batch_sliders[BATCH_BATCH_GROUPING_INDEX], state.batch_grouping)
+            _set_slider_value(batch_sliders[BATCH_MINIBATCH_SIZE_INDEX], state.minibatch_size)
+            _set_slider_value(batch_sliders[BATCH_REPLAY_UPDATES_INDEX], state.replay_updates_per_batch)
+            _set_slider_value(batch_sliders[BATCH_LEARNING_RATE_INDEX], state.learning_rate)
 
     def apply_state_to_ui():
         nonlocal trainee_scroll_y, rewards_scroll_y
@@ -2190,6 +2566,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX],
             state.hidden_layer_count,
         )
+        _set_slider_value(batch_sliders[BATCH_MATCH_TIME_LIMIT_INDEX], state.match_time_limit)
+        _set_slider_value(batch_sliders[BATCH_ROUNDS_PER_BATCH_INDEX], state.rounds_per_batch)
+        _set_slider_value(batch_sliders[BATCH_BATCH_GROUPING_INDEX], state.batch_grouping)
+        _set_slider_value(batch_sliders[BATCH_MINIBATCH_SIZE_INDEX], state.minibatch_size)
+        _set_slider_value(batch_sliders[BATCH_REPLAY_UPDATES_INDEX], state.replay_updates_per_batch)
+        _set_slider_value(batch_sliders[BATCH_LEARNING_RATE_INDEX], state.learning_rate)
+        batch_scope_checkbox.is_checked = instance_manager.batch_scheduling.apply_to_all_open_instances
         last_starting_epsilon_slider_value[0] = state.starting_epsilon
         trainee_scroll_y = 0
         rewards_scroll_y = 0
@@ -2825,6 +3208,33 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         begin_training()
 
+    def validate_start_all():
+        return instance_manager.coordinated_batch_validation(
+            lambda ship, slot: model_repository.slot_for(ship, slot),
+        )
+
+    def finish_start_all_scaffold():
+        instance_manager.apply_batch_settings_to_all(state)
+        show_notice("Coordinated scheduler is not implemented yet")
+
+    def start_all_models():
+        sync_state_from_ui()
+        validation = validate_start_all()
+        if not validation.can_start_all:
+            show_notice(validation.blocking_reason)
+            return
+        differing = instances_with_different_batch_settings(
+            validation.included_instances,
+            state,
+        )
+        if differing:
+            confirmation_prompt[0] = ConfirmationPrompt(
+                "Start All will apply Batch tab settings to every open instance. Continue?",
+                finish_start_all_scaffold,
+            )
+            return
+        finish_start_all_scaffold()
+
     action_gap = 10
     action_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 2 * action_gap) // 3
     display_checkbox = ui_button.Checkbox(
@@ -2853,6 +3263,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         request_back,
         ui.CAN_RED,
         ui.CAN_RED_HI,
+    )
+    batch_start_all_button = ui_button.Button(
+        batch_start_all_rect.x,
+        batch_start_all_rect.y,
+        batch_start_all_rect.width,
+        batch_start_all_rect.height,
+        "Start All",
+        start_all_models,
+        ui.OK_GREEN,
+        ui.OK_GREEN_HI,
     )
     instance_summary_rect = pygame.Rect(
         TAB_MARGIN,
@@ -2952,9 +3372,41 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             opponent_tab.handle_event(event, menu_sound_manager)
             rewards_tab.handle_event(event, menu_sound_manager)
             regimen_tab.handle_event(event, menu_sound_manager)
+            batch_tab.handle_event(event, menu_sound_manager)
             display_checkbox.handle_event(event, menu_sound_manager)
             start_stop_button.handle_event(event, menu_sound_manager)
             back_button.handle_event(event, menu_sound_manager)
+            if state.active_tab == "batch":
+                validation = validate_start_all()
+                if (
+                    validation.coordinated_scope_available
+                    and event.type == pygame.MOUSEBUTTONDOWN
+                    and event.button == 1
+                    and batch_scope_checkbox.rect.collidepoint(event.pos)
+                ):
+                    if menu_sound_manager:
+                        menu_sound_manager.play_sound("menu")
+                    if instance_manager.batch_scheduling.apply_to_all_open_instances:
+                        instance_manager.set_batch_apply_to_all(False)
+                        batch_scope_checkbox.is_checked = False
+                    else:
+                        differing = instances_with_different_batch_settings(
+                            validation.included_instances,
+                            state,
+                        )
+                        if differing:
+                            confirmation_prompt[0] = ConfirmationPrompt(
+                                "Apply Batch tab settings to every open instance?",
+                                lambda: (
+                                    instance_manager.set_batch_apply_to_all(True),
+                                    setattr(batch_scope_checkbox, "is_checked", True),
+                                ),
+                            )
+                        else:
+                            instance_manager.set_batch_apply_to_all(True)
+                            batch_scope_checkbox.is_checked = True
+                    continue
+                batch_start_all_button.handle_event(event, menu_sound_manager)
             if not display_checkbox.value:
                 batch_log_box.handle_event(event, layout.arena_rect, log_font)
 
@@ -3018,8 +3470,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 for slider in simple_activity_sliders:
                     slider.enabled = enabled
                     slider.handle_event(translated, menu_sound_manager)
-            else:
+            elif state.active_tab == "regimen":
                 for slider in regimen_sliders:
+                    slider.handle_event(event, menu_sound_manager)
+            elif state.active_tab == "batch":
+                for slider in batch_sliders:
                     slider.handle_event(event, menu_sound_manager)
 
         sync_state_from_ui()
@@ -3091,6 +3546,19 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         background_running = instance_manager.background_instances_running()
         active_running = instance_manager.is_running_or_stopping(active_instance)
         any_running = instance_manager.any_instance_running()
+        batch_validation = validate_start_all()
+        batch_scope_available = batch_validation.coordinated_scope_available
+        if not batch_scope_available:
+            instance_manager.force_batch_active_only()
+            batch_scope_checkbox.is_checked = False
+        else:
+            batch_scope_checkbox.is_checked = (
+                instance_manager.batch_scheduling.apply_to_all_open_instances
+            )
+        batch_scope_checkbox.enabled = batch_scope_available and not active_running
+        batch_start_all_button.enabled = batch_validation.can_start_all
+        for slider in batch_sliders:
+            slider.enabled = not active_running
         device_selector.visible = torch_backend.training_device_selector_visible()
         if not device_selector.visible and state.training_device == torch_backend.DEVICE_GPU:
             state.training_device = torch_backend.DEVICE_AUTO
@@ -3194,6 +3662,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         opponent_tab.active = state.active_tab == "opponent"
         rewards_tab.active = state.active_tab == "rewards"
         regimen_tab.active = state.active_tab == "regimen"
+        batch_tab.active = state.active_tab == "batch"
 
         if state.active_tab == "trainee":
             content = pygame.Surface(
@@ -3296,18 +3765,37 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             for slider in simple_activity_sliders:
                 slider.draw(content, opponent_font)
             screen.blit(content, layout.content_rect)
-        else:
+        elif state.active_tab == "regimen":
             panel = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)
             panel.fill((0, 0, 0, 155))
             screen.blit(panel, layout.content_rect)
             for slider in regimen_sliders:
                 slider.draw(screen, regimen_font)
+        elif state.active_tab == "batch":
+            content = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)
+            content.fill((0, 0, 0, 155))
+            screen.blit(content, layout.content_rect)
+            for slider in batch_sliders:
+                slider.draw(screen, batch_font)
+            if batch_scope_available:
+                batch_scope_checkbox.draw(screen, batch_font)
+            else:
+                pygame.draw.rect(screen, ui.DARK_GREY, batch_scope_rect)
+                pygame.draw.rect(screen, ui.BLACK, batch_scope_rect, 3)
+                status_text = coordination_scope_status_text(batch_validation)
+                rendered = batch_font.render(status_text, True, ui.LIGHT_GREY)
+                screen.blit(
+                    rendered,
+                    rendered.get_rect(midleft=(batch_scope_rect.left + 12, batch_scope_rect.centery)),
+                )
+            batch_start_all_button.draw(screen, batch_font)
 
         # Draw inactive tabs behind the content window border
         if not trainee_tab.active: trainee_tab.draw(screen, tab_font)
         if not opponent_tab.active: opponent_tab.draw(screen, tab_font)
         if not rewards_tab.active: rewards_tab.draw(screen, tab_font)
         if not regimen_tab.active: regimen_tab.draw(screen, tab_font)
+        if not batch_tab.active: batch_tab.draw(screen, tab_font)
 
         pygame.draw.rect(screen, ui.BLACK, layout.content_rect, 2)
 
@@ -3316,6 +3804,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if opponent_tab.active: opponent_tab.draw(screen, tab_font)
         if rewards_tab.active: rewards_tab.draw(screen, tab_font)
         if regimen_tab.active: regimen_tab.draw(screen, tab_font)
+        if batch_tab.active: batch_tab.draw(screen, tab_font)
 
         running_color = (
             ui.BRIGHT_GREEN if instance_manager.running_count() > 0 else ui.LIGHT_GREY

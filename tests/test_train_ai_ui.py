@@ -39,6 +39,7 @@ from src.Menus.train_ai import (
     REWARD_VALUES,
     REPLAY_UPDATES_PER_BATCH_VALUES,
     ROUNDS_PER_BATCH_VALUES,
+    BATCH_CONTROLLED_FIELDS,
     BATCH_GROUPING_VALUES,
     AI_OPPONENT_PERCENT_VALUES,
     SIMPLE_ACTIVITY_VALUES,
@@ -46,6 +47,13 @@ from src.Menus.train_ai import (
     TRAINING_INSTANCE_SUPPORTED_MAX,
     RewardSlider,
     SliderRow,
+    apply_batch_settings,
+    architecture_for_state,
+    batch_settings_from_state,
+    coordinated_architecture_signature,
+    coordination_scope_status_text,
+    instances_with_different_batch_settings,
+    validate_coordinated_batch_start,
     TRAINING_HUD_HEIGHT,
     TrainingBatchLogBox,
     TrainingInstanceManager,
@@ -506,6 +514,224 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
         self.assertEqual(manager.instances, [second])
         self.assertIs(manager.active_instance, second)
+
+    def test_batch_settings_helpers_copy_only_batch_controlled_fields(self):
+        source = TrainingUIState()
+        target = TrainingUIState()
+        source.match_time_limit = 2400
+        source.rounds_per_batch = 3
+        source.batch_grouping = 20
+        source.minibatch_size = 512
+        source.replay_updates_per_batch = 30
+        source.learning_rate = 0.0003
+        source.replay_buffer_size = 250000
+
+        apply_batch_settings(source, target)
+
+        self.assertEqual(
+            batch_settings_from_state(target),
+            batch_settings_from_state(source),
+        )
+        self.assertEqual(target.replay_buffer_size, TrainingUIState().replay_buffer_size)
+        self.assertEqual(set(batch_settings_from_state(source)), set(BATCH_CONTROLLED_FIELDS))
+
+    def test_batch_apply_to_all_copies_active_batch_settings(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        second = manager.add_instance()
+        manager.select_instance(first.instance_id)
+        first.state.match_time_limit = 2400
+        first.state.rounds_per_batch = 4
+        first.state.batch_grouping = 25
+        first.state.minibatch_size = 512
+        first.state.replay_updates_per_batch = 40
+        first.state.learning_rate = 0.0003
+
+        manager.set_batch_apply_to_all(True)
+
+        self.assertTrue(manager.batch_scheduling.apply_to_all_open_instances)
+        self.assertEqual(
+            batch_settings_from_state(second.state),
+            batch_settings_from_state(first.state),
+        )
+
+    def test_instances_with_different_batch_settings_reports_mismatches(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        second = manager.add_instance()
+        third = manager.add_instance()
+        second.state.rounds_per_batch = first.state.rounds_per_batch
+        third.state.rounds_per_batch = first.state.rounds_per_batch + 1
+
+        differing = instances_with_different_batch_settings(manager.instances, first.state)
+
+        self.assertEqual(differing, (third,))
+
+    def test_coordinated_architecture_signature_uses_required_fields(self):
+        architecture = model_architecture_metadata(256, 2)
+        architecture["optimizer"] = "sgd"
+        signature = coordinated_architecture_signature(architecture)
+
+        self.assertEqual(
+            signature,
+            (
+                ("input_size", architecture["input_size"]),
+                ("output_count", architecture["output_count"]),
+                ("hidden_layer_width", 256),
+                ("hidden_layer_count", 2),
+            ),
+        )
+
+    def _coordinated_manager_with_two_user_slots(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.selected_ship = "Earthling"
+        first.state.selected_slot = 1
+        first.state.slot_labels[0] = "one"
+        second = manager.add_instance()
+        second.state.selected_ship = "Androsynth"
+        second.state.selected_slot = 1
+        second.state.slot_labels[0] = "two"
+        return manager, first, second
+
+    def test_start_all_validation_allows_two_gpu_user_slots(self):
+        manager, first, second = self._coordinated_manager_with_two_user_slots()
+        metadata1 = metadata_from_state(
+            ship="Earthling",
+            slot=1,
+            description="one",
+            architecture=architecture_for_state(first.state),
+            training={},
+        )
+        metadata2 = metadata_from_state(
+            ship="Androsynth",
+            slot=1,
+            description="two",
+            architecture=architecture_for_state(second.state),
+            training={},
+        )
+        slots = {
+            ("Earthling", 1): TrainingModelSlot(
+                "Earthling",
+                1,
+                SLOT_USER,
+                "one",
+                metadata=metadata1,
+            ),
+            ("Androsynth", 1): TrainingModelSlot(
+                "Androsynth",
+                1,
+                SLOT_USER,
+                "two",
+                metadata=metadata2,
+            ),
+        }
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: slots[(ship, slot)],
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "gpu",
+        )
+
+        self.assertTrue(validation.can_start_all)
+        self.assertEqual(validation.included_instances, (first, second))
+
+    def test_start_all_validation_blocks_running_instances_and_forces_scope_off(self):
+        manager, _first, _second = self._coordinated_manager_with_two_user_slots()
+        manager.batch_scheduling.apply_to_all_open_instances = True
+        manager.active_instance.session = self.FakeSession(running=True)
+
+        validation = manager.coordinated_batch_validation(
+            lambda ship, slot: TrainingModelSlot(ship, slot, SLOT_EMPTY)
+        )
+
+        self.assertFalse(validation.can_start_all)
+        self.assertEqual(validation.blocking_code, "running")
+        self.assertEqual(
+            coordination_scope_status_text(validation),
+            "Coordinated mode disabled; training in progress",
+        )
+        self.assertFalse(manager.batch_scheduling.apply_to_all_open_instances)
+
+    def test_start_all_validation_blocks_incomplete_instances(self):
+        manager = TrainingInstanceManager()
+        manager.add_instance()
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: TrainingModelSlot(ship, slot, SLOT_EMPTY),
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "gpu",
+        )
+
+        self.assertFalse(validation.can_start_all)
+        self.assertEqual(validation.blocking_code, "incomplete")
+
+    def test_start_all_validation_blocks_duplicate_writer_targets(self):
+        manager, first, second = self._coordinated_manager_with_two_user_slots()
+        second.state.selected_ship = first.state.selected_ship
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: TrainingModelSlot(ship, slot, SLOT_EMPTY),
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "gpu",
+        )
+
+        self.assertFalse(validation.can_start_all)
+        self.assertEqual(validation.blocking_code, "duplicate_writer")
+
+    def test_start_all_validation_blocks_mixed_architectures_with_required_status_text(self):
+        manager, first, second = self._coordinated_manager_with_two_user_slots()
+        second.state.hidden_layer_size = first.state.hidden_layer_size * 2
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: TrainingModelSlot(ship, slot, SLOT_EMPTY),
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "gpu",
+        )
+
+        self.assertFalse(validation.can_start_all)
+        self.assertEqual(validation.blocking_code, "architecture")
+        self.assertEqual(
+            coordination_scope_status_text(validation),
+            "Coordinated mode disabled; incompatible instances",
+        )
+
+    def test_start_all_validation_blocks_non_gpu_devices(self):
+        manager, _first, _second = self._coordinated_manager_with_two_user_slots()
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: TrainingModelSlot(ship, slot, SLOT_EMPTY),
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "cpu",
+        )
+
+        self.assertFalse(validation.can_start_all)
+        self.assertEqual(validation.blocking_code, "device")
+
+    def test_start_all_validation_blocks_display_on(self):
+        manager, _first, second = self._coordinated_manager_with_two_user_slots()
+        second.state.display_on = True
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: TrainingModelSlot(ship, slot, SLOT_EMPTY),
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "gpu",
+        )
+
+        self.assertFalse(validation.can_start_all)
+        self.assertEqual(validation.blocking_code, "display")
 
 
 class TrainingUIRunWiringTests(unittest.TestCase):
