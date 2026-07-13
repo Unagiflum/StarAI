@@ -73,9 +73,10 @@ using the current `TrainingSession` path.
 
 Add a new top-level training tab named `Batch`.
 
-The tab is shared by all open instances. It should hold settings that define a
-coordinated run and should make it clear through control state, not explanatory
-text, that these settings are global.
+The tab can operate as either a shared coordinated-run editor or an
+active-instance editor, depending on coordinated compatibility across open
+instances. It should make that mode clear through control state, not
+explanatory text.
 
 Initial controls:
 
@@ -84,17 +85,123 @@ Initial controls:
 - `Batch grouping`
 - `Minibatch size`
 - `Gradient steps`
+- `Learning rate`
+- coordination scope control
 - `Start All` / `Stop All`
 
 The existing regimen tab may keep per-instance controls for independent
 training. Shared batch controls can initially mirror the same value ranges as
 the regimen controls.
 
-If implementation simplicity requires it, the first version may use the active
-instance's shared batch values as the global source and apply them to all
-included instances at coordinated-run start. The preferred design is a small
-global batch-scheduling state owned by the UI, separate from each
-`TrainingUIState`.
+The Batch tab has two operating modes:
+
+- Coordinated-compatible mode.
+- Individual-only mode.
+
+Coordinated-compatible mode is available only when coordinated scope is
+available. In this mode, Batch tab values may be edited for only the active
+instance or for all open instances, depending on the coordination scope
+checkbox. `Start All` may be enabled if the remaining start validation also
+passes.
+
+Individual-only mode is used when coordinated scope is unavailable. In this
+mode, `Start All` is disabled and every Batch tab change applies only to the
+active instance. This keeps incompatible behavior simple and prevents the tab
+from silently synchronizing settings when coordinated training cannot run.
+
+The architecture comparison must include:
+
+- observation input size
+- action output count
+- hidden layer width
+- hidden layer count
+
+`Minibatch size`, `Gradient steps`, and `Learning rate` are coordinated
+optimization parameters. When the Batch tab is in coordinated-compatible mode,
+those values must be treated as shared coordinated-run settings.
+
+### Coordination Scope Control
+
+The Batch tab should reserve one control area for coordination scope. It has two
+render states.
+
+When coordinated scope is available, show a checkbox labeled exactly:
+
+```text
+Apply to all open instances
+```
+
+When the checkbox is unchecked:
+
+- Batch tab edits apply only to the active instance.
+- `Start All` can still be enabled if all Start All validation passes.
+- If other instances have different batch-controlled settings, `Start All`
+  must confirm before synchronizing them.
+
+When the checkbox is checked:
+
+- Batch tab edits immediately apply to every open instance.
+- The checkbox remains checked until the user unchecks it or coordinated scope
+  becomes unavailable.
+- If enabling the checkbox would change one or more open instances, show a
+  confirmation popup before enabling. On cancel, leave the checkbox unchecked
+  and make no state changes.
+
+When coordinated scope is unavailable, do not show a checkbox glyph. Instead,
+show disabled status text. If the blocker is architecture incompatibility, the
+text must be:
+
+```text
+Coordinated mode disabled; incompatible instances
+```
+
+Other blockers may use similarly direct status text, for example:
+
+```text
+Coordinated mode disabled; training in progress
+```
+
+When the status text is shown:
+
+- The checkbox state is forced false.
+- Batch tab edits apply only to the active instance.
+- `Start All` is disabled.
+
+Coordinated scope is unavailable if any of these are true:
+
+- Any instance is running or stopping.
+- Fewer than two open instances are eligible.
+- Any open instance is incomplete: no selected ship or no selected slot.
+- Any selected slot is bundled or otherwise read-only.
+- Any selected slot cannot be created or started because it lacks required
+  description or metadata.
+- Duplicate `(ship, slot)` writer targets exist.
+- Any model metadata is incompatible.
+- Model architectures differ.
+- Resolved training devices differ.
+- Any resolved training device is not CUDA/GPU.
+- PyTorch or CUDA is unavailable.
+- Display is on for any instance.
+
+Device compatibility must compare resolved device keys, not only UI strings.
+For example, `auto` and explicit `GPU` are compatible if both resolve to the
+same CUDA device. If multiple CUDA devices become selectable, mixed resolved
+devices such as `cuda:0` and `cuda:1` are incompatible for the first
+implementation.
+
+When the checkbox is checked, these Batch tab values are copied into every open
+instance's in-memory training state:
+
+- match frame limit
+- rounds per batch
+- batch grouping
+- minibatch size
+- gradient steps
+- learning rate
+
+The checkbox should update UI state only. It should not force an immediate
+model metadata save unless the surrounding training UI already persists
+comparable setting changes immediately.
 
 ### Start All Enablement
 
@@ -111,7 +218,7 @@ global batch-scheduling state owned by the UI, separate from each
   - action output count
   - hidden layer width
   - hidden layer count
-- Every included instance resolves to the CUDA/GPU device.
+- Every included instance resolves to the same CUDA/GPU device.
 - PyTorch and CUDA are available.
 - Display is off for all instances.
 
@@ -126,6 +233,23 @@ Recommended first-inclusion rule:
   rather than silently skipping it.
 
 This avoids ambiguity about which models are being trained.
+
+Before starting, compare every included instance's batch-controlled settings to
+the Batch tab values:
+
+- match frame limit
+- rounds per batch
+- batch grouping
+- minibatch size
+- gradient steps
+- learning rate
+
+If one or more included instances differ, `Start All` must show a confirmation
+popup warning that the coordinated run will apply Batch tab settings to those
+open instances. On confirm, apply the Batch tab values and start. On cancel,
+leave all instance state unchanged and do not start.
+
+`Start All` must never silently train with mixed batch-controlled settings.
 
 ### During Coordinated Run
 
@@ -411,9 +535,16 @@ Work:
 
 - Add a `TrainingBatchSchedulingState` dataclass or equivalent.
 - Add `Batch` tab and controls.
+- Add the coordination scope checkbox/status control.
 - Add validation helper returning structured errors.
+- Add architecture comparison helper for Batch tab mode.
 - Validate no running instances, complete selections, unique writer keys,
-  same architecture, GPU device, CUDA availability, and writable slots.
+  same architecture, same resolved CUDA device, CUDA availability, writable
+  slots, compatible metadata, and display-off state.
+- Implement forced active-instance-only mode when coordinated scope is
+  unavailable.
+- Implement Start All confirmation when Batch values differ from one or more
+  included instances.
 
 Verification:
 
@@ -555,12 +686,38 @@ Verification:
 Add or update tests for:
 
 - Batch tab layout and shared state.
+- Batch tab enters individual-only mode when coordinated scope is unavailable.
+- Batch tab changes apply only to the active instance in individual-only mode.
+- Coordination scope renders a checkbox labeled `Apply to all open instances`
+  only when coordinated scope is available.
+- Coordination scope renders `Coordinated mode disabled; incompatible instances`
+  without a checkbox glyph when architectures differ.
+- Coordination scope is forced false when any instance is running or stopping.
+- Coordination scope is forced false when fewer than two open instances are
+  eligible.
+- Coordination scope is forced false for incomplete instances.
+- Coordination scope is forced false for bundled/read-only slots.
+- Coordination scope is forced false for duplicate writer targets.
+- Coordination scope is forced false for incompatible metadata.
+- Coordination scope is forced false for mixed architectures.
+- Coordination scope is forced false for mixed resolved devices.
+- Coordination scope is forced false for non-CUDA resolved devices.
+- Coordination scope is forced false when PyTorch/CUDA is unavailable.
+- Coordination scope is forced false when display is on for any instance.
+- Checked coordination scope copies match frame limit, rounds per batch, batch
+  grouping, minibatch size, gradient steps, and learning rate to all open
+  instances.
+- Checking coordination scope confirms before changing existing open instances.
 - `Start All` disabled while any instance is running.
 - `Start All` disabled for incomplete instances.
 - `Start All` disabled for duplicate writer targets.
 - `Start All` disabled for bundled slots.
 - `Start All` disabled for mixed architectures.
+- `Start All` disabled for mixed resolved devices.
+- `Start All` disabled for non-CUDA resolved devices.
 - `Start All` disabled when GPU/CUDA is unavailable.
+- `Start All` confirms before applying changed Batch tab values to included
+  instances.
 - `Start All` reserves every writer key before scheduler start.
 - Failed scheduler startup releases all writer keys.
 - During coordinated run, add/close/individual start/individual stop/display are
@@ -671,11 +828,8 @@ becomes a measured bottleneck.
   remain only in memory?
 - Should coordinated runs require every open instance to be complete, or should
   there eventually be an explicit include/exclude checkbox per instance?
-- Should `auto` count as GPU if it resolves to CUDA, or should Start All require
-  explicit `GPU` selection?
 - Should existing-AI opponent mode be allowed in the first coordinated
   implementation, or should Start All initially require simple-opponent mode?
 - Should coordinated-mode metrics count fixed-frame windows, terminal episodes,
   or both in the user-facing batch summary?
 - Should the independent regimen tab and shared Batch tab eventually merge?
-
