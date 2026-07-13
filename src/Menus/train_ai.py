@@ -105,12 +105,14 @@ INSTANCE_DROPDOWN_VISIBLE_ROWS = 8
 INSTANCE_SEPARATOR_HEIGHT = 4
 TRAINING_INSTANCE_SOFT_MAX = 4
 TRAINING_INSTANCE_SUPPORTED_MAX = 25
-INSTANCE_POSITION_WIDTH = 56
-INSTANCE_RUNNING_WIDTH = 42
+INSTANCE_SUMMARY_WIDTH = 92
+INSTANCE_POSITION_WIDTH = INSTANCE_SUMMARY_WIDTH
+INSTANCE_RUNNING_WIDTH = 0
 INSTANCE_CLOSE_WIDTH = 60
 INSTANCE_ADD_WIDTH = 50
 INSTANCE_DROPDOWN_COLOR = (0, 70, 75, 235)
 INSTANCE_DROPDOWN_HOVER_COLOR = (0, 100, 110, 255)
+INSTANCE_BORDER_COLOR = (200, 200, 200)
 UI_TOP_MARGIN = INSTANCE_TOP + INSTANCE_CONTROL_HEIGHT + 12
 TAB_GAP = 8
 TAB_HEIGHT = 32
@@ -339,6 +341,10 @@ class TrainingInstanceManager:
 
     def running_count_text(self):
         return f"{self.running_count():02d}>"
+
+    def instance_summary_text(self):
+        width = max(2, len(str(len(self.instances))))
+        return f"{self.running_count():0{width}d}> / {len(self.instances):0{width}d}"
 
     def status_for(self, instance):
         return instance.session.status if instance.session is not None else None
@@ -646,7 +652,7 @@ class InstanceDropdown:
             else INSTANCE_DROPDOWN_COLOR
         )
         pygame.draw.rect(surface, bg_color, self.rect, border_radius=5)
-        pygame.draw.rect(surface, ui.WHITE, self.rect, 3, border_radius=5)
+        pygame.draw.rect(surface, INSTANCE_BORDER_COLOR, self.rect, 3, border_radius=5)
         active_position = self.manager.active_index + 1
         prefix, status = _instance_row_parts(
             active_position,
@@ -661,7 +667,7 @@ class InstanceDropdown:
 
         list_rect = self.list_rect()
         pygame.draw.rect(surface, ui.BLACK, list_rect)
-        pygame.draw.rect(surface, ui.WHITE, list_rect, 3)
+        pygame.draw.rect(surface, INSTANCE_BORDER_COLOR, list_rect, 3)
         old_clip = surface.get_clip()
         inner_rect = list_rect.inflate(-6, -6)
         surface.set_clip(inner_rect.clip(old_clip))
@@ -693,18 +699,22 @@ class InstanceDropdown:
             pygame.draw.rect(surface, ui.LIGHT_GREY, pygame.Rect(track.x, thumb_y, track.width, thumb_h))
 
     def _draw_row_text(self, surface, font, rect, prefix, status):
-        text_clip = rect.inflate(-16, 0)
+        status_surf = font.render(status, True, _instance_status_color(status))
+        status_right = rect.right - 28
+        status_rect = status_surf.get_rect(midright=(status_right, rect.centery))
+        text_clip = pygame.Rect(
+            rect.x + 8,
+            rect.y,
+            max(0, status_rect.left - rect.x - 18),
+            rect.height,
+        )
         old_clip = surface.get_clip()
         surface.set_clip(text_clip.clip(old_clip))
         prefix_surf = font.render(prefix, True, ui.WHITE)
         x = rect.x + 8
         surface.blit(prefix_surf, prefix_surf.get_rect(midleft=(x, rect.centery)))
-        status_surf = font.render(status, True, _instance_status_color(status))
-        surface.blit(
-            status_surf,
-            status_surf.get_rect(midleft=(x + prefix_surf.get_width(), rect.centery)),
-        )
         surface.set_clip(old_clip)
+        surface.blit(status_surf, status_rect)
 
 
 def largest_fitting_font(texts, max_width, max_height=36, maximum=36, minimum=16):
@@ -1631,6 +1641,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         maximum=22,
     )
     small_font = pygame.font.SysFont(None, 24)
+    instance_font = pygame.font.SysFont("Consolas", 19)
     arena_font = pygame.font.SysFont(None, 32)
     log_font = pygame.font.SysFont("Consolas", 11)
     picker_title_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.042))
@@ -2173,16 +2184,39 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     def close_active_training_instance():
         nonlocal state
         sync_state_from_ui()
-        result = instance_manager.request_close_active_instance()
-        if result == "last":
-            show_notice("At least one training instance must remain")
+
+        def close_instance():
+            nonlocal state
+            result = instance_manager.request_close_active_instance()
+            if result == "last":
+                show_notice("At least one training instance must remain")
+                return
+            if result == "pending":
+                show_notice("Closing instance after training stops")
+            else:
+                show_notice("Closed training instance")
+            state = instance_manager.active_state
+            apply_state_to_ui()
+
+        if instance_manager.is_running_or_stopping(instance_manager.active_instance):
+            confirmation_prompt[0] = ConfirmationPrompt(
+                "Do you want to close this running training instance?",
+                close_instance,
+            )
             return
-        if result == "pending":
-            show_notice("Closing instance after training stops")
-        else:
-            show_notice("Closed training instance")
-        state = instance_manager.active_state
-        apply_state_to_ui()
+
+        close_instance()
+
+    def stop_active_training_instance():
+        instance_manager.request_stop_active()
+        display_checkbox.is_checked = False
+        show_notice("Training pausing; current batch will be abandoned")
+
+    def confirm_stop_active_training_instance():
+        confirmation_prompt[0] = ConfirmationPrompt(
+            "Do you want to stop this training instance?",
+            stop_active_training_instance,
+        )
 
     def refresh_slot_controls(*, load_labels=True):
         if state.selected_ship is None:
@@ -2623,11 +2657,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             show_notice(str(exc))
 
     def start_selected_model():
-        active_session = instance_manager.active_session
         if instance_manager.is_running_or_stopping(instance_manager.active_instance):
-            instance_manager.request_stop_active()
-            display_checkbox.is_checked = False
-            show_notice("Training pausing; current batch will be abandoned")
+            confirm_stop_active_training_instance()
             return
 
         model_slot = selected_model_slot()
@@ -2715,28 +2746,21 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ui.CAN_RED,
         ui.CAN_RED_HI,
     )
-    instance_indicator_rect = pygame.Rect(
+    instance_summary_rect = pygame.Rect(
         TAB_MARGIN,
         INSTANCE_TOP,
-        INSTANCE_POSITION_WIDTH,
-        INSTANCE_CONTROL_HEIGHT,
-    )
-    running_indicator_rect = pygame.Rect(
-        instance_indicator_rect.right + INSTANCE_GAP,
-        INSTANCE_TOP,
-        INSTANCE_RUNNING_WIDTH,
+        INSTANCE_SUMMARY_WIDTH,
         INSTANCE_CONTROL_HEIGHT,
     )
     instance_dropdown_rect = pygame.Rect(
-        running_indicator_rect.right + INSTANCE_GAP,
+        instance_summary_rect.right + INSTANCE_GAP,
         INSTANCE_TOP,
         CONTROL_WIDTH
         - 2 * TAB_MARGIN
-        - instance_indicator_rect.width
-        - running_indicator_rect.width
+        - instance_summary_rect.width
         - INSTANCE_CLOSE_WIDTH
         - INSTANCE_ADD_WIDTH
-        - 4 * INSTANCE_GAP,
+        - 3 * INSTANCE_GAP,
         INSTANCE_CONTROL_HEIGHT,
     )
     close_instance_button = ui_button.Button(
@@ -2746,7 +2770,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         INSTANCE_CONTROL_HEIGHT,
         "Close",
         close_active_training_instance,
-        ui.CAN_RED,
+        (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA),
         ui.CAN_RED_HI,
     )
     add_instance_button = ui_button.Button(
@@ -2756,7 +2780,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         INSTANCE_CONTROL_HEIGHT,
         "Add",
         add_training_instance,
-        ui.OK_GREEN,
+        (*ui.OK_GREEN[:3], const.TAB_BUTTON_HOVER_ALPHA),
         ui.OK_GREEN_HI,
     )
     instance_dropdown = InstanceDropdown(
@@ -3169,38 +3193,27 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if rewards_tab.active: rewards_tab.draw(screen, tab_font)
         if regimen_tab.active: regimen_tab.draw(screen, tab_font)
 
-        pygame.draw.rect(screen, ui.BLACK, instance_indicator_rect, border_radius=5)
-        pygame.draw.rect(screen, ui.LIGHT_GREY, instance_indicator_rect, 1, border_radius=5)
-        indicator_text = small_font.render(
-            instance_manager.active_position_text(),
-            True,
-            ui.WHITE,
-        )
-        screen.blit(
-            indicator_text,
-            indicator_text.get_rect(center=instance_indicator_rect.center),
-        )
         running_color = (
             ui.BRIGHT_GREEN if instance_manager.running_count() > 0 else ui.LIGHT_GREY
         )
-        pygame.draw.rect(screen, ui.BLACK, running_indicator_rect, border_radius=5)
-        pygame.draw.rect(screen, running_color, running_indicator_rect, 1, border_radius=5)
-        running_text = small_font.render(
-            instance_manager.running_count_text(),
+        pygame.draw.rect(screen, ui.BLACK, instance_summary_rect, border_radius=5)
+        pygame.draw.rect(screen, running_color, instance_summary_rect, 1, border_radius=5)
+        summary_text = instance_font.render(
+            instance_manager.instance_summary_text(),
             True,
             running_color,
         )
         screen.blit(
-            running_text,
-            running_text.get_rect(center=running_indicator_rect.center),
+            summary_text,
+            summary_text.get_rect(center=instance_summary_rect.center),
         )
-        instance_dropdown.draw(screen, small_font)
+        instance_dropdown.draw(screen, instance_font)
         close_instance_button.draw(screen, small_font)
         add_instance_button.draw(screen, small_font)
         separator_y = INSTANCE_TOP + INSTANCE_CONTROL_HEIGHT + 5
         pygame.draw.line(
             screen,
-            ui.WHITE,
+            INSTANCE_BORDER_COLOR,
             (TAB_MARGIN, separator_y),
             (CONTROL_WIDTH - TAB_MARGIN, separator_y),
             INSTANCE_SEPARATOR_HEIGHT,

@@ -283,6 +283,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(manager.active_position_text(), "03/03")
         self.assertEqual(manager.running_count(), 2)
         self.assertEqual(manager.running_count_text(), "02>")
+        self.assertEqual(manager.instance_summary_text(), "02> / 03")
 
     def test_remove_active_instance_refuses_last_or_running_instance(self):
         manager = TrainingInstanceManager()
@@ -634,17 +635,41 @@ class TrainingLayoutTests(unittest.TestCase):
 
     def test_instance_buttons_leave_room_for_dropdown_label(self):
         layout = training_layout()
+        summary_rect = pygame.Rect(
+            8,
+            INSTANCE_TOP,
+            train_ai.INSTANCE_SUMMARY_WIDTH,
+            INSTANCE_CONTROL_HEIGHT,
+        )
         dropdown_width = (
             layout.control_rect.width
             - 2 * 8
-            - INSTANCE_POSITION_WIDTH
-            - INSTANCE_RUNNING_WIDTH
+            - summary_rect.width
             - INSTANCE_CLOSE_WIDTH
             - INSTANCE_ADD_WIDTH
-            - 4 * INSTANCE_GAP
+            - 3 * INSTANCE_GAP
+        )
+        dropdown_rect = pygame.Rect(
+            summary_rect.right + INSTANCE_GAP,
+            INSTANCE_TOP,
+            dropdown_width,
+            INSTANCE_CONTROL_HEIGHT,
+        )
+        close_rect = pygame.Rect(
+            dropdown_rect.right + INSTANCE_GAP,
+            INSTANCE_TOP,
+            INSTANCE_CLOSE_WIDTH,
+            INSTANCE_CONTROL_HEIGHT,
+        )
+        add_rect = pygame.Rect(
+            close_rect.right + INSTANCE_GAP,
+            INSTANCE_TOP,
+            INSTANCE_ADD_WIDTH,
+            INSTANCE_CONTROL_HEIGHT,
         )
 
         self.assertGreaterEqual(dropdown_width, 320)
+        self.assertEqual(add_rect.right, layout.control_rect.width - 8)
 
     def test_arena_uses_the_full_height_at_the_right_edge(self):
         layout = training_layout()
