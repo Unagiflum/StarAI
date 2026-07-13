@@ -28,6 +28,7 @@ from src.Menus.train_ai import (
     INSTANCE_ADD_WIDTH,
     INSTANCE_CLOSE_WIDTH,
     INSTANCE_GAP,
+    INSTANCE_DROPDOWN_MAX_VISIBLE_ROWS,
     INSTANCE_POSITION_WIDTH,
     INSTANCE_RUNNING_WIDTH,
     INSTANCE_SEPARATOR_HEIGHT,
@@ -41,6 +42,7 @@ from src.Menus.train_ai import (
     ROUNDS_PER_BATCH_VALUES,
     BATCH_CONTROLLED_FIELDS,
     BATCH_GROUPING_VALUES,
+    InstanceDropdown,
     AI_OPPONENT_PERCENT_VALUES,
     SIMPLE_ACTIVITY_VALUES,
     TRAINING_INSTANCE_SOFT_MAX,
@@ -59,6 +61,10 @@ from src.Menus.train_ai import (
     TrainingInstanceManager,
     TrainingUIState,
     UI_TOP_MARGIN,
+    load_training_ui_session,
+    save_training_ui_session,
+    training_instance_manager_from_json,
+    training_instance_manager_to_json,
     _clear_reset_model_artifacts,
     _display_off_console_lines,
     _draw_training_huds,
@@ -69,6 +75,7 @@ from src.Menus.train_ai import (
     _instance_row_parts,
     _instance_status_text,
     _training_settings_match,
+    _wheel_step,
     _progress_for_model_update,
     _set_slider_value,
     training_config_from_state,
@@ -294,7 +301,109 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(manager.active_position_text(), "03/03")
         self.assertEqual(manager.running_count(), 2)
         self.assertEqual(manager.running_count_text(), "02>")
-        self.assertEqual(manager.instance_summary_text(), "02> / 03")
+        self.assertEqual(manager.instance_summary_text(), "02>/03")
+
+    def test_select_relative_instance_wraps_through_instances(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        second = manager.add_instance()
+        third = manager.add_instance()
+
+        self.assertIs(manager.select_relative_instance(1), first)
+        self.assertIs(manager.select_relative_instance(-1), third)
+        self.assertIs(manager.select_relative_instance(-1), second)
+
+    def test_instance_dropdown_uses_largest_row_count_that_fits_screen(self):
+        manager = TrainingInstanceManager()
+        while len(manager.instances) < TRAINING_INSTANCE_SUPPORTED_MAX:
+            manager.add_instance()
+        dropdown = InstanceDropdown(
+            pygame.Rect(10, 300, 250, INSTANCE_CONTROL_HEIGHT),
+            manager,
+            lambda _instance_id: None,
+        )
+
+        expected_rows = min(
+            INSTANCE_DROPDOWN_MAX_VISIBLE_ROWS,
+            (
+                const.SCREEN_HEIGHT
+                - (dropdown.rect.bottom + 4)
+                - INSTANCE_TOP
+            )
+            // INSTANCE_CONTROL_HEIGHT,
+            len(manager.instances),
+        )
+
+        self.assertGreater(expected_rows, 8)
+        self.assertEqual(dropdown.visible_row_count(), expected_rows)
+        self.assertEqual(
+            dropdown.list_rect().height,
+            expected_rows * INSTANCE_CONTROL_HEIGHT,
+        )
+
+    def test_mouse_wheel_values_are_normalized_to_one_instance_step(self):
+        self.assertEqual(_wheel_step(1), -1)
+        self.assertEqual(_wheel_step(2), -1)
+        self.assertEqual(_wheel_step(-1), 1)
+        self.assertEqual(_wheel_step(-3), 1)
+        self.assertEqual(_wheel_step(0), 0)
+
+    def test_expanded_instance_dropdown_wheel_scrolls_one_row_per_event(self):
+        manager = TrainingInstanceManager()
+        while len(manager.instances) < TRAINING_INSTANCE_SUPPORTED_MAX:
+            manager.add_instance()
+        dropdown = InstanceDropdown(
+            pygame.Rect(10, 300, 250, INSTANCE_CONTROL_HEIGHT),
+            manager,
+            lambda _instance_id: None,
+        )
+        dropdown.expanded = True
+        dropdown.scroll_index = 3
+        event = pygame.event.Event(
+            pygame.MOUSEWHEEL,
+            {"y": 2, "pos": dropdown.list_rect().center},
+        )
+
+        self.assertTrue(dropdown.handle_event(event))
+
+        self.assertEqual(dropdown.scroll_index, 2)
+
+    def test_training_session_json_round_trip_preserves_instances_and_settings(self):
+        manager = TrainingInstanceManager()
+        manager.active_state.selected_ship = "Earthling"
+        manager.active_state.selected_slot = 2
+        manager.active_state.learning_rate = 0.003
+        second = manager.add_instance()
+        second.state.selected_ship = "Androsynth"
+        second.state.selected_slot = 3
+        second.state.match_time_limit = 2400
+        manager.batch_scheduling.apply_to_all_open_instances = True
+
+        restored = training_instance_manager_from_json(
+            training_instance_manager_to_json(manager)
+        )
+
+        self.assertEqual(len(restored.instances), 2)
+        self.assertEqual(restored.active_instance_id, second.instance_id)
+        self.assertEqual(restored.instances[0].state.selected_ship, "Earthling")
+        self.assertEqual(restored.instances[0].state.selected_slot, 2)
+        self.assertEqual(restored.instances[0].state.learning_rate, 0.003)
+        self.assertEqual(restored.active_state.selected_ship, "Androsynth")
+        self.assertEqual(restored.active_state.match_time_limit, 2400)
+        self.assertTrue(restored.batch_scheduling.apply_to_all_open_instances)
+
+    def test_training_session_save_and_load_uses_supplied_path(self):
+        manager = TrainingInstanceManager()
+        manager.active_state.selected_ship = "Earthling"
+        manager.active_state.selected_slot = 4
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "train_ai_session.json"
+
+            save_training_ui_session(manager, path)
+            restored = load_training_ui_session(path)
+
+        self.assertEqual(restored.active_state.selected_ship, "Earthling")
+        self.assertEqual(restored.active_state.selected_slot, 4)
 
     def test_remove_active_instance_refuses_last_or_running_instance(self):
         manager = TrainingInstanceManager()
@@ -870,6 +979,10 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         with (
             mock.patch(
                 "src.Menus.train_ai.TrainingInstanceManager",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
                 return_value=manager,
             ),
             mock.patch(

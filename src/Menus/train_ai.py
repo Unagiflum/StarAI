@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import sys
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pygame
 
@@ -84,20 +86,14 @@ EPSILON_FRAME_SPAN_VALUES = tuple(range(1, 49))
 GAMMA_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
 HIDDEN_LAYER_SIZE_VALUES = (16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
 HIDDEN_LAYER_COUNT_VALUES = tuple(range(1, 9, 1))
-REGIMEN_MATCH_TIME_LIMIT_INDEX = 0
-REGIMEN_ROUNDS_PER_BATCH_INDEX = 1
-REGIMEN_BATCH_GROUPING_INDEX = 2
-REGIMEN_REPLAY_BUFFER_INDEX = 3
-REGIMEN_MINIBATCH_SIZE_INDEX = 4
-REGIMEN_REPLAY_UPDATES_INDEX = 5
-REGIMEN_LEARNING_RATE_INDEX = 6
-REGIMEN_STARTING_EPSILON_INDEX = 7
-REGIMEN_EPSILON_FLOOR_INDEX = 8
-REGIMEN_EPSILON_DECAY_INDEX = 9
-REGIMEN_EPSILON_FRAME_SPAN_INDEX = 10
-REGIMEN_GAMMA_INDEX = 11
-REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 12
-REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 13
+REGIMEN_REPLAY_BUFFER_INDEX = 0
+REGIMEN_STARTING_EPSILON_INDEX = 1
+REGIMEN_EPSILON_FLOOR_INDEX = 2
+REGIMEN_EPSILON_DECAY_INDEX = 3
+REGIMEN_EPSILON_FRAME_SPAN_INDEX = 4
+REGIMEN_GAMMA_INDEX = 5
+REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 6
+REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 7
 BATCH_MATCH_TIME_LIMIT_INDEX = 0
 BATCH_ROUNDS_PER_BATCH_INDEX = 1
 BATCH_BATCH_GROUPING_INDEX = 2
@@ -134,18 +130,21 @@ TAB_MARGIN = 8
 INSTANCE_TOP = 8
 INSTANCE_CONTROL_HEIGHT = 30
 INSTANCE_GAP = 8
-INSTANCE_DROPDOWN_VISIBLE_ROWS = 8
+INSTANCE_DROPDOWN_MAX_VISIBLE_ROWS = 25
 INSTANCE_SEPARATOR_HEIGHT = 4
 TRAINING_INSTANCE_SOFT_MAX = 4
 TRAINING_INSTANCE_SUPPORTED_MAX = 25
-INSTANCE_SUMMARY_WIDTH = 92
+INSTANCE_SUMMARY_WIDTH = 80
 INSTANCE_POSITION_WIDTH = INSTANCE_SUMMARY_WIDTH
 INSTANCE_RUNNING_WIDTH = 0
 INSTANCE_CLOSE_WIDTH = 60
-INSTANCE_ADD_WIDTH = 50
+INSTANCE_ADD_WIDTH = INSTANCE_CLOSE_WIDTH
 INSTANCE_DROPDOWN_COLOR = (0, 70, 75, 235)
 INSTANCE_DROPDOWN_HOVER_COLOR = (0, 100, 110, 255)
 INSTANCE_BORDER_COLOR = (200, 200, 200)
+INSTANCE_BORDER_WIDTH = 3
+TRAIN_AI_SESSION_VERSION = 1
+TRAIN_AI_SESSION_PATH = const.USER_DATA_ROOT / "train_ai_session.json"
 UI_TOP_MARGIN = INSTANCE_TOP + INSTANCE_CONTROL_HEIGHT + 12
 TAB_GAP = 8
 TAB_HEIGHT = 32
@@ -515,6 +514,12 @@ class TrainingInstanceManager:
                 return instance
         raise ValueError(f"Unknown training instance {instance_id}")
 
+    def select_relative_instance(self, delta):
+        if len(self.instances) <= 1:
+            return self.active_instance
+        index = (self.active_index + int(delta)) % len(self.instances)
+        return self.select_instance(self.instances[index].instance_id)
+
     def _insert_new_instance(self):
         instance_id = self._next_instance_id
         self._next_instance_id += 1
@@ -574,7 +579,7 @@ class TrainingInstanceManager:
 
     def instance_summary_text(self):
         width = max(2, len(str(len(self.instances))))
-        return f"{self.running_count():0{width}d}> / {len(self.instances):0{width}d}"
+        return f"{self.running_count():0{width}d}>/{len(self.instances):0{width}d}"
 
     def status_for(self, instance):
         return instance.session.status if instance.session is not None else None
@@ -753,6 +758,153 @@ class TrainingInstanceManager:
         self.release_stopped_writers()
 
 
+_TRAINING_UI_STATE_FIELDS = frozenset(TrainingUIState.__dataclass_fields__)
+
+
+def _training_ui_state_to_json(state):
+    payload = {}
+    for field_name in _TRAINING_UI_STATE_FIELDS:
+        value = getattr(state, field_name)
+        if field_name in {"display_on", "running"}:
+            payload[field_name] = False
+        else:
+            payload[field_name] = value
+    return payload
+
+
+def _training_ui_state_from_json(payload):
+    state = TrainingUIState()
+    if not isinstance(payload, dict):
+        return state
+    for field_name, value in payload.items():
+        if field_name not in _TRAINING_UI_STATE_FIELDS:
+            continue
+        if field_name == "selected_ship" and value not in SHIP_DEFINITIONS:
+            value = None
+        elif field_name == "selected_slot":
+            try:
+                value = max(1, min(MODEL_SLOT_COUNT, int(value)))
+            except (TypeError, ValueError):
+                value = 1
+        elif field_name == "slot_labels":
+            if not isinstance(value, list):
+                value = ["", "", "", ""]
+            value = [str(item) for item in value[:MODEL_SLOT_COUNT]]
+            value.extend([""] * (MODEL_SLOT_COUNT - len(value)))
+        elif field_name == "rewards":
+            if not isinstance(value, dict):
+                value = dict(state.rewards)
+            else:
+                rewards = dict(state.rewards)
+                for label in REWARD_LABELS:
+                    if label not in value:
+                        continue
+                    try:
+                        rewards[label] = float(value[label])
+                    except (TypeError, ValueError):
+                        pass
+                value = rewards
+        elif field_name == "training_device":
+            valid_devices = {device for device, _label in TRAINING_DEVICE_LABELS}
+            if value not in valid_devices:
+                value = torch_backend.DEVICE_AUTO
+        elif field_name in {"display_on", "running"}:
+            value = False
+        setattr(state, field_name, value)
+    return state
+
+
+def training_instance_manager_to_json(manager):
+    return {
+        "version": TRAIN_AI_SESSION_VERSION,
+        "active_instance_id": manager.active_instance_id,
+        "next_instance_id": manager._next_instance_id,
+        "batch_scheduling": {
+            "apply_to_all_open_instances": manager.batch_scheduling.apply_to_all_open_instances,
+        },
+        "instances": [
+            {
+                "instance_id": instance.instance_id,
+                "label": instance.label,
+                "state": _training_ui_state_to_json(instance.state),
+            }
+            for instance in manager.instances
+        ],
+    }
+
+
+def training_instance_manager_from_json(payload):
+    manager = TrainingInstanceManager()
+    if not isinstance(payload, dict):
+        return manager
+    raw_instances = payload.get("instances")
+    if not isinstance(raw_instances, list) or not raw_instances:
+        return manager
+
+    instances = []
+    used_ids = set()
+    for raw_instance in raw_instances[: manager.supported_max]:
+        if not isinstance(raw_instance, dict):
+            continue
+        try:
+            instance_id = int(raw_instance.get("instance_id", len(instances) + 1))
+        except (TypeError, ValueError):
+            instance_id = len(instances) + 1
+        if instance_id <= 0 or instance_id in used_ids:
+            instance_id = max(used_ids, default=0) + 1
+        used_ids.add(instance_id)
+        label = str(raw_instance.get("label") or f"Instance {instance_id}")
+        instances.append(
+            TrainingInstance(
+                instance_id=instance_id,
+                label=label,
+                state=_training_ui_state_from_json(raw_instance.get("state")),
+            )
+        )
+    if not instances:
+        return manager
+
+    manager.instances = instances
+    try:
+        active_instance_id = int(payload.get("active_instance_id", instances[0].instance_id))
+    except (TypeError, ValueError):
+        active_instance_id = instances[0].instance_id
+    if active_instance_id not in used_ids:
+        active_instance_id = instances[0].instance_id
+    manager.active_instance_id = active_instance_id
+    try:
+        next_instance_id = int(payload.get("next_instance_id", 0) or 0)
+    except (TypeError, ValueError):
+        next_instance_id = 0
+    manager._next_instance_id = max(next_instance_id, max(used_ids) + 1)
+    batch_scheduling = payload.get("batch_scheduling")
+    if isinstance(batch_scheduling, dict):
+        manager.batch_scheduling.apply_to_all_open_instances = bool(
+            batch_scheduling.get("apply_to_all_open_instances", False)
+        )
+    return manager
+
+
+def save_training_ui_session(manager, path=TRAIN_AI_SESSION_PATH):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+    temp_path.write_text(
+        json.dumps(training_instance_manager_to_json(manager), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    temp_path.replace(path)
+
+
+def load_training_ui_session(path=TRAIN_AI_SESSION_PATH):
+    path = Path(path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return TrainingInstanceManager()
+    return training_instance_manager_from_json(payload)
+
+
 def _instance_status_text(instance):
     status = instance.session.status if instance.session is not None else None
     if status is None:
@@ -784,6 +936,14 @@ def _instance_status_color(status):
     if status in {"Stopped", "Error"}:
         return (255, 80, 80)
     return (255, 255, 0)
+
+
+def _wheel_step(value):
+    if value > 0:
+        return -1
+    if value < 0:
+        return 1
+    return 0
 
 
 @dataclass(frozen=True)
@@ -875,10 +1035,22 @@ class InstanceDropdown:
         self.expanded = False
         self.scroll_index = 0
         self.row_height = INSTANCE_CONTROL_HEIGHT
-        self.max_visible_rows = INSTANCE_DROPDOWN_VISIBLE_ROWS
+        self.max_visible_rows = INSTANCE_DROPDOWN_MAX_VISIBLE_ROWS
+
+    def visible_row_count(self):
+        available_height = max(
+            0,
+            const.SCREEN_HEIGHT - (self.rect.bottom + 4) - INSTANCE_TOP,
+        )
+        rows_that_fit = max(1, available_height // self.row_height)
+        return min(
+            self.max_visible_rows,
+            rows_that_fit,
+            max(1, len(self.manager.instances)),
+        )
 
     def list_rect(self):
-        visible_rows = min(self.max_visible_rows, len(self.manager.instances))
+        visible_rows = self.visible_row_count()
         return pygame.Rect(
             self.rect.x,
             self.rect.bottom + 4,
@@ -887,9 +1059,10 @@ class InstanceDropdown:
         )
 
     def _visible_instances(self):
-        max_scroll = max(0, len(self.manager.instances) - self.max_visible_rows)
+        visible_rows = self.visible_row_count()
+        max_scroll = max(0, len(self.manager.instances) - visible_rows)
         self.scroll_index = max(0, min(self.scroll_index, max_scroll))
-        end = self.scroll_index + self.max_visible_rows
+        end = self.scroll_index + visible_rows
         return self.manager.instances[self.scroll_index:end]
 
     def _select_at_pos(self, pos):
@@ -925,20 +1098,25 @@ class InstanceDropdown:
             and self.list_rect().collidepoint(event.pos)
         ):
             direction = -1 if event.button == 4 else 1
-            max_scroll = max(0, len(self.manager.instances) - self.max_visible_rows)
+            max_scroll = max(0, len(self.manager.instances) - self.visible_row_count())
             self.scroll_index = max(0, min(max_scroll, self.scroll_index + direction))
             return True
         elif (
             event.type == pygame.MOUSEWHEEL
             and self.expanded
-            and self.list_rect().collidepoint(getattr(event, "pos", pygame.mouse.get_pos()))
         ):
-            max_scroll = max(0, len(self.manager.instances) - self.max_visible_rows)
-            self.scroll_index = max(0, min(max_scroll, self.scroll_index - event.y))
+            mouse_pos = getattr(event, "pos", None)
+            if mouse_pos is None:
+                mouse_pos = pygame.mouse.get_pos()
+            if not self.list_rect().collidepoint(mouse_pos):
+                return False
+            max_scroll = max(0, len(self.manager.instances) - self.visible_row_count())
+            direction = _wheel_step(event.y)
+            self.scroll_index = max(0, min(max_scroll, self.scroll_index + direction))
             return True
         return False
 
-    def draw(self, surface, font, mouse_pos=None):
+    def draw(self, surface, font, mouse_pos=None, *, draw_list=True):
         if mouse_pos is None:
             mouse_pos = pygame.mouse.get_pos()
         bg_color = (
@@ -947,7 +1125,7 @@ class InstanceDropdown:
             else INSTANCE_DROPDOWN_COLOR
         )
         pygame.draw.rect(surface, bg_color, self.rect, border_radius=5)
-        pygame.draw.rect(surface, INSTANCE_BORDER_COLOR, self.rect, 3, border_radius=5)
+        pygame.draw.rect(surface, INSTANCE_BORDER_COLOR, self.rect, INSTANCE_BORDER_WIDTH, border_radius=5)
         active_position = self.manager.active_index + 1
         prefix, status = _instance_row_parts(
             active_position,
@@ -957,12 +1135,18 @@ class InstanceDropdown:
         arrow = font.render("^" if self.expanded else "v", True, ui.WHITE)
         surface.blit(arrow, arrow.get_rect(midright=(self.rect.right - 8, self.rect.centery)))
 
+        if not self.expanded or not draw_list:
+            return
+        self.draw_list(surface, font, mouse_pos)
+
+    def draw_list(self, surface, font, mouse_pos=None):
         if not self.expanded:
             return
-
+        if mouse_pos is None:
+            mouse_pos = pygame.mouse.get_pos()
         list_rect = self.list_rect()
         pygame.draw.rect(surface, ui.BLACK, list_rect)
-        pygame.draw.rect(surface, INSTANCE_BORDER_COLOR, list_rect, 3)
+        pygame.draw.rect(surface, INSTANCE_BORDER_COLOR, list_rect, INSTANCE_BORDER_WIDTH)
         old_clip = surface.get_clip()
         inner_rect = list_rect.inflate(-6, -6)
         surface.set_clip(inner_rect.clip(old_clip))
@@ -982,12 +1166,13 @@ class InstanceDropdown:
             self._draw_row_text(surface, font, row, prefix, status)
         surface.set_clip(old_clip)
 
-        if len(self.manager.instances) > self.max_visible_rows:
+        visible_rows = self.visible_row_count()
+        if len(self.manager.instances) > visible_rows:
             track = pygame.Rect(list_rect.right - 7, list_rect.y + 5, 3, list_rect.height - 10)
             pygame.draw.rect(surface, ui.DARK_GREY, track)
-            ratio = self.max_visible_rows / len(self.manager.instances)
+            ratio = visible_rows / len(self.manager.instances)
             thumb_h = max(12, int(track.height * ratio))
-            max_scroll = len(self.manager.instances) - self.max_visible_rows
+            max_scroll = len(self.manager.instances) - visible_rows
             thumb_y = track.y
             if max_scroll:
                 thumb_y += int((track.height - thumb_h) * (self.scroll_index / max_scroll))
@@ -1923,7 +2108,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     """Show the AI-training configuration UI without starting training yet."""
     clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
     layout = training_layout()
-    instance_manager = TrainingInstanceManager()
+    instance_manager = load_training_ui_session()
     state = instance_manager.active_state
     model_repository = TrainingModelRepository(
         const.DEFAULT_MODELS_PATH,
@@ -2069,7 +2254,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     ship_tile = pygame.Rect(16, 48, 200, 200)
     device_selector_rect = pygame.Rect(
         ship_tile.right + 16,
-        ship_tile.y + 58,
+        ship_tile.y,
         CONTROL_WIDTH - ship_tile.right - 32,
         40,
     )
@@ -2209,39 +2394,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     regimen_sliders = (
         SliderRow(
             (regimen_left, regimen_top, regimen_width, regimen_height),
-            "Match frame limit",
-            MATCH_TIME_LIMIT_VALUES[0],
-            MATCH_TIME_LIMIT_VALUES[-1],
-            state.match_time_limit,
-            is_int=True,
-            values=MATCH_TIME_LIMIT_VALUES,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
-        SliderRow(
-            (regimen_left, regimen_top + regimen_spacing, regimen_width, regimen_height),
-            "Rounds per batch",
-            ROUNDS_PER_BATCH_VALUES[0],
-            ROUNDS_PER_BATCH_VALUES[-1],
-            state.rounds_per_batch,
-            is_int=True,
-            values=ROUNDS_PER_BATCH_VALUES,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
-        SliderRow(
-            (regimen_left, regimen_top + 2 * regimen_spacing, regimen_width, regimen_height),
-            "Batch grouping",
-            BATCH_GROUPING_VALUES[0],
-            BATCH_GROUPING_VALUES[-1],
-            state.batch_grouping,
-            is_int=True,
-            values=BATCH_GROUPING_VALUES,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
-        SliderRow(
-            (regimen_left, regimen_top + 3 * regimen_spacing, regimen_width, regimen_height),
             "Replay size, batch=30k",
             REPLAY_BUFFER_SIZE_VALUES[0],
             REPLAY_BUFFER_SIZE_VALUES[-1],
@@ -2253,41 +2405,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=regimen_slider_width,
         ),
         SliderRow(
-            (regimen_left, regimen_top + 4 * regimen_spacing, regimen_width, regimen_height),
-            "Minibatch size",
-            MINIBATCH_SIZE_VALUES[0],
-            MINIBATCH_SIZE_VALUES[-1],
-            state.minibatch_size,
-            is_int=True,
-            values=MINIBATCH_SIZE_VALUES,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
-        SliderRow(
-            (regimen_left, regimen_top + 5 * regimen_spacing, regimen_width, regimen_height),
-            "Gradient steps, UTD=1.1",
-            REPLAY_UPDATES_PER_BATCH_VALUES[0],
-            REPLAY_UPDATES_PER_BATCH_VALUES[-1],
-            state.replay_updates_per_batch,
-            is_int=True,
-            values=REPLAY_UPDATES_PER_BATCH_VALUES,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
-        SliderRow(
-            (regimen_left, regimen_top + 6 * regimen_spacing, regimen_width, regimen_height),
-            "Learning rate",
-            LEARNING_RATE_VALUES[0],
-            LEARNING_RATE_VALUES[-1],
-            state.learning_rate,
-            step=0.00001,
-            values=LEARNING_RATE_VALUES,
-            decimal_places=5,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
-        SliderRow(
-            (regimen_left, regimen_top + 7 * regimen_spacing, regimen_width, regimen_height),
+            (regimen_left, regimen_top + regimen_spacing, regimen_width, regimen_height),
             "Starting Epsilon",
             EPSILON_VALUES[0],
             EPSILON_VALUES[-1],
@@ -2299,7 +2417,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=regimen_slider_width,
         ),
         SliderRow(
-            (regimen_left, regimen_top + 8 * regimen_spacing, regimen_width, regimen_height),
+            (regimen_left, regimen_top + 2 * regimen_spacing, regimen_width, regimen_height),
             "Epsilon floor",
             EPSILON_FLOOR_VALUES[0],
             EPSILON_FLOOR_VALUES[-1],
@@ -2311,7 +2429,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=regimen_slider_width,
         ),
         SliderRow(
-            (regimen_left, regimen_top + 9 * regimen_spacing, regimen_width, regimen_height),
+            (regimen_left, regimen_top + 3 * regimen_spacing, regimen_width, regimen_height),
             "Epsilon decay",
             EPSILON_DECAY_VALUES[0],
             EPSILON_DECAY_VALUES[-1],
@@ -2323,7 +2441,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=regimen_slider_width,
         ),
         SliderRow(
-            (regimen_left, regimen_top + 10 * regimen_spacing, regimen_width, regimen_height),
+            (regimen_left, regimen_top + 4 * regimen_spacing, regimen_width, regimen_height),
             "Epsilon frame span",
             EPSILON_FRAME_SPAN_VALUES[0],
             EPSILON_FRAME_SPAN_VALUES[-1],
@@ -2334,7 +2452,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=regimen_slider_width,
         ),
         SliderRow(
-            (regimen_left, regimen_top + 11 * regimen_spacing, regimen_width, regimen_height),
+            (regimen_left, regimen_top + 5 * regimen_spacing, regimen_width, regimen_height),
             "Gamma",
             GAMMA_VALUES[0],
             GAMMA_VALUES[-1],
@@ -2346,7 +2464,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=regimen_slider_width,
         ),
         SliderRow(
-            (regimen_left, regimen_top + 12 * regimen_spacing, regimen_width, regimen_height),
+            (regimen_left, regimen_top + 6 * regimen_spacing, regimen_width, regimen_height),
             "Hidden layer size",
             HIDDEN_LAYER_SIZE_VALUES[0],
             HIDDEN_LAYER_SIZE_VALUES[-1],
@@ -2357,7 +2475,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=regimen_slider_width,
         ),
         SliderRow(
-            (regimen_left, regimen_top + 13 * regimen_spacing, regimen_width, regimen_height),
+            (regimen_left, regimen_top + 7 * regimen_spacing, regimen_width, regimen_height),
             "Hidden layer count",
             HIDDEN_LAYER_COUNT_VALUES[0],
             HIDDEN_LAYER_COUNT_VALUES[-1],
@@ -2486,35 +2604,17 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.a1_activity = simple_activity_sliders[1].value
         state.a2_activity = simple_activity_sliders[2].value
         state.face_opponent_activity = simple_activity_sliders[3].value
-        if state.active_tab == "batch":
-            state.match_time_limit = int(batch_sliders[BATCH_MATCH_TIME_LIMIT_INDEX].value)
-            state.rounds_per_batch = int(batch_sliders[BATCH_ROUNDS_PER_BATCH_INDEX].value)
-            state.batch_grouping = int(batch_sliders[BATCH_BATCH_GROUPING_INDEX].value)
-            state.minibatch_size = int(batch_sliders[BATCH_MINIBATCH_SIZE_INDEX].value)
-            state.replay_updates_per_batch = int(batch_sliders[BATCH_REPLAY_UPDATES_INDEX].value)
-            state.learning_rate = batch_sliders[BATCH_LEARNING_RATE_INDEX].value
-            if instance_manager.batch_scheduling.apply_to_all_open_instances:
-                instance_manager.apply_batch_settings_to_all(state)
-        else:
-            state.replay_buffer_size = int(
-                regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value
-            )
-            state.rounds_per_batch = int(
-                regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX].value
-            )
-            state.batch_grouping = int(
-                regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX].value
-            )
-            state.match_time_limit = int(
-                regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX].value
-            )
-            state.minibatch_size = int(
-                regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX].value
-            )
-            state.replay_updates_per_batch = int(
-                regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].value
-            )
-            state.learning_rate = regimen_sliders[REGIMEN_LEARNING_RATE_INDEX].value
+        state.match_time_limit = int(batch_sliders[BATCH_MATCH_TIME_LIMIT_INDEX].value)
+        state.rounds_per_batch = int(batch_sliders[BATCH_ROUNDS_PER_BATCH_INDEX].value)
+        state.batch_grouping = int(batch_sliders[BATCH_BATCH_GROUPING_INDEX].value)
+        state.minibatch_size = int(batch_sliders[BATCH_MINIBATCH_SIZE_INDEX].value)
+        state.replay_updates_per_batch = int(batch_sliders[BATCH_REPLAY_UPDATES_INDEX].value)
+        state.learning_rate = batch_sliders[BATCH_LEARNING_RATE_INDEX].value
+        if state.active_tab == "batch" and instance_manager.batch_scheduling.apply_to_all_open_instances:
+            instance_manager.apply_batch_settings_to_all(state)
+        state.replay_buffer_size = int(
+            regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value
+        )
         starting_epsilon = regimen_sliders[
             REGIMEN_STARTING_EPSILON_INDEX
         ].value
@@ -2539,20 +2639,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.hidden_layer_count = int(
             regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX].value
         )
-        if state.active_tab == "batch":
-            _set_slider_value(regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX], state.rounds_per_batch)
-            _set_slider_value(regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX], state.batch_grouping)
-            _set_slider_value(regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX], state.match_time_limit)
-            _set_slider_value(regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX], state.minibatch_size)
-            _set_slider_value(regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX], state.replay_updates_per_batch)
-            _set_slider_value(regimen_sliders[REGIMEN_LEARNING_RATE_INDEX], state.learning_rate)
-        else:
-            _set_slider_value(batch_sliders[BATCH_MATCH_TIME_LIMIT_INDEX], state.match_time_limit)
-            _set_slider_value(batch_sliders[BATCH_ROUNDS_PER_BATCH_INDEX], state.rounds_per_batch)
-            _set_slider_value(batch_sliders[BATCH_BATCH_GROUPING_INDEX], state.batch_grouping)
-            _set_slider_value(batch_sliders[BATCH_MINIBATCH_SIZE_INDEX], state.minibatch_size)
-            _set_slider_value(batch_sliders[BATCH_REPLAY_UPDATES_INDEX], state.replay_updates_per_batch)
-            _set_slider_value(batch_sliders[BATCH_LEARNING_RATE_INDEX], state.learning_rate)
 
     def apply_state_to_ui():
         nonlocal trainee_scroll_y, rewards_scroll_y
@@ -2570,27 +2656,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX],
             state.replay_buffer_size,
         )
-        _set_slider_value(
-            regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX],
-            state.rounds_per_batch,
-        )
-        _set_slider_value(
-            regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX],
-            state.batch_grouping,
-        )
-        _set_slider_value(
-            regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX],
-            state.match_time_limit,
-        )
-        _set_slider_value(
-            regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX],
-            state.minibatch_size,
-        )
-        _set_slider_value(
-            regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX],
-            state.replay_updates_per_batch,
-        )
-        _set_slider_value(regimen_sliders[REGIMEN_LEARNING_RATE_INDEX], state.learning_rate)
         _set_slider_value(
             regimen_sliders[REGIMEN_STARTING_EPSILON_INDEX],
             state.starting_epsilon,
@@ -2691,6 +2756,17 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state = instance_manager.active_state
         apply_state_to_ui()
         refresh_slot_controls(load_labels=False)
+
+    def select_relative_training_instance(delta):
+        nonlocal state
+        if len(instance_manager.instances) <= 1:
+            return False
+        sync_state_from_ui()
+        instance_manager.select_relative_instance(delta)
+        state = instance_manager.active_state
+        apply_state_to_ui()
+        refresh_slot_controls(load_labels=False)
+        return True
 
     def add_training_instance():
         nonlocal state
@@ -2987,32 +3063,32 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     ),
                     (
                         "rounds_per_batch",
-                        regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX],
+                        batch_sliders[BATCH_ROUNDS_PER_BATCH_INDEX],
                         int,
                     ),
                     (
                         "batch_grouping",
-                        regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX],
+                        batch_sliders[BATCH_BATCH_GROUPING_INDEX],
                         int,
                     ),
                     (
                         "match_time_limit",
-                        regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX],
+                        batch_sliders[BATCH_MATCH_TIME_LIMIT_INDEX],
                         int,
                     ),
                     (
                         "minibatch_size",
-                        regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX],
+                        batch_sliders[BATCH_MINIBATCH_SIZE_INDEX],
                         int,
                     ),
                     (
                         "replay_updates_per_batch",
-                        regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX],
+                        batch_sliders[BATCH_REPLAY_UPDATES_INDEX],
                         int,
                     ),
                     (
                         "learning_rate",
-                        regimen_sliders[REGIMEN_LEARNING_RATE_INDEX],
+                        batch_sliders[BATCH_LEARNING_RATE_INDEX],
                         float,
                     ),
                     (
@@ -3130,6 +3206,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             return (), ()
         return session.history, session.log_lines
 
+    def save_current_session():
+        sync_state_from_ui()
+        save_training_ui_session(instance_manager)
+
     def request_back():
         def stop_all_running_instances():
             instance_manager.request_stop_all_running()
@@ -3138,6 +3218,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             show_notice("Stopping background instances")
 
         def leave_training_screen():
+            save_current_session()
             exited[0] = True
 
         action = instance_manager.back_action()
@@ -3460,11 +3541,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     for index, delete_button in enumerate(delete_buttons):
         delete_button.callback = lambda slot=index + 1: request_delete(slot)
     refresh_slot_controls()
+    apply_state_to_ui()
 
     while not exited[0]:
         elapsed_seconds = clock.tick()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                if instance_manager.any_instance_running():
+                    instance_manager.request_stop_all_running()
+                    display_checkbox.is_checked = False
+                save_current_session()
                 pygame.quit()
                 sys.exit()
 
@@ -3494,6 +3580,24 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
             if instance_dropdown.handle_event(event, menu_sound_manager):
                 continue
+            if event.type == pygame.KEYDOWN and event.key in (pygame.K_PAGEUP, pygame.K_PAGEDOWN):
+                delta = -1 if event.key == pygame.K_PAGEUP else 1
+                if select_relative_training_instance(delta):
+                    if menu_sound_manager:
+                        menu_sound_manager.play_sound("menu")
+                    continue
+            if event.type == pygame.MOUSEWHEEL and not instance_dropdown.expanded:
+                delta = _wheel_step(event.y)
+                if delta and select_relative_training_instance(delta):
+                    continue
+            if (
+                event.type == pygame.MOUSEBUTTONDOWN
+                and event.button in (4, 5)
+                and not instance_dropdown.expanded
+            ):
+                delta = -1 if event.button == 4 else 1
+                if select_relative_training_instance(delta):
+                    continue
             close_instance_button.handle_event(event, menu_sound_manager)
             add_instance_button.handle_event(event, menu_sound_manager)
 
@@ -3623,13 +3727,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ].label = f"Replay size, batch={_format_short_count(max_batch_frames)}"
         buffer_size_mb = int((state.replay_buffer_size / 1000) * 5)
         regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value_suffix = f" ({buffer_size_mb}MB)"
-        if max_batch_frames > 0:
-            utd = (state.minibatch_size * state.replay_updates_per_batch) / max_batch_frames
-            regimen_sliders[
-                REGIMEN_REPLAY_UPDATES_INDEX
-            ].label = f"Gradient steps, UTD={utd:.1f}"
-        else:
-            regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].label = "Gradient steps"
 
         previous_active_id = instance_manager.active_instance_id
         for instance in list(instance_manager.instances):
@@ -3839,7 +3936,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 device_heading = body_font.render("PyTorch Device", True, ui.WHITE)
                 content.blit(
                     device_heading,
-                    device_heading.get_rect(center=(device_selector.rect.centerx, 82)),
+                    device_heading.get_rect(center=(device_selector.rect.centerx, 25)),
                 )
                 device_selector.draw(content, body_font, content_mouse_pos)
 
@@ -3955,11 +4052,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if regimen_tab.active: regimen_tab.draw(screen, tab_font)
         if batch_tab.active: batch_tab.draw(screen, tab_font)
 
-        running_color = (
-            ui.BRIGHT_GREEN if instance_manager.running_count() > 0 else ui.LIGHT_GREY
-        )
+        running_color = ui.BRIGHT_GREEN
         pygame.draw.rect(screen, ui.BLACK, instance_summary_rect, border_radius=5)
-        pygame.draw.rect(screen, running_color, instance_summary_rect, 1, border_radius=5)
+        pygame.draw.rect(
+            screen,
+            INSTANCE_BORDER_COLOR,
+            instance_summary_rect,
+            INSTANCE_BORDER_WIDTH,
+            border_radius=5,
+        )
         summary_text = instance_font.render(
             instance_manager.instance_summary_text(),
             True,
@@ -3969,9 +4070,23 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             summary_text,
             summary_text.get_rect(center=instance_summary_rect.center),
         )
-        instance_dropdown.draw(screen, instance_font)
-        close_instance_button.draw(screen, small_font)
-        add_instance_button.draw(screen, small_font)
+        instance_dropdown.draw(screen, instance_font, draw_list=False)
+        close_instance_button.draw(screen, instance_font)
+        pygame.draw.rect(
+            screen,
+            INSTANCE_BORDER_COLOR,
+            close_instance_button.rect,
+            INSTANCE_BORDER_WIDTH,
+            border_radius=5,
+        )
+        add_instance_button.draw(screen, instance_font)
+        pygame.draw.rect(
+            screen,
+            INSTANCE_BORDER_COLOR,
+            add_instance_button.rect,
+            INSTANCE_BORDER_WIDTH,
+            border_radius=5,
+        )
         separator_y = INSTANCE_TOP + INSTANCE_CONTROL_HEIGHT + 5
         pygame.draw.line(
             screen,
@@ -4027,6 +4142,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     pygame.mouse.get_pos(),
                     visible_tile,
                 )
+
+        instance_dropdown.draw_list(screen, instance_font)
 
         if ship_picker is not None:
             shade = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
