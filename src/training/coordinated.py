@@ -18,8 +18,10 @@ from src.audio import NullAudioService
 from src.training import torch_backend
 from src.training import event_ledger
 from src.training.batched_value_network import (
+    BatchedValueNetworkParameterCache,
+    build_batched_value_network_parameters,
     can_batch_value_networks,
-    predict_action_values_batched,
+    predict_action_values_from_batched_parameters,
     train_selected_action_regression_batched,
 )
 from src.training.model_registry import (
@@ -693,6 +695,8 @@ class CoordinatedTrainingSession:
         batch_action_requests = 0
         batch_exploratory_actions = 0
         batch_inference_mode_counts: dict[str, int] = {}
+        trainee_parameter_cache = BatchedValueNetworkParameterCache()
+        opponent_parameter_cache = BatchedValueNetworkParameterCache()
         schedules = {
             instance_id: self._opponents_for_batch(state)
             for instance_id, state in self._states.items()
@@ -766,7 +770,8 @@ class CoordinatedTrainingSession:
                         frame_requests.append((window, request))
                     inference_started_at = time.perf_counter()
                     action_result = select_actions_for_records(
-                        tuple(request for _window, request in frame_requests)
+                        tuple(request for _window, request in frame_requests),
+                        parameter_cache=trainee_parameter_cache,
                     )
                     _add_timing_seconds(
                         timing_seconds,
@@ -785,7 +790,8 @@ class CoordinatedTrainingSession:
                     self._record_inference_batch(action_result)
                     opponent_started_at = time.perf_counter()
                     opponent_controls_by_window = select_opponent_controls_for_windows(
-                        tuple(window for window, _request in frame_requests)
+                        tuple(window for window, _request in frame_requests),
+                        parameter_cache=opponent_parameter_cache,
                     )
                     _add_timing_seconds(
                         timing_seconds,
@@ -1630,6 +1636,8 @@ def append_coordinated_batch_timing_csv(
 
 def select_actions_for_records(
     requests: Sequence[CoordinatedActionRequest],
+    *,
+    parameter_cache: BatchedValueNetworkParameterCache | None = None,
 ) -> CoordinatedActionBatchResult:
     """Select coordinated trainee actions behind one replaceable helper boundary."""
 
@@ -1658,11 +1666,19 @@ def select_actions_for_records(
     inference_mode = "exploration_only"
     if greedy_requests:
         models = tuple(request.policy.model for request in greedy_requests)
-        if can_batch_value_networks(models):
-            values = predict_action_values_batched(
-                models,
-                tuple(tuple(request.observation) for request in greedy_requests),
-                set_eval=True,
+        observations = tuple(tuple(request.observation) for request in greedy_requests)
+        try:
+            parameters = (
+                parameter_cache.get(models, set_eval=True)
+                if parameter_cache is not None
+                else build_batched_value_network_parameters(models, set_eval=True)
+            )
+        except (TypeError, ValueError, StopIteration):
+            parameters = None
+        if parameters is not None:
+            values = predict_action_values_from_batched_parameters(
+                parameters,
+                observations,
             )
             for request, row in zip(greedy_requests, values):
                 cpu_row = row.detach().cpu()
@@ -1736,6 +1752,8 @@ def _policy_supports_batched_selection(policy: Any) -> bool:
 
 def select_opponent_controls_for_windows(
     windows: Sequence[_CoordinatedWindowRuntime],
+    *,
+    parameter_cache: BatchedValueNetworkParameterCache | None = None,
 ) -> Mapping[int, Mapping[str, bool]]:
     controls: dict[int, Mapping[str, bool]] = {}
     ai_requests: list[tuple[_CoordinatedWindowRuntime, tuple[float, ...]]] = []
@@ -1754,9 +1772,17 @@ def select_opponent_controls_for_windows(
 
     if ai_requests:
         models = tuple(window.opponent.model for window, _observation in ai_requests)
-        if can_batch_value_networks(models):
-            values = predict_action_values_batched(
-                models,
+        try:
+            parameters = (
+                parameter_cache.get(models)
+                if parameter_cache is not None
+                else build_batched_value_network_parameters(models)
+            )
+        except (TypeError, ValueError, StopIteration):
+            parameters = None
+        if parameters is not None:
+            values = predict_action_values_from_batched_parameters(
+                parameters,
                 tuple(observation for _window, observation in ai_requests),
             )
             for (window, _observation), row in zip(ai_requests, values):

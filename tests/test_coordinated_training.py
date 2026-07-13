@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from unittest import mock
 
 from src.training import torch_backend
+from src.training import batched_value_network
+from src.training.batched_value_network import BatchedValueNetworkParameterCache
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
 from src.training.coordinated import (
     CoordinatedActionRequest,
@@ -452,6 +454,44 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
         self.assertEqual(result.exploratory_count, 0)
         self.assertEqual(result.selections[1].action_index, 3)
         self.assertEqual(result.selections[2].action_index, 5)
+
+    def test_select_actions_for_records_reuses_cached_batched_parameters(self):
+        if torch_backend.get_torch() is None:
+            self.skipTest("PyTorch is not installed")
+        torch = torch_backend.require_torch()
+        models = (
+            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1)),
+        )
+        policies = tuple(
+            ValueNetworkPolicy(model, epsilon=0.0)
+            for model in models
+        )
+        requests = (
+            CoordinatedActionRequest(
+                1,
+                policies[0],
+                [0.0] * OBSERVATION_INPUT_SIZE,
+            ),
+            CoordinatedActionRequest(
+                2,
+                policies[1],
+                [1.0] * OBSERVATION_INPUT_SIZE,
+            ),
+        )
+        cache = BatchedValueNetworkParameterCache()
+        stack_parameters = batched_value_network._stack_linear_parameters
+
+        with mock.patch(
+            "src.training.batched_value_network._stack_linear_parameters",
+            wraps=stack_parameters,
+        ) as stack_mock:
+            first = select_actions_for_records(requests, parameter_cache=cache)
+            second = select_actions_for_records(requests, parameter_cache=cache)
+
+        self.assertEqual(stack_mock.call_count, 1)
+        self.assertEqual(first.inference_mode, "batched_value_network")
+        self.assertEqual(second.inference_mode, "batched_value_network")
 
     def test_opponent_controls_batch_only_ai_backed_windows(self):
         if torch_backend.get_torch() is None:

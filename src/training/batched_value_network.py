@@ -3,10 +3,51 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from src.training import torch_backend
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
+
+
+@dataclass(frozen=True)
+class BatchedValueNetworkParameters:
+    models: tuple[Any, ...]
+    params: tuple[tuple[Any, Any], ...]
+    device: Any
+    dtype: Any
+
+    @property
+    def model_count(self) -> int:
+        return len(self.models)
+
+
+class BatchedValueNetworkParameterCache:
+    """Cache stacked same-shaped inference parameters for stable model tuples."""
+
+    def __init__(self):
+        self._entries: dict[tuple[int, ...], BatchedValueNetworkParameters] = {}
+
+    def get(
+        self,
+        models: Sequence[Any],
+        *,
+        set_eval: bool = False,
+    ) -> BatchedValueNetworkParameters:
+        model_tuple = tuple(models)
+        key = tuple(id(model) for model in model_tuple)
+        cached = self._entries.get(key)
+        if cached is not None and all(
+            cached_model is model
+            for cached_model, model in zip(cached.models, model_tuple)
+        ):
+            return cached
+        cached = build_batched_value_network_parameters(
+            model_tuple,
+            set_eval=set_eval,
+        )
+        self._entries[key] = cached
+        return cached
 
 
 def can_batch_value_networks(models: Sequence[Any]) -> bool:
@@ -22,11 +63,57 @@ def can_batch_value_networks(models: Sequence[Any]) -> bool:
     return True
 
 
+def build_batched_value_network_parameters(
+    models: Sequence[Any],
+    *,
+    set_eval: bool = False,
+) -> BatchedValueNetworkParameters:
+    """Stack model parameters once for repeated inference calls."""
+
+    torch = torch_backend.require_torch()
+    model_tuple = tuple(models)
+    if not model_tuple:
+        raise ValueError("at least one model is required")
+    if set_eval:
+        for model in model_tuple:
+            model.eval()
+    params = _stack_linear_parameters(model_tuple, torch, detach=True)
+    return BatchedValueNetworkParameters(
+        models=model_tuple,
+        params=params,
+        device=params[0][0].device,
+        dtype=params[0][0].dtype,
+    )
+
+
+def predict_action_values_from_batched_parameters(
+    parameters: BatchedValueNetworkParameters,
+    observations: Sequence[Sequence[float]],
+):
+    """Return action values using a previously stacked inference parameter bundle."""
+
+    torch = torch_backend.require_torch()
+    tensor = torch.as_tensor(
+        observations,
+        dtype=parameters.dtype,
+        device=parameters.device,
+    )
+    expected_shape = (parameters.model_count, OBSERVATION_INPUT_SIZE)
+    if tensor.ndim != 2 or tuple(tensor.shape) != expected_shape:
+        raise ValueError(
+            f"observations must have shape [model_count, {OBSERVATION_INPUT_SIZE}]"
+        )
+    inference_context = getattr(torch, "inference_mode", torch.no_grad)
+    with inference_context():
+        return _batched_forward(parameters.params, tensor)
+
+
 def predict_action_values_batched(
     models: Sequence[Any],
     observations: Sequence[Sequence[float]],
     *,
     set_eval: bool = False,
+    parameter_cache: BatchedValueNetworkParameterCache | None = None,
 ):
     """Return one action-value row per model/input pair."""
 
@@ -35,20 +122,12 @@ def predict_action_values_batched(
         raise ValueError("models and observations must have the same length")
     if not models:
         return torch.empty((0, ACTION_OUTPUT_SIZE), dtype=torch.float32)
-    if set_eval:
-        for model in models:
-            model.eval()
-    params = _stack_linear_parameters(models, torch)
-    device = params[0][0].device
-    dtype = params[0][0].dtype
-    tensor = torch.as_tensor(observations, dtype=dtype, device=device)
-    if tensor.ndim != 2 or tensor.shape != (len(models), OBSERVATION_INPUT_SIZE):
-        raise ValueError(
-            f"observations must have shape [model_count, {OBSERVATION_INPUT_SIZE}]"
-        )
-    inference_context = getattr(torch, "inference_mode", torch.no_grad)
-    with inference_context():
-        return _batched_forward(params, tensor)
+    parameters = (
+        parameter_cache.get(models, set_eval=set_eval)
+        if parameter_cache is not None
+        else build_batched_value_network_parameters(models, set_eval=set_eval)
+    )
+    return predict_action_values_from_batched_parameters(parameters, observations)
 
 
 def train_selected_action_regression_batched(
@@ -120,7 +199,7 @@ def _batched_forward(params, observations):
     return values.squeeze(1) if squeeze_model_batch else values
 
 
-def _stack_linear_parameters(models: Sequence[Any], torch):
+def _stack_linear_parameters(models: Sequence[Any], torch, *, detach: bool = False):
     layer_groups = [_linear_layers_for_model(model, torch) for model in models]
     reference = layer_groups[0]
     reference_shapes = tuple(
@@ -148,8 +227,8 @@ def _stack_linear_parameters(models: Sequence[Any], torch):
                 raise ValueError(
                     "value networks must have matching shapes, devices, and dtypes"
                 )
-            weights.append(layer.weight)
-            biases.append(layer.bias)
+            weights.append(layer.weight.detach() if detach else layer.weight)
+            biases.append(layer.bias.detach() if detach else layer.bias)
         params.append((torch.stack(weights, dim=0), torch.stack(biases, dim=0)))
     return tuple(params)
 

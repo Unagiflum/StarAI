@@ -29,8 +29,9 @@ from src.training.opponent_cache import (
     OpponentModelCache,
     OpponentModelKey,
 )
-from src.training import torch_backend
+from src.training import batched_value_network, torch_backend
 from src.training.batched_value_network import (
+    BatchedValueNetworkParameterCache,
     predict_action_values_batched,
     train_selected_action_regression_batched,
 )
@@ -145,6 +146,38 @@ class ValueNetworkTests(unittest.TestCase):
         )
 
         self.assertTrue(torch.allclose(batched.detach().cpu(), expected))
+
+    def test_batched_prediction_cache_reuses_stacked_parameters(self):
+        torch = torch_backend.require_torch()
+        torch.manual_seed(102)
+        models = (
+            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1)),
+        )
+        observations = (
+            [0.25] * OBSERVATION_INPUT_SIZE,
+            [-0.5] * OBSERVATION_INPUT_SIZE,
+        )
+        cache = BatchedValueNetworkParameterCache()
+        stack_parameters = batched_value_network._stack_linear_parameters
+
+        with mock.patch(
+            "src.training.batched_value_network._stack_linear_parameters",
+            wraps=stack_parameters,
+        ) as stack_mock:
+            first = predict_action_values_batched(
+                models,
+                observations,
+                parameter_cache=cache,
+            )
+            second = predict_action_values_batched(
+                models,
+                observations,
+                parameter_cache=cache,
+            )
+
+        self.assertEqual(stack_mock.call_count, 1)
+        self.assertTrue(torch.allclose(first.detach().cpu(), second.detach().cpu()))
 
     def test_batched_training_matches_individual_model_updates(self):
         torch = torch_backend.require_torch()
