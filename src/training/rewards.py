@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import src.const as const
 from src.training import combat_adapters
@@ -60,6 +61,10 @@ REWARD_COMPONENTS = (
     REWARD_LOSE_CREW,
     REWARD_DIE,
 )
+_REWARD_COMPONENT_INDEX = {
+    component: index for index, component in enumerate(REWARD_COMPONENTS)
+}
+_REWARD_COMPONENT_COUNT = len(REWARD_COMPONENTS)
 
 LEGACY_REWARD_ALIASES = {
     REWARD_SPAWN_A1: "Spawn A1 object",
@@ -78,6 +83,10 @@ NORMALIZED_SHAPING_COMPONENTS = (
 DISCOUNTED_SUM_COMPONENTS = (
     REWARD_KILL_ENEMY,
     REWARD_DIE,
+)
+_DISCOUNTED_SUM_COMPONENT_INDICES = frozenset(
+    _REWARD_COMPONENT_INDEX[component]
+    for component in DISCOUNTED_SUM_COMPONENTS
 )
 
 DISCOUNT_CUTOFF_WEIGHT = 0.01
@@ -130,9 +139,6 @@ class MatureTrainingSample:
 @dataclass
 class _PendingSample:
     decision: RewardDecisionFrame
-    decisions: list[RewardDecisionFrame] = field(default_factory=list)
-    outcomes: list[RewardFrameOutcome] = field(default_factory=list)
-    components: list[dict[str, float]] = field(default_factory=list)
 
 
 def decision_frame_from_battle_state(
@@ -202,7 +208,16 @@ class RollingReturnPipeline:
         self.gamma = _validate_gamma(gamma)
         self.discount_cutoff_frames = discount_cutoff_frames(self.gamma)
         self.reward_weights = normalize_reward_weights(reward_weights or {})
-        self._pending: list[_PendingSample] = []
+        self._discount_powers = _discount_powers(
+            self.gamma,
+            self.discount_cutoff_frames,
+        )
+        self._discount_weight_sums = _discount_weight_sums(
+            self._discount_powers,
+        )
+        self._pending: deque[_PendingSample] = deque()
+        self._component_window: deque[tuple[float, ...]] = deque()
+        self._window_totals = _zero_component_vector()
         self._terminal_seen = False
 
     @property
@@ -211,6 +226,8 @@ class RollingReturnPipeline:
 
     def reset(self) -> None:
         self._pending.clear()
+        self._component_window.clear()
+        self._window_totals = _zero_component_vector()
         self._terminal_seen = False
 
     def add_frame(
@@ -224,47 +241,114 @@ class RollingReturnPipeline:
             raise ValueError("decision and outcome frame IDs must match")
 
         self._pending.append(_PendingSample(decision=decision))
-        components = calculate_immediate_reward_components(decision, outcome)
-        matured: list[MatureTrainingSample] = []
-        for pending in list(self._pending):
-            pending.decisions.append(decision)
-            pending.outcomes.append(outcome)
-            pending.components.append(components)
-            if len(pending.outcomes) >= self.discount_cutoff_frames or outcome.terminal:
-                matured.append(
-                    build_discounted_training_sample(
-                        pending.decision,
-                        pending.components,
-                        self.reward_weights,
-                        self.gamma,
-                        end_frame_id=pending.outcomes[-1].frame_id,
-                        terminal_truncated=outcome.terminal
-                        and len(pending.outcomes) < self.discount_cutoff_frames,
-                    )
-                )
-                self._pending.remove(pending)
+        components = _calculate_immediate_reward_component_vector(decision, outcome)
+        self._append_component_vector(components)
 
         if outcome.terminal:
+            matured = self._mature_all_pending(
+                end_frame_id=outcome.frame_id,
+                terminal=True,
+            )
             self._terminal_seen = True
+            return matured
+
+        if len(self._component_window) < self.discount_cutoff_frames:
+            return []
+
+        pending = self._pending.popleft()
+        matured = [
+            _sample_from_component_vector(
+                pending.decision,
+                _discounted_average_component_vector(
+                    self._window_totals,
+                    self._discount_weight_sums[self.discount_cutoff_frames],
+                ),
+                self.reward_weights,
+                end_frame_id=outcome.frame_id,
+                actual_frame_count=self.discount_cutoff_frames,
+                terminal_truncated=False,
+            )
+        ]
+        self._drop_oldest_component_vector()
         return matured
 
     def flush_pending(self, *, end_frame_id: int) -> list[MatureTrainingSample]:
         if self._terminal_seen:
             raise RuntimeError("cannot flush after a terminal outcome")
-        matured = [
-            build_discounted_training_sample(
-                pending.decision,
-                pending.components,
-                self.reward_weights,
-                self.gamma,
-                end_frame_id=end_frame_id,
-                terminal_truncated=True,
-            )
-            for pending in self._pending
-            if pending.components
-        ]
-        self._pending.clear()
+        matured = self._mature_all_pending(
+            end_frame_id=end_frame_id,
+            terminal=True,
+        )
         self._terminal_seen = True
+        return matured
+
+    def _append_component_vector(self, components: tuple[float, ...]) -> None:
+        offset = len(self._component_window)
+        self._component_window.append(components)
+        discount = self._discount_powers[offset]
+        self._window_totals = tuple(
+            total + float(value) * discount
+            for total, value in zip(self._window_totals, components)
+        )
+
+    def _drop_oldest_component_vector(self) -> None:
+        oldest = self._component_window.popleft()
+        if not self._component_window:
+            self._window_totals = _zero_component_vector()
+            return
+        if self.gamma == 0.0:
+            self._window_totals = tuple(
+                float(value) for value in self._component_window[0]
+            )
+            return
+        self._window_totals = tuple(
+            (total - float(value)) / self.gamma
+            for total, value in zip(self._window_totals, oldest)
+        )
+
+    def _mature_all_pending(
+        self,
+        *,
+        end_frame_id: int,
+        terminal: bool,
+    ) -> list[MatureTrainingSample]:
+        components = list(self._component_window)
+        suffix_totals = _zero_component_vector()
+        samples_by_offset: list[tuple[float, ...]] = [
+            _zero_component_vector()
+            for _ in components
+        ]
+        for offset in range(len(components) - 1, -1, -1):
+            current = components[offset]
+            suffix_totals = tuple(
+                float(value) + self.gamma * total
+                for value, total in zip(current, suffix_totals)
+            )
+            samples_by_offset[offset] = suffix_totals
+
+        matured = []
+        for offset, pending in enumerate(self._pending):
+            actual_frame_count = len(components) - offset
+            if actual_frame_count <= 0:
+                continue
+            averaged = _discounted_average_component_vector(
+                samples_by_offset[offset],
+                self._discount_weight_sums[actual_frame_count],
+            )
+            matured.append(
+                _sample_from_component_vector(
+                    pending.decision,
+                    averaged,
+                    self.reward_weights,
+                    end_frame_id=end_frame_id,
+                    actual_frame_count=actual_frame_count,
+                    terminal_truncated=terminal
+                    and actual_frame_count < self.discount_cutoff_frames,
+                )
+            )
+        self._pending.clear()
+        self._component_window.clear()
+        self._window_totals = _zero_component_vector()
         return matured
 
 
@@ -293,71 +377,135 @@ def discount_cutoff_frames(
     return max(1, int(math.ceil(math.log(cutoff) / math.log(gamma))))
 
 
+def _zero_component_vector() -> tuple[float, ...]:
+    return (0.0,) * _REWARD_COMPONENT_COUNT
+
+
+def _discount_powers(gamma: float, frame_count: int) -> tuple[float, ...]:
+    powers = []
+    discount = 1.0
+    for _ in range(max(1, int(frame_count))):
+        powers.append(discount)
+        discount *= gamma
+    return tuple(powers)
+
+
+def _discount_weight_sums(discount_powers: Sequence[float]) -> tuple[float, ...]:
+    sums = [0.0]
+    total = 0.0
+    for discount in discount_powers:
+        total += float(discount)
+        sums.append(total)
+    return tuple(sums)
+
+
+def _component_dict_from_vector(components: Sequence[float]) -> dict[str, float]:
+    return {
+        component: float(components[index])
+        for index, component in enumerate(REWARD_COMPONENTS)
+    }
+
+
+def _discounted_average_component_vector(
+    totals: Sequence[float],
+    weight_sum: float,
+) -> tuple[float, ...]:
+    return tuple(
+        float(total)
+        if index in _DISCOUNTED_SUM_COMPONENT_INDICES
+        else float(total) / weight_sum
+        for index, total in enumerate(totals)
+    )
+
+
 def calculate_immediate_reward_components(
     decision: RewardDecisionFrame,
     outcome: RewardFrameOutcome,
 ) -> dict[str, float]:
+    return _component_dict_from_vector(
+        _calculate_immediate_reward_component_vector(decision, outcome)
+    )
+
+
+def _calculate_immediate_reward_component_vector(
+    decision: RewardDecisionFrame,
+    outcome: RewardFrameOutcome,
+) -> tuple[float, ...]:
     if decision.frame_id != outcome.frame_id:
         raise ValueError("decision and outcome frame IDs must match")
-    components = {component: 0.0 for component in REWARD_COMPONENTS}
+    components = [0.0] * _REWARD_COMPONENT_COUNT
 
-    components[REWARD_POINT_A1] = 1.0 if decision.a1_pointing else 0.0
-    components[REWARD_A1_RANGE] = 1.0 if decision.a1_in_range else 0.0
-    components[REWARD_POINT_A2] = 1.0 if decision.a2_pointing else 0.0
-    components[REWARD_A2_RANGE] = 1.0 if decision.a2_in_range else 0.0
+    components[_REWARD_COMPONENT_INDEX[REWARD_POINT_A1]] = (
+        1.0 if decision.a1_pointing else 0.0
+    )
+    components[_REWARD_COMPONENT_INDEX[REWARD_A1_RANGE]] = (
+        1.0 if decision.a1_in_range else 0.0
+    )
+    components[_REWARD_COMPONENT_INDEX[REWARD_POINT_A2]] = (
+        1.0 if decision.a2_pointing else 0.0
+    )
+    components[_REWARD_COMPONENT_INDEX[REWARD_A2_RANGE]] = (
+        1.0 if decision.a2_in_range else 0.0
+    )
 
     if outcome.self_max_thrust > 0.0 and outcome.self_speed > outcome.self_max_thrust:
-        components[REWARD_HIGH_SPEED] = (
+        components[_REWARD_COMPONENT_INDEX[REWARD_HIGH_SPEED]] = (
             outcome.self_speed - outcome.self_max_thrust
         ) / outcome.self_max_thrust
 
     battery_delta = outcome.self_battery - decision.self_battery
     if battery_delta > 0:
-        components[REWARD_GAIN_BATTERY] = battery_delta
+        components[_REWARD_COMPONENT_INDEX[REWARD_GAIN_BATTERY]] = battery_delta
     elif battery_delta < 0:
-        components[REWARD_LOSE_BATTERY] = -battery_delta
+        components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_BATTERY]] = -battery_delta
     if outcome.self_battery <= 0:
-        components[REWARD_BATTERY_AT_ZERO] = 1.0
+        components[_REWARD_COMPONENT_INDEX[REWARD_BATTERY_AT_ZERO]] = 1.0
 
     self_ship = decision.self_ship
     enemy_ship = decision.enemy_ship
     if _uses_sustained_a2_reward(self_ship) and outcome.self_sustained_a2_active:
-        components[REWARD_SPAWN_A2] = 1.0
+        components[_REWARD_COMPONENT_INDEX[REWARD_SPAWN_A2]] = 1.0
     for event in outcome.events:
         if _is_self_action_use_event(event, self_ship):
             if _is_a1_use_event(event):
-                components[REWARD_SPAWN_A1] = 1.0
+                components[_REWARD_COMPONENT_INDEX[REWARD_SPAWN_A1]] = 1.0
             elif (
                 not _uses_sustained_a2_reward(self_ship)
                 and _is_a2_use_event(event)
             ):
-                components[REWARD_SPAWN_A2] = 1.0
+                components[_REWARD_COMPONENT_INDEX[REWARD_SPAWN_A2]] = 1.0
         elif event.event_type == EVENT_CREW_CHANGED:
             if _same_entity(event.target, enemy_ship) and event.magnitude < 0:
-                components[REWARD_ENEMY_LOSES_CREW] += (
+                components[_REWARD_COMPONENT_INDEX[REWARD_ENEMY_LOSES_CREW]] += (
                     -event.magnitude * _source_reward_credit(event)
                 )
             elif _same_entity(event.target, self_ship) and event.magnitude < 0:
-                components[REWARD_LOSE_CREW] += -event.magnitude
+                components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_CREW]] += -event.magnitude
             elif _same_entity(event.target, self_ship) and event.magnitude > 0:
-                components[REWARD_GAIN_CREW] += event.magnitude
+                components[_REWARD_COMPONENT_INDEX[REWARD_GAIN_CREW]] += event.magnitude
         elif event.event_type == EVENT_DEBUFF_APPLIED:
             if _same_entity(event.target, enemy_ship):
-                components[REWARD_DEBUFF_ENEMY] += event.magnitude
+                components[_REWARD_COMPONENT_INDEX[REWARD_DEBUFF_ENEMY]] += (
+                    event.magnitude
+                )
             elif _same_entity(event.target, self_ship):
-                components[REWARD_GET_DEBUFFED] += event.magnitude
+                components[_REWARD_COMPONENT_INDEX[REWARD_GET_DEBUFFED]] += (
+                    event.magnitude
+                )
         elif event.event_type == EVENT_OBJECT_REMOVED:
             if _object_removed_by_owner_weapon(event, enemy_ship, self_ship):
-                components[REWARD_KILL_ENEMY_OBJECT] += 1.0
+                components[_REWARD_COMPONENT_INDEX[REWARD_KILL_ENEMY_OBJECT]] += 1.0
             elif _object_removed_by_owner_weapon(event, self_ship, self_ship):
-                components[REWARD_DESTROY_OWN_OBJECT] += 1.0
+                components[_REWARD_COMPONENT_INDEX[REWARD_DESTROY_OWN_OBJECT]] += 1.0
         elif event.event_type == EVENT_SHIP_DIED:
             if _same_entity(event.target, enemy_ship):
-                components[REWARD_KILL_ENEMY] += _kill_reward_credit(event)
+                components[_REWARD_COMPONENT_INDEX[REWARD_KILL_ENEMY]] += (
+                    _kill_reward_credit(event)
+                )
             elif _same_entity(event.target, self_ship):
-                components[REWARD_DIE] += 1.0
+                components[_REWARD_COMPONENT_INDEX[REWARD_DIE]] += 1.0
 
-    return components
+    return tuple(components)
 
 
 def calculate_reward_components(
@@ -468,6 +616,33 @@ def _sample_from_components(
         action_index=int(start_decision.action_index),
         return_value=sum(weighted.values()),
         component_values=components,
+        weighted_components=weighted,
+        start_frame_id=start_decision.frame_id,
+        end_frame_id=int(end_frame_id),
+        actual_frame_count=int(actual_frame_count),
+        terminal_truncated=bool(terminal_truncated),
+    )
+
+
+def _sample_from_component_vector(
+    start_decision: RewardDecisionFrame,
+    components: Sequence[float],
+    reward_weights: Mapping[str, float],
+    *,
+    end_frame_id: int,
+    actual_frame_count: int,
+    terminal_truncated: bool = False,
+) -> MatureTrainingSample:
+    component_values = _component_dict_from_vector(components)
+    weighted = {
+        component: component_values[component] * float(reward_weights[component])
+        for component in REWARD_COMPONENTS
+    }
+    return MatureTrainingSample(
+        observation=tuple(float(value) for value in start_decision.observation),
+        action_index=int(start_decision.action_index),
+        return_value=sum(weighted.values()),
+        component_values=component_values,
         weighted_components=weighted,
         start_frame_id=start_decision.frame_id,
         end_frame_id=int(end_frame_id),
