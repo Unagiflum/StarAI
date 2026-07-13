@@ -89,3 +89,52 @@ Remaining:
 - Phase 2 intentionally does not simulate battles, optimize, or save completed
   progress because no coordinated batches are completed yet.
 - Phase 3 should replace the no-op idle loop with fixed-frame battle windows.
+
+## Phase 3: Fixed-Frame Battle Windows
+
+Status: Completed for current implementation scope.
+
+Completed:
+
+- Added `TrainingEpisodeResult` and `CoordinatedFixedFrameWindowResult` to
+  model fixed-frame coordinated window output separately from legacy single
+  round output.
+- Added `run_coordinated_fixed_frame_window()` for headless coordinated
+  windows that:
+  - consumes exactly `match_time_limit` scheduler-local frames;
+  - uses decision frames `simulation.frame_id + 1` and post-step outcome
+    frames from `BattleSimulation.step()`;
+  - treats timeout as a fixed-window boundary rather than an extra terminal
+    simulation step;
+  - flushes timeout pending reward samples exactly once;
+  - treats permanent death/aftermath resolution as terminal;
+  - starts a fresh battle and fresh `RollingReturnPipeline` after terminal
+    reset when frame budget remains;
+  - treats pending rebirth as non-terminal so those frames continue consuming
+    the same window budget.
+- Replaced the default Phase 2 coordinated idle loop with sequential
+  fixed-frame window execution in the coordinated worker.
+- Kept `run_batches=False` as a test hook for pure lifecycle tests without
+  invoking model inference.
+- Added coordinated worker status updates for current round, opponent, window
+  frame, replay size, recent return, component totals, batch metrics, epsilon,
+  and log lines.
+- Added focused fixed-window tests for exact frame consumption, terminal reset
+  within a window, timeout flushing, and pending rebirth behavior.
+
+Verified:
+
+- `python -m unittest tests.test_coordinated_training`
+- `python -m unittest tests.test_train_ai_ui`
+- `python -m unittest tests.test_training_orchestration`
+- `python -m unittest tests.test_training_session`
+- `python -m unittest tests.test_training_models`
+
+Remaining:
+
+- Manual smoke of the Batch tab `Start All` / `Stop All` flow remains pending.
+- Coordinated runtime still advances records sequentially by fixed window;
+  cross-record frame-by-frame advancement is Phase 4.
+- Coordinated runtime records completed batch/window metrics but still does not
+  run synchronized optimization or save completed progress; those remain Phase
+  6.
