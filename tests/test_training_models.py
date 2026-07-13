@@ -1,3 +1,4 @@
+import copy
 import json
 import tempfile
 import unittest
@@ -29,6 +30,10 @@ from src.training.opponent_cache import (
     OpponentModelKey,
 )
 from src.training import torch_backend
+from src.training.batched_value_network import (
+    predict_action_values_batched,
+    train_selected_action_regression_batched,
+)
 from src.training.replay import save_training_checkpoint
 from src.training.value_network import (
     ValueNetworkConfig,
@@ -36,6 +41,7 @@ from src.training.value_network import (
     build_value_network,
     predict_action_values,
     selected_action_regression_loss,
+    train_selected_action_regression,
 )
 
 
@@ -116,6 +122,82 @@ class ValueNetworkTests(unittest.TestCase):
         optimizer.step()
 
         self.assertIsInstance(float(loss.detach().cpu().item()), float)
+
+    def test_batched_prediction_matches_individual_models(self):
+        torch = torch_backend.require_torch()
+        torch.manual_seed(100)
+        models = (
+            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1)),
+        )
+        observations = (
+            [0.25] * OBSERVATION_INPUT_SIZE,
+            [-0.5] * OBSERVATION_INPUT_SIZE,
+        )
+
+        batched = predict_action_values_batched(models, observations, set_eval=True)
+        expected = torch.cat(
+            [
+                predict_action_values(model, [observation]).detach().cpu()
+                for model, observation in zip(models, observations)
+            ],
+            dim=0,
+        )
+
+        self.assertTrue(torch.allclose(batched.detach().cpu(), expected))
+
+    def test_batched_training_matches_individual_model_updates(self):
+        torch = torch_backend.require_torch()
+        torch.manual_seed(101)
+        models = [
+            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1)),
+        ]
+        sequential_models = [copy.deepcopy(model) for model in models]
+        optimizers = [build_optimizer(model, learning_rate=0.001) for model in models]
+        sequential_optimizers = [
+            build_optimizer(model, learning_rate=0.001)
+            for model in sequential_models
+        ]
+        observations_by_model = [
+            [[0.1] * OBSERVATION_INPUT_SIZE, [0.2] * OBSERVATION_INPUT_SIZE],
+            [[-0.3] * OBSERVATION_INPUT_SIZE, [0.4] * OBSERVATION_INPUT_SIZE],
+        ]
+        actions_by_model = [[1, 3], [2, 4]]
+        returns_by_model = [[1.0, -0.25], [0.5, 1.25]]
+
+        batched_losses = train_selected_action_regression_batched(
+            models,
+            optimizers,
+            observations_by_model,
+            actions_by_model,
+            returns_by_model,
+        )
+        sequential_losses = tuple(
+            train_selected_action_regression(
+                model,
+                optimizer,
+                observations,
+                actions,
+                returns,
+            )
+            for model, optimizer, observations, actions, returns in zip(
+                sequential_models,
+                sequential_optimizers,
+                observations_by_model,
+                actions_by_model,
+                returns_by_model,
+            )
+        )
+
+        for batched_loss, sequential_loss in zip(batched_losses, sequential_losses):
+            self.assertAlmostEqual(batched_loss, sequential_loss, places=6)
+        for model, sequential_model in zip(models, sequential_models):
+            for value, expected in zip(
+                model.state_dict().values(),
+                sequential_model.state_dict().values(),
+            ):
+                self.assertTrue(torch.allclose(value, expected))
 
     def test_model_construction_fails_clearly_without_torch(self):
         with mock.patch("src.training.torch_backend._torch", None):

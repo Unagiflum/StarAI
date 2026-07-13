@@ -17,6 +17,11 @@ from src.Objects.Ships.registry import create_ship
 from src.audio import NullAudioService
 from src.training import torch_backend
 from src.training import event_ledger
+from src.training.batched_value_network import (
+    can_batch_value_networks,
+    predict_action_values_batched,
+    train_selected_action_regression_batched,
+)
 from src.training.model_registry import (
     TrainingModelRepository,
     TrainingModelSlot,
@@ -53,6 +58,7 @@ from src.training.replay import (
     load_training_checkpoint,
     optimize_from_replay,
     save_training_checkpoint,
+    select_action_epsilon_greedy,
 )
 from src.training.replay import ActionSelection
 from src.training.rewards import (
@@ -78,6 +84,8 @@ from src.training.value_network import (
     ValueNetworkConfig,
     build_optimizer,
     build_value_network,
+    predict_action_values_read_only,
+    train_selected_action_regression,
 )
 
 
@@ -775,6 +783,15 @@ class CoordinatedTrainingSession:
                         + 1
                     )
                     self._record_inference_batch(action_result)
+                    opponent_started_at = time.perf_counter()
+                    opponent_controls_by_window = select_opponent_controls_for_windows(
+                        tuple(window for window, _request in frame_requests)
+                    )
+                    _add_timing_seconds(
+                        timing_seconds,
+                        "opponent_inference",
+                        opponent_started_at,
+                    )
                     for window, request in frame_requests:
                         _advance_coordinated_window_frame(
                             window,
@@ -783,6 +800,7 @@ class CoordinatedTrainingSession:
                             audio_service=self._audio_service,
                             observation=request.observation,
                             selection=action_result.selections[request.record_id],
+                            opponent_controls=opponent_controls_by_window[id(window)],
                             progress_callback=(
                                 lambda payload, item=window.state: self._on_record_progress(
                                     item,
@@ -823,10 +841,7 @@ class CoordinatedTrainingSession:
                 state.status.battle_view = None
 
         optimization_started_at = time.perf_counter()
-        optimization_losses = {
-            instance_id: self._optimize_record(state)
-            for instance_id, state in self._states.items()
-        }
+        optimization_losses = self._optimize_records()
         _add_timing_seconds(
             timing_seconds,
             "optimization",
@@ -1026,6 +1041,19 @@ class CoordinatedTrainingSession:
             if result is not None:
                 losses.append(result.loss)
         return tuple(losses)
+
+    def _optimize_records(self) -> dict[int, tuple[float, ...]]:
+        states = tuple(self._states.values())
+        if not _can_batch_record_optimization(states):
+            return {
+                state.record.instance_id: self._optimize_record(state)
+                for state in states
+            }
+        return _optimize_records_batched(
+            states,
+            rng=self._rng,
+            stop_requested=self._stop_requested.is_set,
+        )
 
     def _save_unsaved_completed_progress(self) -> None:
         for state in self._states.values():
@@ -1603,12 +1631,7 @@ def append_coordinated_batch_timing_csv(
 def select_actions_for_records(
     requests: Sequence[CoordinatedActionRequest],
 ) -> CoordinatedActionBatchResult:
-    """Select coordinated trainee actions behind one replaceable helper boundary.
-
-    This first implementation intentionally reports ``sequential_fallback``:
-    records still own distinct model weights, so true multi-model batching is
-    deferred behind this function.
-    """
+    """Select coordinated trainee actions behind one replaceable helper boundary."""
 
     if not requests:
         return CoordinatedActionBatchResult(
@@ -1618,16 +1641,70 @@ def select_actions_for_records(
             exploratory_count=0,
         )
 
+    _raise_for_duplicate_action_requests(requests)
+    if not all(_policy_supports_batched_selection(request.policy) for request in requests):
+        return _select_actions_for_records_sequential(requests)
+
     selections: dict[int, ActionSelection] = {}
+    greedy_requests: list[CoordinatedActionRequest] = []
     for request in requests:
         record_id = int(request.record_id)
-        if record_id in selections:
-            raise ValueError(f"duplicate coordinated action request for {record_id}")
-        selections[record_id] = _select_policy_action(
+        prepared = request.policy.prepare_action_selection(request.observation)
+        if prepared is None:
+            greedy_requests.append(request)
+        else:
+            selections[record_id] = prepared
+
+    inference_mode = "exploration_only"
+    if greedy_requests:
+        models = tuple(request.policy.model for request in greedy_requests)
+        if can_batch_value_networks(models):
+            values = predict_action_values_batched(
+                models,
+                tuple(tuple(request.observation) for request in greedy_requests),
+                set_eval=True,
+            )
+            for request, row in zip(greedy_requests, values):
+                cpu_row = row.detach().cpu()
+                selection = request.policy.complete_greedy_selection(
+                    int(cpu_row.argmax().item()),
+                    tuple(float(value) for value in cpu_row.tolist()),
+                )
+                selections[int(request.record_id)] = selection
+            inference_mode = "batched_value_network"
+        else:
+            for request in greedy_requests:
+                selection = select_action_epsilon_greedy(
+                    request.policy.model,
+                    request.observation,
+                    epsilon=0.0,
+                    rng=request.policy.rng,
+                )
+                selections[int(request.record_id)] = (
+                    request.policy.complete_greedy_selection(selection)
+                )
+            inference_mode = "sequential_fallback"
+
+    return CoordinatedActionBatchResult(
+        selections=selections,
+        inference_mode=inference_mode,
+        request_count=len(selections),
+        exploratory_count=sum(
+            1 for selection in selections.values() if selection.exploratory
+        ),
+    )
+
+
+def _select_actions_for_records_sequential(
+    requests: Sequence[CoordinatedActionRequest],
+) -> CoordinatedActionBatchResult:
+    selections = {
+        int(request.record_id): _select_policy_action(
             request.policy,
             request.observation,
         )
-
+        for request in requests
+    }
     return CoordinatedActionBatchResult(
         selections=selections,
         inference_mode="sequential_fallback",
@@ -1636,6 +1713,180 @@ def select_actions_for_records(
             1 for selection in selections.values() if selection.exploratory
         ),
     )
+
+
+def _raise_for_duplicate_action_requests(
+    requests: Sequence[CoordinatedActionRequest],
+) -> None:
+    seen: set[int] = set()
+    for request in requests:
+        record_id = int(request.record_id)
+        if record_id in seen:
+            raise ValueError(f"duplicate coordinated action request for {record_id}")
+        seen.add(record_id)
+
+
+def _policy_supports_batched_selection(policy: Any) -> bool:
+    return (
+        callable(getattr(policy, "prepare_action_selection", None))
+        and callable(getattr(policy, "complete_greedy_selection", None))
+        and hasattr(policy, "model")
+    )
+
+
+def select_opponent_controls_for_windows(
+    windows: Sequence[_CoordinatedWindowRuntime],
+) -> Mapping[int, Mapping[str, bool]]:
+    controls: dict[int, Mapping[str, bool]] = {}
+    ai_requests: list[tuple[_CoordinatedWindowRuntime, tuple[float, ...]]] = []
+    for window in windows:
+        simulation = window.simulation
+        if window.opponent.model is None:
+            controls[id(window)] = window.simple_controller.controls_for_frame(simulation)
+            continue
+        observation = encode_observation(
+            simulation.player2,
+            simulation.player1,
+            frame_id=simulation.frame_id,
+            game_objects=simulation.world,
+        )
+        ai_requests.append((window, tuple(observation)))
+
+    if ai_requests:
+        models = tuple(window.opponent.model for window, _observation in ai_requests)
+        if can_batch_value_networks(models):
+            values = predict_action_values_batched(
+                models,
+                tuple(observation for _window, observation in ai_requests),
+            )
+            for (window, _observation), row in zip(ai_requests, values):
+                action_index = int(row.detach().cpu().argmax().item())
+                controls[id(window)] = controls_for_action_index(action_index)
+        else:
+            for window, observation in ai_requests:
+                selection = select_action_epsilon_greedy(
+                    window.opponent.model,
+                    observation,
+                    epsilon=0.0,
+                    value_predictor=predict_action_values_read_only,
+                )
+                controls[id(window)] = controls_for_action_index(selection.action_index)
+    return controls
+
+
+def _can_batch_record_optimization(
+    states: Sequence[_CoordinatedRecordState],
+) -> bool:
+    if not states:
+        return False
+    first_config = states[0].record.config
+    if int(first_config.replay_updates_per_batch) <= 0:
+        return True
+    for state in states:
+        components = state.components
+        if components is None:
+            return False
+        config = state.record.config
+        if int(config.minibatch_size) != int(first_config.minibatch_size):
+            return False
+        if int(config.replay_updates_per_batch) != int(
+            first_config.replay_updates_per_batch
+        ):
+            return False
+    return can_batch_value_networks(
+        tuple(state.components.model for state in states if state.components is not None)
+    )
+
+
+def _optimize_records_batched(
+    states: Sequence[_CoordinatedRecordState],
+    *,
+    rng: Any,
+    stop_requested: Callable[[], bool] | None,
+) -> dict[int, tuple[float, ...]]:
+    if not states:
+        return {}
+    update_count = int(states[0].record.config.replay_updates_per_batch)
+    batch_size = int(states[0].record.config.minibatch_size)
+    losses: dict[int, list[float]] = {
+        state.record.instance_id: []
+        for state in states
+    }
+    sampled_batches: list[list[tuple[Any, ...] | None]] = []
+    for state in states:
+        components = state.components
+        if components is None:
+            raise RuntimeError("coordinated components were not loaded")
+        record_batches: list[tuple[Any, ...] | None] = []
+        for _ in range(update_count):
+            _raise_if_stop_requested(stop_requested)
+            if len(components.replay_buffer) < batch_size:
+                record_batches.append(None)
+            else:
+                record_batches.append(
+                    components.replay_buffer.sample_minibatch(batch_size, rng=rng)
+                )
+        sampled_batches.append(record_batches)
+
+    for update_index in range(update_count):
+        _raise_if_stop_requested(stop_requested)
+        active: list[tuple[_CoordinatedRecordState, tuple[Any, ...]]] = []
+        for state, record_batches in zip(states, sampled_batches):
+            batch = record_batches[update_index]
+            if batch is not None:
+                active.append((state, batch))
+        if not active:
+            continue
+        batch_losses = _train_sampled_batches_batched(active)
+        for (state, _batch), loss in zip(active, batch_losses):
+            losses[state.record.instance_id].append(float(loss))
+    return {
+        instance_id: tuple(record_losses)
+        for instance_id, record_losses in losses.items()
+    }
+
+
+def _train_sampled_batches_batched(
+    active: Sequence[tuple[_CoordinatedRecordState, tuple[Any, ...]]],
+) -> tuple[float, ...]:
+    models = []
+    optimizers = []
+    observations_by_model = []
+    action_indices_by_model = []
+    returns_by_model = []
+    for state, batch in active:
+        components = state.components
+        if components is None:
+            raise RuntimeError("coordinated components were not loaded")
+        models.append(components.model)
+        optimizers.append(components.optimizer)
+        observations_by_model.append([sample.observation for sample in batch])
+        action_indices_by_model.append([sample.action_index for sample in batch])
+        returns_by_model.append([sample.return_value for sample in batch])
+    try:
+        return train_selected_action_regression_batched(
+            models,
+            optimizers,
+            observations_by_model,
+            action_indices_by_model,
+            returns_by_model,
+        )
+    except (TypeError, ValueError):
+        losses = []
+        for state, batch in active:
+            components = state.components
+            if components is None:
+                raise RuntimeError("coordinated components were not loaded")
+            losses.append(
+                train_selected_action_regression(
+                    components.model,
+                    components.optimizer,
+                    [sample.observation for sample in batch],
+                    [sample.action_index for sample in batch],
+                    [sample.return_value for sample in batch],
+                )
+            )
+        return tuple(losses)
 
 
 def _action_request_for_window(
@@ -1735,6 +1986,7 @@ def _advance_coordinated_window_frame(
     audio_service: Any,
     observation: Sequence[float] | None = None,
     selection: ActionSelection | None = None,
+    opponent_controls: Mapping[str, bool] | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
     timing_seconds: dict[str, float] | None = None,
@@ -1784,18 +2036,19 @@ def _advance_coordinated_window_frame(
         reward_decision_started_at,
     )
     event_start = len(runtime.ledger.events)
-    opponent_started_at = time.perf_counter()
-    opponent_controls = _opponent_controls(
-        runtime.opponent,
-        simulation,
-        config,
-        runtime.simple_controller,
-    )
-    _add_timing_seconds(
-        timing_seconds,
-        "opponent_inference",
-        opponent_started_at,
-    )
+    if opponent_controls is None:
+        opponent_started_at = time.perf_counter()
+        opponent_controls = _opponent_controls(
+            runtime.opponent,
+            simulation,
+            config,
+            runtime.simple_controller,
+        )
+        _add_timing_seconds(
+            timing_seconds,
+            "opponent_inference",
+            opponent_started_at,
+        )
     simulation_started_at = time.perf_counter()
     step_state = _step_simulation_with_optional_timing(
         simulation,

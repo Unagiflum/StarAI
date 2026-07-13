@@ -6,7 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from src.training.contracts import OBSERVATION_INPUT_SIZE
+from src.training import torch_backend
+from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
 from src.training.coordinated import (
     CoordinatedActionRequest,
     CoordinatedRuntimeComponents,
@@ -14,6 +15,7 @@ from src.training.coordinated import (
     CoordinatedTrainingSession,
     append_coordinated_batch_timing_csv,
     select_actions_for_records,
+    select_opponent_controls_for_windows,
     run_coordinated_fixed_frame_window,
 )
 from src.training.rewards import RewardDecisionFrame, RewardFrameOutcome
@@ -26,7 +28,9 @@ from src.training.model_registry import (
 )
 from src.training.orchestration import TrainingOrchestrationConfig
 from src.training.orchestration import OpponentSpec
-from src.training.replay import ActionSelection, TrainingReplayBuffer
+from src.training.orchestration import ValueNetworkPolicy
+from src.training.replay import ActionSelection, ReplaySample, TrainingReplayBuffer
+from src.training.value_network import ValueNetworkConfig, build_optimizer, build_value_network
 
 
 def _record(instance_id, ship, batch_grouping=1, **config_overrides):
@@ -410,6 +414,92 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
                 )
             )
 
+    def test_select_actions_for_records_batches_value_network_greedy_requests(self):
+        if torch_backend.get_torch() is None:
+            self.skipTest("PyTorch is not installed")
+        torch = torch_backend.require_torch()
+        models = (
+            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1)),
+        )
+        with torch.no_grad():
+            for model, action_index in zip(models, (3, 5)):
+                for parameter in model.parameters():
+                    parameter.zero_()
+                model[-1].bias.copy_(torch.arange(ACTION_OUTPUT_SIZE).float())
+                model[-1].bias[action_index] = 100.0
+        policies = tuple(
+            ValueNetworkPolicy(model, epsilon=0.0)
+            for model in models
+        )
+
+        result = select_actions_for_records(
+            (
+                CoordinatedActionRequest(
+                    1,
+                    policies[0],
+                    [0.0] * OBSERVATION_INPUT_SIZE,
+                ),
+                CoordinatedActionRequest(
+                    2,
+                    policies[1],
+                    [1.0] * OBSERVATION_INPUT_SIZE,
+                ),
+            )
+        )
+
+        self.assertEqual(result.inference_mode, "batched_value_network")
+        self.assertEqual(result.exploratory_count, 0)
+        self.assertEqual(result.selections[1].action_index, 3)
+        self.assertEqual(result.selections[2].action_index, 5)
+
+    def test_opponent_controls_batch_only_ai_backed_windows(self):
+        if torch_backend.get_torch() is None:
+            self.skipTest("PyTorch is not installed")
+        torch = torch_backend.require_torch()
+        model = build_value_network(ValueNetworkConfig(8, 1))
+        with torch.no_grad():
+            for parameter in model.parameters():
+                parameter.zero_()
+            model[-1].bias.copy_(torch.arange(ACTION_OUTPUT_SIZE).float())
+            model[-1].bias[4] = 100.0
+        simple_controls = {"forward": True}
+        simple_controller = mock.Mock()
+        simple_controller.controls_for_frame.return_value = simple_controls
+        simple_window = SimpleNamespace(
+            opponent=OpponentSpec("Earthling"),
+            simulation=SimpleNamespace(
+                player1=SimpleNamespace(),
+                player2=SimpleNamespace(),
+                frame_id=0,
+                world=(),
+            ),
+            simple_controller=simple_controller,
+        )
+        ai_window = SimpleNamespace(
+            opponent=OpponentSpec("Androsynth", model=model),
+            simulation=SimpleNamespace(
+                player1=SimpleNamespace(),
+                player2=SimpleNamespace(),
+                frame_id=0,
+                world=(),
+            ),
+            simple_controller=mock.Mock(),
+        )
+
+        with mock.patch(
+            "src.training.coordinated.encode_observation",
+            return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+        ):
+            controls = select_opponent_controls_for_windows(
+                (simple_window, ai_window)
+        )
+
+        self.assertIs(controls[id(simple_window)], simple_controls)
+        self.assertEqual(controls[id(ai_window)]["right"], True)
+        simple_controller.controls_for_frame.assert_called_once()
+        ai_window.simple_controller.controls_for_frame.assert_not_called()
+
 
 class CoordinatedTimingCsvTests(unittest.TestCase):
     def test_append_coordinated_batch_timing_csv_writes_header_and_row(self):
@@ -550,10 +640,10 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
         self.assertEqual(session.status_for_instance(1).completed_batches, 1)
         self.assertEqual(session.status_for_instance(2).completed_batches, 1)
         stats = session.inference_stats
-        self.assertEqual(stats.last_mode, "sequential_fallback")
+        self.assertEqual(stats.last_mode, "exploration_only")
         self.assertEqual(stats.request_count, 6)
         self.assertEqual(stats.exploratory_count, 6)
-        self.assertEqual(stats.mode_counts["sequential_fallback"], 3)
+        self.assertEqual(stats.mode_counts["exploration_only"], 3)
         timing = session.timing_stats
         self.assertEqual(timing.completed_batches, 1)
         self.assertEqual(timing.frame_count, 6)
@@ -574,7 +664,7 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
         self.assertEqual(first_timing_row["exploratory_actions"], 6)
         self.assertEqual(
             first_timing_row["inference_mode"],
-            "sequential_fallback:3",
+            "exploration_only:3",
         )
 
     def test_batch_runs_synchronized_optimization_for_each_record(self):
@@ -654,6 +744,64 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
             session.status_for_instance(1).display_message,
             "Applying gradient descent",
         )
+
+    def test_compatible_records_use_batched_optimization_helper(self):
+        if torch_backend.get_torch() is None:
+            self.skipTest("PyTorch is not installed")
+
+        def component_builder(_record):
+            model = build_value_network(ValueNetworkConfig(8, 1))
+            replay = TrainingReplayBuffer(4)
+            replay.extend(
+                (
+                    ReplaySample(
+                        observation=tuple([0.0] * OBSERVATION_INPUT_SIZE),
+                        action_index=0,
+                        return_value=1.0,
+                    ),
+                    ReplaySample(
+                        observation=tuple([1.0] * OBSERVATION_INPUT_SIZE),
+                        action_index=1,
+                        return_value=0.5,
+                    ),
+                )
+            )
+            return CoordinatedRuntimeComponents(
+                model=model,
+                optimizer=build_optimizer(model, learning_rate=0.001),
+                replay_buffer=replay,
+            )
+
+        session = CoordinatedTrainingSession(
+            (
+                _record(
+                    1,
+                    "Earthling",
+                    minibatch_size=1,
+                    replay_updates_per_batch=1,
+                ),
+                _record(
+                    2,
+                    "Androsynth",
+                    minibatch_size=1,
+                    replay_updates_per_batch=1,
+                ),
+            ),
+            component_builder=component_builder,
+            run_batches=True,
+        )
+        for state in session._states.values():
+            state.components = component_builder(state.record)
+
+        with mock.patch(
+            "src.training.coordinated.train_selected_action_regression_batched",
+            return_value=(0.25, 0.75),
+        ) as train_batched:
+            losses = session._optimize_records()
+
+        train_batched.assert_called_once()
+        self.assertEqual(losses[1], (0.25,))
+        self.assertEqual(losses[2], (0.75,))
 
     def test_grouped_save_writes_metadata_and_notifies_cache(self):
         with self.subTest("grouped save"):

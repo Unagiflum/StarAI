@@ -188,6 +188,22 @@ class ValueNetworkPolicy:
         self._span_action_index: int | None = None
 
     def select_action(self, observation: Sequence[float]) -> ActionSelection:
+        prepared = self.prepare_action_selection(observation)
+        if prepared is not None:
+            return prepared
+        selection = select_action_epsilon_greedy(
+            self.model,
+            observation,
+            epsilon=0.0,
+            rng=self.rng,
+        )
+        return self.complete_greedy_selection(selection)
+
+    def prepare_action_selection(
+        self,
+        observation: Sequence[float],
+    ) -> ActionSelection | None:
+        del observation
         if self._span_frames_remaining > 0:
             self._span_frames_remaining -= 1
             if self._span_action_index is not None:
@@ -196,13 +212,7 @@ class ValueNetworkPolicy:
                     exploratory=True,
                 )
                 return self.last_selection
-            self.last_selection = select_action_epsilon_greedy(
-                self.model,
-                observation,
-                epsilon=0.0,
-                rng=self.rng,
-            )
-            return self.last_selection
+            return None
 
         self._span_action_index = None
         self._span_frames_remaining = self.epsilon_frame_span - 1
@@ -216,12 +226,25 @@ class ValueNetworkPolicy:
             )
             return self.last_selection
 
-        self.last_selection = select_action_epsilon_greedy(
-            self.model,
-            observation,
-            epsilon=0.0,
-            rng=self.rng,
-        )
+        return None
+
+    def complete_greedy_selection(
+        self,
+        selection: ActionSelection | int,
+        action_values: Sequence[float] | None = None,
+    ) -> ActionSelection:
+        if isinstance(selection, ActionSelection):
+            self.last_selection = selection
+        else:
+            self.last_selection = ActionSelection(
+                action_index=int(selection),
+                exploratory=False,
+                action_values=(
+                    tuple(float(value) for value in action_values)
+                    if action_values is not None
+                    else None
+                ),
+            )
         return self.last_selection
 
     def reset_exploration_span(self) -> None:
