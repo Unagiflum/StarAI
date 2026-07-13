@@ -79,9 +79,11 @@ class ToroidalSpatialIndex:
         self.arena_size = float(arena_size)
         self.cells_per_axis = max(1, int(math.ceil(arena_size / cell_size)))
         self.cell_size = self.arena_size / self.cells_per_axis
-        self.metrics = metrics or SpatialIndexMetrics()
+        self.metrics = metrics if metrics is not None else SpatialIndexMetrics()
+        self._metrics_enabled = metrics is not None
         self._cells: dict[tuple[int, int], list[_Entry]] = {}
         self._entries: dict[int, _Entry] = {}
+        self._membership_count = 0
 
         category_map = categories or {}
         for order, obj in enumerate(objects):
@@ -107,6 +109,7 @@ class ToroidalSpatialIndex:
         entry = _Entry(obj, order, frozenset(categories))
         entry.cells = self._object_cells(obj)
         self._entries[identity] = entry
+        self._membership_count += len(entry.cells)
         for cell in entry.cells:
             self._cells.setdefault(cell, []).append(entry)
         self._refresh_metrics()
@@ -121,12 +124,14 @@ class ToroidalSpatialIndex:
         if new_cells == entry.cells:
             return False
 
-        for cell in entry.cells:
+        old_cells = entry.cells
+        for cell in old_cells:
             members = self._cells[cell]
             members.remove(entry)
             if not members:
                 del self._cells[cell]
 
+        self._membership_count += len(new_cells) - len(old_cells)
         entry.cells = new_cells
         for cell in new_cells:
             members = self._cells.setdefault(cell, [])
@@ -331,7 +336,8 @@ class ToroidalSpatialIndex:
         categories: Iterable[str] | None,
         excluded_identity: int | None = None,
     ) -> list[Any]:
-        self.metrics.queries += 1
+        if self._metrics_enabled:
+            self.metrics.queries += 1
         category_filter = frozenset(categories or ())
         found: dict[int, _Entry] = {}
         for cell in cells:
@@ -344,13 +350,16 @@ class ToroidalSpatialIndex:
                 found[identity] = entry
 
         ordered = sorted(found.values(), key=lambda entry: entry.order)
-        self.metrics.returned_candidates += len(ordered)
+        if self._metrics_enabled:
+            self.metrics.returned_candidates += len(ordered)
         return [entry.obj for entry in ordered]
 
     def _refresh_metrics(self) -> None:
+        if not self._metrics_enabled:
+            return
         self.metrics.object_count = len(self._entries)
         self.metrics.occupied_cells = len(self._cells)
-        self.metrics.memberships = sum(len(members) for members in self._cells.values())
+        self.metrics.memberships = self._membership_count
 
 
 def collision_extents(obj: Any) -> tuple[float, float]:

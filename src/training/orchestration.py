@@ -18,6 +18,7 @@ from src.training import event_ledger, torch_backend
 from src.training.contracts import (
     ACTION_OUTPUT_SIZE,
     SHIP_TYPE_CATALOG_ORDER,
+    TrainingAction,
     action_for_index,
 )
 from src.training.model_registry import (
@@ -511,8 +512,8 @@ def run_training_round(
         )
         event_start = len(ledger.events)
         actions = {
-            1: controls_for_action_index(selection.action_index),
-            2: _opponent_controls(
+            1: direct_controls_for_action_index(selection.action_index),
+            2: _opponent_direct_controls(
                 opponent,
                 simulation,
                 config,
@@ -594,8 +595,11 @@ def run_training_round(
     )
 
 
-def controls_for_action_index(action_index: int) -> dict[str, bool]:
-    action = action_for_index(int(action_index))
+def direct_controls_for_action_index(action_index: int) -> TrainingAction:
+    return action_for_index(int(action_index))
+
+
+def _controls_mapping_from_action(action: TrainingAction) -> dict[str, bool]:
     return {
         "forward": action.thrust,
         "left": action.turn_left,
@@ -603,6 +607,11 @@ def controls_for_action_index(action_index: int) -> dict[str, bool]:
         "action1": action.a1,
         "action2": action.a2,
     }
+
+
+def controls_for_action_index(action_index: int) -> dict[str, bool]:
+    action = action_for_index(int(action_index))
+    return _controls_mapping_from_action(action)
 
 
 class SimpleOpponentController:
@@ -616,6 +625,9 @@ class SimpleOpponentController:
         self.next_face_decision_frame: int | None = None
 
     def controls_for_frame(self, simulation):
+        return _controls_mapping_from_action(self.direct_controls_for_frame(simulation))
+
+    def direct_controls_for_frame(self, simulation):
         self.forward_held = self._next_key_state(
             self.forward_held,
             self.config.forward_activity,
@@ -635,13 +647,14 @@ class SimpleOpponentController:
                 simulation.player2,
                 simulation.player1,
             )
-        return {
-            "forward": self.forward_held,
-            "action1": self.action1_held,
-            "action2": self.action2_held,
-            "left": left,
-            "right": right,
-        }
+        mask = (
+            (1 if self.forward_held else 0)
+            | (2 if left else 0)
+            | (4 if right else 0)
+            | (8 if self.action1_held else 0)
+            | (16 if self.action2_held else 0)
+        )
+        return TrainingAction.from_mask(mask)
 
     def _next_key_state(self, held: bool, activity: float) -> bool:
         probability = _activity_probability(activity)
@@ -707,8 +720,19 @@ def _opponent_controls(
     config: TrainingOrchestrationConfig,
     simple_controller: SimpleOpponentController,
 ) -> dict[str, bool]:
+    return _controls_mapping_from_action(
+        _opponent_direct_controls(opponent, simulation, config, simple_controller)
+    )
+
+
+def _opponent_direct_controls(
+    opponent: OpponentSpec,
+    simulation,
+    config: TrainingOrchestrationConfig,
+    simple_controller: SimpleOpponentController,
+) -> TrainingAction:
     if opponent.model is None:
-        return simple_controller.controls_for_frame(simulation)
+        return simple_controller.direct_controls_for_frame(simulation)
     observation = encode_observation(
         simulation.player2,
         simulation.player1,
@@ -721,7 +745,7 @@ def _opponent_controls(
         epsilon=0.0,
         value_predictor=predict_action_values_read_only,
     )
-    return controls_for_action_index(selection.action_index)
+    return direct_controls_for_action_index(selection.action_index)
 
 
 def _turn_toward_target(ship, target) -> tuple[bool, bool]:

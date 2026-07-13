@@ -660,6 +660,8 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
                 "src.training.coordinated.frame_outcome_from_battle_state",
                 side_effect=fake_frame_outcome,
             ),
+            mock.patch("src.training.coordinated.COORDINATED_TIMING_METRICS_ENABLED", True),
+            mock.patch("src.training.coordinated.TRAINING_CSV_OUTPUT_ENABLED", True),
             mock.patch("src.training.coordinated.append_coordinated_batch_timing_csv") as timing_csv,
         ):
             self.assertTrue(session._run_one_coordinated_batch())

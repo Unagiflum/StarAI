@@ -2,6 +2,7 @@ import pygame
 import sys
 import random
 import time
+from collections.abc import Mapping
 
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.ability import Ability
@@ -55,6 +56,10 @@ def _add_battle_timing_seconds(timing_seconds, bucket, started_at):
         0.0,
         time.perf_counter() - float(started_at),
     )
+
+
+def _battle_timing_started_at(timing_seconds):
+    return time.perf_counter() if timing_seconds is not None else 0.0
 
 
 def _add_battle_timing_count(timing_seconds, bucket, count):
@@ -277,21 +282,21 @@ class BattleSimulation:
         ):
             entry = getattr(self, "entry", None)
             excluded_ships = entry.entering_ships if entry else ()
-            stage_started_at = time.perf_counter()
+            stage_started_at = _battle_timing_started_at(timing_seconds)
             self._process_ship_inputs(excluded_ships)
             _add_battle_timing_seconds(
                 timing_seconds,
                 "simulation_ship_inputs",
                 stage_started_at,
             )
-            stage_started_at = time.perf_counter()
+            stage_started_at = _battle_timing_started_at(timing_seconds)
             self._update_tracking_lists()
             _add_battle_timing_seconds(
                 timing_seconds,
                 "simulation_tracking",
                 stage_started_at,
             )
-            stage_started_at = time.perf_counter()
+            stage_started_at = _battle_timing_started_at(timing_seconds)
             self._update_objects(excluded_ships)
             _add_battle_timing_seconds(
                 timing_seconds,
@@ -303,7 +308,7 @@ class BattleSimulation:
                 if timing_seconds is not None
                 else None
             )
-            stage_started_at = time.perf_counter()
+            stage_started_at = _battle_timing_started_at(timing_seconds)
             handle_collisions(
                 self.world,
                 rng=getattr(self, "rng", None),
@@ -317,7 +322,7 @@ class BattleSimulation:
                 stage_started_at,
             )
             _add_collision_timing_counts(timing_seconds, collision_metrics)
-            stage_started_at = time.perf_counter()
+            stage_started_at = _battle_timing_started_at(timing_seconds)
             self._update_aftermath()
             _add_battle_timing_seconds(
                 timing_seconds,
@@ -349,12 +354,54 @@ class BattleSimulation:
             if player_actions is None:
                 continue
 
+            if self._apply_direct_actions(player, player_actions):
+                continue
+
             player_actions = player_actions or {}
             for control in CONTROL_NAMES:
                 key = self.settings[f"Player {player}: {control}"]
                 pressed = self._action_pressed(player_actions, control)
                 if self.key_states.get(key) != pressed:
                     self.handle_key_change(key, pressed)
+
+    def _apply_direct_actions(self, player, player_actions):
+        if isinstance(player_actions, Mapping):
+            return False
+        if not all(
+            hasattr(player_actions, attribute)
+            for attribute in ("thrust", "turn_left", "turn_right")
+        ):
+            return False
+
+        ship = self.player1 if int(player) == 1 else self.player2
+        direct_controls = (
+            ("thrust", bool(player_actions.thrust)),
+            ("turn_left", bool(player_actions.turn_left)),
+            ("turn_right", bool(player_actions.turn_right)),
+            (
+                "action1",
+                bool(
+                    getattr(
+                        player_actions,
+                        "action1",
+                        getattr(player_actions, "a1", False),
+                    )
+                ),
+            ),
+            (
+                "action2",
+                bool(
+                    getattr(
+                        player_actions,
+                        "action2",
+                        getattr(player_actions, "a2", False),
+                    )
+                ),
+            ),
+        )
+        for control, pressed in direct_controls:
+            ship.set_control_state(control, pressed, self.frame_id)
+        return True
 
     def _action_pressed(self, player_actions, control):
         for alias in ACTION_ALIASES[control]:

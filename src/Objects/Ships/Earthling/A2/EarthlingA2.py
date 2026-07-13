@@ -35,22 +35,28 @@ class EarthlingA2(Ability):
         ):
             valid_targets.append(self.parent.opponent)
 
-        for obj in sorted(self.parent.enemy_objects, key=self._distance_to):
-            if self._is_in_range(obj):
+        for obj, distance in self._targets_by_distance(self.parent.enemy_objects):
+            if distance <= self.LASER_RANGE:
                 valid_targets.append(obj)
 
-        for obj in sorted(self.parent.friendly_objects, key=self._distance_to):
-            if self._is_in_range(obj):
+        for obj, distance in self._targets_by_distance(self.parent.friendly_objects):
+            if distance <= self.LASER_RANGE:
                 valid_targets.append(obj)
 
-        for obj in sorted(self.parent.asteroids, key=self._distance_to):
-            if self._is_in_range(obj):
+        for obj, distance in self._targets_by_distance(self.parent.asteroids):
+            if distance <= self.LASER_RANGE:
                 valid_targets.append(obj)
 
         if not valid_targets:
             return None
 
         return [EarthlingA2(self.parent, target) for target in valid_targets]
+
+    def _targets_by_distance(self, targets):
+        return sorted(
+            ((target, self._distance_to(target)) for target in targets),
+            key=lambda item: item[1],
+        )
 
     def calculate_end_position(self):
         self.position = self.configured_gun_position()

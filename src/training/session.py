@@ -56,6 +56,7 @@ from src.training.value_network import (
 MAX_BATCH_LOG_LINES = 1000
 LIVE_STATUS_FRAME_INTERVAL = 100
 RECENT_BATCH_METRICS_KEY = "recent_batch_metrics"
+TRAINING_CSV_OUTPUT_ENABLED = False
 
 
 @dataclass(frozen=True)
@@ -713,7 +714,7 @@ class TrainingSession:
             self._status.recent_loss = metrics.average_loss
             self._status.replay_size = result.replay_size
 
-        if batch_number % self.batch_grouping == 0:
+        if TRAINING_CSV_OUTPUT_ENABLED and batch_number % self.batch_grouping == 0:
             append_grouped_metrics_csv(self._csv_path(), rolling)
         self._trim_history()
         return batch_number

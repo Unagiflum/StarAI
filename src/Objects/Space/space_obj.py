@@ -536,7 +536,7 @@ class Asteroid(Object):
         other_size = other_mask.get_size() if other_mask else other.size
         delta = wrapped_delta(other.position, self.position)
         radius_sum = max(candidate_size) / 2 + max(other_size) / 2
-        if math.hypot(delta[0], delta[1]) >= radius_sum:
+        if delta[0] * delta[0] + delta[1] * delta[1] >= radius_sum * radius_sum:
             return False
 
         if other_mask is None:

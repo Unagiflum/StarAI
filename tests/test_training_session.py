@@ -630,7 +630,8 @@ class TrainingSessionTests(unittest.TestCase):
                 batch_grouping=1,
                 batch_runner=batch_runner,
             )
-            session.run_synchronously(max_batches=1)
+            with mock.patch("src.training.session.TRAINING_CSV_OUTPUT_ENABLED", True):
+                session.run_synchronously(max_batches=1)
 
             saved_slot = repository.slot_for("Earthling", 1)
             self.assertEqual(saved_slot.metadata["progress"]["completed_batches"], 1)
@@ -1253,7 +1254,8 @@ class TrainingSessionTests(unittest.TestCase):
                 batch_grouping=3,
                 batch_runner=first_runner,
             )
-            first_session.run_synchronously(max_batches=2)
+            with mock.patch("src.training.session.TRAINING_CSV_OUTPUT_ENABLED", True):
+                first_session.run_synchronously(max_batches=2)
 
             resumed_slot = repository.slot_for("Earthling", 1)
             resumed_session = TrainingSession(
@@ -1274,7 +1276,8 @@ class TrainingSessionTests(unittest.TestCase):
                     round_results=(_round_result(30.0),),
                 ),
             )
-            resumed_session.run_synchronously(max_batches=1)
+            with mock.patch("src.training.session.TRAINING_CSV_OUTPUT_ENABLED", True):
+                resumed_session.run_synchronously(max_batches=1)
 
             with (root / "user" / "Earthling-01.csv").open(
                 newline="",
