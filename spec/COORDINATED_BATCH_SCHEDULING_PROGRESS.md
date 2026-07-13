@@ -129,12 +129,54 @@ Verified:
 - `python -m unittest tests.test_training_orchestration`
 - `python -m unittest tests.test_training_session`
 - `python -m unittest tests.test_training_models`
+- `python -m unittest discover tests`
 
 Remaining:
 
 - Manual smoke of the Batch tab `Start All` / `Stop All` flow remains pending.
-- Coordinated runtime still advances records sequentially by fixed window;
-  cross-record frame-by-frame advancement is Phase 4.
 - Coordinated runtime records completed batch/window metrics but still does not
   run synchronized optimization or save completed progress; those remain Phase
   6.
+
+## Phase 4: Central Scheduler Frame Loop
+
+Status: Completed for current implementation scope.
+
+Completed:
+
+- Replaced the coordinated worker's sequential per-record window execution with
+  a central scheduler frame loop.
+- Added per-record `_CoordinatedWindowRuntime` state so each active coordinated
+  record keeps its own simulation, reward pipeline, opponent controller, replay
+  buffer, scheduler-local frame count, and episode accounting while sharing one
+  worker loop.
+- For each coordinated round, the worker now creates one active fixed-frame
+  window per included record and advances them in lockstep: every unfinished
+  record consumes one frame before the scheduler proceeds to the next global
+  frame.
+- Preserved Phase 3 fixed-window semantics in the central loop:
+  - scheduler-local frame budgets;
+  - terminal reset inside a window;
+  - fresh battle and reward pipeline after permanent terminal reset;
+  - timeout flush at the window boundary;
+  - pending rebirth treated as non-terminal.
+- Kept coordinated runs headless and kept status updates per record through the
+  existing proxy/status surfaces.
+- Added a regression test proving one coordinated batch advances records
+  frame-by-frame rather than completing one record's full window before the
+  next.
+
+Verified:
+
+- `python -m unittest tests.test_coordinated_training`
+- `python -m unittest tests.test_train_ai_ui`
+- `python -m unittest tests.test_training_orchestration`
+- `python -m unittest tests.test_training_session`
+- `python -m unittest tests.test_training_models`
+
+Remaining:
+
+- Stop-all behavior is still checked between frame steps; more deterministic
+  stop-in-loop coverage can be added with Phase 5/6 tests.
+- True batched inference is still deferred to Phase 5.
+- Synchronized optimization and saving remain Phase 6.

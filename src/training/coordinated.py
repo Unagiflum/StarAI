@@ -120,6 +120,35 @@ class _CoordinatedRecordState:
     current_epsilon: float = 0.0
 
 
+@dataclass
+class _CoordinatedWindowRuntime:
+    state: _CoordinatedRecordState
+    opponent: OpponentSpec
+    policy: Any
+    simulation: Any
+    ledger: Any
+    pipeline: RollingReturnPipeline
+    simple_controller: SimpleOpponentController
+    frames_consumed: int = 0
+    total_mature_count: int = 0
+    return_sum: float = 0.0
+    component_sums: dict[str, float] = field(default_factory=dict)
+    episode_results: list[TrainingEpisodeResult] = field(default_factory=list)
+    episode_start_frame: int = 0
+    episode_mature_count: int = 0
+    episode_return_sum: float = 0.0
+    episode_component_sums: dict[str, float] = field(default_factory=dict)
+    episode_needs_timeout: bool = True
+
+    @property
+    def frame_limit(self) -> int:
+        return int(self.state.record.config.match_time_limit)
+
+    @property
+    def complete(self) -> bool:
+        return self.frames_consumed >= self.frame_limit
+
+
 class CoordinatedTrainingStatusProxy:
     """Expose one record through the same narrow surface as TrainingSession."""
 
@@ -392,6 +421,7 @@ class CoordinatedTrainingSession:
         }
         try:
             for round_index in range(1, max(len(s) for s in schedules.values()) + 1):
+                active_windows: list[_CoordinatedWindowRuntime] = []
                 for instance_id, state in self._states.items():
                     schedule = schedules[instance_id]
                     if round_index > len(schedule):
@@ -412,26 +442,43 @@ class CoordinatedTrainingSession:
                         epsilon_frame_span=state.record.config.epsilon_frame_span,
                         rng=self._rng,
                     )
-                    result = run_coordinated_fixed_frame_window(
-                        opponent=opponent,
-                        trainee_policy=policy,
-                        replay_buffer=components.replay_buffer,
-                        config=state.record.config,
-                        rng=self._rng,
-                        simulation_factory=self._simulation_factory,
-                        audio_service=self._audio_service,
-                        progress_callback=(
-                            lambda payload, item=state: self._on_record_progress(
-                                item,
-                                payload,
-                            )
-                        ),
-                        stop_requested=self._stop_requested.is_set,
+                    active_windows.append(
+                        _create_coordinated_window_runtime(
+                            state=state,
+                            opponent=opponent,
+                            policy=policy,
+                            rng=self._rng,
+                            simulation_factory=self._simulation_factory,
+                            audio_service=self._audio_service,
+                        )
                     )
-                    results[instance_id].append(result)
+                while any(not window.complete for window in active_windows):
+                    _raise_if_stop_requested(self._stop_requested.is_set)
+                    for window in active_windows:
+                        if window.complete:
+                            continue
+                        _advance_coordinated_window_frame(
+                            window,
+                            rng=self._rng,
+                            simulation_factory=self._simulation_factory,
+                            audio_service=self._audio_service,
+                            progress_callback=(
+                                lambda payload, item=window.state: self._on_record_progress(
+                                    item,
+                                    payload,
+                                )
+                            ),
+                            stop_requested=self._stop_requested.is_set,
+                        )
+                    _raise_if_stop_requested(self._stop_requested.is_set)
+                for window in active_windows:
+                    result = _finish_coordinated_window(window)
+                    results[window.state.record.instance_id].append(result)
                     with self._lock:
-                        state.status.previous_opponent = opponent.ship
-                        state.status.component_totals = dict(result.component_totals)
+                        window.state.status.previous_opponent = window.opponent.ship
+                        window.state.status.component_totals = dict(
+                            result.component_totals
+                        )
             batch_finished_at = time.perf_counter()
         except TrainingBatchAborted:
             return False
@@ -808,6 +855,301 @@ def _ship_alive(ship) -> bool:
     return (
         bool(getattr(ship, "currently_alive", True))
         and getattr(ship, "current_hp", 1) > 0
+    )
+
+
+def _create_coordinated_window_runtime(
+    *,
+    state: _CoordinatedRecordState,
+    opponent: OpponentSpec,
+    policy: Any,
+    rng: Any,
+    simulation_factory: Callable[..., BattleSimulation],
+    audio_service: Any,
+    ship_factory: Callable[..., Any] = create_ship,
+) -> _CoordinatedWindowRuntime:
+    simulation, ledger, pipeline, simple_controller = _new_coordinated_battle(
+        state.record.config,
+        opponent,
+        rng=rng,
+        simulation_factory=simulation_factory,
+        audio_service=audio_service,
+        ship_factory=ship_factory,
+    )
+    return _CoordinatedWindowRuntime(
+        state=state,
+        opponent=opponent,
+        policy=policy,
+        simulation=simulation,
+        ledger=ledger,
+        pipeline=pipeline,
+        simple_controller=simple_controller,
+        component_sums={component: 0.0 for component in REWARD_COMPONENTS},
+        episode_component_sums={
+            component: 0.0
+            for component in REWARD_COMPONENTS
+        },
+    )
+
+
+def _new_coordinated_battle(
+    config: TrainingOrchestrationConfig,
+    opponent: OpponentSpec,
+    *,
+    rng: Any,
+    simulation_factory: Callable[..., BattleSimulation],
+    audio_service: Any,
+    ship_factory: Callable[..., Any] = create_ship,
+):
+    trainee = ship_factory(config.trainee_ship, 1, audio_service=audio_service)
+    opponent_ship = ship_factory(opponent.ship, 2, audio_service=audio_service)
+    ledger = event_ledger.BattleEventLedger()
+    simulation = simulation_factory(
+        None,
+        trainee,
+        opponent_ship,
+        audio_service=audio_service,
+        rng=rng,
+        include_stars=False,
+        training_event_ledger=ledger,
+    )
+    _fully_arm_training_shofixti(simulation.player1)
+    _fully_arm_training_shofixti(simulation.player2)
+    return (
+        simulation,
+        ledger,
+        RollingReturnPipeline(
+            gamma=config.gamma,
+            reward_weights=config.reward_weights,
+        ),
+        SimpleOpponentController(config, rng=rng),
+    )
+
+
+def _advance_coordinated_window_frame(
+    runtime: _CoordinatedWindowRuntime,
+    *,
+    rng: Any,
+    simulation_factory: Callable[..., BattleSimulation],
+    audio_service: Any,
+    progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+    ship_factory: Callable[..., Any] = create_ship,
+) -> None:
+    if runtime.complete:
+        return
+    _raise_if_stop_requested(stop_requested)
+    state = runtime.state
+    components = state.components
+    if components is None:
+        raise RuntimeError("coordinated components were not loaded")
+    config = state.record.config
+    simulation = runtime.simulation
+    self_ship = simulation.player1
+    enemy_ship = simulation.player2
+    observation = encode_observation(
+        self_ship,
+        enemy_ship,
+        frame_id=simulation.frame_id,
+        game_objects=simulation.world,
+    )
+    selection = _select_policy_action(runtime.policy, observation)
+    decision = decision_frame_from_battle_state(
+        frame_id=simulation.frame_id + 1,
+        observation=observation,
+        action_index=selection.action_index,
+        self_ship=self_ship,
+        enemy_ship=enemy_ship,
+        world=simulation.world,
+    )
+    event_start = len(runtime.ledger.events)
+    step_state = simulation.step(
+        actions={
+            1: controls_for_action_index(selection.action_index),
+            2: _opponent_controls(
+                runtime.opponent,
+                simulation,
+                config,
+                runtime.simple_controller,
+            ),
+        }
+    )
+    runtime.frames_consumed += 1
+    terminal, terminal_reason = _permanent_terminal_state(simulation)
+    events = tuple(runtime.ledger.events[event_start:])
+    outcome = frame_outcome_from_battle_state(
+        frame_id=step_state["frame_id"],
+        self_ship=self_ship,
+        events=events,
+        terminal=terminal,
+    )
+    mature_samples = runtime.pipeline.add_frame(decision, outcome)
+    components.replay_buffer.extend(mature_samples)
+    mature_count = len(mature_samples)
+    runtime.total_mature_count += mature_count
+    runtime.episode_mature_count += mature_count
+    sample_return = sum(sample.return_value for sample in mature_samples)
+    runtime.return_sum += sample_return
+    runtime.episode_return_sum += sample_return
+    _accumulate_weighted_components(runtime.component_sums, mature_samples)
+    _accumulate_weighted_components(runtime.episode_component_sums, mature_samples)
+    _emit_window_progress(
+        progress_callback,
+        frame=runtime.frames_consumed,
+        opponent=runtime.opponent,
+        action_index=selection.action_index,
+        exploratory=selection.exploratory,
+        replay_size=len(components.replay_buffer),
+        weighted_total_return=_average_value(
+            runtime.return_sum,
+            runtime.total_mature_count,
+        ),
+        component_totals=_average_components(
+            runtime.component_sums,
+            runtime.total_mature_count,
+        ),
+    )
+    _raise_if_stop_requested(stop_requested)
+    if terminal:
+        _record_coordinated_terminal_episode(
+            runtime,
+            terminal_reason=terminal_reason,
+        )
+        if runtime.frames_consumed < runtime.frame_limit:
+            _reset_coordinated_window_battle(
+                runtime,
+                rng=rng,
+                simulation_factory=simulation_factory,
+                audio_service=audio_service,
+                ship_factory=ship_factory,
+            )
+
+
+def _record_coordinated_terminal_episode(
+    runtime: _CoordinatedWindowRuntime,
+    *,
+    terminal_reason: str,
+) -> None:
+    win, loss, draw = _classify_round_outcome(runtime.simulation, terminal_reason)
+    runtime.episode_results.append(
+        TrainingEpisodeResult(
+            opponent=runtime.opponent,
+            frames=runtime.frames_consumed - runtime.episode_start_frame,
+            terminal_reason=terminal_reason,
+            mature_samples=runtime.episode_mature_count,
+            total_return=_average_value(
+                runtime.episode_return_sum,
+                runtime.episode_mature_count,
+            ),
+            win=win,
+            loss=loss,
+            draw=draw,
+            component_totals=_average_components(
+                runtime.episode_component_sums,
+                runtime.episode_mature_count,
+            ),
+        )
+    )
+    runtime.episode_needs_timeout = False
+    reset_span = getattr(runtime.policy, "reset_exploration_span", None)
+    if callable(reset_span):
+        reset_span()
+
+
+def _reset_coordinated_window_battle(
+    runtime: _CoordinatedWindowRuntime,
+    *,
+    rng: Any,
+    simulation_factory: Callable[..., BattleSimulation],
+    audio_service: Any,
+    ship_factory: Callable[..., Any] = create_ship,
+) -> None:
+    (
+        runtime.simulation,
+        runtime.ledger,
+        runtime.pipeline,
+        runtime.simple_controller,
+    ) = _new_coordinated_battle(
+        runtime.state.record.config,
+        runtime.opponent,
+        rng=rng,
+        simulation_factory=simulation_factory,
+        audio_service=audio_service,
+        ship_factory=ship_factory,
+    )
+    runtime.episode_start_frame = runtime.frames_consumed
+    runtime.episode_mature_count = 0
+    runtime.episode_return_sum = 0.0
+    runtime.episode_component_sums = {
+        component: 0.0
+        for component in REWARD_COMPONENTS
+    }
+    runtime.episode_needs_timeout = True
+
+
+def _finish_coordinated_window(
+    runtime: _CoordinatedWindowRuntime,
+) -> CoordinatedFixedFrameWindowResult:
+    components = runtime.state.components
+    if components is None:
+        raise RuntimeError("coordinated components were not loaded")
+    if runtime.episode_needs_timeout:
+        mature_samples = tuple(
+            runtime.pipeline.flush_pending(
+                end_frame_id=runtime.simulation.frame_id,
+            )
+        )
+        components.replay_buffer.extend(mature_samples)
+        runtime.total_mature_count += len(mature_samples)
+        runtime.episode_mature_count += len(mature_samples)
+        sample_return = sum(sample.return_value for sample in mature_samples)
+        runtime.return_sum += sample_return
+        runtime.episode_return_sum += sample_return
+        _accumulate_weighted_components(runtime.component_sums, mature_samples)
+        _accumulate_weighted_components(
+            runtime.episode_component_sums,
+            mature_samples,
+        )
+        win, loss, draw = _classify_round_outcome(runtime.simulation, "timeout")
+        runtime.episode_results.append(
+            TrainingEpisodeResult(
+                opponent=runtime.opponent,
+                frames=runtime.frames_consumed - runtime.episode_start_frame,
+                terminal_reason="timeout",
+                mature_samples=runtime.episode_mature_count,
+                total_return=_average_value(
+                    runtime.episode_return_sum,
+                    runtime.episode_mature_count,
+                ),
+                win=win,
+                loss=loss,
+                draw=draw,
+                component_totals=_average_components(
+                    runtime.episode_component_sums,
+                    runtime.episode_mature_count,
+                ),
+            )
+        )
+        reset_span = getattr(runtime.policy, "reset_exploration_span", None)
+        if callable(reset_span):
+            reset_span()
+
+    return CoordinatedFixedFrameWindowResult(
+        opponent=runtime.opponent,
+        frames=runtime.frames_consumed,
+        mature_samples=runtime.total_mature_count,
+        episode_results=tuple(runtime.episode_results),
+        total_return=_average_value(
+            runtime.return_sum,
+            runtime.total_mature_count,
+        ),
+        win=any(result.win for result in runtime.episode_results),
+        loss=any(result.loss for result in runtime.episode_results),
+        draw=any(result.draw for result in runtime.episode_results),
+        component_totals=_average_components(
+            runtime.component_sums,
+            runtime.total_mature_count,
+        ),
     )
 
 

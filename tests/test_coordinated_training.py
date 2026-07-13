@@ -24,7 +24,7 @@ from src.training.orchestration import OpponentSpec
 from src.training.replay import ActionSelection, TrainingReplayBuffer
 
 
-def _record(instance_id, ship):
+def _record(instance_id, ship, **config_overrides):
     metadata = metadata_from_state(
         ship=ship,
         slot=1,
@@ -32,17 +32,19 @@ def _record(instance_id, ship):
         architecture=model_architecture_metadata(8, 1),
         training={},
     )
+    config_kwargs = {
+        "trainee_ship": ship,
+        "hidden_layer_width": 8,
+        "hidden_layer_count": 1,
+        "training_device": "cpu",
+    }
+    config_kwargs.update(config_overrides)
     return CoordinatedTrainingRecord(
         instance_id=instance_id,
         repository=TrainingModelRepository(Path("unused"), Path("unused")),
         slot=TrainingModelSlot(ship, 1, SLOT_USER, metadata=metadata),
         metadata=metadata,
-        config=TrainingOrchestrationConfig(
-            trainee_ship=ship,
-            hidden_layer_width=8,
-            hidden_layer_count=1,
-            training_device="cpu",
-        ),
+        config=TrainingOrchestrationConfig(**config_kwargs),
         batch_grouping=1,
     )
 
@@ -152,6 +154,18 @@ class ScriptedSimulation:
         return {"frame_id": self.frame_id}
 
 
+class StepLoggingSimulation(ScriptedSimulation):
+    def __init__(self, *args, step_log=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.step_log = step_log
+
+    def step(self, actions=None):
+        state = super().step(actions=actions)
+        if self.step_log is not None:
+            self.step_log.append((self.player1.name, self.frame_id))
+        return state
+
+
 class ScriptedSimulationFactory:
     def __init__(self, scripts):
         self.scripts = list(scripts)
@@ -160,6 +174,23 @@ class ScriptedSimulationFactory:
     def __call__(self, *args, **kwargs):
         script = self.scripts.pop(0) if self.scripts else {}
         simulation = ScriptedSimulation(*args, **script, **kwargs)
+        self.created.append(simulation)
+        return simulation
+
+
+class StepLoggingSimulationFactory(ScriptedSimulationFactory):
+    def __init__(self, scripts, step_log):
+        super().__init__(scripts)
+        self.step_log = step_log
+
+    def __call__(self, *args, **kwargs):
+        script = self.scripts.pop(0) if self.scripts else {}
+        simulation = StepLoggingSimulation(
+            *args,
+            step_log=self.step_log,
+            **script,
+            **kwargs,
+        )
         self.created.append(simulation)
         return simulation
 
@@ -290,6 +321,69 @@ class CoordinatedFixedFrameWindowTests(unittest.TestCase):
         self.assertEqual(len(replay), 4)
         self.assertEqual(len(result.episode_results), 1)
         self.assertEqual(result.episode_results[0].terminal_reason, "timeout")
+
+
+class CoordinatedFrameLoopTests(unittest.TestCase):
+    def test_batch_advances_records_frame_by_frame(self):
+        step_log = []
+        replay_buffers = {}
+
+        def component_builder(record):
+            replay = TrainingReplayBuffer(32)
+            replay_buffers[record.instance_id] = replay
+            return CoordinatedRuntimeComponents(
+                model=object(),
+                optimizer=object(),
+                replay_buffer=replay,
+            )
+
+        session = CoordinatedTrainingSession(
+            (
+                _record(1, "Earthling", match_time_limit=3, epsilon=1.0, gamma=0.0),
+                _record(2, "Androsynth", match_time_limit=3, epsilon=1.0, gamma=0.0),
+            ),
+            component_builder=component_builder,
+            simulation_factory=StepLoggingSimulationFactory((), step_log),
+            run_batches=True,
+        )
+        for state in session._states.values():
+            state.components = component_builder(state.record)
+
+        with (
+            mock.patch(
+                "src.training.coordinated.simple_opponent_schedule",
+                return_value=(OpponentSpec("Earthling"),),
+            ),
+            mock.patch(
+                "src.training.coordinated.encode_observation",
+                return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+            ),
+            mock.patch(
+                "src.training.coordinated.decision_frame_from_battle_state",
+                side_effect=fake_decision_frame,
+            ),
+            mock.patch(
+                "src.training.coordinated.frame_outcome_from_battle_state",
+                side_effect=fake_frame_outcome,
+            ),
+        ):
+            self.assertTrue(session._run_one_coordinated_batch())
+
+        self.assertEqual(
+            step_log,
+            [
+                ("Earthling", 1),
+                ("Androsynth", 1),
+                ("Earthling", 2),
+                ("Androsynth", 2),
+                ("Earthling", 3),
+                ("Androsynth", 3),
+            ],
+        )
+        self.assertEqual(len(replay_buffers[1]), 3)
+        self.assertEqual(len(replay_buffers[2]), 3)
+        self.assertEqual(session.status_for_instance(1).completed_batches, 1)
+        self.assertEqual(session.status_for_instance(2).completed_batches, 1)
 
 
 if __name__ == "__main__":
