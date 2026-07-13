@@ -41,7 +41,6 @@ from src.training.rewards import (
     decision_frame_from_battle_state,
     frame_outcome_from_battle_state,
 )
-from src.training.timing import NullTrainingTimingAccumulator, TrainingTimingAccumulator
 from src.training.value_network import (
     ValueNetworkConfig,
     build_optimizer,
@@ -151,7 +150,6 @@ class TrainingBatchResult:
     replay_size: int
     optimization_losses: tuple[float, ...]
     round_results: tuple[TrainingRoundResult, ...]
-    timings: Mapping[str, float] = field(default_factory=dict)
 
     @property
     def average_loss(self) -> float | None:
@@ -324,27 +322,23 @@ def run_training_batch(
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
     battle_view_enabled: Callable[[], bool] | None = None,
-    timing: TrainingTimingAccumulator | None = None,
 ) -> TrainingBatchResult:
     """Run one complete Phase 7 batch and perform end-of-batch replay updates."""
 
     rng = rng or random.Random()
-    timing_enabled = timing is not None
-    timing = timing or NullTrainingTimingAccumulator()
-    with timing.measure("opponent_schedule_seconds"):
-        if config.opponent_mode == OPPONENT_MODE_SIMPLE:
-            opponents = simple_opponent_schedule(config.rounds_per_batch)
-        else:
-            if discovered_opponents is None:
-                if model_repository is None:
-                    raise ValueError("model_repository is required for existing-AI mode")
-                discovered_opponents = discover_existing_ai_opponents(model_repository).opponents
-            opponents = existing_ai_opponent_schedule(
-                config.rounds_per_batch,
-                discovered_opponents,
-                ai_opponent_chance=config.ai_opponent_chance,
-                rng=rng,
-            )
+    if config.opponent_mode == OPPONENT_MODE_SIMPLE:
+        opponents = simple_opponent_schedule(config.rounds_per_batch)
+    else:
+        if discovered_opponents is None:
+            if model_repository is None:
+                raise ValueError("model_repository is required for existing-AI mode")
+            discovered_opponents = discover_existing_ai_opponents(model_repository).opponents
+        opponents = existing_ai_opponent_schedule(
+            config.rounds_per_batch,
+            discovered_opponents,
+            ai_opponent_chance=config.ai_opponent_chance,
+            rng=rng,
+        )
 
     trainee_policy = ValueNetworkPolicy(
         model,
@@ -358,7 +352,6 @@ def run_training_batch(
         _raise_if_stop_requested(stop_requested)
         _emit_progress(
             progress_callback,
-            timing=timing,
             event="round_start",
             round_index=index,
             total_rounds=total_rounds,
@@ -375,13 +368,11 @@ def run_training_batch(
             progress_callback=progress_callback,
             stop_requested=stop_requested,
             battle_view_enabled=battle_view_enabled,
-            timing=timing,
         )
         round_results.append(result)
         _raise_if_stop_requested(stop_requested)
         _emit_progress(
             progress_callback,
-            timing=timing,
             event="round_end",
             round_index=index,
             total_rounds=total_rounds,
@@ -391,7 +382,6 @@ def run_training_batch(
 
     _emit_progress(
         progress_callback,
-        timing=timing,
         event="batch_optimization_start",
         replay_updates=config.replay_updates_per_batch,
         replay_size=len(replay_buffer),
@@ -399,14 +389,13 @@ def run_training_batch(
     losses: list[float] = []
     for _ in range(config.replay_updates_per_batch):
         _raise_if_stop_requested(stop_requested)
-        with timing.measure("optimization_seconds"):
-            result = optimize_from_replay(
-                model,
-                optimizer,
-                replay_buffer,
-                batch_size=config.minibatch_size,
-                rng=rng,
-            )
+        result = optimize_from_replay(
+            model,
+            optimizer,
+            replay_buffer,
+            batch_size=config.minibatch_size,
+            rng=rng,
+        )
         if result is not None:
             losses.append(result.loss)
 
@@ -415,7 +404,6 @@ def run_training_batch(
         replay_size=len(replay_buffer),
         optimization_losses=tuple(losses),
         round_results=tuple(round_results),
-        timings=timing.snapshot() if timing_enabled else {},
     )
 
 
@@ -431,10 +419,8 @@ def run_training_round(
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
     battle_view_enabled: Callable[[], bool] | None = None,
-    timing: TrainingTimingAccumulator | None = None,
 ) -> TrainingRoundResult:
     rng = rng or random.Random()
-    timing = timing or NullTrainingTimingAccumulator()
     audio = audio_service or NullAudioService()
     trainee = create_ship(config.trainee_ship, 1, audio_service=audio)
     opponent_ship = create_ship(opponent.ship, 2, audio_service=audio)
@@ -453,7 +439,6 @@ def run_training_round(
     if _battle_view_enabled(battle_view_enabled):
         _emit_progress(
             progress_callback,
-            timing=timing,
             event="battle_view",
             opponent=opponent,
             battle_view=_battle_view_from_simulation(simulation),
@@ -475,24 +460,21 @@ def run_training_round(
         _raise_if_stop_requested(stop_requested)
         self_ship = simulation.player1
         enemy_ship = simulation.player2
-        with timing.measure("observation_seconds"):
-            observation = encode_observation(
-                self_ship,
-                enemy_ship,
-                frame_id=simulation.frame_id,
-                game_objects=simulation.world,
-            )
-        with timing.measure("trainee_inference_seconds"):
-            selection = _select_policy_action(trainee_policy, observation)
-        with timing.measure("decision_snapshot_seconds"):
-            decision = decision_frame_from_battle_state(
-                frame_id=simulation.frame_id + 1,
-                observation=observation,
-                action_index=selection.action_index,
-                self_ship=self_ship,
-                enemy_ship=enemy_ship,
-                world=simulation.world,
-            )
+        observation = encode_observation(
+            self_ship,
+            enemy_ship,
+            frame_id=simulation.frame_id,
+            game_objects=simulation.world,
+        )
+        selection = _select_policy_action(trainee_policy, observation)
+        decision = decision_frame_from_battle_state(
+            frame_id=simulation.frame_id + 1,
+            observation=observation,
+            action_index=selection.action_index,
+            self_ship=self_ship,
+            enemy_ship=enemy_ship,
+            world=simulation.world,
+        )
         event_start = len(ledger.events)
         actions = {
             1: controls_for_action_index(selection.action_index),
@@ -501,28 +483,23 @@ def run_training_round(
                 simulation,
                 config,
                 simple_opponent_controller,
-                timing=timing,
             ),
         }
-        with timing.measure("simulation_seconds"):
-            state = simulation.step(actions=actions)
+        state = simulation.step(actions=actions)
         terminal, terminal_reason = _round_terminal_state(
             simulation,
             elapsed_frames=state["frame_id"],
             frame_limit=config.match_time_limit,
         )
         events = tuple(ledger.events[event_start:])
-        with timing.measure("outcome_seconds"):
-            outcome = frame_outcome_from_battle_state(
-                frame_id=state["frame_id"],
-                self_ship=self_ship,
-                events=events,
-                terminal=terminal,
-            )
-        with timing.measure("reward_seconds"):
-            mature_samples = pipeline.add_frame(decision, outcome)
-        with timing.measure("replay_insert_seconds"):
-            replay_buffer.extend(mature_samples)
+        outcome = frame_outcome_from_battle_state(
+            frame_id=state["frame_id"],
+            self_ship=self_ship,
+            events=events,
+            terminal=terminal,
+        )
+        mature_samples = pipeline.add_frame(decision, outcome)
+        replay_buffer.extend(mature_samples)
         mature_count += len(mature_samples)
         return_sum += sum(sample.return_value for sample in mature_samples)
         _accumulate_weighted_components(component_sums, mature_samples)
@@ -540,16 +517,15 @@ def run_training_round(
         view_enabled = _battle_view_enabled(battle_view_enabled)
         if view_enabled:
             progress_payload["battle_view"] = _battle_view_from_simulation(simulation)
-        _emit_progress(progress_callback, timing=timing, **progress_payload)
+        _emit_progress(progress_callback, **progress_payload)
         _raise_if_stop_requested(stop_requested)
         if config.display_on and view_enabled:
-            with timing.measure("display_throttle_seconds"):
-                next_display_frame_time += 1.0 / const.FPS
-                sleep_seconds = next_display_frame_time - time.perf_counter()
-                if sleep_seconds > 0:
-                    time.sleep(sleep_seconds)
-                else:
-                    next_display_frame_time = time.perf_counter()
+            next_display_frame_time += 1.0 / const.FPS
+            sleep_seconds = next_display_frame_time - time.perf_counter()
+            if sleep_seconds > 0:
+                time.sleep(sleep_seconds)
+            else:
+                next_display_frame_time = time.perf_counter()
             _raise_if_stop_requested(stop_requested)
         if terminal:
             terminal_seen = True
@@ -696,42 +672,21 @@ def _opponent_controls(
     simulation,
     config: TrainingOrchestrationConfig,
     simple_controller: SimpleOpponentController,
-    *,
-    timing: TrainingTimingAccumulator | None = None,
 ) -> dict[str, bool]:
     if opponent.model is None:
-        if timing is None:
-            return simple_controller.controls_for_frame(simulation)
-        with timing.measure("simple_opponent_seconds"):
-            return simple_controller.controls_for_frame(simulation)
-    if timing is None:
-        observation = encode_observation(
-            simulation.player2,
-            simulation.player1,
-            frame_id=simulation.frame_id,
-            game_objects=simulation.world,
-        )
-        selection = select_action_epsilon_greedy(
-            opponent.model,
-            observation,
-            epsilon=0.0,
-            value_predictor=predict_action_values_read_only,
-        )
-        return controls_for_action_index(selection.action_index)
-    with timing.measure("opponent_observation_seconds"):
-        observation = encode_observation(
-            simulation.player2,
-            simulation.player1,
-            frame_id=simulation.frame_id,
-            game_objects=simulation.world,
-        )
-    with timing.measure("opponent_inference_seconds"):
-        selection = select_action_epsilon_greedy(
-            opponent.model,
-            observation,
-            epsilon=0.0,
-            value_predictor=predict_action_values_read_only,
-        )
+        return simple_controller.controls_for_frame(simulation)
+    observation = encode_observation(
+        simulation.player2,
+        simulation.player1,
+        frame_id=simulation.frame_id,
+        game_objects=simulation.world,
+    )
+    selection = select_action_epsilon_greedy(
+        opponent.model,
+        observation,
+        epsilon=0.0,
+        value_predictor=predict_action_values_read_only,
+    )
     return controls_for_action_index(selection.action_index)
 
 
@@ -848,16 +803,10 @@ def _average_components(
 
 def _emit_progress(
     callback: Callable[[Mapping[str, Any]], None] | None,
-    *,
-    timing: TrainingTimingAccumulator | None = None,
     **payload: Any,
 ) -> None:
     if callback is not None:
-        if timing is None:
-            callback(payload)
-        else:
-            with timing.measure("progress_callback_seconds"):
-                callback(payload)
+        callback(payload)
 
 
 def _raise_if_stop_requested(callback: Callable[[], bool] | None) -> None:

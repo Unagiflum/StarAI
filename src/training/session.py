@@ -6,13 +6,11 @@ from collections.abc import Callable, Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 import csv
-import inspect
 from pathlib import Path
 import random
 import threading
 import time
 from typing import Any
-import uuid
 
 import src.const as const
 from src.audio import DisplayGatedAudioService, NullAudioService
@@ -29,7 +27,6 @@ from src.training.model_registry import (
     TrainingModelSlot,
     current_game_settings_metadata,
     metadata_from_state,
-    model_basename,
     model_architecture_metadata,
     model_paths,
     normalize_architecture_metadata,
@@ -49,13 +46,6 @@ from src.training.replay import (
     save_training_checkpoint,
 )
 from src.training.render_view import freeze_battle_view
-from src.training.timing import (
-    TIMING_FIELDS,
-    TrainingTimingAccumulator,
-    append_batch_timing_csv,
-    append_multi_instance_event_csv,
-    utc_timestamp,
-)
 from src.training.value_network import (
     ValueNetworkConfig,
     build_optimizer,
@@ -311,26 +301,6 @@ def append_grouped_metrics_csv(path: Path, metrics: BatchMetrics) -> None:
         )
 
 
-def _format_csv_seconds(value: float) -> str:
-    return f"{max(0.0, float(value)):.6f}"
-
-
-def _callable_accepts_keyword(callback: Callable[..., Any], keyword: str) -> bool:
-    try:
-        signature = inspect.signature(callback)
-    except (TypeError, ValueError):
-        return True
-    for parameter in signature.parameters.values():
-        if parameter.kind is inspect.Parameter.VAR_KEYWORD:
-            return True
-        if parameter.name == keyword and parameter.kind in (
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            inspect.Parameter.KEYWORD_ONLY,
-        ):
-            return True
-    return False
-
-
 class TrainingSession:
     """Own a trainable model and run complete batches on a worker thread."""
 
@@ -349,11 +319,6 @@ class TrainingSession:
         initial_log_lines: tuple[str, ...] = (),
         opponent_model_cache: Any | None = None,
         save_coordinator: Any | None = None,
-        timing_diagnostics_enabled: bool = False,
-        instance_id: int | None = None,
-        run_id: str | None = None,
-        running_instances_provider: Callable[[], int] | None = None,
-        multi_instance_events_path: Path | None = None,
     ):
         if slot.is_bundled:
             raise TrainingSessionError("Bundled training models are read-only")
@@ -399,15 +364,6 @@ class TrainingSession:
         self._cached_existing_ai_opponents_at: int | None = None
         self.opponent_model_cache = opponent_model_cache
         self.save_coordinator = save_coordinator
-        self.timing_diagnostics_enabled = bool(timing_diagnostics_enabled)
-        self.instance_id = instance_id
-        self.run_id = run_id or f"{utc_timestamp()}-{uuid.uuid4().hex[:8]}"
-        self.running_instances_provider = running_instances_provider
-        self.multi_instance_events_path = (
-            Path(multi_instance_events_path)
-            if multi_instance_events_path is not None
-            else self.repository.user_dir / "training-multi-instance-events.csv"
-        )
         self._opponent_model_cache_initial_loaded = False
         self._completed_batch_seconds: list[float] = []
         self._thread: threading.Thread | None = None
@@ -558,54 +514,7 @@ class TrainingSession:
             self._status.batches_per_hour = 0.0
 
         while not self._stop_requested.is_set():
-            timing = (
-                TrainingTimingAccumulator()
-                if self.timing_diagnostics_enabled
-                else None
-            )
-            with self._lock:
-                next_batch_number = self._status.completed_batches + 1
-            running_start = (
-                self._running_instance_count()
-                if self.timing_diagnostics_enabled
-                else 0
-            )
-            batch_wall_started_at = utc_timestamp()
-            batch_perf_started_at = (
-                time.perf_counter() if self.timing_diagnostics_enabled else 0.0
-            )
-            self._append_timing_event(
-                "batch_start",
-                batch=next_batch_number,
-                running_instances=running_start,
-                details=f"opponent_mode={self.config.opponent_mode}",
-            )
-            self._append_timing_event(
-                "opponent_load_start",
-                batch=next_batch_number,
-                running_instances=running_start,
-            )
-            opponent_load_context = (
-                timing.measure("opponent_load_seconds")
-                if timing is not None
-                else nullcontext()
-            )
-            with opponent_load_context:
-                discovered_opponents = self._existing_ai_opponents_for_batch()
-            self._append_timing_event(
-                "opponent_load_end",
-                batch=next_batch_number,
-                running_instances=(
-                    self._running_instance_count()
-                    if self.timing_diagnostics_enabled
-                    else 0
-                ),
-                total_seconds=(
-                    timing.values.get("opponent_load_seconds", 0.0)
-                    if timing is not None
-                    else 0.0
-                ),
-            )
+            discovered_opponents = self._existing_ai_opponents_for_batch()
             with self._lock:
                 self._status.display_message = "Preparing new batch"
                 self._status.battle_view = None
@@ -618,7 +527,6 @@ class TrainingSession:
                 self._current_batch_started_at = batch_started_at
             try:
                 result = self._run_batch(
-                    timing=timing,
                     model=model,
                     optimizer=optimizer,
                     replay_buffer=replay_buffer,
@@ -632,20 +540,6 @@ class TrainingSession:
                     battle_view_enabled=self._display_on.is_set,
                 )
             except TrainingBatchAborted:
-                self._append_timing_event(
-                    "batch_aborted",
-                    batch=next_batch_number,
-                    running_instances=(
-                        self._running_instance_count()
-                        if self.timing_diagnostics_enabled
-                        else 0
-                    ),
-                    total_seconds=(
-                        time.perf_counter() - batch_perf_started_at
-                        if self.timing_diagnostics_enabled
-                        else 0.0
-                    ),
-                )
                 break
             finally:
                 batch_finished_at = time.perf_counter()
@@ -656,60 +550,28 @@ class TrainingSession:
                 batch_seconds=max(0.0, batch_finished_at - batch_started_at),
             )
             if completed_batches % self.batch_grouping == 0:
-                self._save_state_with_timing(
+                self._save_state(
                     model,
                     optimizer,
                     replay_buffer,
                     include_replay=False,
-                    timing=timing,
-                    batch=completed_batches,
                 )
-            batch_wall_ended_at = utc_timestamp()
-            total_seconds = (
-                max(0.0, time.perf_counter() - batch_perf_started_at)
-                if self.timing_diagnostics_enabled
-                else 0.0
-            )
-            running_end = (
-                self._running_instance_count()
-                if self.timing_diagnostics_enabled
-                else 0
-            )
-            self._append_batch_timing_csv(
-                batch=completed_batches,
-                result=result,
-                started_at=batch_wall_started_at,
-                ended_at=batch_wall_ended_at,
-                total_seconds=total_seconds,
-                running_instances_start=running_start,
-                running_instances_end=running_end,
-                timings=timing.snapshot() if timing is not None else {},
-            )
-            self._append_timing_event(
-                "batch_end",
-                batch=completed_batches,
-                running_instances=running_end,
-                total_seconds=total_seconds,
-                details=f"rounds={result.completed_rounds}",
-            )
             batches_run += 1
             if max_batches is not None and batches_run >= max_batches:
                 break
         if self.status.completed_batches > self._last_saved_completed_batches:
-            self._save_state_with_timing(
+            self._save_state(
                 model,
                 optimizer,
                 replay_buffer,
                 include_replay=True,
-                batch=self.status.completed_batches,
             )
         elif self.status.completed_batches > self._last_saved_replay_completed_batches:
-            self._save_state_with_timing(
+            self._save_state(
                 model,
                 optimizer,
                 replay_buffer,
                 include_replay=True,
-                batch=self.status.completed_batches,
             )
 
     def _existing_ai_opponents_for_batch(self):
@@ -751,14 +613,7 @@ class TrainingSession:
             self._cached_existing_ai_opponents_at = completed_batches
         return discovery.opponents
 
-    def _run_batch(
-        self,
-        *,
-        timing: TrainingTimingAccumulator | None,
-        **kwargs,
-    ) -> TrainingBatchResult:
-        if timing is not None and _callable_accepts_keyword(self.batch_runner, "timing"):
-            kwargs["timing"] = timing
+    def _run_batch(self, **kwargs) -> TrainingBatchResult:
         return self.batch_runner(**kwargs)
 
     def _build_components(self):
@@ -853,57 +708,6 @@ class TrainingSession:
         self._trim_history()
         return batch_number
 
-    def _save_state_with_timing(
-        self,
-        model,
-        optimizer,
-        replay_buffer: TrainingReplayBuffer,
-        *,
-        include_replay: bool = True,
-        timing: TrainingTimingAccumulator | None = None,
-        batch: int | None = None,
-    ) -> None:
-        if not self.timing_diagnostics_enabled and timing is None:
-            self._save_state(
-                model,
-                optimizer,
-                replay_buffer,
-                include_replay=include_replay,
-            )
-            return
-        running_instances = self._running_instance_count()
-        self._append_timing_event(
-            "save_start",
-            batch=batch,
-            running_instances=running_instances,
-            details=f"include_replay={bool(include_replay)}",
-        )
-        started_at = time.perf_counter()
-        try:
-            if timing is None:
-                self._save_state(
-                    model,
-                    optimizer,
-                    replay_buffer,
-                    include_replay=include_replay,
-                )
-            else:
-                with timing.measure("save_seconds"):
-                    self._save_state(
-                        model,
-                        optimizer,
-                        replay_buffer,
-                        include_replay=include_replay,
-                    )
-        finally:
-            self._append_timing_event(
-                "save_end",
-                batch=batch,
-                running_instances=self._running_instance_count(),
-                total_seconds=time.perf_counter() - started_at,
-                details=f"include_replay={bool(include_replay)}",
-            )
-
     def _save_state(
         self,
         model,
@@ -989,101 +793,6 @@ class TrainingSession:
     def _csv_path(self) -> Path:
         _, metadata_path = model_paths(self.repository.user_dir, self.slot.ship, self.slot.slot)
         return metadata_path.with_suffix(".csv")
-
-    def _timing_csv_path(self) -> Path:
-        instance_id = self.instance_id if self.instance_id is not None else 0
-        return self.repository.user_dir / (
-            f"{model_basename(self.slot.ship, self.slot.slot)}."
-            f"instance-{int(instance_id):02d}.timings.csv"
-        )
-
-    def _running_instance_count(self) -> int:
-        provider = self.running_instances_provider
-        if provider is None:
-            with self._lock:
-                return 1 if self._status.running or self._status.stopping else 0
-        try:
-            return max(0, int(provider()))
-        except Exception:
-            return 0
-
-    def _append_batch_timing_csv(
-        self,
-        *,
-        batch: int,
-        result: TrainingBatchResult,
-        started_at: str,
-        ended_at: str,
-        total_seconds: float,
-        running_instances_start: int,
-        running_instances_end: int,
-        timings: Mapping[str, float],
-    ) -> None:
-        if not self.timing_diagnostics_enabled:
-            return
-        metrics = self._last_recorded_batch_metrics
-        wins = losses = draws = 0
-        average_loss = ""
-        if metrics is not None and metrics.batch == batch:
-            wins = metrics.wins
-            losses = metrics.losses
-            draws = metrics.draws
-            average_loss = _format_csv_seconds(metrics.average_loss)
-        row = {
-            "Timestamp": utc_timestamp(),
-            "Run ID": self.run_id,
-            "Instance ID": "" if self.instance_id is None else self.instance_id,
-            "Ship": self.slot.ship,
-            "Slot": self.slot.slot,
-            "Batch": int(batch),
-            "Match Count": len(result.round_results),
-            "Completed Rounds": result.completed_rounds,
-            "Frames": sum(round_result.frames for round_result in result.round_results),
-            "Started At": started_at,
-            "Ended At": ended_at,
-            "Total Seconds": _format_csv_seconds(total_seconds),
-            "Running Instances Start": int(running_instances_start),
-            "Running Instances End": int(running_instances_end),
-            "Replay Size": result.replay_size,
-            "Average Loss": average_loss,
-            "Wins": wins,
-            "Losses": losses,
-            "Draws": draws,
-        }
-        for field in TIMING_FIELDS:
-            row[field] = _format_csv_seconds(timings.get(field, 0.0))
-        append_batch_timing_csv(self._timing_csv_path(), row)
-
-    def _append_timing_event(
-        self,
-        event: str,
-        *,
-        batch: int | None = None,
-        running_instances: int | None = None,
-        total_seconds: float | None = None,
-        details: str = "",
-    ) -> None:
-        if not self.timing_diagnostics_enabled:
-            return
-        row = {
-            "Timestamp": utc_timestamp(),
-            "Event": str(event),
-            "Run ID": self.run_id,
-            "Instance ID": "" if self.instance_id is None else self.instance_id,
-            "Ship": self.slot.ship,
-            "Slot": self.slot.slot,
-            "Batch": "" if batch is None else int(batch),
-            "Running Instances": (
-                self._running_instance_count()
-                if running_instances is None
-                else int(running_instances)
-            ),
-            "Total Seconds": (
-                "" if total_seconds is None else _format_csv_seconds(total_seconds)
-            ),
-            "Details": details,
-        }
-        append_multi_instance_event_csv(self.multi_instance_events_path, row)
 
     def _trim_history(self) -> None:
         limit = max(1, int(self.batch_grouping))
