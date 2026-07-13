@@ -40,6 +40,10 @@ from src.training.model_registry import (
     replay_checkpoint_path,
     trained_model_counts_for_ships,
 )
+from src.training.coordinated import (
+    CoordinatedTrainingRecord,
+    CoordinatedTrainingSession,
+)
 from src.training.orchestration import TrainingOrchestrationConfig
 from src.training.opponent_cache import ModelSaveCoordinator, OpponentModelCache
 from src.training.rewards import LEGACY_REWARD_ALIASES, REWARD_COMPONENTS
@@ -234,6 +238,7 @@ class TrainingInstance:
 @dataclass
 class TrainingBatchSchedulingState:
     apply_to_all_open_instances: bool = False
+    coordinated_session: CoordinatedTrainingSession | None = None
 
 
 @dataclass(frozen=True)
@@ -608,6 +613,10 @@ class TrainingInstanceManager:
     def any_instance_running(self):
         return bool(self.running_instances())
 
+    def coordinated_run_active(self):
+        session = self.batch_scheduling.coordinated_session
+        return bool(session is not None and session.active)
+
     def disable_display(self, instance):
         instance.state.display_on = False
         if instance.session is not None:
@@ -634,6 +643,9 @@ class TrainingInstanceManager:
         self.request_stop(self.active_instance)
 
     def request_stop_all_running(self):
+        if self.coordinated_run_active():
+            self.batch_scheduling.coordinated_session.request_stop()
+            return
         for instance in self.running_instances():
             self.disable_display(instance)
             self.request_stop(instance)
@@ -684,6 +696,41 @@ class TrainingInstanceManager:
         for instance in self.instances:
             if instance.writer_key is not None and not self.is_running_or_stopping(instance):
                 self.release_writer(instance)
+
+    def reserve_writers_for_slots(self, instance_slots):
+        self.release_stopped_writers()
+        keys = []
+        seen_keys = set()
+        for instance, slot in instance_slots:
+            key = (slot.ship, int(slot.slot))
+            if key in seen_keys:
+                return False
+            seen_keys.add(key)
+            owner_id = self._writer_reservations.get(key)
+            if owner_id is not None and owner_id != instance.instance_id:
+                return False
+            keys.append((instance, key))
+        for instance, key in keys:
+            self._writer_reservations[key] = instance.instance_id
+            instance.writer_key = key
+        return True
+
+    def start_coordinated_session(self, scheduler):
+        self.batch_scheduling.coordinated_session = scheduler
+        proxies = scheduler.proxies
+        for instance in self.instances:
+            proxy = proxies.get(instance.instance_id)
+            if proxy is not None:
+                self.disable_display(instance)
+                instance.session = proxy
+                instance.last_running = False
+                instance.state.running = True
+        scheduler.start()
+
+    def cleanup_coordinated_session(self):
+        session = self.batch_scheduling.coordinated_session
+        if session is not None and not session.active:
+            self.batch_scheduling.coordinated_session = None
 
     def cleanup_stopped_pending_removals(self):
         removed_active = False
@@ -2578,45 +2625,51 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         rewards_scroll_y = 0
         batch_log_box.set_lines(())
 
-    def architecture_metadata():
+    def architecture_metadata_for(training_state):
         return model_architecture_metadata(
-            state.hidden_layer_size,
-            state.hidden_layer_count,
+            training_state.hidden_layer_size,
+            training_state.hidden_layer_count,
         )
 
-    def training_metadata(*, reset_checkpoint=False):
+    def architecture_metadata():
+        return architecture_metadata_for(state)
+
+    def training_metadata_for(training_state, *, reset_checkpoint=False):
         current_epsilon = _epsilon_for_model_update(
-            state.starting_epsilon,
-            state.current_epsilon,
+            training_state.starting_epsilon,
+            training_state.current_epsilon,
             reset_checkpoint=reset_checkpoint,
         )
         return {
             "opponent": {
-                "mode": state.opponent_mode,
-                "ai_opponent_chance": state.ai_opponent_chance,
-                "forward_activity": state.forward_activity,
-                "a1_activity": state.a1_activity,
-                "a2_activity": state.a2_activity,
-                "face_opponent_activity": state.face_opponent_activity,
+                "mode": training_state.opponent_mode,
+                "ai_opponent_chance": training_state.ai_opponent_chance,
+                "forward_activity": training_state.forward_activity,
+                "a1_activity": training_state.a1_activity,
+                "a2_activity": training_state.a2_activity,
+                "face_opponent_activity": training_state.face_opponent_activity,
             },
-            "rewards": dict(state.rewards),
+            "rewards": dict(training_state.rewards),
             "regimen": {
-                "replay_buffer_size": state.replay_buffer_size,
-                "rounds_per_batch": state.rounds_per_batch,
-                "batch_grouping": state.batch_grouping,
-                "match_time_limit": state.match_time_limit,
-                "minibatch_size": state.minibatch_size,
-                "replay_updates_per_batch": state.replay_updates_per_batch,
-                "learning_rate": state.learning_rate,
-                "starting_epsilon": state.starting_epsilon,
+                "replay_buffer_size": training_state.replay_buffer_size,
+                "rounds_per_batch": training_state.rounds_per_batch,
+                "batch_grouping": training_state.batch_grouping,
+                "match_time_limit": training_state.match_time_limit,
+                "minibatch_size": training_state.minibatch_size,
+                "replay_updates_per_batch": training_state.replay_updates_per_batch,
+                "learning_rate": training_state.learning_rate,
+                "starting_epsilon": training_state.starting_epsilon,
                 "current_epsilon": current_epsilon,
                 "epsilon": current_epsilon,
-                "epsilon_floor": state.epsilon_floor,
-                "epsilon_decay": state.epsilon_decay,
-                "epsilon_frame_span": state.epsilon_frame_span,
-                "gamma": state.gamma,
+                "epsilon_floor": training_state.epsilon_floor,
+                "epsilon_decay": training_state.epsilon_decay,
+                "epsilon_frame_span": training_state.epsilon_frame_span,
+                "gamma": training_state.gamma,
             },
         }
+
+    def training_metadata(*, reset_checkpoint=False):
+        return training_metadata_for(state, reset_checkpoint=reset_checkpoint)
 
     def selected_model_slot():
         if state.selected_ship is None:
@@ -3067,6 +3120,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             return (), ()
         return active_session.history, active_session.log_lines
 
+    def session_continuity_for_instance(instance, model_slot):
+        session = instance.session
+        if (
+            session is None
+            or session.slot.ship != model_slot.ship
+            or session.slot.slot != model_slot.slot
+        ):
+            return (), ()
+        return session.history, session.log_lines
+
     def request_back():
         def stop_all_running_instances():
             instance_manager.request_stop_all_running()
@@ -3213,11 +3276,73 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             lambda ship, slot: model_repository.slot_for(ship, slot),
         )
 
-    def finish_start_all_scaffold():
+    def metadata_for_coordinated_instance(instance, model_slot):
+        instance_state = instance.state
+        existing_metadata = (
+            model_slot.metadata if isinstance(model_slot.metadata, dict) else {}
+        )
+        return metadata_from_state(
+            ship=instance_state.selected_ship,
+            slot=instance_state.selected_slot,
+            description=instance_state.slot_labels[instance_state.selected_slot - 1].strip(),
+            architecture=architecture_metadata_for(instance_state),
+            training=training_metadata_for(instance_state),
+            progress=_progress_for_model_update(existing_metadata),
+        )
+
+    def start_coordinated_run():
         instance_manager.apply_batch_settings_to_all(state)
-        show_notice("Coordinated scheduler is not implemented yet")
+        validation = validate_start_all()
+        if not validation.can_start_all:
+            show_notice(validation.blocking_reason)
+            return
+        instance_slots = [
+            (
+                instance,
+                model_repository.slot_for(
+                    instance.state.selected_ship,
+                    instance.state.selected_slot,
+                ),
+            )
+            for instance in validation.included_instances
+        ]
+        if not instance_manager.reserve_writers_for_slots(instance_slots):
+            show_notice("One or more selected models are already training")
+            return
+        records = []
+        try:
+            for instance, model_slot in instance_slots:
+                metadata = metadata_for_coordinated_instance(instance, model_slot)
+                updated_slot = model_repository.create_or_update_user_model(metadata)
+                initial_history, initial_log_lines = session_continuity_for_instance(
+                    instance,
+                    updated_slot,
+                )
+                records.append(
+                    CoordinatedTrainingRecord(
+                        instance_id=instance.instance_id,
+                        repository=model_repository,
+                        slot=updated_slot,
+                        metadata=metadata,
+                        config=training_config_from_state(instance.state),
+                        batch_grouping=instance.state.batch_grouping,
+                        initial_history=initial_history,
+                        initial_log_lines=initial_log_lines,
+                    )
+                )
+            scheduler = CoordinatedTrainingSession(tuple(records))
+            instance_manager.start_coordinated_session(scheduler)
+            show_notice("Coordinated training started")
+        except (RuntimeError, ValueError, PermissionError) as exc:
+            for instance, _slot in instance_slots:
+                instance_manager.release_writer(instance)
+            show_notice(str(exc))
 
     def start_all_models():
+        if instance_manager.coordinated_run_active():
+            instance_manager.request_stop_all_running()
+            show_notice("Stopping coordinated training")
+            return
         sync_state_from_ui()
         validation = validate_start_all()
         if not validation.can_start_all:
@@ -3230,10 +3355,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if differing:
             confirmation_prompt[0] = ConfirmationPrompt(
                 "Start All will apply Batch tab settings to every open instance. Continue?",
-                finish_start_all_scaffold,
+                start_coordinated_run,
             )
             return
-        finish_start_all_scaffold()
+        start_coordinated_run()
 
     action_gap = 10
     action_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 2 * action_gap) // 3
@@ -3535,6 +3660,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 instance_manager.release_writer(instance)
             instance.last_running = status.running
 
+        instance_manager.cleanup_coordinated_session()
         instance_manager.cleanup_stopped_pending_removals()
         if instance_manager.active_instance_id != previous_active_id:
             state = instance_manager.active_state
@@ -3546,6 +3672,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         background_running = instance_manager.background_instances_running()
         active_running = instance_manager.is_running_or_stopping(active_instance)
         any_running = instance_manager.any_instance_running()
+        coordinated_active = instance_manager.coordinated_run_active()
         batch_validation = validate_start_all()
         batch_scope_available = batch_validation.coordinated_scope_available
         if not batch_scope_available:
@@ -3556,16 +3683,23 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 instance_manager.batch_scheduling.apply_to_all_open_instances
             )
         batch_scope_checkbox.enabled = batch_scope_available and not active_running
-        batch_start_all_button.enabled = batch_validation.can_start_all
+        batch_start_all_button.enabled = batch_validation.can_start_all or coordinated_active
+        batch_start_all_button.text = "Stop All" if coordinated_active else "Start All"
+        if coordinated_active:
+            batch_start_all_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
+            batch_start_all_button.hover_color = ui.CAN_RED_HI
+        else:
+            batch_start_all_button.bg_color = ui.OK_GREEN
+            batch_start_all_button.hover_color = ui.OK_GREEN_HI
         for slider in batch_sliders:
-            slider.enabled = not active_running
+            slider.enabled = not active_running and not coordinated_active
         device_selector.visible = torch_backend.training_device_selector_visible()
         if not device_selector.visible and state.training_device == torch_backend.DEVICE_GPU:
             state.training_device = torch_backend.DEVICE_AUTO
             device_selector.selected = state.training_device
         else:
             device_selector.selected = state.training_device
-        device_selector.enabled = not active_running
+        device_selector.enabled = not active_running and not coordinated_active
 
         if stopping_background_instances[0]:
             if background_running:
@@ -3584,12 +3718,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             back_button.bg_color = ui.CAN_RED
             back_button.hover_color = ui.CAN_RED_HI
-        close_instance_button.enabled = (
+        close_instance_button.enabled = not coordinated_active and (
             len(instance_manager.instances) > 1
             or instance_manager.is_running_or_stopping(active_instance)
         )
-        add_instance_button.enabled = instance_manager.can_add_instance()
+        add_instance_button.enabled = (
+            not coordinated_active and instance_manager.can_add_instance()
+        )
         start_stop_button.enabled = (
+            not coordinated_active
+            and
             state.selected_ship is not None
             and selected_slot is not None
             and not selected_slot.is_bundled
@@ -3614,7 +3752,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             load_button.enabled = False
         else:
             load_button.text = "Load"
-            load_button.enabled = selected_slot is not None and selected_slot.is_user and not state.running
+            load_button.enabled = (
+                selected_slot is not None
+                and selected_slot.is_user
+                and not state.running
+                and not coordinated_active
+            )
+
+        display_checkbox.enabled = not coordinated_active
 
         if session_status is not None and (
             session_status.running or session_status.stopping

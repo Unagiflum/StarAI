@@ -4,7 +4,7 @@ Last updated: 2026-07-13
 
 ## Phase 1: Spec-To-Code Scaffolding
 
-Status: In progress.
+Status: Completed for current implementation scope.
 
 Completed:
 
@@ -26,9 +26,8 @@ Completed:
 - Added active-only Batch-tab editing when coordinated scope is unavailable.
 - Added apply-to-all behavior that copies Batch tab values to every open
   instance after confirmation is requested by the UI.
-- Added `Start All` settings-drift confirmation scaffolding. The click path now
-  validates and applies shared settings, but intentionally stops before
-  launching a scheduler because the runtime is Phase 2+ work.
+- Added `Start All` settings-drift confirmation before launching coordinated
+  runtime work.
 - Added focused UI tests for settings copying, mismatch detection,
   architecture signatures, validation success, and representative validation
   blockers.
@@ -42,20 +41,51 @@ Remaining:
 
 - Add more focused UI tests for the rendered Batch tab control states and all
   validation blockers listed in the spec.
-- Replace the `Start All` scaffold notice with coordinated scheduler startup
-  after Phase 2 introduces the runtime object.
-- Add writer reservation and release tests for the real scheduler startup path.
 - Manual smoke of the new Batch tab remains pending.
 
 ## Phase 2: Coordinated Runtime Skeleton
 
-Status: Planned.
+Status: Completed.
 
-Next work:
+Completed:
 
-- Create `src/training/coordinated.py`.
-- Add a `CoordinatedTrainingSession` or scheduler object with `start`,
-  `request_stop`, and `join` lifecycle methods.
-- Build per-instance runtime records and status proxies.
-- Integrate scheduler startup/cleanup with `TrainingInstanceManager`.
-- Reserve all writer keys before scheduler start and release them after exit.
+- Added `src/training/coordinated.py` with:
+  - `CoordinatedTrainingRecord`
+  - `CoordinatedRuntimeComponents`
+  - `CoordinatedTrainingStatusProxy`
+  - `CoordinatedTrainingSession`
+- Added scheduler lifecycle methods: `start`, `request_stop`, `join`, status
+  accessors, history/log accessors, and stable per-instance status proxies.
+- Added per-record component loading that mirrors the independent session
+  component path: normalized architecture, value network, optimizer, replay
+  buffer, checkpoint load, and optimizer-state device move.
+- Implemented the Phase 2 no-op worker behavior: the coordinated worker loads
+  all records, exposes running status, remains headless/idle, and exits when
+  Stop All is requested.
+- Integrated coordinated startup into `TrainingInstanceManager` and the Batch
+  tab `Start All` path.
+- Replaced the Phase 1 scaffold notice with real coordinated scheduler
+  startup.
+- Added atomic multi-writer reservation for coordinated starts and ensured
+  reservations are released after coordinated stop/error cleanup.
+- Attached coordinated status proxies to each included instance so existing UI
+  status/log rendering can continue to use `instance.session.status`,
+  `history`, and `log_lines`.
+- Added coordinated-run UI lockout for add, close, individual start/stop,
+  display, load, device edits, and Batch-tab sliders while the coordinated
+  worker is active.
+- Added `Stop All` behavior through the Batch tab button and existing back/stop
+  routing.
+
+Verified:
+
+- `python -m unittest tests.test_coordinated_training`
+- `python -m unittest tests.test_train_ai_ui`
+- `python -m unittest tests.test_training_session tests.test_training_orchestration tests.test_training_models`
+
+Remaining:
+
+- Manual smoke of the Batch tab `Start All` / `Stop All` flow remains pending.
+- Phase 2 intentionally does not simulate battles, optimize, or save completed
+  progress because no coordinated batches are completed yet.
+- Phase 3 should replace the no-op idle loop with fixed-frame battle windows.

@@ -733,6 +733,66 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertFalse(validation.can_start_all)
         self.assertEqual(validation.blocking_code, "display")
 
+    def test_coordinated_manager_attaches_proxies_and_releases_writers_after_stop(self):
+        from src.training.coordinated import (
+            CoordinatedRuntimeComponents,
+            CoordinatedTrainingRecord,
+            CoordinatedTrainingSession,
+        )
+        from src.training.replay import TrainingReplayBuffer
+
+        manager, first, second = self._coordinated_manager_with_two_user_slots()
+        slots = (
+            (first, TrainingModelSlot("Earthling", 1, SLOT_USER)),
+            (second, TrainingModelSlot("Androsynth", 1, SLOT_USER)),
+        )
+        records = []
+        for instance, slot in slots:
+            metadata = metadata_from_state(
+                ship=slot.ship,
+                slot=slot.slot,
+                description=instance.state.slot_labels[slot.slot - 1],
+                architecture=architecture_for_state(instance.state),
+                training={},
+            )
+            records.append(
+                CoordinatedTrainingRecord(
+                    instance_id=instance.instance_id,
+                    repository=SimpleNamespace(),
+                    slot=slot,
+                    metadata=metadata,
+                    config=training_config_from_state(instance.state),
+                    batch_grouping=1,
+                )
+            )
+
+        scheduler = CoordinatedTrainingSession(
+            tuple(records),
+            component_builder=lambda _record: CoordinatedRuntimeComponents(
+                object(),
+                object(),
+                TrainingReplayBuffer(4),
+            ),
+            idle_sleep_seconds=0.001,
+        )
+
+        self.assertTrue(manager.reserve_writers_for_slots(slots))
+        manager.start_coordinated_session(scheduler)
+        proxies = scheduler.proxies
+        self.assertIs(first.session, proxies[first.instance_id])
+        self.assertIs(second.session, proxies[second.instance_id])
+        self.assertTrue(manager.coordinated_run_active())
+        self.assertEqual(manager.writer_owner("Earthling", 1), first.instance_id)
+
+        manager.request_stop_all_running()
+        scheduler.join(1.0)
+        manager.release_stopped_writers()
+        manager.cleanup_coordinated_session()
+
+        self.assertFalse(manager.coordinated_run_active())
+        self.assertIsNone(manager.writer_owner("Earthling", 1))
+        self.assertIsNone(manager.writer_owner("Androsynth", 1))
+
 
 class TrainingUIRunWiringTests(unittest.TestCase):
     class StopRun(Exception):
