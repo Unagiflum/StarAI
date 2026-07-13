@@ -225,3 +225,49 @@ Remaining:
   simulation/reward loop.
 - Manual timing comparison against independent sessions remains pending.
 - Synchronized optimization and saving remain Phase 6.
+
+## Phase 6: Synchronized Optimization And Saving
+
+Status: Completed for current implementation scope.
+
+Completed:
+
+- Added a synchronized coordinated optimization phase after all included
+  records finish their fixed-frame windows for a batch.
+- Each coordinated record now runs its own configured `replay_updates_per_batch`
+  optimizer steps against its own replay buffer, model, and optimizer inside
+  the single scheduler thread.
+- Coordinated statuses now enter `Applying gradient descent` during the shared
+  optimization phase and record per-instance average loss through the existing
+  batch metrics/history/log surfaces.
+- Coordinated batch completion now preserves independent per-instance epsilon
+  decay, completed batch counts, replay size, component totals, batch seconds,
+  batches/hour, rolling metrics, and grouped CSV metrics.
+- Added grouped save cadence per record using `batch_grouping`, serialized in
+  the coordinated scheduler thread.
+- Added final save-on-stop for records with completed unsaved progress.
+- Coordinated saves now write model checkpoints, metadata progress, recent
+  batch metrics, and current epsilon through the same repository metadata path
+  as independent `TrainingSession` saves.
+- Coordinated saves now use the shared `ModelSaveCoordinator` and notify the
+  shared `OpponentModelCache` after metadata is written.
+- Existing-AI opponent discovery in coordinated runs now uses the shared
+  opponent model cache when available.
+- Wired Batch-tab `Start All` scheduler construction to pass the UI's shared
+  save coordinator and opponent model cache into `CoordinatedTrainingSession`.
+- Added focused coordinated tests for synchronized optimization, loss routing,
+  grouped metadata save, and opponent-cache notification.
+
+Verified:
+
+- `python -m unittest tests.test_coordinated_training`
+- `python -m unittest tests.test_train_ai_ui`
+- `python -m unittest tests.test_training_session tests.test_training_orchestration tests.test_training_models`
+
+Remaining:
+
+- Manual smoke of the Batch tab `Start All` / `Stop All` flow remains pending.
+- Final save after a mid-batch stop is limited to already completed unsaved
+  coordinated batches; an interrupted in-progress batch is still discarded.
+- Phase 7 performance timing buckets and manual throughput characterization
+  remain pending.

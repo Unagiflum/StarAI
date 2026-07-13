@@ -3330,7 +3330,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         initial_log_lines=initial_log_lines,
                     )
                 )
-            scheduler = CoordinatedTrainingSession(tuple(records))
+            scheduler = CoordinatedTrainingSession(
+                tuple(records),
+                opponent_model_cache=opponent_model_cache,
+                save_coordinator=save_coordinator,
+            )
             instance_manager.start_coordinated_session(scheduler)
             show_notice("Coordinated training started")
         except (RuntimeError, ValueError, PermissionError) as exc:

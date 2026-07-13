@@ -1,3 +1,4 @@
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -26,7 +27,7 @@ from src.training.orchestration import OpponentSpec
 from src.training.replay import ActionSelection, TrainingReplayBuffer
 
 
-def _record(instance_id, ship, **config_overrides):
+def _record(instance_id, ship, batch_grouping=1, **config_overrides):
     metadata = metadata_from_state(
         ship=ship,
         slot=1,
@@ -47,7 +48,7 @@ def _record(instance_id, ship, **config_overrides):
         slot=TrainingModelSlot(ship, 1, SLOT_USER, metadata=metadata),
         metadata=metadata,
         config=TrainingOrchestrationConfig(**config_kwargs),
-        batch_grouping=1,
+        batch_grouping=batch_grouping,
     )
 
 
@@ -388,8 +389,22 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
 
         session = CoordinatedTrainingSession(
             (
-                _record(1, "Earthling", match_time_limit=3, epsilon=1.0, gamma=0.0),
-                _record(2, "Androsynth", match_time_limit=3, epsilon=1.0, gamma=0.0),
+                _record(
+                    1,
+                    "Earthling",
+                    batch_grouping=99,
+                    match_time_limit=3,
+                    epsilon=1.0,
+                    gamma=0.0,
+                ),
+                _record(
+                    2,
+                    "Androsynth",
+                    batch_grouping=99,
+                    match_time_limit=3,
+                    epsilon=1.0,
+                    gamma=0.0,
+                ),
             ),
             component_builder=component_builder,
             simulation_factory=StepLoggingSimulationFactory((), step_log),
@@ -438,6 +453,161 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
         self.assertEqual(stats.request_count, 6)
         self.assertEqual(stats.exploratory_count, 6)
         self.assertEqual(stats.mode_counts["sequential_fallback"], 3)
+
+    def test_batch_runs_synchronized_optimization_for_each_record(self):
+        replay_buffers = {}
+
+        def component_builder(record):
+            replay = TrainingReplayBuffer(32)
+            replay_buffers[record.instance_id] = replay
+            return CoordinatedRuntimeComponents(
+                model=object(),
+                optimizer=object(),
+                replay_buffer=replay,
+            )
+
+        session = CoordinatedTrainingSession(
+            (
+                _record(
+                    1,
+                    "Earthling",
+                    batch_grouping=99,
+                    match_time_limit=1,
+                    epsilon=1.0,
+                    gamma=0.0,
+                    minibatch_size=1,
+                    replay_updates_per_batch=2,
+                ),
+                _record(
+                    2,
+                    "Androsynth",
+                    batch_grouping=99,
+                    match_time_limit=1,
+                    epsilon=1.0,
+                    gamma=0.0,
+                    minibatch_size=1,
+                    replay_updates_per_batch=2,
+                ),
+            ),
+            component_builder=component_builder,
+            simulation_factory=StepLoggingSimulationFactory((), []),
+            run_batches=True,
+        )
+        for state in session._states.values():
+            state.components = component_builder(state.record)
+        losses = iter((0.25, 0.75, 1.25, 1.75))
+        optimize_calls = []
+
+        def optimize(model, optimizer, replay_buffer, *, batch_size, rng=None):
+            optimize_calls.append((model, optimizer, len(replay_buffer), batch_size))
+            return SimpleNamespace(loss=next(losses))
+
+        with (
+            mock.patch(
+                "src.training.coordinated.simple_opponent_schedule",
+                return_value=(OpponentSpec("Earthling"),),
+            ),
+            mock.patch(
+                "src.training.coordinated.encode_observation",
+                return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+            ),
+            mock.patch(
+                "src.training.coordinated.decision_frame_from_battle_state",
+                side_effect=fake_decision_frame,
+            ),
+            mock.patch(
+                "src.training.coordinated.frame_outcome_from_battle_state",
+                side_effect=fake_frame_outcome,
+            ),
+            mock.patch("src.training.coordinated.optimize_from_replay", side_effect=optimize),
+        ):
+            self.assertTrue(session._run_one_coordinated_batch())
+
+        self.assertEqual(len(optimize_calls), 4)
+        self.assertEqual(session.status_for_instance(1).recent_loss, 0.5)
+        self.assertEqual(session.status_for_instance(2).recent_loss, 1.5)
+        self.assertEqual(
+            session.status_for_instance(1).display_message,
+            "Applying gradient descent",
+        )
+
+    def test_grouped_save_writes_metadata_and_notifies_cache(self):
+        with self.subTest("grouped save"):
+            with mock.patch("src.training.coordinated.save_training_checkpoint") as save:
+                with mock.patch("src.training.coordinated.append_grouped_metrics_csv"):
+                    with tempfile.TemporaryDirectory() as directory:
+                        root = Path(directory)
+                        repository = TrainingModelRepository(
+                            root / "bundled",
+                            root / "user",
+                        )
+                        metadata = metadata_from_state(
+                            ship="Earthling",
+                            slot=1,
+                            description="Earthling test",
+                            architecture=model_architecture_metadata(8, 1),
+                            training={},
+                        )
+                        slot = repository.create_or_update_user_model(metadata)
+                        record = CoordinatedTrainingRecord(
+                            instance_id=1,
+                            repository=repository,
+                            slot=slot,
+                            metadata=metadata,
+                            config=TrainingOrchestrationConfig(
+                                trainee_ship="Earthling",
+                                hidden_layer_width=8,
+                                hidden_layer_count=1,
+                                training_device="cpu",
+                                epsilon_decay=1.0,
+                            ),
+                            batch_grouping=1,
+                        )
+                        session = CoordinatedTrainingSession(
+                            (record, _record(2, "Androsynth")),
+                            run_batches=False,
+                            opponent_model_cache=SimpleNamespace(
+                                notify_model_saved=mock.Mock()
+                            ),
+                        )
+                        state = session._states[1]
+                        state.components = CoordinatedRuntimeComponents(
+                            model=object(),
+                            optimizer=object(),
+                            replay_buffer=TrainingReplayBuffer(4),
+                        )
+                        result = SimpleNamespace(
+                            replay_size=0,
+                            average_loss=0.5,
+                            round_results=(SimpleNamespace(
+                                total_return=4.0,
+                                win=True,
+                                loss=False,
+                                draw=False,
+                                component_totals={},
+                            ),),
+                            optimization_losses=(0.5,),
+                        )
+
+                        batch_number = session._record_completed_batch(
+                            state,
+                            result,
+                            batch_seconds=1.0,
+                        )
+                        session._save_state(state, include_replay=False)
+
+                        saved_slot = repository.slot_for("Earthling", 1)
+
+        self.assertEqual(batch_number, 1)
+        self.assertEqual(saved_slot.metadata["progress"]["completed_batches"], 1)
+        self.assertEqual(state.last_saved_completed_batches, 1)
+        save.assert_called_once()
+        session.opponent_model_cache.notify_model_saved.assert_called_once_with(
+            repository,
+            "Earthling",
+            1,
+            device_choice="cpu",
+        )
 
 
 if __name__ == "__main__":

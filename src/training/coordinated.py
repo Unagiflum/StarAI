@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from contextlib import nullcontext
+from dataclasses import dataclass, field, replace
 import random
 import threading
 import time
@@ -17,7 +18,9 @@ from src.training import event_ledger
 from src.training.model_registry import (
     TrainingModelRepository,
     TrainingModelSlot,
+    metadata_from_state,
     model_architecture_metadata,
+    model_paths,
     normalize_architecture_metadata,
 )
 from src.training.observation import encode_observation
@@ -42,7 +45,13 @@ from src.training.orchestration import (
     existing_ai_opponent_schedule,
     simple_opponent_schedule,
 )
-from src.training.replay import TrainingReplayBuffer, load_training_checkpoint
+from src.training.opponent_cache import OpponentModelKey
+from src.training.replay import (
+    TrainingReplayBuffer,
+    load_training_checkpoint,
+    optimize_from_replay,
+    save_training_checkpoint,
+)
 from src.training.replay import ActionSelection
 from src.training.rewards import (
     REWARD_COMPONENTS,
@@ -53,7 +62,10 @@ from src.training.rewards import (
 from src.training.session import (
     BatchMetrics,
     MAX_BATCH_LOG_LINES,
+    RECENT_BATCH_METRICS_KEY,
     TrainingSessionStatus,
+    append_grouped_metrics_csv,
+    batch_metrics_to_metadata,
     batch_metrics_history_from_metadata,
     format_batch_summary_line,
     metrics_from_batch_result,
@@ -142,6 +154,7 @@ class _CoordinatedRecordState:
     log_lines: list[str] = field(default_factory=list)
     components: CoordinatedRuntimeComponents | None = None
     current_epsilon: float = 0.0
+    last_saved_completed_batches: int = 0
 
 
 @dataclass
@@ -228,6 +241,8 @@ class CoordinatedTrainingSession:
         rng: Any | None = None,
         run_batches: bool = True,
         idle_sleep_seconds: float = 0.01,
+        opponent_model_cache: Any | None = None,
+        save_coordinator: Any | None = None,
     ):
         if len(records) < 2:
             raise ValueError("Coordinated training requires at least two records")
@@ -263,6 +278,8 @@ class CoordinatedTrainingSession:
         self._rng = rng or random.Random()
         self._run_batches = bool(run_batches)
         self._idle_sleep_seconds = max(0.0, float(idle_sleep_seconds))
+        self.opponent_model_cache = opponent_model_cache
+        self.save_coordinator = save_coordinator
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
         self._thread: threading.Thread | None = None
@@ -285,6 +302,8 @@ class CoordinatedTrainingSession:
             instance_id: CoordinatedTrainingStatusProxy(self, instance_id)
             for instance_id in self._states
         }
+        for state in self._states.values():
+            state.last_saved_completed_batches = state.status.completed_batches
 
     @property
     def records(self) -> tuple[CoordinatedTrainingRecord, ...]:
@@ -437,6 +456,13 @@ class CoordinatedTrainingSession:
                     state.status.error = str(exc)
                     state.status.stopping = True
         finally:
+            try:
+                self._save_unsaved_completed_progress()
+            except Exception as exc:
+                with self._lock:
+                    for state in self._states.values():
+                        if not state.status.error:
+                            state.status.error = str(exc)
             self._mark_stopped()
 
     def _run_one_coordinated_batch(self) -> bool:
@@ -537,20 +563,32 @@ class CoordinatedTrainingSession:
             with self._lock:
                 self._current_batch_started_at = None
 
+        with self._lock:
+            for state in self._states.values():
+                state.status.display_message = "Applying gradient descent"
+                state.status.battle_view = None
+
+        optimization_losses = {
+            instance_id: self._optimize_record(state)
+            for instance_id, state in self._states.items()
+        }
+
         for instance_id, state in self._states.items():
             components = state.components
             if components is None:
                 continue
-            self._record_completed_batch(
+            batch_number = self._record_completed_batch(
                 state,
                 TrainingBatchResult(
                     completed_rounds=len(results[instance_id]),
                     replay_size=len(components.replay_buffer),
-                    optimization_losses=(),
+                    optimization_losses=optimization_losses[instance_id],
                     round_results=tuple(results[instance_id]),
                 ),
                 batch_seconds=max(0.0, batch_finished_at - batch_started_at),
             )
+            if batch_number % state.record.batch_grouping == 0:
+                self._save_state(state, include_replay=False)
         return True
 
     def _record_inference_batch(
@@ -573,6 +611,25 @@ class CoordinatedTrainingSession:
     ) -> tuple[OpponentSpec, ...]:
         config = state.record.config
         if config.opponent_mode == OPPONENT_MODE_EXISTING_AI:
+            if self.opponent_model_cache is not None:
+                with self._lock:
+                    state.status.display_message = "Loading AI opponents"
+                    state.status.battle_view = None
+                self.opponent_model_cache.load_initial(
+                    state.record.repository,
+                    device_choice=config.training_device,
+                )
+                opponents = self.opponent_model_cache.snapshot(
+                    device_choice=config.training_device,
+                )
+                with self._lock:
+                    state.status.display_message = ""
+                return existing_ai_opponent_schedule(
+                    config.rounds_per_batch,
+                    opponents,
+                    ai_opponent_chance=config.ai_opponent_chance,
+                    rng=self._rng,
+                )
             opponents = discover_existing_ai_opponents(
                 state.record.repository,
                 device_choice=config.training_device,
@@ -591,7 +648,7 @@ class CoordinatedTrainingSession:
         result: TrainingBatchResult,
         *,
         batch_seconds: float,
-    ) -> None:
+    ) -> int:
         with self._lock:
             state.status.completed_batches += 1
             batch_number = state.status.completed_batches
@@ -644,6 +701,145 @@ class CoordinatedTrainingSession:
             limit = max(1, int(state.record.batch_grouping))
             if len(state.history) > limit:
                 del state.history[: len(state.history) - limit]
+        if batch_number % state.record.batch_grouping == 0:
+            append_grouped_metrics_csv(self._csv_path(state), rolling)
+        return batch_number
+
+    def _optimize_record(self, state: _CoordinatedRecordState) -> tuple[float, ...]:
+        components = state.components
+        if components is None:
+            raise RuntimeError("coordinated components were not loaded")
+        config = state.record.config
+        losses: list[float] = []
+        for _ in range(config.replay_updates_per_batch):
+            _raise_if_stop_requested(self._stop_requested.is_set)
+            result = optimize_from_replay(
+                components.model,
+                components.optimizer,
+                components.replay_buffer,
+                batch_size=config.minibatch_size,
+                rng=self._rng,
+            )
+            if result is not None:
+                losses.append(result.loss)
+        return tuple(losses)
+
+    def _save_unsaved_completed_progress(self) -> None:
+        for state in self._states.values():
+            components = state.components
+            if components is None:
+                continue
+            with self._lock:
+                completed_batches = state.status.completed_batches
+                last_saved = state.last_saved_completed_batches
+            if completed_batches > last_saved:
+                self._save_state(state, include_replay=True)
+
+    def _save_state(
+        self,
+        state: _CoordinatedRecordState,
+        *,
+        include_replay: bool,
+    ) -> None:
+        components = state.components
+        if components is None:
+            raise RuntimeError("coordinated components were not loaded")
+        key = OpponentModelKey(state.record.slot.ship, state.record.slot.slot)
+        context = (
+            self.save_coordinator.saving(key)
+            if self.save_coordinator is not None
+            else nullcontext()
+        )
+        with self._lock:
+            completed_batches = state.status.completed_batches
+            history = tuple(state.history)
+            metadata = dict(state.record.metadata)
+            current_epsilon = float(state.current_epsilon)
+        with context:
+            pth_path, _ = model_paths(
+                state.record.repository.user_dir,
+                key.ship,
+                key.slot,
+            )
+            save_training_checkpoint(
+                pth_path,
+                components.model,
+                optimizer=components.optimizer,
+                replay_buffer=components.replay_buffer if include_replay else None,
+                extra_state={"completed_batches": completed_batches},
+            )
+            updated_metadata = metadata_from_state(
+                ship=key.ship,
+                slot=key.slot,
+                description=str(metadata.get("description", state.record.slot.description)),
+                architecture=metadata.get(
+                    "architecture",
+                    model_architecture_metadata(
+                        state.record.config.hidden_layer_width,
+                        state.record.config.hidden_layer_count,
+                    ),
+                ),
+                training=self._training_metadata_for_save(
+                    state,
+                    current_epsilon=current_epsilon,
+                ),
+                progress={
+                    "completed_batches": completed_batches,
+                    RECENT_BATCH_METRICS_KEY: [
+                        batch_metrics_to_metadata(metrics)
+                        for metrics in history[-state.record.batch_grouping :]
+                    ],
+                },
+            )
+            updated_slot = state.record.repository.create_or_update_user_model(
+                updated_metadata
+            )
+        with self._lock:
+            state.record = replace(
+                state.record,
+                slot=updated_slot,
+                metadata=updated_metadata,
+            )
+            state.last_saved_completed_batches = completed_batches
+        if self.opponent_model_cache is not None:
+            self.opponent_model_cache.notify_model_saved(
+                state.record.repository,
+                key.ship,
+                key.slot,
+                device_choice=state.record.config.training_device,
+            )
+
+    def _training_metadata_for_save(
+        self,
+        state: _CoordinatedRecordState,
+        *,
+        current_epsilon: float,
+    ) -> dict[str, Any]:
+        training = state.record.metadata.get("training", {})
+        training = dict(training) if isinstance(training, Mapping) else {}
+        regimen = training.get("regimen", {})
+        regimen = dict(regimen) if isinstance(regimen, Mapping) else {}
+        config = state.record.config
+        regimen.update(
+            {
+                "starting_epsilon": float(config.starting_epsilon),
+                "current_epsilon": float(current_epsilon),
+                "epsilon": float(current_epsilon),
+                "epsilon_floor": float(config.epsilon_floor),
+                "epsilon_decay": float(config.epsilon_decay),
+                "epsilon_frame_span": int(config.epsilon_frame_span),
+            }
+        )
+        training["regimen"] = regimen
+        return training
+
+    def _csv_path(self, state: _CoordinatedRecordState):
+        _, metadata_path = model_paths(
+            state.record.repository.user_dir,
+            state.record.slot.ship,
+            state.record.slot.slot,
+        )
+        return metadata_path.with_suffix(".csv")
 
     def _on_record_progress(
         self,
