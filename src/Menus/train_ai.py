@@ -63,8 +63,8 @@ REPLAY_BUFFER_SIZE_VALUES = tuple(range(5000, 250001, 5000))
 ROUNDS_PER_BATCH_VALUES = tuple(range(1, 51, 1))
 BATCH_GROUPING_VALUES = tuple(range(5, 201, 5))
 MATCH_TIME_LIMIT_VALUES = tuple(range(240, 12001, 240))
-MINIBATCH_SIZE_VALUES = (16, 32, 64, 128, 256, 512)
-REPLAY_UPDATES_PER_BATCH_VALUES = tuple(range(100, 5001, 100))
+MINIBATCH_SIZE_VALUES = (16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
+REPLAY_UPDATES_PER_BATCH_VALUES = (10, 15) + tuple(range(20, 501, 10))
 LEARNING_RATE_VALUES = (0.00001, 0.00003, 0.00010, 0.00030, 0.00100, 0.00300, 0.01000)
 EPSILON_VALUES = tuple(round(i * 0.025, 3) for i in range(41))
 EPSILON_DECAY_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
@@ -163,8 +163,8 @@ class TrainingUIState:
     epsilon_decay: float = 0.998
     epsilon_frame_span: int = 8
     gamma: float = 0.990
-    minibatch_size: int = 64
-    replay_updates_per_batch: int = 500
+    minibatch_size: int = 2048
+    replay_updates_per_batch: int = 15
     hidden_layer_size: int = 256
     hidden_layer_count: int = 2
     replay_buffer_size: int = 30000
@@ -1626,8 +1626,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Rounds per batch: 50",
             "Batch grouping: 1000",
             "Replay size, batch=15M: 250k (1250MB)",
-            "Minibatch size: 512",
-            "Gradient steps, UTD=999.9: 5000",
+            "Minibatch size: 4096",
+            "Gradient steps, UTD=999.9: 500",
             "Learning rate: 0.01000",
             "Starting Epsilon: 1.000",
             "Epsilon decay: 1.000",

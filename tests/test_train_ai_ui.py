@@ -118,8 +118,8 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.epsilon_decay, 0.998)
         self.assertEqual(state.epsilon_frame_span, 8)
         self.assertEqual(state.gamma, 0.99)
-        self.assertEqual(state.minibatch_size, 64)
-        self.assertEqual(state.replay_updates_per_batch, 500)
+        self.assertEqual(state.minibatch_size, 2048)
+        self.assertEqual(state.replay_updates_per_batch, 15)
         self.assertFalse(state.display_on)
         self.assertFalse(state.running)
 
@@ -887,10 +887,13 @@ class RegimenSliderTests(unittest.TestCase):
             MATCH_TIME_LIMIT_VALUES,
             tuple(range(240, 12001, 240)),
         )
-        self.assertEqual(MINIBATCH_SIZE_VALUES, (16, 32, 64, 128, 256, 512))
+        self.assertEqual(
+            MINIBATCH_SIZE_VALUES,
+            (16, 32, 64, 128, 256, 512, 1024, 2048, 4096),
+        )
         self.assertEqual(
             REPLAY_UPDATES_PER_BATCH_VALUES,
-            tuple(range(100, 5001, 100)),
+            (10, 15) + tuple(range(20, 501, 10)),
         )
         self.assertEqual(
             LEARNING_RATE_VALUES,
