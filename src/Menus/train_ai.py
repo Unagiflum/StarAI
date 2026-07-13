@@ -26,6 +26,7 @@ from src.Objects.Ships.catalog import SHIP_DEFINITIONS
 from src.UI import ui, ui_button
 from src.UI.ship_sprites import fit_ship_sprites, load_menu_ship_sprites
 from src.frame_timing import PresentationClock
+from src.training import torch_backend
 from src.training.model_registry import (
     MODEL_SLOT_COUNT,
     SLOT_BUNDLED,
@@ -58,6 +59,11 @@ REWARD_LABELS = REWARD_COMPONENTS
 
 SIMPLE_ACTIVITY_VALUES = tuple(float(value) for value in range(0, 101, 5))
 AI_OPPONENT_PERCENT_VALUES = SIMPLE_ACTIVITY_VALUES
+TRAINING_DEVICE_LABELS = (
+    (torch_backend.DEVICE_AUTO, "Auto"),
+    (torch_backend.DEVICE_CPU, "CPU"),
+    (torch_backend.DEVICE_GPU, "GPU"),
+)
 
 REPLAY_BUFFER_SIZE_VALUES = tuple(range(5000, 250001, 5000))
 ROUNDS_PER_BATCH_VALUES = tuple(range(1, 51, 1))
@@ -165,6 +171,7 @@ class TrainingUIState:
     gamma: float = 0.990
     minibatch_size: int = 2048
     replay_updates_per_batch: int = 15
+    training_device: str = torch_backend.DEVICE_AUTO
     hidden_layer_size: int = 256
     hidden_layer_count: int = 2
     replay_buffer_size: int = 30000
@@ -1030,6 +1037,62 @@ class RewardSlider(SliderRow):
         )
 
 
+class DeviceRadioSelector:
+    """Compact radio group for runtime training device selection."""
+
+    def __init__(self, rect, choices, selected):
+        self.rect = pygame.Rect(rect)
+        self.choices = tuple(choices)
+        self.selected = selected
+        self.enabled = True
+        self.visible = True
+
+    def _option_rects(self):
+        width = max(1, self.rect.width // max(1, len(self.choices)))
+        rects = []
+        for index, _choice in enumerate(self.choices):
+            x = self.rect.x + index * width
+            if index == len(self.choices) - 1:
+                rects.append(pygame.Rect(x, self.rect.y, self.rect.right - x, self.rect.height))
+            else:
+                rects.append(pygame.Rect(x, self.rect.y, width, self.rect.height))
+        return tuple(rects)
+
+    def handle_event(self, event, sound_manager=None):
+        if not self.visible or not self.enabled:
+            return
+        if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+            return
+        for rect, (value, _label) in zip(self._option_rects(), self.choices):
+            if rect.collidepoint(event.pos):
+                self.selected = value
+                if sound_manager:
+                    sound_manager.play_sound("menu")
+                return
+
+    def draw(self, surface, font, mouse_pos=None):
+        if not self.visible:
+            return
+        if mouse_pos is None:
+            mouse_pos = pygame.mouse.get_pos()
+        bg = ui.SLIDER_BG_HI if self.enabled and self.rect.collidepoint(mouse_pos) else ui.SLIDER_BG
+        if not self.enabled:
+            bg = ui.DARK_GREY
+        pygame.draw.rect(surface, bg, self.rect)
+        pygame.draw.rect(surface, ui.BLACK, self.rect, 3)
+        for rect, (value, label) in zip(self._option_rects(), self.choices):
+            if rect.left != self.rect.left:
+                pygame.draw.line(surface, ui.BLACK, rect.topleft, rect.bottomleft, 2)
+            circle_center = (rect.x + 18, rect.centery)
+            circle_color = ui.WHITE if self.enabled else ui.GREY
+            selected_color = ui.BRIGHT_GREEN if self.enabled else ui.GREY
+            pygame.draw.circle(surface, circle_color, circle_center, 8, 2)
+            if self.selected == value:
+                pygame.draw.circle(surface, selected_color, circle_center, 5)
+            text = font.render(label, True, circle_color)
+            surface.blit(text, text.get_rect(midleft=(rect.x + 32, rect.centery)))
+
+
 class TextField:
     """Small single-line editor used for AI-slot descriptions."""
 
@@ -1535,6 +1598,7 @@ def training_config_from_state(state: TrainingUIState) -> TrainingOrchestrationC
         hidden_layer_count=state.hidden_layer_count,
         minibatch_size=state.minibatch_size,
         replay_updates_per_batch=state.replay_updates_per_batch,
+        training_device=state.training_device,
         display_on=state.display_on,
     )
 
@@ -1694,7 +1758,19 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         lambda: setattr(state, "active_tab", "regimen"),
     )
 
-    ship_tile = pygame.Rect((CONTROL_WIDTH - 200) // 2, 48, 200, 200)
+    ship_tile = pygame.Rect(16, 48, 200, 200)
+    device_selector_rect = pygame.Rect(
+        ship_tile.right + 16,
+        ship_tile.y + 58,
+        CONTROL_WIDTH - ship_tile.right - 32,
+        40,
+    )
+    device_selector = DeviceRadioSelector(
+        device_selector_rect,
+        TRAINING_DEVICE_LABELS,
+        state.training_device,
+    )
+    device_selector.visible = torch_backend.training_device_selector_visible()
     slot_rows = tuple(
         pygame.Rect(16, 290 + index * 46, CONTROL_WIDTH - 32, 40)
         for index in range(4)
@@ -1982,6 +2058,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     def sync_state_from_ui():
         instance_manager.set_active_display(display_checkbox.value)
         state.slot_labels[:] = [field.text for field in slot_fields]
+        if device_selector.visible:
+            state.training_device = device_selector.selected
+        elif state.training_device == torch_backend.DEVICE_GPU:
+            state.training_device = torch_backend.DEVICE_AUTO
         state.rewards.update(
             (slider.label, slider.value) for slider in reward_sliders
         )
@@ -2037,6 +2117,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     def apply_state_to_ui():
         nonlocal trainee_scroll_y, rewards_scroll_y
         display_checkbox.is_checked = state.display_on
+        device_selector.selected = state.training_device
         refresh_slot_controls(load_labels=False)
         for slider in reward_sliders:
             _set_slider_value(slider, state.rewards.get(slider.label, 0.0))
@@ -2876,6 +2957,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                                 break
                 for field in slot_fields:
                     field.handle_event(translated)
+                device_selector.handle_event(translated, menu_sound_manager)
                 for delete_btn in delete_buttons:
                     delete_btn.handle_event(translated, menu_sound_manager)
                 load_button.handle_event(translated, menu_sound_manager)
@@ -2982,6 +3064,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         background_running = instance_manager.background_instances_running()
         active_running = instance_manager.is_running_or_stopping(active_instance)
         any_running = instance_manager.any_instance_running()
+        device_selector.visible = torch_backend.training_device_selector_visible()
+        if not device_selector.visible and state.training_device == torch_backend.DEVICE_GPU:
+            state.training_device = torch_backend.DEVICE_AUTO
+            device_selector.selected = state.training_device
+        else:
+            device_selector.selected = state.training_device
+        device_selector.enabled = not active_running
 
         if stopping_background_instances[0]:
             if background_running:
@@ -3095,14 +3184,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 sprite = selector_sprites[state.selected_ship]
                 content.blit(sprite, sprite.get_rect(center=ship_tile.center))
 
-            slot_heading = body_font.render("AI Slot", True, ui.WHITE)
-            content.blit(slot_heading, (slot_rows[0].x, slot_rows[0].y - 30))
-            
             mouse_pos = pygame.mouse.get_pos()
             content_mouse_pos = (
                 mouse_pos[0] - layout.content_rect.x,
                 mouse_pos[1] - layout.content_rect.y + trainee_scroll_y,
             )
+
+            if device_selector.visible:
+                device_heading = body_font.render("PyTorch Device", True, ui.WHITE)
+                content.blit(
+                    device_heading,
+                    device_heading.get_rect(center=(device_selector.rect.centerx, 82)),
+                )
+                device_selector.draw(content, body_font, content_mouse_pos)
+
+            slot_heading = body_font.render("AI Slot", True, ui.WHITE)
+            content.blit(slot_heading, (slot_rows[0].x, slot_rows[0].y - 30))
             
             for index, (row, field) in enumerate(zip(slot_rows, slot_fields)):
                 enabled = state.selected_ship is not None and not state.running

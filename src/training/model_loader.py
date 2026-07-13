@@ -34,6 +34,7 @@ from src.training.value_network import ValueNetworkConfig, build_value_network
 class InferenceModelKey:
     ship: str
     slot: int
+    device: str = torch_backend.DEVICE_AUTO
 
 
 @dataclass(frozen=True)
@@ -149,7 +150,11 @@ class InferenceModelCache:
             )
 
 
-def load_inference_model(slot: TrainingModelSlot) -> LoadedInferenceModel:
+def load_inference_model(
+    slot: TrainingModelSlot,
+    *,
+    device_choice: str | None = torch_backend.DEVICE_AUTO,
+) -> LoadedInferenceModel:
     """Build, load, and freeze one trained model for read-only inference."""
 
     if slot.pth_path is None or not slot.pth_path.exists():
@@ -169,7 +174,7 @@ def load_inference_model(slot: TrainingModelSlot) -> LoadedInferenceModel:
             hidden_layer_width=int(architecture["hidden_layer_width"]),
             hidden_layer_count=int(architecture["hidden_layer_count"]),
         )
-        device = torch_backend.preferred_device()
+        device = torch_backend.training_device(device_choice)
         model = build_value_network(config, device=device)
         load_training_checkpoint(slot.pth_path, model, map_location=device)
         model.eval()
@@ -177,7 +182,11 @@ def load_inference_model(slot: TrainingModelSlot) -> LoadedInferenceModel:
         raise InferenceModelLoadError(str(exc)) from exc
 
     return LoadedInferenceModel(
-        key=InferenceModelKey(str(slot.ship), int(slot.slot)),
+        key=InferenceModelKey(
+            str(slot.ship),
+            int(slot.slot),
+            torch_backend.training_device_key(device_choice),
+        ),
         model=model,
         slot=slot,
         description=slot.description,

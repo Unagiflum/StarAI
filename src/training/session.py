@@ -358,7 +358,6 @@ class TrainingSession:
         self._current_batch_started_at: float | None = None
         self._completed_batches_at_run_start = self._status.completed_batches
         self._last_saved_completed_batches = self._status.completed_batches
-        self._last_saved_replay_completed_batches = self._status.completed_batches
         self._last_recorded_batch_metrics: BatchMetrics | None = None
         self._cached_existing_ai_opponents = None
         self._cached_existing_ai_opponents_at: int | None = None
@@ -566,13 +565,6 @@ class TrainingSession:
                 replay_buffer,
                 include_replay=True,
             )
-        elif self.status.completed_batches > self._last_saved_replay_completed_batches:
-            self._save_state(
-                model,
-                optimizer,
-                replay_buffer,
-                include_replay=True,
-            )
 
     def _existing_ai_opponents_for_batch(self):
         if self.config.opponent_mode != OPPONENT_MODE_EXISTING_AI:
@@ -581,12 +573,15 @@ class TrainingSession:
             with self._lock:
                 self._status.display_message = "Loading AI opponents"
                 self._status.battle_view = None
-                needs_initial_load = not self._opponent_model_cache_initial_loaded
-            if needs_initial_load:
-                self.opponent_model_cache.load_initial(self.repository)
-                with self._lock:
-                    self._opponent_model_cache_initial_loaded = True
-            opponents = self.opponent_model_cache.snapshot()
+            self.opponent_model_cache.load_initial(
+                self.repository,
+                device_choice=self.config.training_device,
+            )
+            with self._lock:
+                self._opponent_model_cache_initial_loaded = True
+            opponents = self.opponent_model_cache.snapshot(
+                device_choice=self.config.training_device,
+            )
             with self._lock:
                 self._status.display_message = ""
             return opponents
@@ -607,7 +602,10 @@ class TrainingSession:
             self._status.display_message = "Loading AI opponents"
             self._status.battle_view = None
 
-        discovery = discover_existing_ai_opponents(self.repository)
+        discovery = discover_existing_ai_opponents(
+            self.repository,
+            device_choice=self.config.training_device,
+        )
         with self._lock:
             self._cached_existing_ai_opponents = discovery.opponents
             self._cached_existing_ai_opponents_at = completed_batches
@@ -631,7 +629,7 @@ class TrainingSession:
                 hidden_layer_width=int(architecture["hidden_layer_width"]),
                 hidden_layer_count=int(architecture["hidden_layer_count"]),
             ),
-            device=torch_backend.preferred_device(),
+            device=torch_backend.training_device(self.config.training_device),
         )
         device = next(model.parameters()).device
         optimizer = build_optimizer(model, learning_rate=self.config.learning_rate)
@@ -733,7 +731,6 @@ class TrainingSession:
                 pth_path,
                 model,
                 optimizer=optimizer,
-                replay_buffer=replay_buffer if include_replay else None,
                 extra_state={"completed_batches": completed_batches},
             )
             metadata = metadata_from_state(
@@ -759,13 +756,12 @@ class TrainingSession:
             self.metadata = metadata
             self.slot = self.repository.create_or_update_user_model(metadata)
         self._last_saved_completed_batches = completed_batches
-        if include_replay:
-            self._last_saved_replay_completed_batches = completed_batches
         if self.opponent_model_cache is not None:
             self.opponent_model_cache.notify_model_saved(
                 self.repository,
                 key.ship,
                 key.slot,
+                device_choice=self.config.training_device,
             )
 
     def _training_metadata_for_save(self) -> dict[str, Any]:

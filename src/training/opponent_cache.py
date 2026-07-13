@@ -9,11 +9,11 @@ from collections.abc import Mapping
 from typing import Any, Iterator
 
 from src.training.contracts import SHIP_TYPE_CATALOG_ORDER
+from src.training import torch_backend
 from src.training.model_loader import load_inference_model
 from src.training.model_registry import (
     MODEL_SLOT_COUNT,
     SLOT_EMPTY,
-    SLOT_USER,
     TrainingModelRepository,
     TrainingModelSlot,
     model_slot_has_checkpoint,
@@ -24,6 +24,7 @@ from src.training.model_registry import (
 class OpponentModelKey:
     ship: str
     slot: int
+    device: str = torch_backend.DEVICE_AUTO
 
 
 @dataclass(frozen=True)
@@ -85,18 +86,23 @@ class OpponentModelCache:
         self._blocked_keys: set[OpponentModelKey] = set()
         self._save_coordinator = save_coordinator
 
-    def load_initial(self, repository: TrainingModelRepository) -> None:
+    def load_initial(
+        self,
+        repository: TrainingModelRepository,
+        *,
+        device_choice: str | None = torch_backend.DEVICE_AUTO,
+    ) -> None:
         """Load available model slots that are not already cached."""
 
         for ship_name in SHIP_TYPE_CATALOG_ORDER:
             for slot_number in range(1, MODEL_SLOT_COUNT + 1):
-                key = OpponentModelKey(ship_name, slot_number)
+                key = _cache_key(ship_name, slot_number, device_choice)
                 with self._lock:
                     if key in self._entries:
                         continue
                 if (
                     self._save_coordinator is not None
-                    and self._save_coordinator.is_saving(key)
+                    and self._save_coordinator.is_saving((key.ship, key.slot))
                 ):
                     with self._lock:
                         self._blocked_keys.add(key)
@@ -114,43 +120,66 @@ class OpponentModelCache:
         repository: TrainingModelRepository,
         ship: str,
         slot: int,
+        *,
+        device_choice: str | None = None,
     ) -> None:
-        """Refresh one cached model after a successful save."""
+        """Mark cached copies stale after a successful save.
 
-        key = OpponentModelKey(str(ship), int(slot))
+        Reloading is deliberately deferred to the next batch boundary. Building
+        replacement CPU/CUDA models synchronously on the saving training thread
+        can briefly duplicate model memory while other instances are active.
+        """
+
+        save_key = OpponentModelKey(str(ship), int(slot))
+        with self._lock:
+            existing_target_keys = tuple(
+                key
+                for key in self._entries
+                if key.ship == str(ship) and key.slot == int(slot)
+            )
+            if device_choice is None:
+                target_keys = existing_target_keys
+            else:
+                requested_key = _cache_key(ship, slot, device_choice)
+                target_keys = tuple(
+                    dict.fromkeys((*existing_target_keys, requested_key))
+                )
+            if not target_keys:
+                target_keys = (_cache_key(ship, slot, device_choice),)
+
         if (
             self._save_coordinator is not None
-            and self._save_coordinator.is_saving(key)
+            and self._save_coordinator.is_saving(save_key)
         ):
             with self._lock:
-                self._blocked_keys.add(key)
+                self._blocked_keys.update(target_keys)
             return
 
         with self._lock:
-            self._blocked_keys.discard(key)
+            self._blocked_keys.discard(save_key)
+            for key in target_keys:
+                self._blocked_keys.discard(key)
+                self._last_errors.pop(key, None)
+                self._entries.pop(key, None)
 
-        model_slot = repository.slot_for(key.ship, key.slot)
-        if model_slot.source != SLOT_USER or not model_slot_has_checkpoint(model_slot):
-            return
-
-        loaded = _entry_from_slot(key, model_slot)
-        with self._lock:
-            if isinstance(loaded, str):
-                self._last_errors[key] = loaded
-                return
-            self._entries[key] = loaded
-            self._last_errors.pop(key, None)
-            self._blocked_keys.discard(key)
-
-    def snapshot(self) -> tuple[Any, ...]:
+    def snapshot(
+        self,
+        *,
+        device_choice: str | None = torch_backend.DEVICE_AUTO,
+    ) -> tuple[Any, ...]:
         """Return an immutable batch snapshot of cached opponent specs."""
 
         from src.training.orchestration import OPPONENT_MODE_EXISTING_AI, OpponentSpec
 
+        device = torch_backend.training_device_key(device_choice)
         with self._lock:
             entries = tuple(
                 self._entries[key]
-                for key in sorted(self._entries, key=lambda item: (item.ship, item.slot))
+                for key in sorted(
+                    self._entries,
+                    key=lambda item: (item.ship, item.slot, item.device),
+                )
+                if key.device == device
             )
         return tuple(
             OpponentSpec(
@@ -191,7 +220,7 @@ def _entry_from_slot(
     slot: TrainingModelSlot,
 ) -> OpponentCacheEntry | str:
     try:
-        loaded = load_inference_model(slot)
+        loaded = load_inference_model(slot, device_choice=key.device)
     except Exception as exc:
         return str(exc)
     return OpponentCacheEntry(
@@ -204,17 +233,33 @@ def _entry_from_slot(
     )
 
 
+def _cache_key(
+    ship: str,
+    slot: int,
+    device_choice: str | None,
+) -> OpponentModelKey:
+    return OpponentModelKey(
+        str(ship),
+        int(slot),
+        torch_backend.training_device_key(device_choice),
+    )
+
+
 def _coerce_key(key: OpponentModelKey | tuple[str, int]) -> OpponentModelKey:
     if isinstance(key, OpponentModelKey):
-        return key
+        return OpponentModelKey(key.ship, key.slot)
     ship, slot = key
     return OpponentModelKey(str(ship), int(slot))
 
 
-def load_opponent_model(slot: TrainingModelSlot):
+def load_opponent_model(
+    slot: TrainingModelSlot,
+    *,
+    device_choice: str | None = torch_backend.DEVICE_AUTO,
+):
     """Build, load, and freeze one opponent model for inference."""
 
     try:
-        return load_inference_model(slot).model
+        return load_inference_model(slot, device_choice=device_choice).model
     except Exception as exc:
         return str(exc)

@@ -159,7 +159,7 @@ class TrainingPolicyAndOptimizationTests(unittest.TestCase):
         self.assertEqual(result.batch_size, 8)
         self.assertLess(final_loss, initial_loss)
 
-    def test_checkpoint_round_trips_predictions_optimizer_and_replay(self):
+    def test_checkpoint_round_trips_predictions_and_optimizer_without_replay(self):
         model = build_value_network(ValueNetworkConfig(8, 1))
         optimizer = build_optimizer(model, learning_rate=0.001)
         replay = TrainingReplayBuffer(capacity=4)
@@ -176,7 +176,7 @@ class TrainingPolicyAndOptimizationTests(unittest.TestCase):
                 replay_buffer=replay,
                 extra_state={"completed_batches": 2},
             )
-            self.assertTrue(replay_checkpoint_path(path).exists())
+            self.assertFalse(replay_checkpoint_path(path).exists())
 
             restored_model = build_value_network(ValueNetworkConfig(8, 1))
             restored_optimizer = build_optimizer(restored_model, learning_rate=0.001)
@@ -191,9 +191,9 @@ class TrainingPolicyAndOptimizationTests(unittest.TestCase):
         after = predict_action_values(restored_model, observation).detach().cpu()
         self.assertTrue(self.torch.allclose(before, after))
         self.assertTrue(loaded.has_optimizer_state)
-        self.assertEqual(loaded.replay_sample_count, 3)
+        self.assertIsNone(loaded.replay_sample_count)
         self.assertEqual(loaded.extra_state["completed_batches"], 2)
-        self.assertEqual(len(restored_replay), 3)
+        self.assertEqual(len(restored_replay), 0)
 
     def test_checkpoint_main_file_does_not_embed_replay_buffer(self):
         torch = torch_backend.require_torch()
@@ -210,15 +210,14 @@ class TrainingPolicyAndOptimizationTests(unittest.TestCase):
                 payload = torch.load(path)
 
         self.assertNotIn("replay_buffer", payload)
+        self.assertFalse(replay_checkpoint_path(path).exists())
 
-    def test_model_only_checkpoint_removes_stale_replay_sidecar(self):
+    def test_checkpoint_save_removes_stale_replay_sidecar(self):
         model = build_value_network(ValueNetworkConfig(8, 1))
-        replay = TrainingReplayBuffer(capacity=4)
-        replay.extend(sample(identifier) for identifier in range(3))
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "Earthling-01.pth"
-            save_training_checkpoint(path, model, replay_buffer=replay)
+            replay_checkpoint_path(path).write_bytes(b"stale replay")
             self.assertTrue(replay_checkpoint_path(path).exists())
 
             save_training_checkpoint(path, model)

@@ -79,6 +79,7 @@ class TrainingOrchestrationConfig:
     hidden_layer_count: int = 2
     minibatch_size: int = DEFAULT_MINIBATCH_SIZE
     replay_updates_per_batch: int = DEFAULT_REPLAY_UPDATES_PER_BATCH
+    training_device: str = torch_backend.DEVICE_AUTO
     display_on: bool = False
 
     def __post_init__(self) -> None:
@@ -106,6 +107,8 @@ class TrainingOrchestrationConfig:
             raise ValueError("epsilon_decay must be in [0, 1]")
         if int(self.epsilon_frame_span) <= 0:
             raise ValueError("epsilon_frame_span must be positive")
+        if self.training_device not in torch_backend.DEVICE_CHOICES:
+            raise ValueError("unsupported training device")
         for label, value in (
             ("forward_activity", self.forward_activity),
             ("a1_activity", self.a1_activity),
@@ -278,6 +281,8 @@ def existing_ai_opponent_schedule(
 
 def discover_existing_ai_opponents(
     repository: TrainingModelRepository,
+    *,
+    device_choice: str | None = torch_backend.DEVICE_AUTO,
 ) -> OpponentDiscoveryResult:
     """Load and freeze available stored AI opponents at a batch boundary."""
 
@@ -292,7 +297,7 @@ def discover_existing_ai_opponents(
             if not torch_available:
                 skipped.append(f"{ship_name}-{slot_number:02d}: PyTorch unavailable")
                 continue
-            loaded = _load_opponent_model(slot)
+            loaded = _load_opponent_model(slot, device_choice=device_choice)
             if isinstance(loaded, str):
                 skipped.append(f"{ship_name}-{slot_number:02d}: {loaded}")
                 continue
@@ -332,7 +337,10 @@ def run_training_batch(
         if discovered_opponents is None:
             if model_repository is None:
                 raise ValueError("model_repository is required for existing-AI mode")
-            discovered_opponents = discover_existing_ai_opponents(model_repository).opponents
+            discovered_opponents = discover_existing_ai_opponents(
+                model_repository,
+                device_choice=config.training_device,
+            ).opponents
         opponents = existing_ai_opponent_schedule(
             config.rounds_per_batch,
             discovered_opponents,
@@ -647,7 +655,7 @@ def controls_for_simple_behavior(
 def build_training_components(config: TrainingOrchestrationConfig):
     """Construct the model, optimizer, and replay buffer for a new session."""
 
-    device = torch_backend.preferred_device()
+    device = torch_backend.training_device(config.training_device)
     model = build_value_network(
         ValueNetworkConfig(
             hidden_layer_width=config.hidden_layer_width,
@@ -830,5 +838,9 @@ def _battle_view_from_simulation(simulation) -> dict[str, Any]:
     }
 
 
-def _load_opponent_model(slot: TrainingModelSlot):
-    return load_opponent_model(slot)
+def _load_opponent_model(
+    slot: TrainingModelSlot,
+    *,
+    device_choice: str | None = torch_backend.DEVICE_AUTO,
+):
+    return load_opponent_model(slot, device_choice=device_choice)

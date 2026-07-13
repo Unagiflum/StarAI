@@ -276,6 +276,13 @@ class OpponentModelCacheTests(unittest.TestCase):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")
 
+    def _key(self, ship="Earthling", slot=1, device_choice=None):
+        return OpponentModelKey(
+            ship,
+            slot,
+            torch_backend.training_device_key(device_choice),
+        )
+
     def test_initial_load_reuses_one_shared_model_per_slot(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -294,12 +301,13 @@ class OpponentModelCacheTests(unittest.TestCase):
         self.assertEqual(first_snapshot[0].slot, 1)
         self.assertIs(first_snapshot[0].model, second_snapshot[0].model)
         diagnostics = cache.diagnostics()
+        key = self._key("Earthling", 1)
         self.assertEqual(
             diagnostics.loaded_keys,
-            (OpponentModelKey("Earthling", 1),),
+            (key,),
         )
         self.assertEqual(diagnostics.last_errors, {})
-        loaded_entry = diagnostics.entries[OpponentModelKey("Earthling", 1)]
+        loaded_entry = diagnostics.entries[key]
         self.assertEqual(loaded_entry.completed_batches, 7)
         self.assertGreater(loaded_entry.checkpoint_size, 0)
         self.assertIsNotNone(loaded_entry.checkpoint_mtime_ns)
@@ -346,13 +354,13 @@ class OpponentModelCacheTests(unittest.TestCase):
             snapshot = cache.snapshot()
             diagnostics = cache.diagnostics()
 
-        key = OpponentModelKey("Earthling", 1)
+        key = self._key("Earthling", 1)
         self.assertEqual(snapshot, ())
         self.assertEqual(diagnostics.loaded_keys, ())
         self.assertIn(key, diagnostics.last_errors)
         self.assertNotIn(key, diagnostics.entries)
 
-    def test_notify_model_saved_refreshes_cached_entry(self):
+    def test_notify_model_saved_invalidates_cached_entry_until_next_load(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repository = TrainingModelRepository(root / "bundled", root / "user")
@@ -363,26 +371,30 @@ class OpponentModelCacheTests(unittest.TestCase):
 
             self._save_model(repository, "Earthling", 1, completed_batches=2)
             cache.notify_model_saved(repository, "Earthling", 1)
-            snapshot = cache.snapshot()
-            diagnostics = cache.diagnostics()
+            invalidated_snapshot = cache.snapshot()
+            invalidated_diagnostics = cache.diagnostics()
+            cache.load_initial(repository)
+            reloaded_snapshot = cache.snapshot()
+            reloaded_diagnostics = cache.diagnostics()
 
-        self.assertEqual(len(snapshot), 1)
-        self.assertEqual(snapshot[0].slot, 1)
-        self.assertIsNot(snapshot[0].model, old_model)
-        self.assertEqual(diagnostics.last_errors, {})
+        self.assertEqual(invalidated_snapshot, ())
+        self.assertNotIn(self._key("Earthling", 1), invalidated_diagnostics.entries)
+        self.assertEqual(len(reloaded_snapshot), 1)
+        self.assertEqual(reloaded_snapshot[0].slot, 1)
+        self.assertIsNot(reloaded_snapshot[0].model, old_model)
+        self.assertEqual(reloaded_diagnostics.last_errors, {})
         self.assertEqual(
-            diagnostics.entries[OpponentModelKey("Earthling", 1)].completed_batches,
+            reloaded_diagnostics.entries[self._key("Earthling", 1)].completed_batches,
             2,
         )
 
-    def test_notify_model_saved_keeps_last_good_when_refresh_load_fails(self):
+    def test_next_load_records_error_after_invalidated_entry_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repository = TrainingModelRepository(root / "bundled", root / "user")
             self._save_model(repository, "Earthling", 1, completed_batches=1)
             cache = OpponentModelCache()
             cache.load_initial(repository)
-            old_model = cache.snapshot()[0].model
 
             slot = self._create_metadata_only_slot(
                 repository,
@@ -392,15 +404,16 @@ class OpponentModelCacheTests(unittest.TestCase):
             )
             slot.pth_path.write_bytes(b"not a checkpoint")
             cache.notify_model_saved(repository, "Earthling", 1)
-            snapshot = cache.snapshot()
+            invalidated_snapshot = cache.snapshot()
+            cache.load_initial(repository)
+            failed_snapshot = cache.snapshot()
             diagnostics = cache.diagnostics()
 
-        key = OpponentModelKey("Earthling", 1)
-        self.assertEqual(len(snapshot), 1)
-        self.assertIs(snapshot[0].model, old_model)
+        key = self._key("Earthling", 1)
+        self.assertEqual(invalidated_snapshot, ())
+        self.assertEqual(failed_snapshot, ())
         self.assertIn(key, diagnostics.last_errors)
-        self.assertEqual(diagnostics.entries[key].completed_batches, 1)
-        self.assertIs(diagnostics.entries[key].model, old_model)
+        self.assertNotIn(key, diagnostics.entries)
 
     def test_notify_model_saved_leaves_missing_key_absent_when_load_fails(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -417,9 +430,10 @@ class OpponentModelCacheTests(unittest.TestCase):
 
             cache.notify_model_saved(repository, "Earthling", 1)
             snapshot = cache.snapshot()
+            cache.load_initial(repository)
             diagnostics = cache.diagnostics()
 
-        key = OpponentModelKey("Earthling", 1)
+        key = self._key("Earthling", 1)
         self.assertEqual(snapshot, ())
         self.assertEqual(diagnostics.loaded_keys, ())
         self.assertIn(key, diagnostics.last_errors)
@@ -434,7 +448,7 @@ class OpponentModelCacheTests(unittest.TestCase):
             cache = OpponentModelCache(save_coordinator=coordinator)
             cache.load_initial(repository)
             old_model = cache.snapshot()[0].model
-            key = OpponentModelKey("Earthling", 1)
+            key = self._key("Earthling", 1)
 
             self._save_model(repository, "Earthling", 1, completed_batches=2)
             with coordinator.saving(key):
@@ -450,9 +464,9 @@ class OpponentModelCacheTests(unittest.TestCase):
         self.assertEqual(blocked_diagnostics.blocked_keys, (key,))
         self.assertEqual(blocked_diagnostics.entries[key].completed_batches, 1)
         self.assertIs(blocked_diagnostics.entries[key].model, old_model)
-        self.assertIsNot(refreshed_snapshot[0].model, old_model)
+        self.assertEqual(refreshed_snapshot, ())
         self.assertEqual(refreshed_diagnostics.blocked_keys, ())
-        self.assertEqual(refreshed_diagnostics.entries[key].completed_batches, 2)
+        self.assertNotIn(key, refreshed_diagnostics.entries)
 
     def test_initial_load_skips_active_save_and_records_blocked_diagnostics(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -461,7 +475,7 @@ class OpponentModelCacheTests(unittest.TestCase):
             self._save_model(repository, "Earthling", 1, completed_batches=1)
             coordinator = ModelSaveCoordinator()
             cache = OpponentModelCache(save_coordinator=coordinator)
-            key = OpponentModelKey("Earthling", 1)
+            key = self._key("Earthling", 1)
 
             with coordinator.saving(key):
                 cache.load_initial(repository)
@@ -477,6 +491,59 @@ class OpponentModelCacheTests(unittest.TestCase):
         self.assertNotIn(key, blocked_diagnostics.entries)
         self.assertEqual(len(loaded_snapshot), 1)
         self.assertEqual(loaded_diagnostics.loaded_keys, (key,))
+
+    def test_cache_keeps_separate_entries_per_device(self):
+        if not torch_backend.cuda_available():
+            self.skipTest("CUDA is not available")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            self._save_model(repository, "Earthling", 1, completed_batches=1)
+            cache = OpponentModelCache()
+
+            cache.load_initial(repository, device_choice="cpu")
+            cpu_snapshot = cache.snapshot(device_choice="cpu")
+            cache.load_initial(repository, device_choice="gpu")
+            gpu_snapshot = cache.snapshot(device_choice="gpu")
+            old_cpu_model = cpu_snapshot[0].model
+            old_gpu_model = gpu_snapshot[0].model
+
+            self._save_model(repository, "Earthling", 1, completed_batches=2)
+            cache.notify_model_saved(
+                repository,
+                "Earthling",
+                1,
+                device_choice="cpu",
+            )
+            invalidated_cpu_snapshot = cache.snapshot(device_choice="cpu")
+            invalidated_gpu_snapshot = cache.snapshot(device_choice="gpu")
+            cache.load_initial(repository, device_choice="cpu")
+            cache.load_initial(repository, device_choice="gpu")
+            reloaded_cpu_snapshot = cache.snapshot(device_choice="cpu")
+            reloaded_gpu_snapshot = cache.snapshot(device_choice="gpu")
+            diagnostics = cache.diagnostics()
+
+        cpu_key = self._key("Earthling", 1, "cpu")
+        gpu_key = self._key("Earthling", 1, "gpu")
+        self.assertEqual(len(cpu_snapshot), 1)
+        self.assertEqual(len(gpu_snapshot), 1)
+        self.assertIsNot(cpu_snapshot[0].model, gpu_snapshot[0].model)
+        self.assertEqual(next(cpu_snapshot[0].model.parameters()).device.type, "cpu")
+        self.assertEqual(next(gpu_snapshot[0].model.parameters()).device.type, "cuda")
+        self.assertEqual(invalidated_cpu_snapshot, ())
+        self.assertEqual(invalidated_gpu_snapshot, ())
+        self.assertIsNot(reloaded_cpu_snapshot[0].model, old_cpu_model)
+        self.assertIsNot(reloaded_gpu_snapshot[0].model, old_gpu_model)
+        self.assertEqual(
+            diagnostics.entries[cpu_key].completed_batches,
+            2,
+        )
+        self.assertEqual(
+            diagnostics.entries[gpu_key].completed_batches,
+            2,
+        )
+        self.assertIn(cpu_key, diagnostics.entries)
+        self.assertIn(gpu_key, diagnostics.entries)
 
     def _save_model(
         self,

@@ -86,10 +86,10 @@ class _MutableOpponentCache:
         self.snapshot_value = snapshot
         self.load_initial_calls = 0
 
-    def load_initial(self, repository):
+    def load_initial(self, repository, *, device_choice=None):
         self.load_initial_calls += 1
 
-    def snapshot(self):
+    def snapshot(self, *, device_choice=None):
         return self.snapshot_value
 
 
@@ -477,6 +477,43 @@ class TrainingSessionTests(unittest.TestCase):
         self.assertEqual(load_checkpoint.call_args.kwargs["map_location"], device)
         move_optimizer_state.assert_called_once_with(optimizer, device)
 
+    def test_build_components_respects_explicit_cpu_training_device(self):
+        torch = torch_backend.require_torch()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            session = TrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    training_device="cpu",
+                ),
+                batch_grouping=1,
+            )
+
+            with mock.patch(
+                "src.training.session.torch_backend.preferred_device",
+                return_value=torch.device("cuda"),
+            ) as preferred_device:
+                model, _optimizer, _replay_buffer = session._build_components()
+
+        preferred_device.assert_not_called()
+        self.assertEqual(next(model.parameters()).device, torch.device("cpu"))
+
     def test_session_accepts_existing_batch_history_and_logs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -615,9 +652,9 @@ class TrainingSessionTests(unittest.TestCase):
         self.assertEqual(session.saved_batches, [3, 5])
         self.assertEqual(session.saved_replay_flags, [False, True])
         self.assertEqual(saved_slot.metadata["progress"]["completed_batches"], 5)
-        self.assertTrue(replay_exists)
+        self.assertFalse(replay_exists)
 
-    def test_session_saves_replay_on_exit_after_group_boundary_model_save(self):
+    def test_session_skips_exit_save_after_group_boundary_model_save(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             from src.training.model_registry import TrainingModelRepository
@@ -656,9 +693,9 @@ class TrainingSessionTests(unittest.TestCase):
             session.run_synchronously(max_batches=6)
             replay_exists = replay_checkpoint_path(slot.pth_path).exists()
 
-        self.assertEqual(session.saved_batches, [3, 6, 6])
-        self.assertEqual(session.saved_replay_flags, [False, False, True])
-        self.assertTrue(replay_exists)
+        self.assertEqual(session.saved_batches, [3, 6])
+        self.assertEqual(session.saved_replay_flags, [False, False])
+        self.assertFalse(replay_exists)
 
     def test_save_state_coordinates_and_notifies_cache_after_metadata_write(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -676,12 +713,13 @@ class TrainingSessionTests(unittest.TestCase):
             key = OpponentModelKey("Earthling", 1)
             notifications = []
 
-            def notify_model_saved(repository, ship, slot):
+            def notify_model_saved(repository, ship, slot, *, device_choice=None):
                 saved_slot = repository.slot_for(ship, slot)
                 notifications.append(
                     (
                         ship,
                         slot,
+                        device_choice,
                         saved_slot.metadata["progress"]["completed_batches"],
                         coordinator.is_saving(key),
                     )
@@ -724,7 +762,7 @@ class TrainingSessionTests(unittest.TestCase):
             ):
                 session.run_synchronously(max_batches=1)
 
-        self.assertEqual(notifications, [("Earthling", 1, 1, False)])
+        self.assertEqual(notifications, [("Earthling", 1, "auto", 1, False)])
 
     def test_failed_save_does_not_notify_cache(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1090,7 +1128,7 @@ class TrainingSessionTests(unittest.TestCase):
             )
             session.run_synchronously(max_batches=2)
 
-        self.assertEqual(cache.load_initial_calls, 1)
+        self.assertEqual(cache.load_initial_calls, 2)
         self.assertIs(seen_opponents[0], first)
         self.assertIs(seen_opponents[1], second)
 

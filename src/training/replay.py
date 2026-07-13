@@ -206,6 +206,9 @@ def save_training_checkpoint(
     replay_buffer: TrainingReplayBuffer | None = None,
     extra_state: Mapping[str, Any] | None = None,
 ) -> None:
+    # Replay fills quickly after resume, so checkpoints intentionally persist
+    # only model, optimizer, and extra progress state.
+    del replay_buffer
     torch = torch_backend.require_torch()
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -216,17 +219,10 @@ def save_training_checkpoint(
         "extra_state": dict(extra_state or {}),
     }
     _atomic_torch_save(torch, payload, path)
-    if replay_buffer is not None:
-        replay_payload = {
-            "format_version": REPLAY_CHECKPOINT_FORMAT_VERSION,
-            "replay_buffer": replay_buffer.to_state(),
-        }
-        _atomic_torch_save(torch, replay_payload, replay_checkpoint_path(path))
-    else:
-        try:
-            replay_checkpoint_path(path).unlink()
-        except FileNotFoundError:
-            pass
+    try:
+        replay_checkpoint_path(path).unlink()
+    except FileNotFoundError:
+        pass
 
 
 def _atomic_torch_save(torch, payload: Mapping[str, Any], path: Path) -> None:
@@ -283,35 +279,7 @@ def load_training_checkpoint(
         optimizer_state = payload.get("optimizer_state_dict")
         if optimizer is not None and optimizer_state is not None:
             optimizer.load_state_dict(optimizer_state)
-        replay_state = payload.get("replay_buffer")
         replay_sample_count = None
-        if replay_buffer is not None and replay_state is not None:
-            replay_buffer.load_state(replay_state)
-            replay_sample_count = len(replay_buffer)
-        elif replay_buffer is not None:
-            replay_path = replay_checkpoint_path(path)
-            if replay_path.exists() and replay_path.stat().st_size > 0:
-                try:
-                    try:
-                        replay_payload = torch.load(
-                            replay_path,
-                            map_location=map_location,
-                            weights_only=False,
-                        )
-                    except TypeError:
-                        replay_payload = torch.load(replay_path, map_location=map_location)
-                except Exception as exc:
-                    raise TrainingCheckpointError(
-                        f"Could not load replay checkpoint: {exc}"
-                    ) from exc
-                if not isinstance(replay_payload, Mapping):
-                    raise TrainingCheckpointError("Replay checkpoint must contain a mapping")
-                if replay_payload.get("format_version") != REPLAY_CHECKPOINT_FORMAT_VERSION:
-                    raise TrainingCheckpointError("Unsupported replay checkpoint format")
-                replay_state = replay_payload.get("replay_buffer")
-                if replay_state is not None:
-                    replay_buffer.load_state(replay_state)
-                    replay_sample_count = len(replay_buffer)
     except TrainingCheckpointError:
         raise
     except Exception as exc:

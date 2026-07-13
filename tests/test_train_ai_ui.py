@@ -120,6 +120,7 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.gamma, 0.99)
         self.assertEqual(state.minibatch_size, 2048)
         self.assertEqual(state.replay_updates_per_batch, 15)
+        self.assertEqual(state.training_device, "auto")
         self.assertFalse(state.display_on)
         self.assertFalse(state.running)
 
@@ -941,6 +942,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         state.gamma = 0.995
         state.minibatch_size = 128
         state.replay_updates_per_batch = 1000
+        state.training_device = "cpu"
         state.starting_epsilon = 0.2
         state.current_epsilon = 0.125
         state.epsilon_decay = 0.997
@@ -962,6 +964,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         self.assertEqual(config.gamma, 0.995)
         self.assertEqual(config.minibatch_size, 128)
         self.assertEqual(config.replay_updates_per_batch, 1000)
+        self.assertEqual(config.training_device, "cpu")
         self.assertEqual(config.starting_epsilon, 0.2)
         self.assertEqual(config.epsilon, 0.125)
         self.assertEqual(config.epsilon_decay, 0.997)
