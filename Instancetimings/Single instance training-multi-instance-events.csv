@@ -1,0 +1,11 @@
+Timestamp,Event,Run ID,Instance ID,Ship,Slot,Batch,Running Instances,Total Seconds,Details
+2026-07-13T00:03:39.185+00:00,batch_start,2026-07-13T00:03:35.669+00:00-489e010c,1,Androsynth,1,18,1,,opponent_mode=all
+2026-07-13T00:03:39.186+00:00,opponent_load_start,2026-07-13T00:03:35.669+00:00-489e010c,1,Androsynth,1,18,1,,
+2026-07-13T00:03:39.189+00:00,opponent_load_end,2026-07-13T00:03:35.669+00:00-489e010c,1,Androsynth,1,18,1,0.003397,
+2026-07-13T00:04:38.084+00:00,batch_end,2026-07-13T00:03:35.669+00:00-489e010c,1,Androsynth,1,18,1,58.898166,rounds=25
+2026-07-13T00:04:38.085+00:00,batch_start,2026-07-13T00:03:35.669+00:00-489e010c,1,Androsynth,1,19,1,,opponent_mode=all
+2026-07-13T00:04:38.087+00:00,opponent_load_start,2026-07-13T00:03:35.669+00:00-489e010c,1,Androsynth,1,19,1,,
+2026-07-13T00:04:38.088+00:00,opponent_load_end,2026-07-13T00:03:35.669+00:00-489e010c,1,Androsynth,1,19,1,0.000029,
+2026-07-13T00:04:40.635+00:00,batch_aborted,2026-07-13T00:03:35.669+00:00-489e010c,1,Androsynth,1,19,1,2.550430,
+2026-07-13T00:04:40.637+00:00,save_start,2026-07-13T00:03:35.669+00:00-489e010c,1,Androsynth,1,18,1,,include_replay=True
+2026-07-13T00:04:45.034+00:00,save_end,2026-07-13T00:03:35.669+00:00-489e010c,1,Androsynth,1,18,1,4.396679,include_replay=True
