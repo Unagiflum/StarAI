@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 import random
 import threading
@@ -43,6 +43,7 @@ from src.training.orchestration import (
     simple_opponent_schedule,
 )
 from src.training.replay import TrainingReplayBuffer, load_training_checkpoint
+from src.training.replay import ActionSelection
 from src.training.rewards import (
     REWARD_COMPONENTS,
     RollingReturnPipeline,
@@ -108,6 +109,29 @@ class CoordinatedFixedFrameWindowResult:
     loss: bool
     draw: bool
     component_totals: Mapping[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CoordinatedActionRequest:
+    record_id: int
+    policy: Any
+    observation: Sequence[float]
+
+
+@dataclass(frozen=True)
+class CoordinatedActionBatchResult:
+    selections: Mapping[int, ActionSelection]
+    inference_mode: str
+    request_count: int
+    exploratory_count: int
+
+
+@dataclass(frozen=True)
+class CoordinatedInferenceStats:
+    last_mode: str = ""
+    request_count: int = 0
+    exploratory_count: int = 0
+    mode_counts: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -253,6 +277,10 @@ class CoordinatedTrainingSession:
             instance_id: []
             for instance_id in self._states
         }
+        self._inference_last_mode = ""
+        self._inference_request_count = 0
+        self._inference_exploratory_count = 0
+        self._inference_mode_counts: dict[str, int] = {}
         self._proxies = {
             instance_id: CoordinatedTrainingStatusProxy(self, instance_id)
             for instance_id in self._states
@@ -265,6 +293,16 @@ class CoordinatedTrainingSession:
     @property
     def proxies(self) -> dict[int, CoordinatedTrainingStatusProxy]:
         return dict(self._proxies)
+
+    @property
+    def inference_stats(self) -> CoordinatedInferenceStats:
+        with self._lock:
+            return CoordinatedInferenceStats(
+                last_mode=self._inference_last_mode,
+                request_count=self._inference_request_count,
+                exploratory_count=self._inference_exploratory_count,
+                mode_counts=dict(self._inference_mode_counts),
+            )
 
     @property
     def active(self) -> bool:
@@ -293,6 +331,10 @@ class CoordinatedTrainingSession:
                 instance_id: []
                 for instance_id in self._states
             }
+            self._inference_last_mode = ""
+            self._inference_request_count = 0
+            self._inference_exploratory_count = 0
+            self._inference_mode_counts = {}
             for state in self._states.values():
                 state.status.running = True
                 state.status.stopping = False
@@ -454,14 +496,23 @@ class CoordinatedTrainingSession:
                     )
                 while any(not window.complete for window in active_windows):
                     _raise_if_stop_requested(self._stop_requested.is_set)
-                    for window in active_windows:
-                        if window.complete:
-                            continue
+                    frame_requests = [
+                        (window, _action_request_for_window(window))
+                        for window in active_windows
+                        if not window.complete
+                    ]
+                    action_result = select_actions_for_records(
+                        tuple(request for _window, request in frame_requests)
+                    )
+                    self._record_inference_batch(action_result)
+                    for window, request in frame_requests:
                         _advance_coordinated_window_frame(
                             window,
                             rng=self._rng,
                             simulation_factory=self._simulation_factory,
                             audio_service=self._audio_service,
+                            observation=request.observation,
+                            selection=action_result.selections[request.record_id],
                             progress_callback=(
                                 lambda payload, item=window.state: self._on_record_progress(
                                     item,
@@ -501,6 +552,20 @@ class CoordinatedTrainingSession:
                 batch_seconds=max(0.0, batch_finished_at - batch_started_at),
             )
         return True
+
+    def _record_inference_batch(
+        self,
+        result: CoordinatedActionBatchResult,
+    ) -> None:
+        if result.request_count <= 0:
+            return
+        with self._lock:
+            self._inference_last_mode = result.inference_mode
+            self._inference_request_count += int(result.request_count)
+            self._inference_exploratory_count += int(result.exploratory_count)
+            self._inference_mode_counts[result.inference_mode] = (
+                self._inference_mode_counts.get(result.inference_mode, 0) + 1
+            )
 
     def _opponents_for_batch(
         self,
@@ -858,6 +923,61 @@ def _ship_alive(ship) -> bool:
     )
 
 
+def select_actions_for_records(
+    requests: Sequence[CoordinatedActionRequest],
+) -> CoordinatedActionBatchResult:
+    """Select coordinated trainee actions behind one replaceable helper boundary.
+
+    This first implementation intentionally reports ``sequential_fallback``:
+    records still own distinct model weights, so true multi-model batching is
+    deferred behind this function.
+    """
+
+    if not requests:
+        return CoordinatedActionBatchResult(
+            selections={},
+            inference_mode="none",
+            request_count=0,
+            exploratory_count=0,
+        )
+
+    selections: dict[int, ActionSelection] = {}
+    for request in requests:
+        record_id = int(request.record_id)
+        if record_id in selections:
+            raise ValueError(f"duplicate coordinated action request for {record_id}")
+        selections[record_id] = _select_policy_action(
+            request.policy,
+            request.observation,
+        )
+
+    return CoordinatedActionBatchResult(
+        selections=selections,
+        inference_mode="sequential_fallback",
+        request_count=len(selections),
+        exploratory_count=sum(
+            1 for selection in selections.values() if selection.exploratory
+        ),
+    )
+
+
+def _action_request_for_window(
+    runtime: _CoordinatedWindowRuntime,
+) -> CoordinatedActionRequest:
+    simulation = runtime.simulation
+    observation = encode_observation(
+        simulation.player1,
+        simulation.player2,
+        frame_id=simulation.frame_id,
+        game_objects=simulation.world,
+    )
+    return CoordinatedActionRequest(
+        record_id=runtime.state.record.instance_id,
+        policy=runtime.policy,
+        observation=tuple(observation),
+    )
+
+
 def _create_coordinated_window_runtime(
     *,
     state: _CoordinatedRecordState,
@@ -932,6 +1052,8 @@ def _advance_coordinated_window_frame(
     rng: Any,
     simulation_factory: Callable[..., BattleSimulation],
     audio_service: Any,
+    observation: Sequence[float] | None = None,
+    selection: ActionSelection | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
     ship_factory: Callable[..., Any] = create_ship,
@@ -947,13 +1069,21 @@ def _advance_coordinated_window_frame(
     simulation = runtime.simulation
     self_ship = simulation.player1
     enemy_ship = simulation.player2
-    observation = encode_observation(
-        self_ship,
-        enemy_ship,
-        frame_id=simulation.frame_id,
-        game_objects=simulation.world,
-    )
-    selection = _select_policy_action(runtime.policy, observation)
+    if observation is None:
+        request = _action_request_for_window(runtime)
+        observation = request.observation
+    else:
+        observation = tuple(observation)
+    if selection is None:
+        selection = select_actions_for_records(
+            (
+                CoordinatedActionRequest(
+                    record_id=state.record.instance_id,
+                    policy=runtime.policy,
+                    observation=observation,
+                ),
+            )
+        ).selections[state.record.instance_id]
     decision = decision_frame_from_battle_state(
         frame_id=simulation.frame_id + 1,
         observation=observation,

@@ -6,9 +6,11 @@ from unittest import mock
 
 from src.training.contracts import OBSERVATION_INPUT_SIZE
 from src.training.coordinated import (
+    CoordinatedActionRequest,
     CoordinatedRuntimeComponents,
     CoordinatedTrainingRecord,
     CoordinatedTrainingSession,
+    select_actions_for_records,
     run_coordinated_fixed_frame_window,
 )
 from src.training.rewards import RewardDecisionFrame, RewardFrameOutcome
@@ -118,6 +120,16 @@ class FixedPolicy:
 
     def reset_exploration_span(self):
         self.reset_count += 1
+
+
+class SequencePolicy:
+    def __init__(self, selections):
+        self.selections = list(selections)
+        self.observations = []
+
+    def select_action(self, observation):
+        self.observations.append(tuple(observation))
+        return self.selections.pop(0)
 
 
 class ScriptedSimulation:
@@ -323,6 +335,43 @@ class CoordinatedFixedFrameWindowTests(unittest.TestCase):
         self.assertEqual(result.episode_results[0].terminal_reason, "timeout")
 
 
+class CoordinatedActionSelectionTests(unittest.TestCase):
+    def test_select_actions_for_records_routes_epsilon_policy_results(self):
+        policy1 = SequencePolicy((ActionSelection(3, exploratory=False),))
+        policy2 = SequencePolicy((ActionSelection(7, exploratory=True),))
+
+        result = select_actions_for_records(
+            (
+                CoordinatedActionRequest(1, policy1, (1.0, 2.0)),
+                CoordinatedActionRequest(2, policy2, (3.0, 4.0)),
+            )
+        )
+
+        self.assertEqual(result.inference_mode, "sequential_fallback")
+        self.assertEqual(result.request_count, 2)
+        self.assertEqual(result.exploratory_count, 1)
+        self.assertEqual(result.selections[1].action_index, 3)
+        self.assertEqual(result.selections[2].action_index, 7)
+        self.assertEqual(policy1.observations, [(1.0, 2.0)])
+        self.assertEqual(policy2.observations, [(3.0, 4.0)])
+
+    def test_select_actions_for_records_rejects_duplicate_record_ids(self):
+        policy = SequencePolicy(
+            (
+                ActionSelection(1, exploratory=False),
+                ActionSelection(2, exploratory=False),
+            )
+        )
+
+        with self.assertRaises(ValueError):
+            select_actions_for_records(
+                (
+                    CoordinatedActionRequest(1, policy, ()),
+                    CoordinatedActionRequest(1, policy, ()),
+                )
+            )
+
+
 class CoordinatedFrameLoopTests(unittest.TestCase):
     def test_batch_advances_records_frame_by_frame(self):
         step_log = []
@@ -384,6 +433,11 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
         self.assertEqual(len(replay_buffers[2]), 3)
         self.assertEqual(session.status_for_instance(1).completed_batches, 1)
         self.assertEqual(session.status_for_instance(2).completed_batches, 1)
+        stats = session.inference_stats
+        self.assertEqual(stats.last_mode, "sequential_fallback")
+        self.assertEqual(stats.request_count, 6)
+        self.assertEqual(stats.exploratory_count, 6)
+        self.assertEqual(stats.mode_counts["sequential_fallback"], 3)
 
 
 if __name__ == "__main__":

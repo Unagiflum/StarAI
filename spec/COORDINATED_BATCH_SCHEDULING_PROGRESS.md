@@ -178,5 +178,50 @@ Remaining:
 
 - Stop-all behavior is still checked between frame steps; more deterministic
   stop-in-loop coverage can be added with Phase 5/6 tests.
-- True batched inference is still deferred to Phase 5.
+- True multi-model batched inference is still deferred behind the Phase 5 helper
+  boundary.
+- Synchronized optimization and saving remain Phase 6.
+
+## Phase 5: GPU Inference Batching Helper
+
+Status: Completed for current implementation scope.
+
+Completed:
+
+- Added `CoordinatedActionRequest`, `CoordinatedActionBatchResult`, and
+  `CoordinatedInferenceStats` to make coordinated trainee action selection an
+  explicit helper boundary.
+- Added `select_actions_for_records()` as the scheduler-facing action-selection
+  helper.
+- Kept the first implementation conservative: action selection still uses each
+  record's policy sequentially, and reports `sequential_fallback` so throughput
+  measurements do not imply true multi-model batching.
+- Updated the central scheduler frame loop to collect one action request per
+  unfinished window at each global scheduler frame, run the helper once, then
+  route the returned selections into the existing simulation/reward step.
+- Preserved per-record epsilon-greedy behavior by routing through each record's
+  existing policy state, including exploratory selections and exploration-span
+  handling.
+- Added per-session inference instrumentation:
+  - last inference mode;
+  - total action requests;
+  - exploratory action count;
+  - helper-call counts per inference mode.
+- Added focused tests for helper result routing, duplicate request rejection,
+  and scheduler instrumentation during the frame loop.
+
+Verified:
+
+- `python -m unittest tests.test_coordinated_training`
+- `python -m unittest tests.test_train_ai_ui`
+- `python -m unittest tests.test_training_orchestration`
+- `python -m unittest tests.test_training_session`
+- `python -m unittest tests.test_training_models`
+
+Remaining:
+
+- True multi-model GPU batching is not implemented yet; it can now be added
+  behind `select_actions_for_records()` without changing the scheduler's
+  simulation/reward loop.
+- Manual timing comparison against independent sessions remains pending.
 - Synchronized optimization and saving remain Phase 6.
