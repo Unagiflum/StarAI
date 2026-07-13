@@ -152,17 +152,41 @@ class CoordinatedInferenceStats:
 @dataclass(frozen=True)
 class CoordinatedTimingStats:
     observation_seconds: float = 0.0
+    observation_encode_seconds: float = 0.0
     trainee_inference_seconds: float = 0.0
     opponent_inference_seconds: float = 0.0
     simulation_seconds: float = 0.0
+    simulation_ship_inputs_seconds: float = 0.0
+    simulation_tracking_seconds: float = 0.0
+    simulation_update_objects_seconds: float = 0.0
+    simulation_collision_seconds: float = 0.0
+    simulation_aftermath_seconds: float = 0.0
     reward_seconds: float = 0.0
+    reward_decision_seconds: float = 0.0
+    reward_terminal_seconds: float = 0.0
+    reward_outcome_seconds: float = 0.0
+    reward_pipeline_seconds: float = 0.0
+    reward_replay_insert_seconds: float = 0.0
+    reward_accumulate_seconds: float = 0.0
+    reward_progress_seconds: float = 0.0
+    reward_flush_seconds: float = 0.0
     optimization_seconds: float = 0.0
     save_seconds: float = 0.0
+    collision_possible_physical_pairs: int = 0
+    collision_candidate_pairs: int = 0
+    collision_dispatched_pairs: int = 0
+    collision_possible_laser_targets: int = 0
+    collision_laser_candidates: int = 0
+    collision_possible_area_targets: int = 0
+    collision_area_candidates: int = 0
+    collision_area_full_scan_fallbacks: int = 0
+    collision_spatial_queries: int = 0
+    collision_spatial_returned_candidates: int = 0
     completed_batches: int = 0
     frame_count: int = 0
 
 
-_TIMING_BUCKETS = (
+_TIMING_TOTAL_BUCKETS = (
     "observation",
     "trainee_inference",
     "opponent_inference",
@@ -170,6 +194,94 @@ _TIMING_BUCKETS = (
     "reward",
     "optimization",
     "save",
+)
+
+_TIMING_DETAIL_BUCKETS = (
+    "observation_encode",
+    "simulation_ship_inputs",
+    "simulation_tracking",
+    "simulation_update_objects",
+    "simulation_collision",
+    "simulation_aftermath",
+    "reward_decision",
+    "reward_terminal",
+    "reward_outcome",
+    "reward_pipeline",
+    "reward_replay_insert",
+    "reward_accumulate",
+    "reward_progress",
+    "reward_flush",
+)
+
+_TIMING_COUNTER_BUCKETS = (
+    "collision_possible_physical_pairs",
+    "collision_candidate_pairs",
+    "collision_dispatched_pairs",
+    "collision_possible_laser_targets",
+    "collision_laser_candidates",
+    "collision_possible_area_targets",
+    "collision_area_candidates",
+    "collision_area_full_scan_fallbacks",
+    "collision_spatial_queries",
+    "collision_spatial_returned_candidates",
+)
+
+_TIMING_BUCKETS = (
+    *_TIMING_TOTAL_BUCKETS,
+    *_TIMING_DETAIL_BUCKETS,
+    *_TIMING_COUNTER_BUCKETS,
+)
+
+_COORDINATED_TIMING_CSV_HEADER = (
+    "Batch",
+    "Instance ID",
+    "Ship",
+    "Slot",
+    "Instance Count",
+    "Rounds",
+    "Instance Frames",
+    "Coordinated Record Frames",
+    "Action Requests",
+    "Exploratory Actions",
+    "Inference Mode",
+    "Batch Seconds",
+    "Batches/Hour",
+    "Win %",
+    "Score",
+    "Epsilon",
+    "Learning Rate",
+    "Loss",
+    "Observation Seconds",
+    "Trainee Inference Seconds",
+    "Opponent Inference Seconds",
+    "Simulation Seconds",
+    "Simulation Ship Inputs Seconds",
+    "Simulation Tracking Seconds",
+    "Simulation Update Objects Seconds",
+    "Simulation Collision Seconds",
+    "Simulation Aftermath Seconds",
+    "Reward Seconds",
+    "Reward Decision Seconds",
+    "Reward Terminal Seconds",
+    "Reward Outcome Seconds",
+    "Reward Pipeline Seconds",
+    "Reward Replay Insert Seconds",
+    "Reward Accumulate Seconds",
+    "Reward Progress Seconds",
+    "Reward Flush Seconds",
+    "Optimization Seconds",
+    "Save Seconds",
+    "Timed Total Seconds",
+    "Collision Possible Physical Pairs",
+    "Collision Candidate Pairs",
+    "Collision Dispatched Pairs",
+    "Collision Possible Laser Targets",
+    "Collision Laser Candidates",
+    "Collision Possible Area Targets",
+    "Collision Area Candidates",
+    "Collision Area Full Scan Fallbacks",
+    "Collision Spatial Queries",
+    "Collision Spatial Returned Candidates",
 )
 
 
@@ -362,12 +474,55 @@ class CoordinatedTrainingSession:
             timing = dict(self._timing_seconds)
             return CoordinatedTimingStats(
                 observation_seconds=timing.get("observation", 0.0),
+                observation_encode_seconds=timing.get("observation_encode", 0.0),
                 trainee_inference_seconds=timing.get("trainee_inference", 0.0),
                 opponent_inference_seconds=timing.get("opponent_inference", 0.0),
                 simulation_seconds=timing.get("simulation", 0.0),
+                simulation_ship_inputs_seconds=timing.get("simulation_ship_inputs", 0.0),
+                simulation_tracking_seconds=timing.get("simulation_tracking", 0.0),
+                simulation_update_objects_seconds=timing.get(
+                    "simulation_update_objects",
+                    0.0,
+                ),
+                simulation_collision_seconds=timing.get("simulation_collision", 0.0),
+                simulation_aftermath_seconds=timing.get("simulation_aftermath", 0.0),
                 reward_seconds=timing.get("reward", 0.0),
+                reward_decision_seconds=timing.get("reward_decision", 0.0),
+                reward_terminal_seconds=timing.get("reward_terminal", 0.0),
+                reward_outcome_seconds=timing.get("reward_outcome", 0.0),
+                reward_pipeline_seconds=timing.get("reward_pipeline", 0.0),
+                reward_replay_insert_seconds=timing.get("reward_replay_insert", 0.0),
+                reward_accumulate_seconds=timing.get("reward_accumulate", 0.0),
+                reward_progress_seconds=timing.get("reward_progress", 0.0),
+                reward_flush_seconds=timing.get("reward_flush", 0.0),
                 optimization_seconds=timing.get("optimization", 0.0),
                 save_seconds=timing.get("save", 0.0),
+                collision_possible_physical_pairs=int(
+                    timing.get("collision_possible_physical_pairs", 0)
+                ),
+                collision_candidate_pairs=int(timing.get("collision_candidate_pairs", 0)),
+                collision_dispatched_pairs=int(
+                    timing.get("collision_dispatched_pairs", 0)
+                ),
+                collision_possible_laser_targets=int(
+                    timing.get("collision_possible_laser_targets", 0)
+                ),
+                collision_laser_candidates=int(
+                    timing.get("collision_laser_candidates", 0)
+                ),
+                collision_possible_area_targets=int(
+                    timing.get("collision_possible_area_targets", 0)
+                ),
+                collision_area_candidates=int(timing.get("collision_area_candidates", 0)),
+                collision_area_full_scan_fallbacks=int(
+                    timing.get("collision_area_full_scan_fallbacks", 0)
+                ),
+                collision_spatial_queries=int(
+                    timing.get("collision_spatial_queries", 0)
+                ),
+                collision_spatial_returned_candidates=int(
+                    timing.get("collision_spatial_returned_candidates", 0)
+                ),
                 completed_batches=self._timing_completed_batches,
                 frame_count=self._timing_frame_count,
             )
@@ -591,7 +746,10 @@ class CoordinatedTrainingSession:
                         if window.complete:
                             continue
                         observed_at = time.perf_counter()
-                        request = _action_request_for_window(window)
+                        request = _action_request_for_window(
+                            window,
+                            timing_seconds=timing_seconds,
+                        )
                         _add_timing_seconds(
                             timing_seconds,
                             "observation",
@@ -1369,10 +1527,14 @@ def append_coordinated_batch_timing_csv(
 ) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_header = not path.exists() or path.stat().st_size == 0
+    write_header = True
+    if path.exists() and path.stat().st_size > 0:
+        with path.open(newline="", encoding="utf-8") as existing_file:
+            existing_header = next(csv.reader(existing_file), ())
+        write_header = tuple(existing_header) != _COORDINATED_TIMING_CSV_HEADER
     timing_total = sum(
         max(0.0, float(timing_seconds.get(bucket, 0.0)))
-        for bucket in _TIMING_BUCKETS
+        for bucket in _TIMING_TOTAL_BUCKETS
     )
     win_rate = (
         metrics.wins / metrics.match_count * 100.0
@@ -1382,36 +1544,7 @@ def append_coordinated_batch_timing_csv(
     with path.open("a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         if write_header:
-            writer.writerow(
-                (
-                    "Batch",
-                    "Instance ID",
-                    "Ship",
-                    "Slot",
-                    "Instance Count",
-                    "Rounds",
-                    "Instance Frames",
-                    "Coordinated Record Frames",
-                    "Action Requests",
-                    "Exploratory Actions",
-                    "Inference Mode",
-                    "Batch Seconds",
-                    "Batches/Hour",
-                    "Win %",
-                    "Score",
-                    "Epsilon",
-                    "Learning Rate",
-                    "Loss",
-                    "Observation Seconds",
-                    "Trainee Inference Seconds",
-                    "Opponent Inference Seconds",
-                    "Simulation Seconds",
-                    "Reward Seconds",
-                    "Optimization Seconds",
-                    "Save Seconds",
-                    "Timed Total Seconds",
-                )
-            )
+            writer.writerow(_COORDINATED_TIMING_CSV_HEADER)
         writer.writerow(
             (
                 str(int(batch_number)),
@@ -1436,10 +1569,33 @@ def append_coordinated_batch_timing_csv(
                 f"{float(timing_seconds.get('trainee_inference', 0.0)):.6f}",
                 f"{float(timing_seconds.get('opponent_inference', 0.0)):.6f}",
                 f"{float(timing_seconds.get('simulation', 0.0)):.6f}",
+                f"{float(timing_seconds.get('simulation_ship_inputs', 0.0)):.6f}",
+                f"{float(timing_seconds.get('simulation_tracking', 0.0)):.6f}",
+                f"{float(timing_seconds.get('simulation_update_objects', 0.0)):.6f}",
+                f"{float(timing_seconds.get('simulation_collision', 0.0)):.6f}",
+                f"{float(timing_seconds.get('simulation_aftermath', 0.0)):.6f}",
                 f"{float(timing_seconds.get('reward', 0.0)):.6f}",
+                f"{float(timing_seconds.get('reward_decision', 0.0)):.6f}",
+                f"{float(timing_seconds.get('reward_terminal', 0.0)):.6f}",
+                f"{float(timing_seconds.get('reward_outcome', 0.0)):.6f}",
+                f"{float(timing_seconds.get('reward_pipeline', 0.0)):.6f}",
+                f"{float(timing_seconds.get('reward_replay_insert', 0.0)):.6f}",
+                f"{float(timing_seconds.get('reward_accumulate', 0.0)):.6f}",
+                f"{float(timing_seconds.get('reward_progress', 0.0)):.6f}",
+                f"{float(timing_seconds.get('reward_flush', 0.0)):.6f}",
                 f"{float(timing_seconds.get('optimization', 0.0)):.6f}",
                 f"{float(timing_seconds.get('save', 0.0)):.6f}",
                 f"{timing_total:.6f}",
+                str(int(timing_seconds.get("collision_possible_physical_pairs", 0))),
+                str(int(timing_seconds.get("collision_candidate_pairs", 0))),
+                str(int(timing_seconds.get("collision_dispatched_pairs", 0))),
+                str(int(timing_seconds.get("collision_possible_laser_targets", 0))),
+                str(int(timing_seconds.get("collision_laser_candidates", 0))),
+                str(int(timing_seconds.get("collision_possible_area_targets", 0))),
+                str(int(timing_seconds.get("collision_area_candidates", 0))),
+                str(int(timing_seconds.get("collision_area_full_scan_fallbacks", 0))),
+                str(int(timing_seconds.get("collision_spatial_queries", 0))),
+                str(int(timing_seconds.get("collision_spatial_returned_candidates", 0))),
             )
         )
 
@@ -1484,14 +1640,18 @@ def select_actions_for_records(
 
 def _action_request_for_window(
     runtime: _CoordinatedWindowRuntime,
+    *,
+    timing_seconds: dict[str, float] | None = None,
 ) -> CoordinatedActionRequest:
     simulation = runtime.simulation
+    encode_started_at = time.perf_counter()
     observation = encode_observation(
         simulation.player1,
         simulation.player2,
         frame_id=simulation.frame_id,
         game_objects=simulation.world,
     )
+    _add_timing_seconds(timing_seconds, "observation_encode", encode_started_at)
     return CoordinatedActionRequest(
         record_id=runtime.state.record.instance_id,
         policy=runtime.policy,
@@ -1592,7 +1752,10 @@ def _advance_coordinated_window_frame(
     self_ship = simulation.player1
     enemy_ship = simulation.player2
     if observation is None:
-        request = _action_request_for_window(runtime)
+        request = _action_request_for_window(
+            runtime,
+            timing_seconds=timing_seconds,
+        )
         observation = request.observation
     else:
         observation = tuple(observation)
@@ -1606,6 +1769,7 @@ def _advance_coordinated_window_frame(
                 ),
             )
         ).selections[state.record.instance_id]
+    reward_decision_started_at = time.perf_counter()
     decision = decision_frame_from_battle_state(
         frame_id=simulation.frame_id + 1,
         observation=observation,
@@ -1613,6 +1777,11 @@ def _advance_coordinated_window_frame(
         self_ship=self_ship,
         enemy_ship=enemy_ship,
         world=simulation.world,
+    )
+    _add_timing_seconds(
+        timing_seconds,
+        "reward_decision",
+        reward_decision_started_at,
     )
     event_start = len(runtime.ledger.events)
     opponent_started_at = time.perf_counter()
@@ -1628,25 +1797,48 @@ def _advance_coordinated_window_frame(
         opponent_started_at,
     )
     simulation_started_at = time.perf_counter()
-    step_state = simulation.step(
+    step_state = _step_simulation_with_optional_timing(
+        simulation,
         actions={
             1: controls_for_action_index(selection.action_index),
             2: opponent_controls,
-        }
+        },
+        timing_seconds=timing_seconds,
     )
     _add_timing_seconds(timing_seconds, "simulation", simulation_started_at)
     runtime.frames_consumed += 1
     reward_started_at = time.perf_counter()
+    reward_terminal_started_at = time.perf_counter()
     terminal, terminal_reason = _permanent_terminal_state(simulation)
     events = tuple(runtime.ledger.events[event_start:])
+    _add_timing_seconds(
+        timing_seconds,
+        "reward_terminal",
+        reward_terminal_started_at,
+    )
+    reward_outcome_started_at = time.perf_counter()
     outcome = frame_outcome_from_battle_state(
         frame_id=step_state["frame_id"],
         self_ship=self_ship,
         events=events,
         terminal=terminal,
     )
+    _add_timing_seconds(timing_seconds, "reward_outcome", reward_outcome_started_at)
+    reward_pipeline_started_at = time.perf_counter()
     mature_samples = runtime.pipeline.add_frame(decision, outcome)
+    _add_timing_seconds(
+        timing_seconds,
+        "reward_pipeline",
+        reward_pipeline_started_at,
+    )
+    reward_replay_started_at = time.perf_counter()
     components.replay_buffer.extend(mature_samples)
+    _add_timing_seconds(
+        timing_seconds,
+        "reward_replay_insert",
+        reward_replay_started_at,
+    )
+    reward_accumulate_started_at = time.perf_counter()
     mature_count = len(mature_samples)
     runtime.total_mature_count += mature_count
     runtime.episode_mature_count += mature_count
@@ -1655,6 +1847,12 @@ def _advance_coordinated_window_frame(
     runtime.episode_return_sum += sample_return
     _accumulate_weighted_components(runtime.component_sums, mature_samples)
     _accumulate_weighted_components(runtime.episode_component_sums, mature_samples)
+    _add_timing_seconds(
+        timing_seconds,
+        "reward_accumulate",
+        reward_accumulate_started_at,
+    )
+    reward_progress_started_at = time.perf_counter()
     _emit_window_progress(
         progress_callback,
         frame=runtime.frames_consumed,
@@ -1671,6 +1869,11 @@ def _advance_coordinated_window_frame(
             runtime.total_mature_count,
         ),
     )
+    _add_timing_seconds(
+        timing_seconds,
+        "reward_progress",
+        reward_progress_started_at,
+    )
     _add_timing_seconds(timing_seconds, "reward", reward_started_at)
     _raise_if_stop_requested(stop_requested)
     if terminal:
@@ -1686,6 +1889,22 @@ def _advance_coordinated_window_frame(
                 audio_service=audio_service,
                 ship_factory=ship_factory,
             )
+
+
+def _step_simulation_with_optional_timing(
+    simulation: Any,
+    *,
+    actions: Mapping[int, Mapping[str, bool]],
+    timing_seconds: dict[str, float] | None,
+):
+    if timing_seconds is None:
+        return simulation.step(actions=actions)
+    try:
+        return simulation.step(actions=actions, timing_seconds=timing_seconds)
+    except TypeError as exc:
+        if "timing_seconds" not in str(exc):
+            raise
+        return simulation.step(actions=actions)
 
 
 def _record_coordinated_terminal_episode(
@@ -1760,12 +1979,21 @@ def _finish_coordinated_window(
         raise RuntimeError("coordinated components were not loaded")
     if runtime.episode_needs_timeout:
         reward_started_at = time.perf_counter()
+        reward_flush_started_at = time.perf_counter()
         mature_samples = tuple(
             runtime.pipeline.flush_pending(
                 end_frame_id=runtime.simulation.frame_id,
             )
         )
+        _add_timing_seconds(timing_seconds, "reward_flush", reward_flush_started_at)
+        reward_replay_started_at = time.perf_counter()
         components.replay_buffer.extend(mature_samples)
+        _add_timing_seconds(
+            timing_seconds,
+            "reward_replay_insert",
+            reward_replay_started_at,
+        )
+        reward_accumulate_started_at = time.perf_counter()
         runtime.total_mature_count += len(mature_samples)
         runtime.episode_mature_count += len(mature_samples)
         sample_return = sum(sample.return_value for sample in mature_samples)
@@ -1776,7 +2004,18 @@ def _finish_coordinated_window(
             runtime.episode_component_sums,
             mature_samples,
         )
+        _add_timing_seconds(
+            timing_seconds,
+            "reward_accumulate",
+            reward_accumulate_started_at,
+        )
+        reward_terminal_started_at = time.perf_counter()
         win, loss, draw = _classify_round_outcome(runtime.simulation, "timeout")
+        _add_timing_seconds(
+            timing_seconds,
+            "reward_terminal",
+            reward_terminal_started_at,
+        )
         runtime.episode_results.append(
             TrainingEpisodeResult(
                 opponent=runtime.opponent,

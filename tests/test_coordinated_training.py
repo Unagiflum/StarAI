@@ -443,9 +443,13 @@ class CoordinatedTimingCsvTests(unittest.TestCase):
                     "trainee_inference": 2.0,
                     "opponent_inference": 3.0,
                     "simulation": 4.0,
+                    "simulation_collision": 1.25,
                     "reward": 5.0,
+                    "reward_pipeline": 0.75,
                     "optimization": 6.0,
                     "save": 7.0,
+                    "collision_candidate_pairs": 123,
+                    "collision_spatial_queries": 45,
                 },
             )
 
@@ -463,6 +467,10 @@ class CoordinatedTimingCsvTests(unittest.TestCase):
         self.assertEqual(row["Inference Mode"], "sequential_fallback:1200")
         self.assertEqual(row["Win %"], "50.0")
         self.assertEqual(row["Timed Total Seconds"], "28.000000")
+        self.assertEqual(row["Simulation Collision Seconds"], "1.250000")
+        self.assertEqual(row["Reward Pipeline Seconds"], "0.750000")
+        self.assertEqual(row["Collision Candidate Pairs"], "123")
+        self.assertEqual(row["Collision Spatial Queries"], "45")
 
 
 class CoordinatedFrameLoopTests(unittest.TestCase):

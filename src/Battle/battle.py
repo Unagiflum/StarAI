@@ -1,13 +1,14 @@
 import pygame
 import sys
 import random
+import time
 
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.ability import Ability
 from src.Objects.Space.space_obj import Asteroid, Planet
 from src.Objects.object import ThrustMarker
 from src.Battle.battle_init import initialize_battle
-from src.Battle.collisions import handle_collisions
+from src.Battle.collisions import CollisionMetrics, handle_collisions
 from src.Battle.battle_draw import DisplayStarField, draw_battle
 from src.Battle.battle_ai import BattleAIManager
 from src.Battle.battle_entry import (
@@ -45,6 +46,79 @@ SHIP_CONTROL_NAMES = {
     "Action 1": "action1",
     "Action 2": "action2",
 }
+
+
+def _add_battle_timing_seconds(timing_seconds, bucket, started_at):
+    if timing_seconds is None:
+        return
+    timing_seconds[bucket] = timing_seconds.get(bucket, 0.0) + max(
+        0.0,
+        time.perf_counter() - float(started_at),
+    )
+
+
+def _add_battle_timing_count(timing_seconds, bucket, count):
+    if timing_seconds is None:
+        return
+    timing_seconds[bucket] = timing_seconds.get(bucket, 0.0) + max(
+        0.0,
+        float(count),
+    )
+
+
+def _add_collision_timing_counts(timing_seconds, metrics):
+    if timing_seconds is None or metrics is None:
+        return
+    _add_battle_timing_count(
+        timing_seconds,
+        "collision_possible_physical_pairs",
+        metrics.possible_physical_pairs,
+    )
+    _add_battle_timing_count(
+        timing_seconds,
+        "collision_candidate_pairs",
+        metrics.physical_candidate_pairs,
+    )
+    _add_battle_timing_count(
+        timing_seconds,
+        "collision_dispatched_pairs",
+        metrics.physical_dispatched_pairs,
+    )
+    _add_battle_timing_count(
+        timing_seconds,
+        "collision_possible_laser_targets",
+        metrics.possible_laser_targets,
+    )
+    _add_battle_timing_count(
+        timing_seconds,
+        "collision_laser_candidates",
+        metrics.laser_candidates,
+    )
+    _add_battle_timing_count(
+        timing_seconds,
+        "collision_possible_area_targets",
+        metrics.possible_area_targets,
+    )
+    _add_battle_timing_count(
+        timing_seconds,
+        "collision_area_candidates",
+        metrics.area_candidates,
+    )
+    _add_battle_timing_count(
+        timing_seconds,
+        "collision_area_full_scan_fallbacks",
+        metrics.area_full_scan_fallbacks,
+    )
+    _add_battle_timing_count(
+        timing_seconds,
+        "collision_spatial_queries",
+        metrics.spatial.queries,
+    )
+    _add_battle_timing_count(
+        timing_seconds,
+        "collision_spatial_returned_candidates",
+        metrics.spatial.returned_candidates,
+    )
 
 
 class FixedStepScheduler:
@@ -181,7 +255,7 @@ class BattleSimulation:
             for control in CONTROL_NAMES
         }
 
-    def step(self, actions=None, key_changes=None):
+    def step(self, actions=None, key_changes=None, timing_seconds=None):
         if not self.running:
             return self.state()
 
@@ -203,16 +277,53 @@ class BattleSimulation:
         ):
             entry = getattr(self, "entry", None)
             excluded_ships = entry.entering_ships if entry else ()
+            stage_started_at = time.perf_counter()
             self._process_ship_inputs(excluded_ships)
+            _add_battle_timing_seconds(
+                timing_seconds,
+                "simulation_ship_inputs",
+                stage_started_at,
+            )
+            stage_started_at = time.perf_counter()
             self._update_tracking_lists()
+            _add_battle_timing_seconds(
+                timing_seconds,
+                "simulation_tracking",
+                stage_started_at,
+            )
+            stage_started_at = time.perf_counter()
             self._update_objects(excluded_ships)
+            _add_battle_timing_seconds(
+                timing_seconds,
+                "simulation_update_objects",
+                stage_started_at,
+            )
+            collision_metrics = (
+                CollisionMetrics()
+                if timing_seconds is not None
+                else None
+            )
+            stage_started_at = time.perf_counter()
             handle_collisions(
                 self.world,
                 rng=getattr(self, "rng", None),
                 resources=getattr(self, "resources", None),
                 excluded_objects=excluded_ships,
+                metrics=collision_metrics,
             )
+            _add_battle_timing_seconds(
+                timing_seconds,
+                "simulation_collision",
+                stage_started_at,
+            )
+            _add_collision_timing_counts(timing_seconds, collision_metrics)
+            stage_started_at = time.perf_counter()
             self._update_aftermath()
+            _add_battle_timing_seconds(
+                timing_seconds,
+                "simulation_aftermath",
+                stage_started_at,
+            )
             if entry is not None and entry_complete(entry, self.frame_id):
                 finish_entry(entry)
                 self.entry = None
