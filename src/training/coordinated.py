@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
+import csv
+from pathlib import Path
 import random
 import threading
 import time
@@ -70,6 +72,7 @@ from src.training.session import (
     format_batch_summary_line,
     metrics_from_batch_result,
     rolling_metrics,
+    should_update_live_frame_status,
 )
 from src.training.value_network import (
     ValueNetworkConfig,
@@ -144,6 +147,30 @@ class CoordinatedInferenceStats:
     request_count: int = 0
     exploratory_count: int = 0
     mode_counts: Mapping[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CoordinatedTimingStats:
+    observation_seconds: float = 0.0
+    trainee_inference_seconds: float = 0.0
+    opponent_inference_seconds: float = 0.0
+    simulation_seconds: float = 0.0
+    reward_seconds: float = 0.0
+    optimization_seconds: float = 0.0
+    save_seconds: float = 0.0
+    completed_batches: int = 0
+    frame_count: int = 0
+
+
+_TIMING_BUCKETS = (
+    "observation",
+    "trainee_inference",
+    "opponent_inference",
+    "simulation",
+    "reward",
+    "optimization",
+    "save",
+)
 
 
 @dataclass
@@ -298,6 +325,12 @@ class CoordinatedTrainingSession:
         self._inference_request_count = 0
         self._inference_exploratory_count = 0
         self._inference_mode_counts: dict[str, int] = {}
+        self._timing_seconds: dict[str, float] = {
+            bucket: 0.0
+            for bucket in _TIMING_BUCKETS
+        }
+        self._timing_completed_batches = 0
+        self._timing_frame_count = 0
         self._proxies = {
             instance_id: CoordinatedTrainingStatusProxy(self, instance_id)
             for instance_id in self._states
@@ -321,6 +354,22 @@ class CoordinatedTrainingSession:
                 request_count=self._inference_request_count,
                 exploratory_count=self._inference_exploratory_count,
                 mode_counts=dict(self._inference_mode_counts),
+            )
+
+    @property
+    def timing_stats(self) -> CoordinatedTimingStats:
+        with self._lock:
+            timing = dict(self._timing_seconds)
+            return CoordinatedTimingStats(
+                observation_seconds=timing.get("observation", 0.0),
+                trainee_inference_seconds=timing.get("trainee_inference", 0.0),
+                opponent_inference_seconds=timing.get("opponent_inference", 0.0),
+                simulation_seconds=timing.get("simulation", 0.0),
+                reward_seconds=timing.get("reward", 0.0),
+                optimization_seconds=timing.get("optimization", 0.0),
+                save_seconds=timing.get("save", 0.0),
+                completed_batches=self._timing_completed_batches,
+                frame_count=self._timing_frame_count,
             )
 
     @property
@@ -354,6 +403,12 @@ class CoordinatedTrainingSession:
             self._inference_request_count = 0
             self._inference_exploratory_count = 0
             self._inference_mode_counts = {}
+            self._timing_seconds = {
+                bucket: 0.0
+                for bucket in _TIMING_BUCKETS
+            }
+            self._timing_completed_batches = 0
+            self._timing_frame_count = 0
             for state in self._states.values():
                 state.status.running = True
                 state.status.stopping = False
@@ -466,6 +521,15 @@ class CoordinatedTrainingSession:
             self._mark_stopped()
 
     def _run_one_coordinated_batch(self) -> bool:
+        timing_seconds = {
+            bucket: 0.0
+            for bucket in _TIMING_BUCKETS
+        }
+        timing_frame_count = 0
+        timing_completed_batch = False
+        batch_action_requests = 0
+        batch_exploratory_actions = 0
+        batch_inference_mode_counts: dict[str, int] = {}
         schedules = {
             instance_id: self._opponents_for_batch(state)
             for instance_id, state in self._states.items()
@@ -522,13 +586,35 @@ class CoordinatedTrainingSession:
                     )
                 while any(not window.complete for window in active_windows):
                     _raise_if_stop_requested(self._stop_requested.is_set)
-                    frame_requests = [
-                        (window, _action_request_for_window(window))
-                        for window in active_windows
-                        if not window.complete
-                    ]
+                    frame_requests = []
+                    for window in active_windows:
+                        if window.complete:
+                            continue
+                        observed_at = time.perf_counter()
+                        request = _action_request_for_window(window)
+                        _add_timing_seconds(
+                            timing_seconds,
+                            "observation",
+                            observed_at,
+                        )
+                        frame_requests.append((window, request))
+                    inference_started_at = time.perf_counter()
                     action_result = select_actions_for_records(
                         tuple(request for _window, request in frame_requests)
+                    )
+                    _add_timing_seconds(
+                        timing_seconds,
+                        "trainee_inference",
+                        inference_started_at,
+                    )
+                    batch_action_requests += int(action_result.request_count)
+                    batch_exploratory_actions += int(action_result.exploratory_count)
+                    batch_inference_mode_counts[action_result.inference_mode] = (
+                        batch_inference_mode_counts.get(
+                            action_result.inference_mode,
+                            0,
+                        )
+                        + 1
                     )
                     self._record_inference_batch(action_result)
                     for window, request in frame_requests:
@@ -546,10 +632,15 @@ class CoordinatedTrainingSession:
                                 )
                             ),
                             stop_requested=self._stop_requested.is_set,
+                            timing_seconds=timing_seconds,
                         )
+                        timing_frame_count += 1
                     _raise_if_stop_requested(self._stop_requested.is_set)
                 for window in active_windows:
-                    result = _finish_coordinated_window(window)
+                    result = _finish_coordinated_window(
+                        window,
+                        timing_seconds=timing_seconds,
+                    )
                     results[window.state.record.instance_id].append(result)
                     with self._lock:
                         window.state.status.previous_opponent = window.opponent.ship
@@ -558,6 +649,11 @@ class CoordinatedTrainingSession:
                         )
             batch_finished_at = time.perf_counter()
         except TrainingBatchAborted:
+            self._merge_timing_stats(
+                timing_seconds,
+                completed_batches=0,
+                frame_count=timing_frame_count,
+            )
             return False
         finally:
             with self._lock:
@@ -568,11 +664,18 @@ class CoordinatedTrainingSession:
                 state.status.display_message = "Applying gradient descent"
                 state.status.battle_view = None
 
+        optimization_started_at = time.perf_counter()
         optimization_losses = {
             instance_id: self._optimize_record(state)
             for instance_id, state in self._states.items()
         }
+        _add_timing_seconds(
+            timing_seconds,
+            "optimization",
+            optimization_started_at,
+        )
 
+        completed_batch_numbers: dict[int, int] = {}
         for instance_id, state in self._states.items():
             components = state.components
             if components is None:
@@ -587,8 +690,34 @@ class CoordinatedTrainingSession:
                 ),
                 batch_seconds=max(0.0, batch_finished_at - batch_started_at),
             )
+            completed_batch_numbers[instance_id] = batch_number
             if batch_number % state.record.batch_grouping == 0:
+                save_started_at = time.perf_counter()
                 self._save_state(state, include_replay=False)
+                _add_timing_seconds(timing_seconds, "save", save_started_at)
+        inference_mode_summary = _format_inference_mode_counts(
+            batch_inference_mode_counts
+        )
+        for instance_id, state in self._states.items():
+            if instance_id not in completed_batch_numbers:
+                continue
+            self._append_coordinated_batch_timing_row(
+                state,
+                batch_number=completed_batch_numbers[instance_id],
+                rounds=len(results[instance_id]),
+                instance_frames=sum(result.frames for result in results[instance_id]),
+                coordinated_record_frames=timing_frame_count,
+                action_requests=batch_action_requests,
+                exploratory_actions=batch_exploratory_actions,
+                inference_mode=inference_mode_summary,
+                timing_seconds=timing_seconds,
+            )
+        timing_completed_batch = True
+        self._merge_timing_stats(
+            timing_seconds,
+            completed_batches=1 if timing_completed_batch else 0,
+            frame_count=timing_frame_count,
+        )
         return True
 
     def _record_inference_batch(
@@ -604,6 +733,22 @@ class CoordinatedTrainingSession:
             self._inference_mode_counts[result.inference_mode] = (
                 self._inference_mode_counts.get(result.inference_mode, 0) + 1
             )
+
+    def _merge_timing_stats(
+        self,
+        timing_seconds: Mapping[str, float],
+        *,
+        completed_batches: int,
+        frame_count: int,
+    ) -> None:
+        with self._lock:
+            for bucket in _TIMING_BUCKETS:
+                self._timing_seconds[bucket] = self._timing_seconds.get(
+                    bucket,
+                    0.0,
+                ) + max(0.0, float(timing_seconds.get(bucket, 0.0)))
+            self._timing_completed_batches += max(0, int(completed_batches))
+            self._timing_frame_count += max(0, int(frame_count))
 
     def _opponents_for_batch(
         self,
@@ -733,7 +878,18 @@ class CoordinatedTrainingSession:
                 completed_batches = state.status.completed_batches
                 last_saved = state.last_saved_completed_batches
             if completed_batches > last_saved:
+                save_timing = {
+                    bucket: 0.0
+                    for bucket in _TIMING_BUCKETS
+                }
+                save_started_at = time.perf_counter()
                 self._save_state(state, include_replay=True)
+                _add_timing_seconds(save_timing, "save", save_started_at)
+                self._merge_timing_stats(
+                    save_timing,
+                    completed_batches=0,
+                    frame_count=0,
+                )
 
     def _save_state(
         self,
@@ -841,6 +997,53 @@ class CoordinatedTrainingSession:
         )
         return metadata_path.with_suffix(".csv")
 
+    def _coordinated_csv_path(self, state: _CoordinatedRecordState) -> Path:
+        _, metadata_path = model_paths(
+            state.record.repository.user_dir,
+            state.record.slot.ship,
+            state.record.slot.slot,
+        )
+        return metadata_path.with_suffix(".coordinated.csv")
+
+    def _append_coordinated_batch_timing_row(
+        self,
+        state: _CoordinatedRecordState,
+        *,
+        batch_number: int,
+        rounds: int,
+        instance_frames: int,
+        coordinated_record_frames: int,
+        action_requests: int,
+        exploratory_actions: int,
+        inference_mode: str,
+        timing_seconds: Mapping[str, float],
+    ) -> None:
+        with self._lock:
+            metrics = state.history[-1] if state.history else None
+            status = state.status
+            batch_seconds = float(status.last_batch_seconds)
+            batches_per_hour = float(status.batches_per_hour)
+        if metrics is None:
+            return
+        append_coordinated_batch_timing_csv(
+            self._coordinated_csv_path(state),
+            batch_number=batch_number,
+            instance_id=state.record.instance_id,
+            ship=state.record.slot.ship,
+            slot=state.record.slot.slot,
+            instance_count=len(self._states),
+            rounds=rounds,
+            instance_frames=instance_frames,
+            coordinated_record_frames=coordinated_record_frames,
+            action_requests=action_requests,
+            exploratory_actions=exploratory_actions,
+            inference_mode=inference_mode,
+            batch_seconds=batch_seconds,
+            batches_per_hour=batches_per_hour,
+            metrics=metrics,
+            timing_seconds=timing_seconds,
+        )
+
     def _on_record_progress(
         self,
         state: _CoordinatedRecordState,
@@ -848,10 +1051,13 @@ class CoordinatedTrainingSession:
     ) -> None:
         if payload.get("event") != "frame":
             return
+        frame = int(payload.get("frame", 0))
+        if not should_update_live_frame_status(frame):
+            return
         opponent = payload.get("opponent")
         opponent_label = getattr(opponent, "ship", "") if opponent is not None else ""
         with self._lock:
-            state.status.current_frame = int(payload.get("frame", 0))
+            state.status.current_frame = frame
             state.status.current_opponent = opponent_label
             state.status.replay_size = int(payload.get("replay_size", 0))
             state.status.last_action_exploratory = bool(
@@ -1119,6 +1325,125 @@ def _ship_alive(ship) -> bool:
     )
 
 
+def _add_timing_seconds(
+    timing_seconds: dict[str, float] | None,
+    bucket: str,
+    started_at: float,
+) -> None:
+    if timing_seconds is None:
+        return
+    if bucket not in _TIMING_BUCKETS:
+        raise ValueError(f"unknown coordinated timing bucket: {bucket}")
+    timing_seconds[bucket] = timing_seconds.get(bucket, 0.0) + max(
+        0.0,
+        time.perf_counter() - float(started_at),
+    )
+
+
+def _format_inference_mode_counts(mode_counts: Mapping[str, int]) -> str:
+    return ";".join(
+        f"{mode}:{count}"
+        for mode, count in sorted(mode_counts.items())
+        if int(count) > 0
+    )
+
+
+def append_coordinated_batch_timing_csv(
+    path: Path,
+    *,
+    batch_number: int,
+    instance_id: int,
+    ship: str,
+    slot: int,
+    instance_count: int,
+    rounds: int,
+    instance_frames: int,
+    coordinated_record_frames: int,
+    action_requests: int,
+    exploratory_actions: int,
+    inference_mode: str,
+    batch_seconds: float,
+    batches_per_hour: float,
+    metrics: BatchMetrics,
+    timing_seconds: Mapping[str, float],
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists() or path.stat().st_size == 0
+    timing_total = sum(
+        max(0.0, float(timing_seconds.get(bucket, 0.0)))
+        for bucket in _TIMING_BUCKETS
+    )
+    win_rate = (
+        metrics.wins / metrics.match_count * 100.0
+        if metrics.match_count
+        else 0.0
+    )
+    with path.open("a", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        if write_header:
+            writer.writerow(
+                (
+                    "Batch",
+                    "Instance ID",
+                    "Ship",
+                    "Slot",
+                    "Instance Count",
+                    "Rounds",
+                    "Instance Frames",
+                    "Coordinated Record Frames",
+                    "Action Requests",
+                    "Exploratory Actions",
+                    "Inference Mode",
+                    "Batch Seconds",
+                    "Batches/Hour",
+                    "Win %",
+                    "Score",
+                    "Epsilon",
+                    "Learning Rate",
+                    "Loss",
+                    "Observation Seconds",
+                    "Trainee Inference Seconds",
+                    "Opponent Inference Seconds",
+                    "Simulation Seconds",
+                    "Reward Seconds",
+                    "Optimization Seconds",
+                    "Save Seconds",
+                    "Timed Total Seconds",
+                )
+            )
+        writer.writerow(
+            (
+                str(int(batch_number)),
+                str(int(instance_id)),
+                str(ship),
+                str(int(slot)),
+                str(int(instance_count)),
+                str(int(rounds)),
+                str(int(instance_frames)),
+                str(int(coordinated_record_frames)),
+                str(int(action_requests)),
+                str(int(exploratory_actions)),
+                str(inference_mode),
+                f"{float(batch_seconds):.6f}",
+                f"{float(batches_per_hour):.6f}",
+                f"{win_rate:.1f}",
+                f"{metrics.average_match_score:.6f}",
+                f"{metrics.epsilon:.6f}",
+                f"{metrics.learning_rate:.8f}",
+                f"{metrics.average_loss:.6f}",
+                f"{float(timing_seconds.get('observation', 0.0)):.6f}",
+                f"{float(timing_seconds.get('trainee_inference', 0.0)):.6f}",
+                f"{float(timing_seconds.get('opponent_inference', 0.0)):.6f}",
+                f"{float(timing_seconds.get('simulation', 0.0)):.6f}",
+                f"{float(timing_seconds.get('reward', 0.0)):.6f}",
+                f"{float(timing_seconds.get('optimization', 0.0)):.6f}",
+                f"{float(timing_seconds.get('save', 0.0)):.6f}",
+                f"{timing_total:.6f}",
+            )
+        )
+
+
 def select_actions_for_records(
     requests: Sequence[CoordinatedActionRequest],
 ) -> CoordinatedActionBatchResult:
@@ -1252,6 +1577,7 @@ def _advance_coordinated_window_frame(
     selection: ActionSelection | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
+    timing_seconds: dict[str, float] | None = None,
     ship_factory: Callable[..., Any] = create_ship,
 ) -> None:
     if runtime.complete:
@@ -1289,18 +1615,28 @@ def _advance_coordinated_window_frame(
         world=simulation.world,
     )
     event_start = len(runtime.ledger.events)
+    opponent_started_at = time.perf_counter()
+    opponent_controls = _opponent_controls(
+        runtime.opponent,
+        simulation,
+        config,
+        runtime.simple_controller,
+    )
+    _add_timing_seconds(
+        timing_seconds,
+        "opponent_inference",
+        opponent_started_at,
+    )
+    simulation_started_at = time.perf_counter()
     step_state = simulation.step(
         actions={
             1: controls_for_action_index(selection.action_index),
-            2: _opponent_controls(
-                runtime.opponent,
-                simulation,
-                config,
-                runtime.simple_controller,
-            ),
+            2: opponent_controls,
         }
     )
+    _add_timing_seconds(timing_seconds, "simulation", simulation_started_at)
     runtime.frames_consumed += 1
+    reward_started_at = time.perf_counter()
     terminal, terminal_reason = _permanent_terminal_state(simulation)
     events = tuple(runtime.ledger.events[event_start:])
     outcome = frame_outcome_from_battle_state(
@@ -1335,6 +1671,7 @@ def _advance_coordinated_window_frame(
             runtime.total_mature_count,
         ),
     )
+    _add_timing_seconds(timing_seconds, "reward", reward_started_at)
     _raise_if_stop_requested(stop_requested)
     if terminal:
         _record_coordinated_terminal_episode(
@@ -1415,11 +1752,14 @@ def _reset_coordinated_window_battle(
 
 def _finish_coordinated_window(
     runtime: _CoordinatedWindowRuntime,
+    *,
+    timing_seconds: dict[str, float] | None = None,
 ) -> CoordinatedFixedFrameWindowResult:
     components = runtime.state.components
     if components is None:
         raise RuntimeError("coordinated components were not loaded")
     if runtime.episode_needs_timeout:
+        reward_started_at = time.perf_counter()
         mature_samples = tuple(
             runtime.pipeline.flush_pending(
                 end_frame_id=runtime.simulation.frame_id,
@@ -1459,6 +1799,7 @@ def _finish_coordinated_window(
         reset_span = getattr(runtime.policy, "reset_exploration_span", None)
         if callable(reset_span):
             reset_span()
+        _add_timing_seconds(timing_seconds, "reward", reward_started_at)
 
     return CoordinatedFixedFrameWindowResult(
         opponent=runtime.opponent,

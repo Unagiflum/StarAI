@@ -54,6 +54,7 @@ from src.training.value_network import (
 
 
 MAX_BATCH_LOG_LINES = 1000
+LIVE_STATUS_FRAME_INTERVAL = 100
 RECENT_BATCH_METRICS_KEY = "recent_batch_metrics"
 
 
@@ -299,6 +300,13 @@ def append_grouped_metrics_csv(path: Path, metrics: BatchMetrics) -> None:
                 f"{metrics.average_loss:.4f}",
             )
         )
+
+
+def should_update_live_frame_status(frame: int, *, display_on: bool = False) -> bool:
+    if display_on:
+        return True
+    frame = int(frame)
+    return frame > 0 and frame % LIVE_STATUS_FRAME_INTERVAL == 0
 
 
 class TrainingSession:
@@ -854,6 +862,12 @@ class TrainingSession:
         event = payload.get("event")
         opponent = payload.get("opponent")
         opponent_label = getattr(opponent, "ship", "") if opponent is not None else ""
+        display_on = self._display_on.is_set()
+        frame = int(payload.get("frame", 0))
+        update_frame_status = event != "frame" or should_update_live_frame_status(
+            frame,
+            display_on=display_on,
+        )
         with self._lock:
             if event == "round_start":
                 self._status.display_message = ""
@@ -872,14 +886,12 @@ class TrainingSession:
                         payload.get("result").component_totals
                     )
                 self._status.previous_opponent = opponent_label
-            if "battle_view" in payload:
+            if "battle_view" in payload and display_on:
                 self._status.battle_view = (
                     freeze_battle_view(payload["battle_view"])
-                    if self._display_on.is_set()
-                    else None
                 )
-            if event == "frame":
-                self._status.current_frame = int(payload.get("frame", 0))
+            if event == "frame" and update_frame_status:
+                self._status.current_frame = frame
                 self._status.current_opponent = opponent_label
                 self._status.replay_size = int(payload.get("replay_size", 0))
                 self._status.last_action_exploratory = bool(
@@ -888,7 +900,7 @@ class TrainingSession:
                 self._status.weighted_total_return = float(
                     payload.get("weighted_total_return", 0.0)
                 )
-        if event == "frame" and self._display_on.is_set():
+        if event == "frame" and display_on:
             self._throttle_display_frame()
 
     def _throttle_display_frame(self) -> None:

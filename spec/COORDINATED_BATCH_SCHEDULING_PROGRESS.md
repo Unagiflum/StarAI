@@ -269,5 +269,55 @@ Remaining:
 - Manual smoke of the Batch tab `Start All` / `Stop All` flow remains pending.
 - Final save after a mid-batch stop is limited to already completed unsaved
   coordinated batches; an interrupted in-progress batch is still discarded.
-- Phase 7 performance timing buckets and manual throughput characterization
-  remain pending.
+- Phase 7 manual throughput characterization remains pending.
+
+## Phase 7: Performance Characterization
+
+Status: Instrumentation implemented; controlled GPU characterization pending.
+
+Completed:
+
+- Added coordinated scheduler timing buckets for:
+  - observation
+  - trainee inference
+  - opponent inference/control selection
+  - simulation
+  - reward/replay processing
+  - synchronized optimization
+  - save
+- Added `CoordinatedTimingStats` and `CoordinatedTrainingSession.timing_stats`
+  so tests and manual timing runs can inspect accumulated bucket seconds,
+  completed coordinated batches, and coordinated frame count.
+- Added per-model coordinated batch timing CSV output beside the existing
+  independent metrics CSV. Coordinated rows are written to
+  `<model>.coordinated.csv` so coordinated timing data is not mixed with
+  uncoordinated batch data.
+- Reset timing stats on scheduler start so repeated coordinated runs do not
+  mix measurements.
+- Timed final save-on-stop in addition to grouped saves at batch boundaries.
+- Added focused coordinated runtime coverage proving timing stats are populated
+  during the central frame loop and coordinated CSV rows are emitted per
+  completed batch.
+- Recorded current GPU throughput observation from manual runs:
+  - 7 coordinated instances, 1200-frame rounds, 1 round per batch:
+    about 4 batches/hour per instance, 28 aggregate batches/hour.
+  - 2 coordinated instances with the same run shape:
+    about 20 batches/hour per instance, 40 aggregate batches/hour.
+
+Verified:
+
+- `python -m unittest tests.test_coordinated_training`
+- `python -m unittest tests.test_training_session`
+
+Remaining:
+
+- Run controlled timing comparisons with the new timing buckets:
+  - one independent instance
+  - N independent instances
+  - 2 coordinated instances with sequential fallback
+  - 7 coordinated instances with sequential fallback
+- Capture bucket shares from `timing_stats` to determine whether the 7-instance
+  slowdown is dominated by trainee inference, opponent inference/control
+  selection, simulation, reward/replay processing, optimization, or save.
+- True multi-model GPU batching is still deferred behind
+  `select_actions_for_records()`.

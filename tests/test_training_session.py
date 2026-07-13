@@ -345,6 +345,38 @@ class TrainingSessionDisplayTests(unittest.TestCase):
 
         sleep.assert_called_once()
 
+    def test_headless_frame_progress_updates_live_status_every_100_frames(self):
+        session = TrainingSession.__new__(TrainingSession)
+        session._lock = threading.Lock()
+        session._status = TrainingSessionStatus()
+        session._display_on = threading.Event()
+
+        session._on_progress(
+            {
+                "event": "frame",
+                "frame": 99,
+                "replay_size": 99,
+                "weighted_total_return": 9.9,
+            }
+        )
+
+        self.assertEqual(session.status.current_frame, 0)
+        self.assertEqual(session.status.replay_size, 0)
+        self.assertEqual(session.status.weighted_total_return, 0.0)
+
+        session._on_progress(
+            {
+                "event": "frame",
+                "frame": 100,
+                "replay_size": 100,
+                "weighted_total_return": 10.0,
+            }
+        )
+
+        self.assertEqual(session.status.current_frame, 100)
+        self.assertEqual(session.status.replay_size, 100)
+        self.assertEqual(session.status.weighted_total_return, 10.0)
+
     def test_headless_progress_drops_battle_view_without_freezing(self):
         session = TrainingSession.__new__(TrainingSession)
         session._lock = threading.Lock()
@@ -390,6 +422,7 @@ class TrainingSessionDisplayTests(unittest.TestCase):
 
         freeze.assert_called_once()
         self.assertIs(session.status.battle_view, frozen_view)
+        self.assertEqual(session.status.current_frame, 1)
 
     def test_batch_optimization_progress_shows_display_message_and_clears_view(self):
         session = TrainingSession.__new__(TrainingSession)

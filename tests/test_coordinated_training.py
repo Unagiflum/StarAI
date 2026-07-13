@@ -1,3 +1,4 @@
+import csv
 import tempfile
 import time
 import unittest
@@ -11,6 +12,7 @@ from src.training.coordinated import (
     CoordinatedRuntimeComponents,
     CoordinatedTrainingRecord,
     CoordinatedTrainingSession,
+    append_coordinated_batch_timing_csv,
     select_actions_for_records,
     run_coordinated_fixed_frame_window,
 )
@@ -94,6 +96,42 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
         self.assertFalse(proxies[1].status.running)
         self.assertFalse(proxies[1].status.stopping)
         self.assertFalse(proxies[2].status.running)
+
+    def test_record_progress_updates_live_status_every_100_frames(self):
+        session = self._session()
+        state = session._states[1]
+
+        session._on_record_progress(
+            state,
+            {
+                "event": "frame",
+                "frame": 99,
+                "opponent": OpponentSpec("Earthling"),
+                "replay_size": 99,
+                "weighted_total_return": 9.9,
+            },
+        )
+
+        status = session.status_for_instance(1)
+        self.assertEqual(status.current_frame, 0)
+        self.assertEqual(status.replay_size, 0)
+        self.assertEqual(status.weighted_total_return, 0.0)
+
+        session._on_record_progress(
+            state,
+            {
+                "event": "frame",
+                "frame": 100,
+                "opponent": OpponentSpec("Earthling"),
+                "replay_size": 100,
+                "weighted_total_return": 10.0,
+            },
+        )
+
+        status = session.status_for_instance(1)
+        self.assertEqual(status.current_frame, 100)
+        self.assertEqual(status.replay_size, 100)
+        self.assertEqual(status.weighted_total_return, 10.0)
 
     def test_component_build_error_marks_all_records_and_exits(self):
         def fail(_record):
@@ -373,6 +411,60 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
             )
 
 
+class CoordinatedTimingCsvTests(unittest.TestCase):
+    def test_append_coordinated_batch_timing_csv_writes_header_and_row(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Earthling-01.coordinated.csv"
+            append_coordinated_batch_timing_csv(
+                path,
+                batch_number=3,
+                instance_id=7,
+                ship="Earthling",
+                slot=1,
+                instance_count=2,
+                rounds=1,
+                instance_frames=1200,
+                coordinated_record_frames=2400,
+                action_requests=2400,
+                exploratory_actions=12,
+                inference_mode="sequential_fallback:1200",
+                batch_seconds=180.0,
+                batches_per_hour=20.0,
+                metrics=SimpleNamespace(
+                    wins=1,
+                    match_count=2,
+                    average_match_score=4.25,
+                    epsilon=0.5,
+                    learning_rate=0.001,
+                    average_loss=0.125,
+                ),
+                timing_seconds={
+                    "observation": 1.0,
+                    "trainee_inference": 2.0,
+                    "opponent_inference": 3.0,
+                    "simulation": 4.0,
+                    "reward": 5.0,
+                    "optimization": 6.0,
+                    "save": 7.0,
+                },
+            )
+
+            with path.open(newline="", encoding="utf-8") as file:
+                rows = list(csv.DictReader(file))
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["Batch"], "3")
+        self.assertEqual(row["Instance ID"], "7")
+        self.assertEqual(row["Ship"], "Earthling")
+        self.assertEqual(row["Instance Count"], "2")
+        self.assertEqual(row["Instance Frames"], "1200")
+        self.assertEqual(row["Coordinated Record Frames"], "2400")
+        self.assertEqual(row["Inference Mode"], "sequential_fallback:1200")
+        self.assertEqual(row["Win %"], "50.0")
+        self.assertEqual(row["Timed Total Seconds"], "28.000000")
+
+
 class CoordinatedFrameLoopTests(unittest.TestCase):
     def test_batch_advances_records_frame_by_frame(self):
         step_log = []
@@ -430,6 +522,7 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
                 "src.training.coordinated.frame_outcome_from_battle_state",
                 side_effect=fake_frame_outcome,
             ),
+            mock.patch("src.training.coordinated.append_coordinated_batch_timing_csv") as timing_csv,
         ):
             self.assertTrue(session._run_one_coordinated_batch())
 
@@ -453,6 +546,28 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
         self.assertEqual(stats.request_count, 6)
         self.assertEqual(stats.exploratory_count, 6)
         self.assertEqual(stats.mode_counts["sequential_fallback"], 3)
+        timing = session.timing_stats
+        self.assertEqual(timing.completed_batches, 1)
+        self.assertEqual(timing.frame_count, 6)
+        self.assertGreater(timing.observation_seconds, 0.0)
+        self.assertGreater(timing.trainee_inference_seconds, 0.0)
+        self.assertGreater(timing.opponent_inference_seconds, 0.0)
+        self.assertGreater(timing.simulation_seconds, 0.0)
+        self.assertGreater(timing.reward_seconds, 0.0)
+        self.assertGreater(timing.optimization_seconds, 0.0)
+        self.assertEqual(timing_csv.call_count, 2)
+        first_timing_row = timing_csv.call_args_list[0].kwargs
+        self.assertEqual(first_timing_row["batch_number"], 1)
+        self.assertEqual(first_timing_row["instance_count"], 2)
+        self.assertEqual(first_timing_row["rounds"], 1)
+        self.assertEqual(first_timing_row["instance_frames"], 3)
+        self.assertEqual(first_timing_row["coordinated_record_frames"], 6)
+        self.assertEqual(first_timing_row["action_requests"], 6)
+        self.assertEqual(first_timing_row["exploratory_actions"], 6)
+        self.assertEqual(
+            first_timing_row["inference_mode"],
+            "sequential_fallback:3",
+        )
 
     def test_batch_runs_synchronized_optimization_for_each_record(self):
         replay_buffers = {}
@@ -520,6 +635,7 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
                 side_effect=fake_frame_outcome,
             ),
             mock.patch("src.training.coordinated.optimize_from_replay", side_effect=optimize),
+            mock.patch("src.training.coordinated.append_coordinated_batch_timing_csv"),
         ):
             self.assertTrue(session._run_one_coordinated_batch())
 
