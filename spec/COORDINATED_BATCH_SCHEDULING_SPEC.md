@@ -362,6 +362,23 @@ Existing independent training behavior must continue to use per-instance
 Coordinated runs should advance each included instance for exactly
 `match_frame_limit` frames per round window.
 
+Frame accounting must use a scheduler-local counter for each fixed frame
+window. Do not use `BattleSimulation.frame_id` as the window counter after a
+reset, because each new `BattleSimulation` starts with local `frame_id == 0`.
+
+The current training step convention is:
+
+- `BattleSimulation.step()` increments local `simulation.frame_id` before
+  processing the frame.
+- The decision snapshot for a frame uses `simulation.frame_id + 1` before the
+  step.
+- The outcome snapshot uses the returned post-step `state["frame_id"]`.
+- A frame limit of `N` should consume exactly frames `1..N`, not `0..N` and not
+  `1..N+1`.
+
+The coordinated scheduler must preserve that convention for each underlying
+match while separately counting `window_frames_consumed`.
+
 If a terminal event occurs before the frame limit:
 
 - Record the episode result.
@@ -394,6 +411,42 @@ frame window contain `episode_results`.
 
 Important: rewards for a terminal episode should not leak into the next battle
 after reset. Each new battle should get a fresh `RollingReturnPipeline`.
+
+Timeout at the end of a fixed frame window is a window boundary, not a
+simulation terminal event. When a window ends by frame budget:
+
+- Flush pending reward samples exactly once with the current simulation's local
+  `frame_id`.
+- Record a timeout/draw episode or window result according to the coordinated
+  result model.
+- Do not advance an extra frame to create a terminal marker.
+
+Permanent death is terminal as soon as `BattleSimulation.aftermath` is not
+`None`, matching the current training behavior. The coordinated scheduler must
+not consume explosion, victory-ditty, or ship-selection aftermath frames after a
+permanent terminal event.
+
+Rebirth/reincarnation is not terminal while
+`BattleSimulation.aftermath.pending_rebirths` is non-empty. Those aftermath,
+rebirth, and re-entry frames remain part of the same match and consume the same
+fixed frame window. In particular:
+
+- A rebirth event must not start a new battle.
+- A rebirth event must not reset `window_frames_consumed`.
+- Re-entry frames after rebirth can consume frame budget even though entering
+  ships may be excluded from normal input processing.
+- If the reborn ship dies permanently later in the same fixed frame window,
+  only that later permanent death should end the episode and trigger a battle
+  reset.
+
+Because `RollingReturnPipeline` rejects frames after a terminal outcome,
+terminal handling must be precise:
+
+- For a permanent terminal event, add the terminal outcome, collect matured
+  samples, record the episode, then create a fresh pipeline for the next battle.
+- For a timeout/window boundary, call `flush_pending()` once, record the window
+  result, then create a fresh pipeline for the next window.
+- For rebirth/pending-rebirth frames, continue using the same pipeline.
 
 ### Batched Trainee Inference
 
@@ -585,12 +638,16 @@ Work:
 - Extract reusable pieces from `run_training_round()` where practical.
 - Avoid broad rewrites of independent training.
 - Add episode result data structures.
-- Ensure terminal pipelines are flushed and recreated on reset.
+- Add scheduler-local fixed-window frame counters that survive battle resets.
+- Ensure terminal pipelines are flushed and recreated on permanent terminal
+  reset.
+- Preserve pending-rebirth behavior as non-terminal.
 
 Verification:
 
-- Unit tests with fake simulation factories for timeout, terminal reset, and
-  multiple episodes in one fixed frame window.
+- Unit tests with fake simulation factories for timeout, terminal reset,
+  rebirth, and multiple episodes in one fixed frame window.
+- Unit tests prove `match_frame_limit=N` consumes exactly `N` scheduler frames.
 - Existing `tests.test_training_orchestration` remains green.
 
 ### Phase 4: Central Scheduler Frame Loop
@@ -725,7 +782,17 @@ Add or update tests for:
 - `Stop All` requests scheduler stop.
 - Coordinated status snapshots populate active-instance console fields.
 - Fixed frame windows continue after terminal reset.
+- Fixed frame windows use scheduler-local frame counts rather than local
+  `BattleSimulation.frame_id` after reset.
+- `match_frame_limit=N` consumes exactly N frames, with no leading frame 0 and
+  no extra frame N+1.
+- Timeout/window boundary flushes pending reward samples exactly once.
+- Permanent death resets the battle without consuming aftermath animation
+  frames.
+- Pending rebirth is non-terminal and consumes frame budget in the same match.
+- Re-entry after rebirth consumes frame budget without resetting the match.
 - Terminal reset starts a fresh reward pipeline.
+- Rebirth/pending-rebirth frames keep the same reward pipeline.
 - Synchronized optimization records per-instance losses.
 - Grouped saves and final saves occur per instance.
 - Independent single-instance training remains unchanged.
