@@ -403,9 +403,11 @@ class CoordinatedTrainingSession:
             int(record.instance_id): _CoordinatedRecordState(
                 record=record,
                 status=TrainingSessionStatus(
+                    ship=str(record.slot.ship),
                     completed_batches=int(
                         record.metadata.get("progress", {}).get("completed_batches", 0)
                     ),
+                    learning_rate=float(record.config.learning_rate),
                     current_epsilon=max(
                         float(record.config.epsilon_floor),
                         min(1.0, float(record.config.epsilon)),
@@ -609,6 +611,7 @@ class CoordinatedTrainingSession:
             status = state.status
             elapsed = self._elapsed_seconds_locked()
             return TrainingSessionStatus(
+                ship=status.ship,
                 running=status.running,
                 stopping=status.stopping,
                 completed_batches=status.completed_batches,
@@ -624,6 +627,7 @@ class CoordinatedTrainingSession:
                 current_frame=status.current_frame,
                 replay_size=status.replay_size,
                 recent_loss=status.recent_loss,
+                learning_rate=status.learning_rate,
                 current_epsilon=status.current_epsilon,
                 epsilon_decay=status.epsilon_decay,
                 gamma=status.gamma,

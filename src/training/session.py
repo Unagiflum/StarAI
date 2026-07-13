@@ -133,6 +133,7 @@ def batch_metrics_history_from_metadata(
 
 @dataclass
 class TrainingSessionStatus:
+    ship: str = ""
     running: bool = False
     stopping: bool = False
     completed_batches: int = 0
@@ -148,6 +149,7 @@ class TrainingSessionStatus:
     current_frame: int = 0
     replay_size: int = 0
     recent_loss: float | None = None
+    learning_rate: float = 0.0
     current_epsilon: float = 0.0
     epsilon_decay: float = 0.0
     gamma: float = 0.0
@@ -343,9 +345,11 @@ class TrainingSession:
         self.batch_runner = batch_runner
         self.rng = rng or random.Random()
         self._status = TrainingSessionStatus(
+            ship=str(slot.ship),
             completed_batches=int(
                 self.metadata.get("progress", {}).get("completed_batches", 0)
             ),
+            learning_rate=float(config.learning_rate),
             current_epsilon=self._current_epsilon,
             epsilon_decay=float(config.epsilon_decay),
             gamma=float(config.gamma),
@@ -402,6 +406,7 @@ class TrainingSession:
                 elapsed_training_seconds
             )
             return TrainingSessionStatus(
+                ship=self._status.ship,
                 running=self._status.running,
                 stopping=self._status.stopping,
                 completed_batches=self._status.completed_batches,
@@ -417,6 +422,7 @@ class TrainingSession:
                 current_frame=self._status.current_frame,
                 replay_size=self._status.replay_size,
                 recent_loss=self._status.recent_loss,
+                learning_rate=self._status.learning_rate,
                 current_epsilon=self._status.current_epsilon,
                 epsilon_decay=self._status.epsilon_decay,
                 gamma=self._status.gamma,

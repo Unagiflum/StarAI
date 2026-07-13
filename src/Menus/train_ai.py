@@ -122,6 +122,8 @@ CURRENT_BATCH_RETURN_WIDTH = 9
 CURRENT_BATCH_LOSS_WIDTH = 10
 CURRENT_BATCH_TIME_WIDTH = 8
 CURRENT_BATCH_RATE_WIDTH = 8
+CURRENT_BATCH_LABEL_WIDTH = 10
+CURRENT_BATCH_TEXT_VALUE_WIDTH = 11
 CURRENT_BATCH_REWARD_NAME_WIDTH = max((len(label) for label in REWARD_LABELS), default=0)
 CURRENT_BATCH_REWARD_VALUE_WIDTH = 8
 
@@ -1874,36 +1876,49 @@ def _format_training_duration(seconds):
     seconds = max(0, int(float(seconds)))
     hours, remainder = divmod(seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
-    return f"{hours:d}:{minutes:02d}:{seconds:02d}"
+    return f"{hours:d}h:{minutes:02d}m:{seconds:02d}s"
+
+
+def _current_batch_row(label, value):
+    return f"{label:<{CURRENT_BATCH_LABEL_WIDTH}}|{value}"
 
 
 def _current_batch_console_lines(status):
-    state_label = "running" if status.running else "stopped"
+    state_label = "Running" if status.running else "Stopped"
     if status.stopping:
-        state_label += " (stopping)"
+        state_label = "Stopping"
     elapsed = getattr(status, "elapsed_training_seconds", 0.0)
     batches_per_hour = getattr(status, "batches_per_hour", 0.0)
     total_round_width = max(
-        CURRENT_BATCH_ROUND_WIDTH,
+        3,
         len(str(status.current_round)),
         len(str(status.total_rounds)),
     )
+    ship = getattr(status, "ship", "") or "-"
+    opponent = status.current_opponent or "-"
+    recent_loss = getattr(status, "recent_loss", None)
     lines = [
         "Current batch",
-        f"{'State:':<10}{state_label:<{CURRENT_BATCH_STATE_WIDTH}}",
-        f"{'Elapsed:':<10}{_format_training_duration(elapsed):>{CURRENT_BATCH_TIME_WIDTH}}",
-        f"{'Rate:':<10}{batches_per_hour:>{CURRENT_BATCH_RATE_WIDTH}.2f}/h",
-        f"{'Batch:':<10}{status.completed_batches + 1:>{CURRENT_BATCH_BATCH_WIDTH}d}",
-        f"{'Round:':<10}{status.current_round:>{total_round_width}d}/{status.total_rounds:>{total_round_width}d}",
-        f"{'Opponent:':<10}{status.current_opponent or '-':<{CURRENT_BATCH_REWARD_NAME_WIDTH}}",
-        f"{'Replay:':<10}{status.replay_size:>{CURRENT_BATCH_REPLAY_WIDTH}d}",
-        f"{'Return:':<10}{status.weighted_total_return:>{CURRENT_BATCH_RETURN_WIDTH}.2f}",
-        f"{'Loss:':<10}{status.recent_loss:>{CURRENT_BATCH_LOSS_WIDTH}.4f}"
-        if status.recent_loss is not None
-        else f"{'Loss:':<10}{'-':>{CURRENT_BATCH_LOSS_WIDTH}}",
-        f"{'Gamma:':<10}{getattr(status, 'gamma', 0.0):>{CURRENT_BATCH_LOSS_WIDTH}.3f}",
-        f"{'Epsilon:':<10}{getattr(status, 'current_epsilon', 0.0):>{CURRENT_BATCH_LOSS_WIDTH}.5f}",
-        f"{'Eps decay:':<10}{getattr(status, 'epsilon_decay', 0.0):>{CURRENT_BATCH_LOSS_WIDTH}.3f}",
+        _current_batch_row("Ship", f"{ship:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}"),
+        _current_batch_row("Status", f"{state_label:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}".ljust(22)),
+        _current_batch_row("Opponent", f"{opponent:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}".ljust(24)),
+        _current_batch_row("Time", f"{_format_training_duration(elapsed):>20}"),
+        _current_batch_row("Replay", f"{str(status.replay_size) + ' frames':>18}"),
+        _current_batch_row("Batch", f"{status.completed_batches + 1:>11d}"),
+        _current_batch_row(
+            "Round",
+            f"{status.current_round:>11d} / {status.total_rounds:>{total_round_width}d}",
+        ),
+        _current_batch_row("Batches/h", f"{batches_per_hour:>14.2f}"),
+        _current_batch_row("Reward", f"{status.weighted_total_return:>16.4f}"),
+        _current_batch_row(
+            "Loss",
+            f"{recent_loss:>16.4f}" if recent_loss is not None else f"{'-':>16}",
+        ),
+        _current_batch_row("Gamma", f"{getattr(status, 'gamma', 0.0):>15.3f}"),
+        _current_batch_row("Eps decay", f"{getattr(status, 'epsilon_decay', 0.0):>15.3f}"),
+        _current_batch_row("Epsilon", f"{getattr(status, 'current_epsilon', 0.0):>17.5f}"),
+        _current_batch_row("LR", f"{getattr(status, 'learning_rate', 0.0):>17.5f}"),
         "",
     ]
     

@@ -1444,23 +1444,25 @@ class TrainingConsoleTests(unittest.TestCase):
         values = {
             "running": True,
             "stopping": False,
-            "completed_batches": 2,
-            "current_round": 3,
+            "ship": "Androsynth",
+            "completed_batches": 15,
+            "current_round": 12,
             "total_rounds": 25,
-            "current_opponent": "Earthling",
+            "current_opponent": "Mycon",
             "current_frame": 42,
-            "replay_size": 99,
+            "replay_size": 30000,
             "last_action_exploratory": True,
-            "weighted_total_return": 12.5,
-            "recent_loss": None,
-            "current_epsilon": 0.125,
-            "epsilon_decay": 0.997,
+            "weighted_total_return": -0.01,
+            "recent_loss": 0.2849,
+            "learning_rate": 0.0003,
+            "current_epsilon": 0.36577,
+            "epsilon_decay": 0.99,
             "gamma": 0.99,
             "component_totals": {"Kill enemy": 2.0},
             "previous_opponent": "Chenjesu",
             "batch_component_totals": {},
-            "elapsed_training_seconds": 3723.0,
-            "batches_per_hour": 12.5,
+            "elapsed_training_seconds": 91266.0,
+            "batches_per_hour": 5.69,
         }
         values.update(overrides)
         return SimpleNamespace(**values)
@@ -1471,23 +1473,33 @@ class TrainingConsoleTests(unittest.TestCase):
         lines = _display_off_console_lines(status, ("Batch      1 | summary",))
 
         self.assertIn("Current batch", lines)
-        self.assertIn("Round:       3/  25", lines)
         self.assertEqual(lines[0], "Completed batches")
         self.assertLess(
             lines.index("Batch      1 | summary"),
             lines.index("Current batch"),
         )
-        self.assertIn("Batch:         3", lines)
-        self.assertIn("Elapsed:   1:02:03", lines)
-        self.assertIn("Rate:        12.50/h", lines)
+        current_batch_index = lines.index("Current batch")
+        self.assertEqual(
+            lines[current_batch_index : current_batch_index + 15],
+            (
+                "Current batch",
+                "Ship      | Androsynth",
+                "Status    |    Running           ",
+                "Opponent  |      Mycon             ",
+                "Time      |         25h:21m:06s",
+                "Replay    |      30000 frames",
+                "Batch     |         16",
+                "Round     |         12 /  25",
+                "Batches/h |          5.69",
+                "Reward    |         -0.0100",
+                "Loss      |          0.2849",
+                "Gamma     |          0.990",
+                "Eps decay |          0.990",
+                "Epsilon   |          0.36577",
+                "LR        |          0.00030",
+            ),
+        )
         reward_name_width = max(len(label) for label in REWARD_LABELS)
-        self.assertIn(f"{'Opponent:':<10}{'Earthling':<{reward_name_width}}", lines)
-        self.assertIn("Replay:       99", lines)
-        self.assertIn("Return:       12.50", lines)
-        self.assertIn("Loss:              -", lines)
-        self.assertIn(f"{'Gamma:':<10}{0.99:>10.3f}", lines)
-        self.assertIn(f"{'Epsilon:':<10}{0.125:>10.5f}", lines)
-        self.assertIn(f"{'Eps decay:':<10}{0.997:>10.3f}", lines)
         self.assertIn(
             f"{'Reward components':<{reward_name_width}}|   Chenjesu |  Batch -",
             lines,
@@ -1496,6 +1508,11 @@ class TrainingConsoleTests(unittest.TestCase):
             f"{'Kill enemy':<{reward_name_width}}|     2.0000 |        -",
             lines,
         )
+
+    def test_current_batch_ship_name_is_right_aligned(self):
+        lines = _display_off_console_lines(self._status(ship="Mycon"), ())
+
+        self.assertIn("Ship      |      Mycon", lines)
 
     def test_display_off_console_keeps_current_batch_block_height_stable(self):
         lines_with_component = _display_off_console_lines(
@@ -1511,9 +1528,9 @@ class TrainingConsoleTests(unittest.TestCase):
         self.assertTrue(all(row.endswith("|        -") for row in placeholder_rows))
 
     def test_training_duration_formats_for_benchmark_notes(self):
-        self.assertEqual(_format_training_duration(0), "0:00:00")
-        self.assertEqual(_format_training_duration(65.9), "0:01:05")
-        self.assertEqual(_format_training_duration(3723), "1:02:03")
+        self.assertEqual(_format_training_duration(0), "0h:00m:00s")
+        self.assertEqual(_format_training_duration(65.9), "0h:01m:05s")
+        self.assertEqual(_format_training_duration(3723), "1h:02m:03s")
 
 
 class TrainingBatchLogBoxTests(unittest.TestCase):
