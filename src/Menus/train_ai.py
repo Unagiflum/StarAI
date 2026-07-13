@@ -73,6 +73,7 @@ MINIBATCH_SIZE_VALUES = (16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
 REPLAY_UPDATES_PER_BATCH_VALUES = (10, 15) + tuple(range(20, 501, 10))
 LEARNING_RATE_VALUES = (0.00001, 0.00003, 0.00010, 0.00030, 0.00100, 0.00300, 0.01000)
 EPSILON_VALUES = tuple(round(i * 0.025, 3) for i in range(41))
+EPSILON_FLOOR_VALUES = tuple(round(i * 0.005, 3) for i in range(31))
 EPSILON_DECAY_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
 EPSILON_FRAME_SPAN_VALUES = tuple(range(1, 49))
 GAMMA_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
@@ -86,11 +87,12 @@ REGIMEN_MINIBATCH_SIZE_INDEX = 4
 REGIMEN_REPLAY_UPDATES_INDEX = 5
 REGIMEN_LEARNING_RATE_INDEX = 6
 REGIMEN_STARTING_EPSILON_INDEX = 7
-REGIMEN_EPSILON_DECAY_INDEX = 8
-REGIMEN_EPSILON_FRAME_SPAN_INDEX = 9
-REGIMEN_GAMMA_INDEX = 10
-REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 11
-REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 12
+REGIMEN_EPSILON_FLOOR_INDEX = 8
+REGIMEN_EPSILON_DECAY_INDEX = 9
+REGIMEN_EPSILON_FRAME_SPAN_INDEX = 10
+REGIMEN_GAMMA_INDEX = 11
+REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 12
+REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 13
 CURRENT_BATCH_STATE_WIDTH = len("stopped (stopping)")
 CURRENT_BATCH_BATCH_WIDTH = 6
 CURRENT_BATCH_ROUND_WIDTH = 4
@@ -166,6 +168,7 @@ class TrainingUIState:
     learning_rate: float = 0.00010
     starting_epsilon: float = 0.500
     current_epsilon: float = 0.500
+    epsilon_floor: float = 0.050
     epsilon_decay: float = 0.998
     epsilon_frame_span: int = 8
     gamma: float = 0.990
@@ -1592,6 +1595,7 @@ def training_config_from_state(state: TrainingUIState) -> TrainingOrchestrationC
         learning_rate=state.learning_rate,
         starting_epsilon=state.starting_epsilon,
         epsilon=state.current_epsilon,
+        epsilon_floor=state.epsilon_floor,
         epsilon_decay=state.epsilon_decay,
         epsilon_frame_span=state.epsilon_frame_span,
         hidden_layer_width=state.hidden_layer_size,
@@ -1992,6 +1996,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
         SliderRow(
             (regimen_left, regimen_top + 8 * regimen_spacing, regimen_width, regimen_height),
+            "Epsilon floor",
+            EPSILON_FLOOR_VALUES[0],
+            EPSILON_FLOOR_VALUES[-1],
+            state.epsilon_floor,
+            step=0.005,
+            values=EPSILON_FLOOR_VALUES,
+            decimal_places=3,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
+        ),
+        SliderRow(
+            (regimen_left, regimen_top + 9 * regimen_spacing, regimen_width, regimen_height),
             "Epsilon decay",
             EPSILON_DECAY_VALUES[0],
             EPSILON_DECAY_VALUES[-1],
@@ -2003,7 +2019,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=regimen_slider_width,
         ),
         SliderRow(
-            (regimen_left, regimen_top + 9 * regimen_spacing, regimen_width, regimen_height),
+            (regimen_left, regimen_top + 10 * regimen_spacing, regimen_width, regimen_height),
             "Epsilon frame span",
             EPSILON_FRAME_SPAN_VALUES[0],
             EPSILON_FRAME_SPAN_VALUES[-1],
@@ -2014,7 +2030,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=regimen_slider_width,
         ),
         SliderRow(
-            (regimen_left, regimen_top + 10 * regimen_spacing, regimen_width, regimen_height),
+            (regimen_left, regimen_top + 11 * regimen_spacing, regimen_width, regimen_height),
             "Gamma",
             GAMMA_VALUES[0],
             GAMMA_VALUES[-1],
@@ -2026,7 +2042,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=regimen_slider_width,
         ),
         SliderRow(
-            (regimen_left, regimen_top + 11 * regimen_spacing, regimen_width, regimen_height),
+            (regimen_left, regimen_top + 12 * regimen_spacing, regimen_width, regimen_height),
             "Hidden layer size",
             HIDDEN_LAYER_SIZE_VALUES[0],
             HIDDEN_LAYER_SIZE_VALUES[-1],
@@ -2037,7 +2053,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=regimen_slider_width,
         ),
         SliderRow(
-            (regimen_left, regimen_top + 12 * regimen_spacing, regimen_width, regimen_height),
+            (regimen_left, regimen_top + 13 * regimen_spacing, regimen_width, regimen_height),
             "Hidden layer count",
             HIDDEN_LAYER_COUNT_VALUES[0],
             HIDDEN_LAYER_COUNT_VALUES[-1],
@@ -2102,6 +2118,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 active_session.set_starting_epsilon(starting_epsilon)
         else:
             state.starting_epsilon = starting_epsilon
+        state.epsilon_floor = regimen_sliders[REGIMEN_EPSILON_FLOOR_INDEX].value
         state.epsilon_decay = regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX].value
         state.epsilon_frame_span = int(
             regimen_sliders[REGIMEN_EPSILON_FRAME_SPAN_INDEX].value
@@ -2155,6 +2172,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_sliders[REGIMEN_STARTING_EPSILON_INDEX],
             state.starting_epsilon,
         )
+        _set_slider_value(
+            regimen_sliders[REGIMEN_EPSILON_FLOOR_INDEX],
+            state.epsilon_floor,
+        )
         _set_slider_value(regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX], state.epsilon_decay)
         _set_slider_value(
             regimen_sliders[REGIMEN_EPSILON_FRAME_SPAN_INDEX],
@@ -2207,6 +2228,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 "starting_epsilon": state.starting_epsilon,
                 "current_epsilon": current_epsilon,
                 "epsilon": current_epsilon,
+                "epsilon_floor": state.epsilon_floor,
                 "epsilon_decay": state.epsilon_decay,
                 "epsilon_frame_span": state.epsilon_frame_span,
                 "gamma": state.gamma,
@@ -2555,6 +2577,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     (
                         "learning_rate",
                         regimen_sliders[REGIMEN_LEARNING_RATE_INDEX],
+                        float,
+                    ),
+                    (
+                        "epsilon_floor",
+                        regimen_sliders[REGIMEN_EPSILON_FLOOR_INDEX],
                         float,
                     ),
                     (

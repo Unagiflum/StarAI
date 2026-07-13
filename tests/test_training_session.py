@@ -909,6 +909,7 @@ class TrainingSessionTests(unittest.TestCase):
                     hidden_layer_count=1,
                     starting_epsilon=0.4,
                     epsilon=0.4,
+                    epsilon_floor=0.05,
                     epsilon_decay=0.5,
                     epsilon_frame_span=12,
                 ),
@@ -928,8 +929,57 @@ class TrainingSessionTests(unittest.TestCase):
         self.assertEqual(saved_regimen["starting_epsilon"], 0.4)
         self.assertAlmostEqual(saved_regimen["current_epsilon"], 0.1)
         self.assertAlmostEqual(saved_regimen["epsilon"], 0.1)
+        self.assertEqual(saved_regimen["epsilon_floor"], 0.05)
         self.assertEqual(saved_regimen["epsilon_decay"], 0.5)
         self.assertEqual(saved_regimen["epsilon_frame_span"], 12)
+
+    def test_session_decay_stops_at_epsilon_floor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            from src.training.model_registry import TrainingModelRepository
+
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+
+            def batch_runner(**kwargs):
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(),
+                    round_results=(_round_result(1.0),),
+                )
+
+            session = TrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    starting_epsilon=0.4,
+                    epsilon=0.4,
+                    epsilon_floor=0.15,
+                    epsilon_decay=0.5,
+                ),
+                batch_grouping=10,
+                batch_runner=batch_runner,
+            )
+
+            session.run_synchronously(max_batches=3)
+
+        self.assertAlmostEqual(session.status.current_epsilon, 0.15)
+        self.assertEqual(
+            [metrics.epsilon for metrics in session.history],
+            [0.2, 0.15, 0.15],
+        )
 
     def test_session_passes_display_predicate_to_batch_runner(self):
         with tempfile.TemporaryDirectory() as directory:

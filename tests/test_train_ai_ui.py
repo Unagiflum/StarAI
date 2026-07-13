@@ -18,6 +18,7 @@ from src.UI import ui, ui_slider
 from src.Menus.train_ai import (
     ACTION_TOP,
     EPSILON_DECAY_VALUES,
+    EPSILON_FLOOR_VALUES,
     EPSILON_FRAME_SPAN_VALUES,
     EPSILON_VALUES,
     DISPLAY_TOP,
@@ -115,6 +116,7 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.learning_rate, 0.0001)
         self.assertEqual(state.starting_epsilon, 0.5)
         self.assertEqual(state.current_epsilon, 0.5)
+        self.assertEqual(state.epsilon_floor, 0.05)
         self.assertEqual(state.epsilon_decay, 0.998)
         self.assertEqual(state.epsilon_frame_span, 8)
         self.assertEqual(state.gamma, 0.99)
@@ -905,6 +907,10 @@ class RegimenSliderTests(unittest.TestCase):
             tuple(round(i * 0.025, 3) for i in range(41)),
         )
         self.assertEqual(
+            EPSILON_FLOOR_VALUES,
+            tuple(round(i * 0.005, 3) for i in range(31)),
+        )
+        self.assertEqual(
             EPSILON_DECAY_VALUES,
             tuple(round(0.950 + i * 0.001, 3) for i in range(51)),
         )
@@ -945,6 +951,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         state.training_device = "cpu"
         state.starting_epsilon = 0.2
         state.current_epsilon = 0.125
+        state.epsilon_floor = 0.075
         state.epsilon_decay = 0.997
         state.epsilon_frame_span = 12
         state.hidden_layer_size = 64
@@ -967,6 +974,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         self.assertEqual(config.training_device, "cpu")
         self.assertEqual(config.starting_epsilon, 0.2)
         self.assertEqual(config.epsilon, 0.125)
+        self.assertEqual(config.epsilon_floor, 0.075)
         self.assertEqual(config.epsilon_decay, 0.997)
         self.assertEqual(config.epsilon_frame_span, 12)
         self.assertEqual(config.hidden_layer_width, 64)

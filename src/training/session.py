@@ -326,7 +326,10 @@ class TrainingSession:
         self.slot = slot
         self.metadata = dict(metadata)
         self.config = config
-        self._current_epsilon = float(config.epsilon)
+        self._current_epsilon = max(
+            float(config.epsilon_floor),
+            min(1.0, float(config.epsilon)),
+        )
         self.batch_grouping = max(1, int(batch_grouping))
         self.batch_runner = batch_runner
         self.rng = rng or random.Random()
@@ -444,13 +447,14 @@ class TrainingSession:
     def set_starting_epsilon(self, value: float) -> None:
         epsilon = max(0.0, min(1.0, float(value)))
         with self._lock:
+            current_epsilon = max(float(self.config.epsilon_floor), epsilon)
             self.config = replace(
                 self.config,
                 starting_epsilon=epsilon,
-                epsilon=epsilon,
+                epsilon=current_epsilon,
             )
-            self._current_epsilon = epsilon
-            self._status.current_epsilon = epsilon
+            self._current_epsilon = current_epsilon
+            self._status.current_epsilon = current_epsilon
 
     def request_stop(self) -> None:
         self._stop_requested.set()
@@ -665,7 +669,7 @@ class TrainingSession:
                 elapsed_training_seconds
             )
             self._current_epsilon = max(
-                0.0,
+                float(self.config.epsilon_floor),
                 min(1.0, self._current_epsilon * float(self.config.epsilon_decay)),
             )
             self._status.current_epsilon = self._current_epsilon
@@ -772,6 +776,7 @@ class TrainingSession:
         with self._lock:
             starting_epsilon = float(self.config.starting_epsilon)
             current_epsilon = float(self._current_epsilon)
+            epsilon_floor = float(self.config.epsilon_floor)
             epsilon_decay = float(self.config.epsilon_decay)
             epsilon_frame_span = int(self.config.epsilon_frame_span)
         regimen.update(
@@ -779,6 +784,7 @@ class TrainingSession:
                 "starting_epsilon": starting_epsilon,
                 "current_epsilon": current_epsilon,
                 "epsilon": current_epsilon,
+                "epsilon_floor": epsilon_floor,
                 "epsilon_decay": epsilon_decay,
                 "epsilon_frame_span": epsilon_frame_span,
             }

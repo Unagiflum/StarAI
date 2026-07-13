@@ -73,6 +73,7 @@ class TrainingOrchestrationConfig:
     learning_rate: float = 0.001
     starting_epsilon: float = 0.1
     epsilon: float = 0.1
+    epsilon_floor: float = 0.05
     epsilon_decay: float = 0.998
     epsilon_frame_span: int = 1
     hidden_layer_width: int = 128
@@ -103,6 +104,8 @@ class TrainingOrchestrationConfig:
             raise ValueError("starting_epsilon must be in [0, 1]")
         if not 0.0 <= float(self.epsilon) <= 1.0:
             raise ValueError("epsilon must be in [0, 1]")
+        if not 0.0 <= float(self.epsilon_floor) <= 1.0:
+            raise ValueError("epsilon_floor must be in [0, 1]")
         if not 0.0 <= float(self.epsilon_decay) <= 1.0:
             raise ValueError("epsilon_decay must be in [0, 1]")
         if int(self.epsilon_frame_span) <= 0:
