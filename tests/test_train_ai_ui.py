@@ -1770,6 +1770,18 @@ class TrainingBatchLogBoxTests(unittest.TestCase):
 
         self.assertEqual(box.scroll_line, 24 - box.visible_count)
 
+    def test_same_lines_are_noop(self):
+        box = TrainingBatchLogBox()
+        lines = tuple(f"line {index}" for index in range(3))
+        box.set_lines(lines)
+        original_lines = box.lines
+        box.scroll_line = 2
+
+        box.set_lines(tuple(lines))
+
+        self.assertIs(box.lines, original_lines)
+        self.assertEqual(box.scroll_line, 2)
+
 
 class TrainingBattleDisplayTests(unittest.TestCase):
     def test_legacy_training_hud_helpers_are_removed(self):

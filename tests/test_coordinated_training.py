@@ -1055,6 +1055,8 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
         self.assertEqual(len(replay_buffers[2]), 2)
         self.assertEqual(session.status_for_instance(1).completed_batches, 1)
         self.assertEqual(session.status_for_instance(2).completed_batches, 1)
+        self.assertEqual(session.status_for_instance(1).current_frame, 0)
+        self.assertEqual(session.status_for_instance(2).current_frame, 0)
         stats = session.inference_stats
         self.assertEqual(stats.request_count, 4)
         self.assertEqual(stats.exploratory_count, 4)

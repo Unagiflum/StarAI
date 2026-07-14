@@ -1238,13 +1238,6 @@ class CoordinatedTrainingSession:
                                 components.replay_buffer
                             )
                             self._on_record_progress(window.state, progress_payload)
-                        with self._lock:
-                            window.state.status.current_frame = int(
-                                frame_result.frame_count
-                            )
-                            window.state.status.replay_size = len(
-                                components.replay_buffer
-                            )
                     _raise_if_stop_requested(self._stop_requested.is_set)
 
                 for window in active_windows:

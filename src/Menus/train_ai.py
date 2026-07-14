@@ -1637,9 +1637,12 @@ class TrainingBatchLogBox:
         self.selection_focus: int | None = None
 
     def set_lines(self, lines):
+        lines = tuple(lines)
+        if lines == self.lines:
+            return
         old_max = self._max_scroll_line()
         was_at_bottom = self.scroll_line >= old_max
-        self.lines = tuple(lines)
+        self.lines = lines
         if was_at_bottom:
             self.scroll_line = self._max_scroll_line()
         else:
