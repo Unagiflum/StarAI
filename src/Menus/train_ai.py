@@ -92,14 +92,21 @@ REGIMEN_EPSILON_FLOOR_INDEX = 2
 REGIMEN_EPSILON_DECAY_INDEX = 3
 REGIMEN_EPSILON_FRAME_SPAN_INDEX = 4
 REGIMEN_GAMMA_INDEX = 5
-REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 6
-REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 7
 BATCH_MATCH_TIME_LIMIT_INDEX = 0
 BATCH_ROUNDS_PER_BATCH_INDEX = 1
 BATCH_BATCH_GROUPING_INDEX = 2
 BATCH_MINIBATCH_SIZE_INDEX = 3
 BATCH_REPLAY_UPDATES_INDEX = 4
 BATCH_LEARNING_RATE_INDEX = 5
+BATCH_HIDDEN_LAYER_SIZE_INDEX = 6
+BATCH_HIDDEN_LAYER_COUNT_INDEX = 7
+START_ALL_GREEN = tuple(max(0, channel - 50) for channel in ui.OK_GREEN[:3]) + (
+    ui.OK_GREEN[3],
+)
+START_ALL_GREEN_HI = (*START_ALL_GREEN[:3], ui.OK_GREEN_HI[3])
+START_ALL_DISABLED_TOOLTIP = (
+    "Setup tab settings much match to start a coordinated run."
+)
 BATCH_CONTROLLED_FIELDS = (
     "match_time_limit",
     "rounds_per_batch",
@@ -2279,9 +2286,8 @@ def _draw_arena_placeholder(screen, rect, state, font):
     pygame.draw.rect(screen, ui.BLACK, rect)
     pygame.draw.rect(screen, ui.GREY, rect, 2)
     if state.display_on:
-        lines = ("Battle display", "Training visualization is not implemented yet")
-    else:
-        lines = ("Training statistics", "Round and opponent details will appear here")
+        return
+    lines = ("Training statistics", "Round and opponent details will appear here")
     y = rect.centery - font.get_linesize()
     for line in lines:
         text = font.render(line, True, ui.LIGHT_GREY)
@@ -2610,7 +2616,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         maximum=28,
     )
     tab_font = largest_fitting_font(
-        ("Trainee", "Opponent", "Rewards", "Regimen", "Batch"),
+        ("Trainee", "Opponent", "Rewards", "Regimen", "Setup"),
         (CONTROL_WIDTH - 6 * TAB_MARGIN) // 5 - 16,
         max_height=34,
         maximum=32,
@@ -2647,6 +2653,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         (
             "Match frame limit: 12000",
             "Gradient steps: 500",
+            "Hidden layer size: 4096",
+            "Hidden layer count: 8",
         ),
         320,
         max_height=26,
@@ -2716,7 +2724,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         UI_TOP_MARGIN,
         tab_width,
         tab_height,
-        "Batch",
+        "Setup",
         lambda: setattr(instance_manager, "active_tab", "batch"),
     )
 
@@ -2932,28 +2940,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             layout=regimen_layout,
             slider_width=regimen_slider_width,
         ),
-        SliderRow(
-            (regimen_left, regimen_top + 6 * regimen_spacing, regimen_width, regimen_height),
-            "Hidden layer size",
-            HIDDEN_LAYER_SIZE_VALUES[0],
-            HIDDEN_LAYER_SIZE_VALUES[-1],
-            state.hidden_layer_size,
-            is_int=True,
-            values=HIDDEN_LAYER_SIZE_VALUES,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
-        SliderRow(
-            (regimen_left, regimen_top + 7 * regimen_spacing, regimen_width, regimen_height),
-            "Hidden layer count",
-            HIDDEN_LAYER_COUNT_VALUES[0],
-            HIDDEN_LAYER_COUNT_VALUES[-1],
-            state.hidden_layer_count,
-            is_int=True,
-            values=HIDDEN_LAYER_COUNT_VALUES,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
     )
 
     batch_left = 16
@@ -3030,12 +3016,28 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             layout=regimen_layout,
             slider_width=batch_slider_width,
         ),
-    )
-    batch_start_all_rect = pygame.Rect(
-        batch_left,
-        batch_top + 6 * batch_spacing + 6,
-        batch_width,
-        42,
+        SliderRow(
+            (batch_left, batch_top + 6 * batch_spacing, batch_width, batch_height),
+            "Hidden layer size",
+            HIDDEN_LAYER_SIZE_VALUES[0],
+            HIDDEN_LAYER_SIZE_VALUES[-1],
+            state.hidden_layer_size,
+            is_int=True,
+            values=HIDDEN_LAYER_SIZE_VALUES,
+            layout=regimen_layout,
+            slider_width=batch_slider_width,
+        ),
+        SliderRow(
+            (batch_left, batch_top + 7 * batch_spacing, batch_width, batch_height),
+            "Hidden layer count",
+            HIDDEN_LAYER_COUNT_VALUES[0],
+            HIDDEN_LAYER_COUNT_VALUES[-1],
+            state.hidden_layer_count,
+            is_int=True,
+            values=HIDDEN_LAYER_COUNT_VALUES,
+            layout=regimen_layout,
+            slider_width=batch_slider_width,
+        ),
     )
     apply_all_checkbox = TabScopeCheckbox(
         0,
@@ -3101,10 +3103,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         state.gamma = regimen_sliders[REGIMEN_GAMMA_INDEX].value
         state.hidden_layer_size = int(
-            regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX].value
+            batch_sliders[BATCH_HIDDEN_LAYER_SIZE_INDEX].value
         )
         state.hidden_layer_count = int(
-            regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX].value
+            batch_sliders[BATCH_HIDDEN_LAYER_COUNT_INDEX].value
         )
         changed_scalars = tuple(
             field_name
@@ -3159,11 +3161,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         _set_slider_value(regimen_sliders[REGIMEN_GAMMA_INDEX], state.gamma)
         _set_slider_value(
-            regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX],
+            batch_sliders[BATCH_HIDDEN_LAYER_SIZE_INDEX],
             state.hidden_layer_size,
         )
         _set_slider_value(
-            regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX],
+            batch_sliders[BATCH_HIDDEN_LAYER_COUNT_INDEX],
             state.hidden_layer_count,
         )
         _set_slider_value(batch_sliders[BATCH_MATCH_TIME_LIMIT_INDEX], state.match_time_limit)
@@ -3723,12 +3725,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         "hidden_layer_width",
                         architecture.get("hidden_layer_size"),
                     ),
-                    regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX],
+                    batch_sliders[BATCH_HIDDEN_LAYER_SIZE_INDEX],
                     "hidden layer size",
                 ),
                 (
                     architecture.get("hidden_layer_count"),
-                    regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX],
+                    batch_sliders[BATCH_HIDDEN_LAYER_COUNT_INDEX],
                     "hidden layer count",
                 ),
             )
@@ -4025,13 +4027,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         start_coordinated_run()
 
     action_gap = 10
-    action_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 2 * action_gap) // 3
+    action_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 3 * action_gap) // 4
     display_checkbox = ui_button.Checkbox(
         TAB_MARGIN,
         ACTION_TOP,
         action_width,
         FOOTER_CONTROL_HEIGHT,
-        "Display On",
+        "Display",
+        text_offset=(10, 0),
+        box_offset=(0, -2),
     )
     start_stop_button = ui_button.Button(
         TAB_MARGIN + action_width + action_gap,
@@ -4043,8 +4047,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ui.OK_GREEN,
         ui.OK_GREEN_HI,
     )
-    back_button = ui_button.Button(
+    batch_start_all_button = ui_button.Button(
         TAB_MARGIN + 2 * (action_width + action_gap),
+        ACTION_TOP,
+        action_width,
+        FOOTER_CONTROL_HEIGHT,
+        "Start All",
+        start_all_models,
+        START_ALL_GREEN,
+        START_ALL_GREEN_HI,
+    )
+    back_button = ui_button.Button(
+        TAB_MARGIN + 3 * (action_width + action_gap),
         ACTION_TOP,
         action_width,
         FOOTER_CONTROL_HEIGHT,
@@ -4052,16 +4066,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         request_back,
         ui.CAN_RED,
         ui.CAN_RED_HI,
-    )
-    batch_start_all_button = ui_button.Button(
-        batch_start_all_rect.x,
-        batch_start_all_rect.y,
-        batch_start_all_rect.width,
-        batch_start_all_rect.height,
-        "Start All",
-        start_all_models,
-        ui.OK_GREEN,
-        ui.OK_GREEN_HI,
     )
     instance_summary_rect = pygame.Rect(
         TAB_MARGIN,
@@ -4223,9 +4227,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             batch_tab.handle_event(event, menu_sound_manager)
             display_checkbox.handle_event(event, menu_sound_manager)
             start_stop_button.handle_event(event, menu_sound_manager)
+            batch_start_all_button.handle_event(event, menu_sound_manager)
             back_button.handle_event(event, menu_sound_manager)
-            if instance_manager.active_tab == "batch":
-                batch_start_all_button.handle_event(event, menu_sound_manager)
             if not display_checkbox.value:
                 batch_log_box.handle_event(event, layout.arena_rect, log_font)
 
@@ -4367,19 +4370,31 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         active_running = instance_manager.is_running_or_stopping(active_instance)
         any_running = instance_manager.any_instance_running()
         coordinated_active = instance_manager.coordinated_run_active()
+        coordinated_stopping = coordinated_active and any(
+            bool(getattr(instance_manager.status_for(instance), "stopping", False))
+            for instance in instance_manager.instances
+        )
+        active_stopping = bool(getattr(session_status, "stopping", False))
         batch_validation = validate_start_all()
         apply_all_checkbox.is_checked = (
             instance_manager.batch_scheduling.apply_to_all_open_instances
         )
         apply_all_checkbox.enabled = not any_running
-        batch_start_all_button.enabled = batch_validation.can_start_all or coordinated_active
-        batch_start_all_button.text = "Stop All" if coordinated_active else "Start All"
+        if coordinated_stopping:
+            batch_start_all_button.text = "Stopping"
+            batch_start_all_button.enabled = False
+        elif coordinated_active:
+            batch_start_all_button.text = "Stop All"
+            batch_start_all_button.enabled = True
+        else:
+            batch_start_all_button.text = "Start All"
+            batch_start_all_button.enabled = batch_validation.can_start_all
         if coordinated_active:
             batch_start_all_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
             batch_start_all_button.hover_color = ui.CAN_RED_HI
         else:
-            batch_start_all_button.bg_color = ui.OK_GREEN
-            batch_start_all_button.hover_color = ui.OK_GREEN_HI
+            batch_start_all_button.bg_color = START_ALL_GREEN
+            batch_start_all_button.hover_color = START_ALL_GREEN_HI
         for slider in batch_sliders:
             slider.enabled = not active_running and not coordinated_active
         device_selector.visible = torch_backend.training_device_selector_visible()
@@ -4399,9 +4414,19 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         update_field_colors()
         selected_slot = selected_model_slot()
-        back_button.text = "Stop All" if background_running else "Back"
-        back_button.enabled = background_running or not active_running
-        if background_running:
+        if coordinated_active:
+            back_button.text = "Back"
+            back_button.enabled = False
+        elif stopping_background_instances[0]:
+            back_button.text = "Stopping"
+            back_button.enabled = False
+        elif background_running:
+            back_button.text = "Stop All"
+            back_button.enabled = True
+        else:
+            back_button.text = "Back"
+            back_button.enabled = not active_running
+        if background_running and not coordinated_active:
             back_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
             back_button.hover_color = ui.CAN_RED_HI
         else:
@@ -4416,6 +4441,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         start_stop_button.enabled = (
             not coordinated_active
+            and not active_stopping
             and
             state.selected_ship is not None
             and selected_slot is not None
@@ -4468,9 +4494,21 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         display_checkbox.enabled = not coordinated_active
 
-        if session_status is not None and (
-            session_status.running or session_status.stopping
-        ):
+        if coordinated_active:
+            start_stop_button.text = "Start"
+            start_stop_button.bg_color = ui.OK_GREEN
+            start_stop_button.hover_color = ui.OK_GREEN_HI
+
+            display_checkbox.bg_color = ui.MENU_BUTTON_COLOR
+            display_checkbox.hover_color = ui.MENU_BUTTON_COLOR_HI
+        elif active_stopping:
+            start_stop_button.text = "Stopping"
+            start_stop_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
+            start_stop_button.hover_color = ui.CAN_RED_HI
+
+            display_checkbox.bg_color = (*ui.MENU_BUTTON_COLOR[:3], const.TAB_BUTTON_HOVER_ALPHA)
+            display_checkbox.hover_color = ui.MENU_BUTTON_COLOR_HI
+        elif session_status is not None and session_status.running:
             start_stop_button.text = "Stop"
             start_stop_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
             start_stop_button.hover_color = ui.CAN_RED_HI
@@ -4629,7 +4667,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             screen.blit(content, layout.content_rect)
             for slider in batch_sliders:
                 slider.draw(screen, batch_font)
-            batch_start_all_button.draw(screen, batch_font)
 
         # Draw inactive tabs behind the content window border
         if not trainee_tab.active: trainee_tab.draw(screen, tab_font)
@@ -4699,13 +4736,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         display_checkbox.draw(screen, body_font)
         start_stop_button.draw(screen, body_font)
+        batch_start_all_button.draw(screen, body_font)
         back_button.draw(screen, body_font)
-
-        if state.running:
-            pygame.draw.rect(screen, ui.BLACK, display_checkbox.rect, 2, border_radius=5)
-            pygame.draw.rect(screen, ui.BLACK, start_stop_button.rect, 2, border_radius=5)
-        if background_running:
-            pygame.draw.rect(screen, ui.BLACK, back_button.rect, 2, border_radius=5)
         if state.display_on and session_status is not None:
             _draw_training_huds(
                 screen,
@@ -4757,5 +4789,21 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         if confirmation_prompt[0] is not None:
             confirmation_prompt[0].draw(screen, arena_font, body_font)
+
+        if (
+            confirmation_prompt[0] is None
+            and ship_picker is None
+            and not instance_dropdown.expanded
+            and batch_start_all_button.text == "Start All"
+            and not batch_start_all_button.enabled
+            and batch_start_all_button.rect.collidepoint(pygame.mouse.get_pos())
+        ):
+            ui.draw_ship_tooltip(
+                screen,
+                small_font,
+                START_ALL_DISABLED_TOOLTIP,
+                pygame.mouse.get_pos(),
+                batch_start_all_button.rect,
+            )
 
         pygame.display.flip()

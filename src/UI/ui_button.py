@@ -15,6 +15,7 @@ class Button:
         bg_color=ui.GREY,
         hover_color=ui.LIGHT_GREY,
         text_color=ui.WHITE,
+        text_offset=(0, 0),
     ):
         self.rect = pygame.Rect(x, y, width, height)
         self.text = text
@@ -22,6 +23,7 @@ class Button:
         self.bg_color = (*bg_color, 255) if len(bg_color) == 3 else bg_color
         self.hover_color = (*hover_color, 255) if len(hover_color) == 3 else hover_color
         self.text_color = text_color
+        self.text_offset = text_offset
         self.enabled = True
 
     def handle_event(self, event, sound_manager=None):
@@ -53,7 +55,12 @@ class Button:
 
         text_color = self.text_color if self.enabled else ui.LIGHT_GREY
         text_surf = font.render(self.text, True, text_color)
-        text_rect = text_surf.get_rect(center=button_surface.get_rect().center)
+        text_rect = text_surf.get_rect(
+            center=(
+                button_surface.get_rect().centerx + self.text_offset[0],
+                button_surface.get_rect().centery + self.text_offset[1],
+            )
+        )
         button_surface.blit(text_surf, text_rect)
 
         surface.blit(button_surface, self.rect)
@@ -191,12 +198,25 @@ class RadioButton(Button):
 
 
 class Checkbox(Button):
-    def __init__(self, x, y, width, height, text, initial_state=False):
+    def __init__(
+        self,
+        x,
+        y,
+        width,
+        height,
+        text,
+        initial_state=False,
+        *,
+        text_offset=(0, 0),
+        box_offset=(0, 0),
+    ):
         super().__init__(
             x, y, width, height, text, None,
             ui.MENU_BUTTON_COLOR, ui.MENU_BUTTON_COLOR_HI,
+            text_offset=text_offset,
         )
         self.is_checked = initial_state
+        self.box_offset = box_offset
 
     def handle_event(self, event, sound_manager=None):
         if not self.enabled:
@@ -208,7 +228,12 @@ class Checkbox(Button):
 
     def draw(self, surface, font, mouse_pos=None):
         super().draw(surface, font, mouse_pos)
-        box = pygame.Rect(self.rect.x + 11, self.rect.centery - 9, 18, 18)
+        box = pygame.Rect(
+            self.rect.x + 11 + self.box_offset[0],
+            self.rect.centery - 9 + self.box_offset[1],
+            18,
+            18,
+        )
         color = ui.WHITE if self.enabled else ui.GREY
         checked_color = ui.BRIGHT_GREEN if self.enabled else ui.GREY
         pygame.draw.rect(surface, color, box, 2)
