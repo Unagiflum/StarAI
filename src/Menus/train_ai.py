@@ -108,6 +108,24 @@ BATCH_CONTROLLED_FIELDS = (
     "replay_updates_per_batch",
     "learning_rate",
 )
+FUTURE_CHANGE_SCALAR_FIELDS = (
+    "training_device",
+    "opponent_mode",
+    "ai_opponent_chance",
+    "forward_activity",
+    "a1_activity",
+    "a2_activity",
+    "face_opponent_activity",
+    "replay_buffer_size",
+    "starting_epsilon",
+    "epsilon_floor",
+    "epsilon_decay",
+    "epsilon_frame_span",
+    "gamma",
+    "hidden_layer_size",
+    "hidden_layer_count",
+    *BATCH_CONTROLLED_FIELDS,
+)
 COORDINATED_ARCHITECTURE_KEYS = (
     "input_size",
     "output_count",
@@ -150,19 +168,23 @@ TRAIN_AI_SESSION_VERSION = 1
 TRAIN_AI_SESSION_PATH = const.USER_DATA_ROOT / "train_ai_session.json"
 UI_TOP_MARGIN = INSTANCE_TOP + INSTANCE_CONTROL_HEIGHT + 12
 TAB_GAP = 8
-TAB_HEIGHT = 32
+TAB_HEIGHT = 28
 TAB_COLOR = (155, 0, 105, 75)
 TAB_COLOR_HI = (155, 0, 105, 255)
 TAB_HEADER_COLOR = (100, 100, 100)
 CONTENT_TOP = UI_TOP_MARGIN + TAB_HEIGHT + TAB_GAP
-FOOTER_CONTROL_HEIGHT = 36
-ACTION_TOP = 678
+FOOTER_CONTROL_HEIGHT = 30
+ACTION_TOP = 684
 DISPLAY_TOP = ACTION_TOP
 TRAINING_HUD_HEIGHT = MARINE_REGION_HEIGHT + VIEWPORT_SIZE + HUD_BOTTOM_PADDING
 HUD_TOP = const.SCREEN_HEIGHT - TRAINING_HUD_HEIGHT
 HUD_BOTTOM_MARGIN = 0
-CONTENT_BOTTOM = ACTION_TOP - TAB_GAP
+APPLY_ALL_STRIP_HEIGHT = 30
+APPLY_ALL_STRIP_BOTTOM = ACTION_TOP - TAB_GAP
+APPLY_ALL_STRIP_TOP = APPLY_ALL_STRIP_BOTTOM - APPLY_ALL_STRIP_HEIGHT
+CONTENT_BOTTOM = APPLY_ALL_STRIP_TOP
 CONTENT_VIEW_HEIGHT = CONTENT_BOTTOM - CONTENT_TOP
+TAB_BOX_BORDER_WIDTH = 3
 
 
 @dataclass
@@ -283,6 +305,14 @@ def instances_with_different_batch_settings(
     )
 
 
+def instances_have_matching_batch_settings(instances) -> bool:
+    states = [instance.state for instance in instances]
+    return not states or all(
+        batch_settings_match(states[0], other_state)
+        for other_state in states[1:]
+    )
+
+
 def coordinated_architecture_signature(architecture) -> tuple[tuple[str, object], ...]:
     normalized = normalize_architecture_metadata(architecture or {})
     return tuple((key, normalized.get(key)) for key in COORDINATED_ARCHITECTURE_KEYS)
@@ -374,18 +404,35 @@ def validate_coordinated_batch_start(
             blocking_code="eligible_count",
         )
 
+    if not instances_have_matching_batch_settings(
+        instance for instance, _slot in resolved_slots
+    ):
+        return CoordinatedBatchValidation(
+            blocking_reason="Batch settings differ",
+            blocking_code="batch",
+        )
+
     signatures = []
     for instance, slot in resolved_slots:
         state = instance.state
         architecture = architecture_for_state(state)
         metadata = slot.metadata if isinstance(slot.metadata, dict) else {}
-        report = validate_model_metadata(metadata, architecture=architecture)
+        saved_architecture = metadata.get("architecture") if metadata else None
+        if isinstance(saved_architecture, dict) and saved_architecture:
+            if normalize_architecture_metadata(saved_architecture) != normalize_architecture_metadata(
+                architecture
+            ):
+                return CoordinatedBatchValidation(
+                    blocking_reason="Model architecture differs from the selected settings",
+                    blocking_code="architecture",
+                )
+        report = validate_model_metadata(metadata)
         if report.errors:
             return CoordinatedBatchValidation(
                 blocking_reason=report.errors[0],
                 blocking_code="metadata",
             )
-        signatures.append(coordinated_architecture_signature(architecture_for_slot_or_state(slot, state)))
+        signatures.append(coordinated_architecture_signature(architecture))
     if len(set(signatures)) > 1:
         return CoordinatedBatchValidation(
             blocking_reason="Model architectures differ",
@@ -443,6 +490,7 @@ class TrainingInstanceManager:
         self.supported_max = int(supported_max)
         self._next_instance_id = 2
         self._writer_reservations: dict[tuple[str, int], int] = {}
+        self._suspend_future_propagation = False
         self.batch_scheduling = TrainingBatchSchedulingState()
         self.instances = [
             TrainingInstance(
@@ -622,6 +670,90 @@ class TrainingInstanceManager:
     def any_instance_running(self):
         return bool(self.running_instances())
 
+    def future_changes_effective(self):
+        return bool(
+            self.batch_scheduling.apply_to_all_open_instances
+            and not self.any_instance_running()
+        )
+
+    def selected_ship_counts(self):
+        counts: dict[str, int] = {}
+        for instance in self.instances:
+            ship = instance.state.selected_ship
+            if ship is not None:
+                counts[ship] = counts.get(ship, 0) + 1
+        return counts
+
+    def has_duplicate_selected_ships(self):
+        return any(count > 1 for count in self.selected_ship_counts().values())
+
+    def can_select_ship(self, ship, *, instance=None):
+        instance = instance or self.active_instance
+        return sum(
+            1
+            for other in self.instances
+            if other is not instance and other.state.selected_ship == ship
+        ) < MODEL_SLOT_COUNT
+
+    def normalize_open_ship_slots(self):
+        by_ship: dict[str, list[TrainingInstance]] = {}
+        for instance in sorted(self.instances, key=lambda item: item.instance_id):
+            ship = instance.state.selected_ship
+            if ship is not None:
+                by_ship.setdefault(ship, []).append(instance)
+        for matching in by_ship.values():
+            for instance in matching[MODEL_SLOT_COUNT:]:
+                instance.state.selected_ship = None
+                instance.state.selected_slot = 1
+            used = set()
+            for instance in matching[:MODEL_SLOT_COUNT]:
+                desired = int(instance.state.selected_slot)
+                if desired in used:
+                    desired = next(
+                        slot
+                        for slot in range(1, MODEL_SLOT_COUNT + 1)
+                        if slot not in used
+                    )
+                    instance.state.selected_slot = desired
+                used.add(desired)
+
+    def propagate_future_changes(
+        self,
+        source_instance,
+        *,
+        scalar_fields=(),
+        reward_labels=(),
+        slot_label_indices=(),
+    ):
+        if self._suspend_future_propagation or not self.future_changes_effective():
+            return
+        allow_slot_changes = not self.has_duplicate_selected_ships()
+        source = source_instance.state
+        scalar_fields = tuple(scalar_fields)
+        reward_labels = tuple(reward_labels)
+        slot_label_indices = tuple(slot_label_indices) if allow_slot_changes else ()
+        for instance in self.instances:
+            if instance is source_instance:
+                continue
+            target = instance.state
+            for field_name in scalar_fields:
+                setattr(target, field_name, getattr(source, field_name))
+                if field_name == "starting_epsilon":
+                    target.current_epsilon = source.current_epsilon
+            for label in reward_labels:
+                target.rewards[label] = source.rewards[label]
+            if target.selected_ship is not None:
+                for index in slot_label_indices:
+                    target.slot_labels[index] = source.slot_labels[index]
+
+    def propagate_selected_slot(self, source_instance):
+        if not self.future_changes_effective() or self.has_duplicate_selected_ships():
+            return
+        selected_slot = source_instance.state.selected_slot
+        for instance in self.instances:
+            if instance is not source_instance and instance.state.selected_ship is not None:
+                instance.state.selected_slot = selected_slot
+
     def coordinated_run_active(self):
         session = self.batch_scheduling.coordinated_session
         return bool(session is not None and session.active)
@@ -666,16 +798,17 @@ class TrainingInstanceManager:
             self.disable_display(instance)
             self.request_stop(instance)
 
-    def set_batch_apply_to_all(self, enabled):
+    def set_apply_future_changes_to_all(self, enabled):
         self.batch_scheduling.apply_to_all_open_instances = bool(enabled)
-        if enabled:
-            self.apply_batch_settings_to_all()
+
+    def set_batch_apply_to_all(self, enabled):
+        """Backward-compatible alias for the former Batch-only preference."""
+        self.set_apply_future_changes_to_all(enabled)
 
     def set_batch_cpu_workers_enabled(self, enabled):
         self.batch_scheduling.run_multiple_cpu_workers = bool(enabled)
 
     def force_batch_active_only(self):
-        self.batch_scheduling.apply_to_all_open_instances = False
         self.batch_scheduling.run_multiple_cpu_workers = False
 
     def apply_batch_settings_to_all(self, source_state=None):
@@ -684,14 +817,11 @@ class TrainingInstanceManager:
             apply_batch_settings(source, instance.state)
 
     def coordinated_batch_validation(self, slot_resolver, **kwargs):
-        validation = validate_coordinated_batch_start(
+        return validate_coordinated_batch_start(
             self,
             slot_resolver,
             **kwargs,
         )
-        if not validation.coordinated_scope_available:
-            self.force_batch_active_only()
-        return validation
 
     def reserve_writer(self, instance, ship, slot):
         self.release_stopped_writers()
@@ -880,6 +1010,7 @@ def training_instance_manager_from_json(payload):
         return manager
 
     manager.instances = instances
+    manager.normalize_open_ship_slots()
     try:
         active_instance_id = int(payload.get("active_instance_id", instances[0].instance_id))
     except (TypeError, ValueError):
@@ -966,6 +1097,7 @@ class TrainingLayout:
     control_rect: pygame.Rect
     arena_rect: pygame.Rect
     content_rect: pygame.Rect
+    tab_box_rect: pygame.Rect
     hud_rects: tuple[pygame.Rect, pygame.Rect]
 
 
@@ -981,6 +1113,12 @@ def training_layout():
         ),
         content_rect=pygame.Rect(
             0, CONTENT_TOP, CONTROL_WIDTH, CONTENT_VIEW_HEIGHT
+        ),
+        tab_box_rect=pygame.Rect(
+            0,
+            CONTENT_TOP,
+            CONTROL_WIDTH,
+            APPLY_ALL_STRIP_BOTTOM - CONTENT_TOP,
         ),
         hud_rects=(
             pygame.Rect(hud_left, HUD_TOP, hud_width, hud_height),
@@ -1025,13 +1163,13 @@ class TabButton(ui_button.Button):
             border_top_left_radius=5, border_top_right_radius=5
         )
 
-        # Draw black border on all sides
+        # Keep the tab outline opaque while the fill uses normal/hover/selected alpha.
         pygame.draw.rect(
-            button_surface, const.TAB_BUTTON_BORDER_COLOR, button_surface.get_rect(), width=2,
+            button_surface, const.TAB_BUTTON_COLOR, button_surface.get_rect(), width=2,
             border_top_left_radius=5, border_top_right_radius=5
         )
 
-        # Remove the bottom 2 pixels of the black border (replace with color)
+        # Remove the bottom 2 pixels of the outline so the active tab joins the box.
         # We start at x=2 and width is width-4 to preserve the left and right borders
         button_surface.fill(color, pygame.Rect(2, self.rect.height - 2, self.rect.width - 4, 2))
 
@@ -1040,6 +1178,51 @@ class TabButton(ui_button.Button):
         button_surface.blit(text_surf, text_rect)
 
         surface.blit(button_surface, self.rect)
+
+
+class TabScopeCheckbox(ui_button.Checkbox):
+    """Square-edged checkbox strip styled as part of the tab box."""
+
+    def draw(self, surface, font, mouse_pos=None):
+        if not self.enabled:
+            color = (*ui.DARK_GREY, 255)
+        else:
+            if mouse_pos is None:
+                mouse_pos = pygame.mouse.get_pos()
+            if self.is_checked:
+                alpha = const.TAB_BUTTON_SELECTED_ALPHA
+            elif self.rect.collidepoint(mouse_pos):
+                alpha = const.TAB_BUTTON_HOVER_ALPHA
+            else:
+                alpha = const.TAB_BUTTON_NORMAL_ALPHA
+            color = (*const.TAB_BUTTON_COLOR, alpha)
+
+        button_surface = pygame.Surface(self.rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(button_surface, color, button_surface.get_rect())
+        text_color = self.text_color if self.enabled else ui.LIGHT_GREY
+        text_surf = font.render(self.text, True, text_color)
+        button_surface.blit(
+            text_surf,
+            text_surf.get_rect(center=button_surface.get_rect().center),
+        )
+        surface.blit(button_surface, self.rect)
+
+        box = pygame.Rect(self.rect.x + 11, self.rect.centery - 9, 18, 18)
+        box_color = ui.WHITE if self.enabled else ui.GREY
+        checked_color = ui.BRIGHT_GREEN if self.enabled else ui.GREY
+        pygame.draw.rect(surface, box_color, box, 2)
+        if self.is_checked:
+            pygame.draw.lines(
+                surface,
+                checked_color,
+                False,
+                [
+                    (box.left + 3, box.centery),
+                    (box.centerx - 1, box.bottom - 4),
+                    (box.right - 3, box.top + 3),
+                ],
+                3,
+            )
 
 
 class InstanceDropdown:
@@ -1274,6 +1457,130 @@ def _set_slider_value(slider, value):
     if hasattr(slider, "value_to_position"):
         slider.handle_x = slider.value_to_position(value)
     return True
+
+
+def apply_model_conditions_to_state(state, metadata):
+    """Load supported saved conditions without triggering cross-instance propagation."""
+    skipped = []
+    if not isinstance(metadata, dict):
+        return ("saved conditions",)
+
+    training = metadata.get("training", {})
+    architecture = metadata.get("architecture", {})
+
+    def assign_allowed(field_name, raw_value, caster, allowed, label):
+        try:
+            value = caster(raw_value)
+        except (TypeError, ValueError):
+            skipped.append(label)
+            return
+        if allowed is not None and value not in allowed:
+            skipped.append(label)
+            return
+        setattr(state, field_name, value)
+
+    if isinstance(training, dict):
+        opponent = training.get("opponent", {})
+        if isinstance(opponent, dict):
+            if "ai_opponent_chance" in opponent:
+                assign_allowed(
+                    "ai_opponent_chance",
+                    opponent["ai_opponent_chance"],
+                    float,
+                    AI_OPPONENT_PERCENT_VALUES,
+                    "Simple vs. AI",
+                )
+            elif opponent.get("mode") in {"all", "simple"}:
+                state.ai_opponent_chance = 100.0 if opponent["mode"] == "all" else 0.0
+            state.opponent_mode = "all" if state.ai_opponent_chance > 0 else "simple"
+            for key, label in (
+                ("forward_activity", "Forward Activity"),
+                ("a1_activity", "A1 Activity"),
+                ("a2_activity", "A2 Activity"),
+                ("face_opponent_activity", "Face opponent"),
+            ):
+                if key in opponent:
+                    assign_allowed(
+                        key,
+                        opponent[key],
+                        float,
+                        SIMPLE_ACTIVITY_VALUES,
+                        label,
+                    )
+
+        rewards = training.get("rewards", {})
+        if isinstance(rewards, dict):
+            for label in REWARD_LABELS:
+                reward_key = label
+                if reward_key not in rewards:
+                    reward_key = LEGACY_REWARD_ALIASES.get(label)
+                if reward_key not in rewards:
+                    continue
+                try:
+                    value = float(rewards[reward_key])
+                except (TypeError, ValueError):
+                    skipped.append(label)
+                    continue
+                if value not in REWARD_VALUES:
+                    skipped.append(label)
+                    continue
+                state.rewards[label] = value
+
+        regimen = training.get("regimen", {})
+        if isinstance(regimen, dict):
+            regimen_fields = (
+                ("replay_buffer_size", int, REPLAY_BUFFER_SIZE_VALUES),
+                ("rounds_per_batch", int, ROUNDS_PER_BATCH_VALUES),
+                ("batch_grouping", int, BATCH_GROUPING_VALUES),
+                ("match_time_limit", int, MATCH_TIME_LIMIT_VALUES),
+                ("minibatch_size", int, MINIBATCH_SIZE_VALUES),
+                ("replay_updates_per_batch", int, REPLAY_UPDATES_PER_BATCH_VALUES),
+                ("learning_rate", float, LEARNING_RATE_VALUES),
+                ("epsilon_floor", float, EPSILON_FLOOR_VALUES),
+                ("epsilon_decay", float, EPSILON_DECAY_VALUES),
+                ("epsilon_frame_span", int, EPSILON_FRAME_SPAN_VALUES),
+                ("gamma", float, GAMMA_VALUES),
+            )
+            for key, caster, allowed in regimen_fields:
+                if key in regimen:
+                    assign_allowed(key, regimen[key], caster, allowed, key.replace("_", " "))
+            starting_key = "starting_epsilon" if "starting_epsilon" in regimen else "epsilon"
+            if starting_key in regimen:
+                assign_allowed(
+                    "starting_epsilon",
+                    regimen[starting_key],
+                    float,
+                    EPSILON_VALUES,
+                    "starting epsilon",
+                )
+            try:
+                state.current_epsilon = float(
+                    regimen.get("current_epsilon", state.starting_epsilon)
+                )
+            except (TypeError, ValueError):
+                state.current_epsilon = state.starting_epsilon
+                skipped.append("current epsilon")
+
+    if isinstance(architecture, dict):
+        architecture_fields = (
+            (
+                "hidden_layer_size",
+                architecture.get("hidden_layer_width", architecture.get("hidden_layer_size")),
+                HIDDEN_LAYER_SIZE_VALUES,
+                "hidden layer size",
+            ),
+            (
+                "hidden_layer_count",
+                architecture.get("hidden_layer_count"),
+                HIDDEN_LAYER_COUNT_VALUES,
+                "hidden layer count",
+            ),
+        )
+        for field_name, raw_value, allowed, label in architecture_fields:
+            if raw_value is not None:
+                assign_allowed(field_name, raw_value, int, allowed, label)
+
+    return tuple(skipped)
 
 
 def _set_checkbox_value(checkbox, value):
@@ -1591,6 +1898,7 @@ class TextField:
         self.active = False
         self.enabled = True
         self.text_color = ui.WHITE
+        self.edited = False
 
     def handle_event(self, event):
         if not self.enabled:
@@ -1602,10 +1910,13 @@ class TextField:
             if event.key in (pygame.K_RETURN, pygame.K_ESCAPE):
                 self.active = False
             elif event.key == pygame.K_BACKSPACE:
-                self.text = self.text[:-1]
+                if self.text:
+                    self.text = self.text[:-1]
+                    self.edited = True
             elif event.unicode and event.unicode.isprintable():
                 if len(self.text) < self.max_length:
                     self.text += event.unicode
+                    self.edited = True
 
     def draw(self, surface, font):
         pygame.draw.rect(surface, ui.BLACK, self.rect)
@@ -1894,6 +2205,49 @@ class ConfirmationPrompt:
             y += font.get_linesize()
         self.yes_button.draw(screen, button_font)
         self.no_button.draw(screen, button_font)
+
+
+class InformationPrompt:
+    def __init__(self, text):
+        self.text = text
+        width = min(640, const.SCREEN_WIDTH - 160)
+        height = 190
+        self.rect = pygame.Rect(0, 0, width, height)
+        self.rect.center = (const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT // 2)
+        self.done = False
+        self.ok_button = ui_button.Button(
+            self.rect.centerx - 85,
+            self.rect.bottom - 68,
+            170,
+            48,
+            "OK",
+            self.dismiss,
+            ui.OK_GREEN,
+            ui.OK_GREEN_HI,
+        )
+
+    def dismiss(self):
+        self.done = True
+
+    def handle_event(self, event, sound_manager=None):
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_ESCAPE):
+            self.dismiss()
+            return
+        self.ok_button.handle_event(event, sound_manager)
+
+    def draw(self, screen, font, button_font):
+        shade = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        shade.fill((0, 0, 0, MODAL_SHADE_ALPHA))
+        screen.blit(shade, (0, 0))
+        pygame.draw.rect(screen, ui.BLACK, self.rect)
+        pygame.draw.rect(screen, ui.WHITE, self.rect, 2)
+        lines = _wrap_text(self.text, font, self.rect.width - 40)
+        y = self.rect.top + 38
+        for line in lines:
+            rendered = font.render(line, True, ui.WHITE)
+            screen.blit(rendered, rendered.get_rect(center=(self.rect.centerx, y)))
+            y += font.get_linesize()
+        self.ok_button.draw(screen, button_font)
 
 
 def _translated_event(event, viewport, scroll_y):
@@ -2297,7 +2651,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     batch_font = largest_fitting_font(
         (
-            "Apply to all open instances",
             "Run multiple CPU workers",
             "Coordinated mode disabled; incompatible instances",
             "Match frame limit: 12000",
@@ -2306,6 +2659,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         320,
         max_height=26,
         maximum=24,
+    )
+    apply_all_font = largest_fitting_font(
+        ("Apply changes to all instances",),
+        CONTROL_WIDTH - 54,
+        max_height=APPLY_ALL_STRIP_HEIGHT - 6,
+        maximum=22,
     )
     small_font = pygame.font.SysFont(None, 24)
     instance_font = pygame.font.SysFont("Consolas", 19)
@@ -2680,22 +3039,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=batch_slider_width,
         ),
     )
-    batch_scope_rect = pygame.Rect(
-        batch_left,
-        batch_top + 6 * batch_spacing + 6,
-        batch_width,
-        38,
-    )
-    batch_scope_checkbox = ui_button.Checkbox(
-        batch_scope_rect.x,
-        batch_scope_rect.y,
-        batch_scope_rect.width,
-        batch_scope_rect.height,
-        "Apply to all open instances",
-    )
     batch_cpu_workers_rect = pygame.Rect(
         batch_left,
-        batch_scope_rect.bottom + 8,
+        batch_top + 6 * batch_spacing + 6,
         batch_width,
         38,
     )
@@ -2712,6 +3058,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         batch_width,
         42,
     )
+    apply_all_checkbox = TabScopeCheckbox(
+        0,
+        APPLY_ALL_STRIP_TOP,
+        CONTROL_WIDTH,
+        APPLY_ALL_STRIP_HEIGHT,
+        "Apply changes to all instances",
+        initial_state=instance_manager.batch_scheduling.apply_to_all_open_instances,
+    )
 
     display_checkbox = None  # Instantiated later with other action buttons
     exited = [False]
@@ -2720,6 +3074,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     batch_log_box = TrainingBatchLogBox()
 
     def sync_state_from_ui():
+        previous_scalars = {
+            field_name: getattr(state, field_name)
+            for field_name in FUTURE_CHANGE_SCALAR_FIELDS
+        }
+        previous_rewards = dict(state.rewards)
         instance_manager.set_active_display(display_checkbox.value)
         state.slot_labels[:] = [field.text for field in slot_fields]
         if device_selector.visible:
@@ -2741,8 +3100,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.minibatch_size = int(batch_sliders[BATCH_MINIBATCH_SIZE_INDEX].value)
         state.replay_updates_per_batch = int(batch_sliders[BATCH_REPLAY_UPDATES_INDEX].value)
         state.learning_rate = batch_sliders[BATCH_LEARNING_RATE_INDEX].value
-        if state.active_tab == "batch" and instance_manager.batch_scheduling.apply_to_all_open_instances:
-            instance_manager.apply_batch_settings_to_all(state)
         state.replay_buffer_size = int(
             regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value
         )
@@ -2769,6 +3126,27 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         state.hidden_layer_count = int(
             regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX].value
+        )
+        changed_scalars = tuple(
+            field_name
+            for field_name, previous_value in previous_scalars.items()
+            if getattr(state, field_name) != previous_value
+        )
+        changed_rewards = tuple(
+            label
+            for label in REWARD_LABELS
+            if state.rewards.get(label) != previous_rewards.get(label)
+        )
+        changed_slot_indices = tuple(
+            index for index, field in enumerate(slot_fields) if field.edited
+        )
+        for field in slot_fields:
+            field.edited = False
+        instance_manager.propagate_future_changes(
+            instance_manager.active_instance,
+            scalar_fields=changed_scalars,
+            reward_labels=changed_rewards,
+            slot_label_indices=changed_slot_indices,
         )
 
     def apply_state_to_ui():
@@ -2815,7 +3193,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         _set_slider_value(batch_sliders[BATCH_MINIBATCH_SIZE_INDEX], state.minibatch_size)
         _set_slider_value(batch_sliders[BATCH_REPLAY_UPDATES_INDEX], state.replay_updates_per_batch)
         _set_slider_value(batch_sliders[BATCH_LEARNING_RATE_INDEX], state.learning_rate)
-        batch_scope_checkbox.is_checked = instance_manager.batch_scheduling.apply_to_all_open_instances
+        apply_all_checkbox.is_checked = (
+            instance_manager.batch_scheduling.apply_to_all_open_instances
+        )
         last_starting_epsilon_slider_value[0] = state.starting_epsilon
         trainee_scroll_y = 0
         rewards_scroll_y = 0
@@ -3031,10 +3411,54 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 else:
                     field.text_color = ui.WHITE
 
+    def reconcile_slots_for_ship(ship):
+        matching = sorted(
+            (
+                instance
+                for instance in instance_manager.instances
+                if instance.state.selected_ship == ship
+            ),
+            key=lambda instance: instance.instance_id,
+        )
+        used = set()
+        for instance in matching:
+            desired = int(instance.state.selected_slot)
+            if desired not in used:
+                used.add(desired)
+                continue
+            candidates = [
+                ((desired - 1 + offset) % MODEL_SLOT_COUNT) + 1
+                for offset in range(1, MODEL_SLOT_COUNT + 1)
+            ]
+            writable = [
+                slot
+                for slot in candidates
+                if slot not in used
+                and model_repository.slot_for(ship, slot).source != SLOT_BUNDLED
+            ]
+            fallback = [slot for slot in candidates if slot not in used]
+            available = writable or fallback
+            if available:
+                instance.state.selected_slot = available[0]
+                used.add(available[0])
+
+    def set_selected_slot(slot):
+        state.selected_slot = int(slot)
+        if state.selected_ship is not None:
+            reconcile_slots_for_ship(state.selected_ship)
+        instance_manager.propagate_selected_slot(instance_manager.active_instance)
+
     def set_selected_ship(ship):
+        if not instance_manager.can_select_ship(ship):
+            show_notice(
+                f"Only {MODEL_SLOT_COUNT} instances can use {ship}"
+            )
+            return False
         state.selected_ship = ship
         state.selected_slot = 1
+        reconcile_slots_for_ship(ship)
         refresh_slot_controls()
+        return True
 
     def clear_selected_ship():
         state.selected_ship = None
@@ -3114,6 +3538,52 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
 
     def load_selected_model_conditions():
+        multi_instance_load = (
+            instance_manager.future_changes_effective()
+            and not instance_manager.has_duplicate_selected_ships()
+        )
+        if multi_instance_load:
+            ineligible_found = False
+            unsupported = []
+            loaded_count = 0
+            instance_manager._suspend_future_propagation = True
+            try:
+                for instance in instance_manager.instances:
+                    instance_state = instance.state
+                    if instance_state.selected_ship is None:
+                        ineligible_found = True
+                        continue
+                    candidate = model_repository.slot_for(
+                        instance_state.selected_ship,
+                        instance_state.selected_slot,
+                    )
+                    metadata = candidate.metadata if isinstance(candidate.metadata, dict) else {}
+                    if not candidate.is_user or not metadata:
+                        ineligible_found = True
+                        continue
+                    unsupported.extend(
+                        apply_model_conditions_to_state(instance_state, metadata)
+                    )
+                    instance_state.loaded_ship = instance_state.selected_ship
+                    instance_state.loaded_slot = instance_state.selected_slot
+                    instance_state.loaded_architecture = architecture_metadata_for(
+                        instance_state
+                    )
+                    instance_state.loaded_training = training_metadata_for(instance_state)
+                    loaded_count += 1
+            finally:
+                instance_manager._suspend_future_propagation = False
+            apply_state_to_ui()
+            if ineligible_found:
+                confirmation_prompt[0] = InformationPrompt(
+                    "Not all slots had eligible models to load"
+                )
+            elif unsupported:
+                show_notice(f"Loaded AI; skipped unsupported {unsupported[0]}")
+            elif loaded_count:
+                show_notice(f"Loaded conditions for {loaded_count} instances")
+            return
+
         model_slot = selected_model_slot()
         if model_slot is None or not model_slot.is_user:
             return
@@ -3121,6 +3591,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if not metadata:
             show_notice("Selected AI has no saved conditions")
             return
+        instance_manager._suspend_future_propagation = True
 
         skipped = []
         architecture = metadata.get("architecture", {})
@@ -3313,6 +3784,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.loaded_slot = state.selected_slot
         state.loaded_architecture = architecture_metadata()
         state.loaded_training = training_metadata()
+        instance_manager._suspend_future_propagation = False
 
     def clear_session_continuity():
         instance_manager.clear_active_session_continuity()
@@ -3449,9 +3921,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         old_training = metadata.get("training", {})
         old_description = metadata.get("description", model_slot.description)
 
-        if old_architecture and old_architecture != new_architecture:
+        if (
+            old_architecture
+            and normalize_architecture_metadata(old_architecture)
+            != normalize_architecture_metadata(new_architecture)
+        ):
             confirmation_prompt[0] = ConfirmationPrompt(
-                f"Do you want to overwrite {describe_model(model_slot)}?",
+                (
+                    f"The hidden layer shape has changed. Starting will overwrite "
+                    f"{describe_model(model_slot)} and reset its saved checkpoint. Continue?"
+                ),
                 lambda: (
                     persist_selected_model(reset_checkpoint=True),
                     clear_session_continuity(),
@@ -3503,7 +3982,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
 
     def start_coordinated_run():
-        instance_manager.apply_batch_settings_to_all(state)
         validation = validate_start_all()
         if not validation.can_start_all:
             show_notice(validation.blocking_reason)
@@ -3566,16 +4044,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         validation = validate_start_all()
         if not validation.can_start_all:
             show_notice(validation.blocking_reason)
-            return
-        differing = instances_with_different_batch_settings(
-            validation.included_instances,
-            state,
-        )
-        if differing:
-            confirmation_prompt[0] = ConfirmationPrompt(
-                "Start All will apply Batch tab settings to every open instance. Continue?",
-                start_coordinated_run,
-            )
             return
         start_coordinated_run()
 
@@ -3706,10 +4174,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     else:
                         selected = ship_picker.ship_at_pos(event.pos)
                         if selected is not None:
-                            set_selected_ship(selected[0])
-                            if menu_sound_manager:
-                                menu_sound_manager.play_sound("menu")
-                            ship_picker = None
+                            if set_selected_ship(selected[0]):
+                                if menu_sound_manager:
+                                    menu_sound_manager.play_sound("menu")
+                                ship_picker = None
                 continue
 
             if instance_dropdown.handle_event(event, menu_sound_manager):
@@ -3754,6 +4222,23 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             close_instance_button.handle_event(event, menu_sound_manager)
             add_instance_button.handle_event(event, menu_sound_manager)
 
+            if (
+                apply_all_checkbox.enabled
+                and not instance_manager.any_instance_running()
+                and event.type == pygame.MOUSEBUTTONDOWN
+                and event.button == 1
+                and apply_all_checkbox.rect.collidepoint(event.pos)
+            ):
+                if menu_sound_manager:
+                    menu_sound_manager.play_sound("menu")
+                instance_manager.set_apply_future_changes_to_all(
+                    not instance_manager.batch_scheduling.apply_to_all_open_instances
+                )
+                apply_all_checkbox.is_checked = (
+                    instance_manager.batch_scheduling.apply_to_all_open_instances
+                )
+                continue
+
             trainee_tab.handle_event(event, menu_sound_manager)
             opponent_tab.handle_event(event, menu_sound_manager)
             rewards_tab.handle_event(event, menu_sound_manager)
@@ -3764,34 +4249,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             back_button.handle_event(event, menu_sound_manager)
             if state.active_tab == "batch":
                 validation = validate_start_all()
-                if (
-                    validation.coordinated_scope_available
-                    and event.type == pygame.MOUSEBUTTONDOWN
-                    and event.button == 1
-                    and batch_scope_checkbox.rect.collidepoint(event.pos)
-                ):
-                    if menu_sound_manager:
-                        menu_sound_manager.play_sound("menu")
-                    if instance_manager.batch_scheduling.apply_to_all_open_instances:
-                        instance_manager.set_batch_apply_to_all(False)
-                        batch_scope_checkbox.is_checked = False
-                    else:
-                        differing = instances_with_different_batch_settings(
-                            validation.included_instances,
-                            state,
-                        )
-                        if differing:
-                            confirmation_prompt[0] = ConfirmationPrompt(
-                                "Apply Batch tab settings to every open instance?",
-                                lambda: (
-                                    instance_manager.set_batch_apply_to_all(True),
-                                    setattr(batch_scope_checkbox, "is_checked", True),
-                                ),
-                            )
-                        else:
-                            instance_manager.set_batch_apply_to_all(True)
-                            batch_scope_checkbox.is_checked = True
-                    continue
                 if (
                     validation.coordinated_scope_available
                     and event.type == pygame.MOUSEBUTTONDOWN
@@ -3832,7 +4289,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                                 menu_sound_manager.play_sound("menu")
                         for index, row in enumerate(slot_rows):
                             if state.selected_ship is not None and row.collidepoint(translated.pos) and not state.running:
-                                state.selected_slot = index + 1
+                                set_selected_slot(index + 1)
                                 break
                 for field in slot_fields:
                     field.handle_event(translated)
@@ -3944,20 +4401,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         batch_validation = validate_start_all()
         batch_scope_available = batch_validation.coordinated_scope_available
         if not batch_scope_available:
-            instance_manager.force_batch_active_only()
-            batch_scope_checkbox.is_checked = False
             batch_cpu_workers_checkbox.is_checked = False
         else:
-            batch_scope_checkbox.is_checked = (
-                instance_manager.batch_scheduling.apply_to_all_open_instances
-            )
             batch_cpu_workers_checkbox.is_checked = (
                 instance_manager.batch_scheduling.run_multiple_cpu_workers
             )
-        batch_scope_checkbox.enabled = batch_scope_available and not active_running
         batch_cpu_workers_checkbox.enabled = (
             batch_scope_available and not active_running
         )
+        apply_all_checkbox.is_checked = (
+            instance_manager.batch_scheduling.apply_to_all_open_instances
+        )
+        apply_all_checkbox.enabled = not any_running
         batch_start_all_button.enabled = batch_validation.can_start_all or coordinated_active
         batch_start_all_button.text = "Stop All" if coordinated_active else "Start All"
         if coordinated_active:
@@ -4022,17 +4477,35 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             and _training_settings_match(state.loaded_training, training_metadata())
         )
 
-        if is_currently_loaded and state.selected_ship is not None:
+        multi_instance_load = (
+            instance_manager.future_changes_effective()
+            and not instance_manager.has_duplicate_selected_ships()
+        )
+        if (
+            is_currently_loaded
+            and state.selected_ship is not None
+            and not multi_instance_load
+        ):
             load_button.text = f"{state.selected_ship}-{state.selected_slot:02d} Loaded"
             load_button.enabled = False
         else:
             load_button.text = "Load"
-            load_button.enabled = (
-                selected_slot is not None
-                and selected_slot.is_user
-                and not state.running
-                and not coordinated_active
-            )
+            if multi_instance_load:
+                load_button.enabled = any(
+                    instance.state.selected_ship is not None
+                    and model_repository.slot_for(
+                        instance.state.selected_ship,
+                        instance.state.selected_slot,
+                    ).is_user
+                    for instance in instance_manager.instances
+                )
+            else:
+                load_button.enabled = (
+                    selected_slot is not None
+                    and selected_slot.is_user
+                    and not state.running
+                    and not coordinated_active
+                )
 
         display_checkbox.enabled = not coordinated_active
 
@@ -4198,23 +4671,21 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             for slider in batch_sliders:
                 slider.draw(screen, batch_font)
             if batch_scope_available:
-                batch_scope_checkbox.draw(screen, batch_font)
                 batch_cpu_workers_checkbox.draw(screen, batch_font)
             else:
                 status_text = coordination_scope_status_text(batch_validation)
-                for status_rect in (batch_scope_rect, batch_cpu_workers_rect):
-                    pygame.draw.rect(screen, ui.DARK_GREY, status_rect)
-                    pygame.draw.rect(screen, ui.BLACK, status_rect, 3)
-                    rendered = batch_font.render(status_text, True, ui.LIGHT_GREY)
-                    screen.blit(
-                        rendered,
-                        rendered.get_rect(
-                            midleft=(
-                                status_rect.left + 12,
-                                status_rect.centery,
-                            )
-                        ),
-                    )
+                pygame.draw.rect(screen, ui.DARK_GREY, batch_cpu_workers_rect)
+                pygame.draw.rect(screen, ui.BLACK, batch_cpu_workers_rect, 3)
+                rendered = batch_font.render(status_text, True, ui.LIGHT_GREY)
+                screen.blit(
+                    rendered,
+                    rendered.get_rect(
+                        midleft=(
+                            batch_cpu_workers_rect.left + 12,
+                            batch_cpu_workers_rect.centery,
+                        )
+                    ),
+                )
             batch_start_all_button.draw(screen, batch_font)
 
         # Draw inactive tabs behind the content window border
@@ -4224,7 +4695,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if not regimen_tab.active: regimen_tab.draw(screen, tab_font)
         if not batch_tab.active: batch_tab.draw(screen, tab_font)
 
-        pygame.draw.rect(screen, ui.BLACK, layout.content_rect, 2)
+        apply_all_checkbox.draw(screen, apply_all_font)
+        pygame.draw.rect(
+            screen,
+            const.TAB_BUTTON_COLOR,
+            layout.tab_box_rect,
+            TAB_BOX_BORDER_WIDTH,
+        )
 
         # Draw active tab in front to merge seamlessly
         if trainee_tab.active: trainee_tab.draw(screen, tab_font)

@@ -657,7 +657,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(target.replay_buffer_size, TrainingUIState().replay_buffer_size)
         self.assertEqual(set(batch_settings_from_state(source)), set(BATCH_CONTROLLED_FIELDS))
 
-    def test_batch_apply_to_all_copies_active_batch_settings(self):
+    def test_apply_future_changes_does_not_copy_existing_values(self):
         manager = TrainingInstanceManager()
         first = manager.active_instance
         second = manager.add_instance()
@@ -669,15 +669,61 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         first.state.replay_updates_per_batch = 40
         first.state.learning_rate = 0.0003
 
-        manager.set_batch_apply_to_all(True)
+        original_second_batch = batch_settings_from_state(second.state)
+        manager.set_apply_future_changes_to_all(True)
 
         self.assertTrue(manager.batch_scheduling.apply_to_all_open_instances)
-        self.assertEqual(
-            batch_settings_from_state(second.state),
-            batch_settings_from_state(first.state),
-        )
+        self.assertEqual(batch_settings_from_state(second.state), original_second_batch)
 
-    def test_coordinated_scope_unavailable_clears_cpu_worker_checkbox_state(self):
+        first.state.rounds_per_batch = 8
+        manager.propagate_future_changes(first, scalar_fields=("rounds_per_batch",))
+
+        self.assertEqual(second.state.rounds_per_batch, 8)
+        self.assertNotEqual(second.state.match_time_limit, first.state.match_time_limit)
+
+    def test_new_instance_keeps_defaults_when_future_changes_is_checked(self):
+        manager = TrainingInstanceManager()
+        manager.active_state.gamma = 0.975
+        manager.set_apply_future_changes_to_all(True)
+
+        added = manager.add_instance()
+
+        self.assertEqual(added.state.gamma, TrainingUIState().gamma)
+
+    def test_future_reward_slot_and_label_changes_reach_nonempty_unique_ships(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.selected_ship = "Earthling"
+        second = manager.add_instance()
+        second.state.selected_ship = "Androsynth"
+        manager.select_instance(first.instance_id)
+        manager.set_apply_future_changes_to_all(True)
+
+        reward_label = REWARD_LABELS[0]
+        first.state.rewards[reward_label] = 10.24
+        first.state.selected_slot = 3
+        first.state.slot_labels[2] = "changed"
+        manager.propagate_future_changes(
+            first,
+            reward_labels=(reward_label,),
+            slot_label_indices=(2,),
+        )
+        manager.propagate_selected_slot(first)
+
+        self.assertEqual(second.state.rewards[reward_label], 10.24)
+        self.assertEqual(second.state.selected_slot, 3)
+        self.assertEqual(second.state.slot_labels[2], "changed")
+
+    def test_ship_selection_limit_matches_ai_slot_count(self):
+        manager = TrainingInstanceManager()
+        manager.active_state.selected_ship = "Earthling"
+        for _ in range(3):
+            manager.add_instance().state.selected_ship = "Earthling"
+        fifth = manager.add_instance()
+
+        self.assertFalse(manager.can_select_ship("Earthling", instance=fifth))
+
+    def test_running_instance_temporarily_disables_future_changes_without_clearing_it(self):
         manager = TrainingInstanceManager()
         manager.batch_scheduling.apply_to_all_open_instances = True
         manager.batch_scheduling.run_multiple_cpu_workers = True
@@ -688,8 +734,43 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         )
 
         self.assertFalse(validation.can_start_all)
-        self.assertFalse(manager.batch_scheduling.apply_to_all_open_instances)
-        self.assertFalse(manager.batch_scheduling.run_multiple_cpu_workers)
+        self.assertTrue(manager.batch_scheduling.apply_to_all_open_instances)
+        self.assertFalse(manager.future_changes_effective())
+        self.assertTrue(manager.batch_scheduling.run_multiple_cpu_workers)
+
+    def test_duplicate_ship_disables_slot_and_label_propagation(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.selected_ship = "Earthling"
+        second = manager.add_instance()
+        second.state.selected_ship = "Earthling"
+        second.state.selected_slot = 2
+        manager.select_instance(first.instance_id)
+        manager.set_apply_future_changes_to_all(True)
+
+        first.state.selected_slot = 3
+        first.state.slot_labels[2] = "changed"
+        manager.propagate_selected_slot(first)
+        manager.propagate_future_changes(first, slot_label_indices=(2,))
+
+        self.assertEqual(second.state.selected_slot, 2)
+        self.assertNotEqual(second.state.slot_labels[2], "changed")
+
+    def test_slot_and_label_propagation_silently_skips_instance_without_ship(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.selected_ship = "Earthling"
+        second = manager.add_instance()
+        manager.select_instance(first.instance_id)
+        manager.set_apply_future_changes_to_all(True)
+
+        first.state.selected_slot = 3
+        first.state.slot_labels[2] = "changed"
+        manager.propagate_selected_slot(first)
+        manager.propagate_future_changes(first, slot_label_indices=(2,))
+
+        self.assertEqual(second.state.selected_slot, 1)
+        self.assertEqual(second.state.slot_labels[2], "")
 
     def test_instances_with_different_batch_settings_reports_mismatches(self):
         manager = TrainingInstanceManager()
@@ -774,7 +855,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertTrue(validation.can_start_all)
         self.assertEqual(validation.included_instances, (first, second))
 
-    def test_start_all_validation_blocks_running_instances_and_forces_scope_off(self):
+    def test_start_all_validation_blocks_running_instances_and_retains_preference(self):
         manager, _first, _second = self._coordinated_manager_with_two_user_slots()
         manager.batch_scheduling.apply_to_all_open_instances = True
         manager.active_instance.session = self.FakeSession(running=True)
@@ -789,7 +870,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
             coordination_scope_status_text(validation),
             "Coordinated mode disabled; training in progress",
         )
-        self.assertFalse(manager.batch_scheduling.apply_to_all_open_instances)
+        self.assertTrue(manager.batch_scheduling.apply_to_all_open_instances)
 
     def test_start_all_validation_blocks_incomplete_instances(self):
         manager = TrainingInstanceManager()
@@ -820,6 +901,22 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
         self.assertFalse(validation.can_start_all)
         self.assertEqual(validation.blocking_code, "duplicate_writer")
+
+    def test_start_all_validation_blocks_different_batch_settings(self):
+        manager, _first, second = self._coordinated_manager_with_two_user_slots()
+        second.state.rounds_per_batch += 1
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: TrainingModelSlot(ship, slot, SLOT_EMPTY),
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "gpu",
+        )
+
+        self.assertFalse(validation.can_start_all)
+        self.assertEqual(validation.blocking_code, "batch")
+        self.assertEqual(validation.blocking_reason, "Batch settings differ")
 
     def test_start_all_validation_blocks_mixed_architectures_with_required_status_text(self):
         manager, first, second = self._coordinated_manager_with_two_user_slots()
@@ -1114,6 +1211,62 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertIsInstance(coordinator, ModelSaveCoordinator)
         self.assertIs(cache._save_coordinator, coordinator)
 
+    def test_apply_all_loads_eligible_instances_and_warns_for_empty_ship(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.selected_ship = "Earthling"
+        first.state.selected_slot = 1
+        manager.add_instance()
+        manager.select_instance(first.instance_id)
+        manager.set_apply_future_changes_to_all(True)
+
+        load_pos = (
+            train_ai.CONTROL_WIDTH // 2,
+            train_ai.CONTENT_TOP + 478 + 21,
+        )
+        load_event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": load_pos},
+        )
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.TrainingInstanceManager",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeRepository,
+            ),
+            mock.patch("src.Menus.train_ai.InformationPrompt") as prompt_class,
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", side_effect=[[], [load_event]]),
+            mock.patch(
+                "pygame.display.flip",
+                side_effect=[None, self.StopRun()],
+            ),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+        self.assertEqual(first.state.loaded_ship, "Earthling")
+        self.assertIsNone(manager.instances[1].state.loaded_ship)
+        prompt_class.assert_called_once_with(
+            "Not all slots had eligible models to load"
+        )
+
     def test_run_multiple_cpu_workers_checkbox_enables_coordinated_workers(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         manager = TrainingInstanceManager()
@@ -1134,11 +1287,11 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         batch_left = 16
         batch_width = train_ai.CONTROL_WIDTH - 32
         batch_top = train_ai.CONTENT_TOP + 18
-        batch_scope_bottom = batch_top + 6 * 40 + 6 + 38
-        cpu_workers_pos = (batch_left + 10, batch_scope_bottom + 8 + 10)
+        cpu_workers_top = batch_top + 6 * 40 + 6
+        cpu_workers_pos = (batch_left + 10, cpu_workers_top + 10)
         start_all_pos = (
             batch_left + batch_width // 2,
-            batch_scope_bottom + 8 + 38 + 12 + 10,
+            cpu_workers_top + 38 + 12 + 10,
         )
         events = [
             pygame.event.Event(
@@ -1205,12 +1358,83 @@ class TrainingLayoutTests(unittest.TestCase):
             layout.control_rect.width - 16,
             INSTANCE_CONTROL_HEIGHT,
         )
-        tab_rect = pygame.Rect(8, UI_TOP_MARGIN, layout.control_rect.width - 16, 40)
+        tab_rect = pygame.Rect(
+            8,
+            UI_TOP_MARGIN,
+            layout.control_rect.width - 16,
+            train_ai.TAB_HEIGHT + train_ai.TAB_GAP,
+        )
 
         self.assertLessEqual(instance_rect.bottom, tab_rect.top)
         self.assertLessEqual(tab_rect.bottom, layout.content_rect.top)
         self.assertFalse(instance_rect.colliderect(layout.content_rect))
         self.assertGreaterEqual(UI_TOP_MARGIN - instance_rect.bottom, INSTANCE_SEPARATOR_HEIGHT)
+
+    def test_apply_all_strip_sits_between_tab_content_and_action_row(self):
+        layout = training_layout()
+        strip = pygame.Rect(
+            0,
+            train_ai.APPLY_ALL_STRIP_TOP,
+            train_ai.CONTROL_WIDTH,
+            train_ai.APPLY_ALL_STRIP_HEIGHT,
+        )
+
+        self.assertEqual(strip.width, layout.control_rect.width)
+        self.assertEqual(layout.content_rect.bottom, strip.top)
+        self.assertEqual(strip.bottom, ACTION_TOP - train_ai.TAB_GAP)
+        self.assertEqual(layout.tab_box_rect.left, strip.left)
+        self.assertEqual(layout.tab_box_rect.right, strip.right)
+        self.assertEqual(layout.tab_box_rect.bottom, strip.bottom)
+        self.assertTrue(layout.tab_box_rect.contains(strip))
+
+    def test_apply_all_strip_uses_square_tab_colors_and_new_label(self):
+        checkbox = train_ai.TabScopeCheckbox(
+            0,
+            0,
+            300,
+            train_ai.APPLY_ALL_STRIP_HEIGHT,
+            "Apply changes to all instances",
+        )
+        font = pygame.font.SysFont(None, 18)
+
+        surface = pygame.Surface(checkbox.rect.size, pygame.SRCALPHA)
+        checkbox.draw(surface, font, mouse_pos=(400, 400))
+        self.assertEqual(
+            surface.get_at((0, 0)),
+            (*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_NORMAL_ALPHA),
+        )
+
+        surface.fill((0, 0, 0, 0))
+        checkbox.draw(surface, font, mouse_pos=(299, 29))
+        self.assertEqual(
+            surface.get_at((299, 29)),
+            (*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_HOVER_ALPHA),
+        )
+
+        surface.fill((0, 0, 0, 0))
+        checkbox.is_checked = True
+        checkbox.draw(surface, font, mouse_pos=(400, 400))
+        self.assertEqual(
+            surface.get_at((299, 29)),
+            (*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_SELECTED_ALPHA),
+        )
+        self.assertEqual(checkbox.text, "Apply changes to all instances")
+        self.assertEqual(train_ai.TAB_BOX_BORDER_WIDTH, 3)
+
+    def test_tabs_use_an_opaque_tab_colored_border_in_every_state(self):
+        tab = train_ai.TabButton(0, 0, 140, 34, "Trainee", lambda: None)
+        font = pygame.font.SysFont(None, 18)
+        expected_border = (*const.TAB_BUTTON_COLOR, 255)
+
+        for active, mouse_pos in (
+            (False, (300, 300)),
+            (False, (70, 17)),
+            (True, (300, 300)),
+        ):
+            surface = pygame.Surface(tab.rect.size, pygame.SRCALPHA)
+            tab.active = active
+            tab.draw(surface, font, mouse_pos=mouse_pos)
+            self.assertEqual(surface.get_at((0, tab.rect.centery)), expected_border)
 
     def test_instance_buttons_leave_room_for_dropdown_label(self):
         layout = training_layout()
