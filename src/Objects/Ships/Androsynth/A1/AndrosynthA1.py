@@ -83,7 +83,8 @@ class AndrosynthA1(Ability):
             self.frame_timer -= 1
         elif self.frames > 1:
             self.current_frame = (self.current_frame + 1) % self.frames
-            self.size = list(self.sizes[self.current_frame])
+            if self.sizes:
+                self.size = list(self.sizes[self.current_frame % len(self.sizes)])
             self.frame_timer = self.rng.randrange(4)
 
         return self.expiration_timer > 0 and self.current_hp > 0

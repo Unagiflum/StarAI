@@ -59,6 +59,10 @@ def package_smoke_test():
 
         from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
         from src.Objects.Ships.registry import get_ability_class, get_ship_class
+        from src.training import process_worker
+
+        if not callable(process_worker.worker_process_main):
+            raise RuntimeError("training process worker entry point is unavailable")
 
         for ship_name in SHIP_DEFINITIONS:
             get_ship_class(ship_name)
@@ -269,6 +273,9 @@ def main():
 
 
 if __name__ == "__main__":
+    import multiprocessing
+
+    multiprocessing.freeze_support()
     if "--smoke-test" in sys.argv:
         sys.exit(package_smoke_test())
     main()

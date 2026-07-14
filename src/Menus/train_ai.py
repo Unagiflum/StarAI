@@ -240,6 +240,7 @@ class TrainingInstance:
 @dataclass
 class TrainingBatchSchedulingState:
     apply_to_all_open_instances: bool = False
+    run_multiple_cpu_workers: bool = False
     coordinated_session: CoordinatedTrainingSession | None = None
 
 
@@ -663,8 +664,12 @@ class TrainingInstanceManager:
         if enabled:
             self.apply_batch_settings_to_all()
 
+    def set_batch_cpu_workers_enabled(self, enabled):
+        self.batch_scheduling.run_multiple_cpu_workers = bool(enabled)
+
     def force_batch_active_only(self):
         self.batch_scheduling.apply_to_all_open_instances = False
+        self.batch_scheduling.run_multiple_cpu_workers = False
 
     def apply_batch_settings_to_all(self, source_state=None):
         source = source_state or self.active_state
@@ -1962,6 +1967,10 @@ def _display_off_console_lines(status, log_lines):
     else:
         lines.append("No completed batch summaries yet.")
     if status is not None:
+        error = str(getattr(status, "error", "") or "").strip()
+        if error:
+            lines.extend(("", "Training error"))
+            lines.extend(error.splitlines())
         lines.extend(("", *_current_batch_console_lines(status)))
     return tuple(lines)
 
@@ -2197,6 +2206,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     batch_font = largest_fitting_font(
         (
             "Apply to all open instances",
+            "Run multiple CPU workers",
             "Coordinated mode disabled; incompatible instances",
             "Match frame limit: 12000",
             "Gradient steps: 500",
@@ -2591,9 +2601,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         batch_scope_rect.height,
         "Apply to all open instances",
     )
+    batch_cpu_workers_rect = pygame.Rect(
+        batch_left,
+        batch_scope_rect.bottom + 8,
+        batch_width,
+        38,
+    )
+    batch_cpu_workers_checkbox = ui_button.Checkbox(
+        batch_cpu_workers_rect.x,
+        batch_cpu_workers_rect.y,
+        batch_cpu_workers_rect.width,
+        batch_cpu_workers_rect.height,
+        "Run multiple CPU workers",
+    )
     batch_start_all_rect = pygame.Rect(
         batch_left,
-        batch_scope_rect.bottom + 12,
+        batch_cpu_workers_rect.bottom + 12,
         batch_width,
         42,
     )
@@ -3431,6 +3454,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 tuple(records),
                 opponent_model_cache=opponent_model_cache,
                 save_coordinator=save_coordinator,
+                coordinated_cpu_workers_enabled=(
+                    instance_manager.batch_scheduling.run_multiple_cpu_workers
+                ),
             )
             instance_manager.start_coordinated_session(scheduler)
             show_notice("Coordinated training started")
@@ -3655,6 +3681,20 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                             instance_manager.set_batch_apply_to_all(True)
                             batch_scope_checkbox.is_checked = True
                     continue
+                if (
+                    validation.coordinated_scope_available
+                    and event.type == pygame.MOUSEBUTTONDOWN
+                    and event.button == 1
+                    and batch_cpu_workers_checkbox.rect.collidepoint(event.pos)
+                ):
+                    if menu_sound_manager:
+                        menu_sound_manager.play_sound("menu")
+                    enabled = (
+                        not instance_manager.batch_scheduling.run_multiple_cpu_workers
+                    )
+                    instance_manager.set_batch_cpu_workers_enabled(enabled)
+                    batch_cpu_workers_checkbox.is_checked = enabled
+                    continue
                 batch_start_all_button.handle_event(event, menu_sound_manager)
             if not display_checkbox.value:
                 batch_log_box.handle_event(event, layout.arena_rect, log_font)
@@ -3795,11 +3835,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if not batch_scope_available:
             instance_manager.force_batch_active_only()
             batch_scope_checkbox.is_checked = False
+            batch_cpu_workers_checkbox.is_checked = False
         else:
             batch_scope_checkbox.is_checked = (
                 instance_manager.batch_scheduling.apply_to_all_open_instances
             )
+            batch_cpu_workers_checkbox.is_checked = (
+                instance_manager.batch_scheduling.run_multiple_cpu_workers
+            )
         batch_scope_checkbox.enabled = batch_scope_available and not active_running
+        batch_cpu_workers_checkbox.enabled = (
+            batch_scope_available and not active_running
+        )
         batch_start_all_button.enabled = batch_validation.can_start_all or coordinated_active
         batch_start_all_button.text = "Stop All" if coordinated_active else "Start All"
         if coordinated_active:
@@ -4041,15 +4088,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 slider.draw(screen, batch_font)
             if batch_scope_available:
                 batch_scope_checkbox.draw(screen, batch_font)
+                batch_cpu_workers_checkbox.draw(screen, batch_font)
             else:
-                pygame.draw.rect(screen, ui.DARK_GREY, batch_scope_rect)
-                pygame.draw.rect(screen, ui.BLACK, batch_scope_rect, 3)
                 status_text = coordination_scope_status_text(batch_validation)
-                rendered = batch_font.render(status_text, True, ui.LIGHT_GREY)
-                screen.blit(
-                    rendered,
-                    rendered.get_rect(midleft=(batch_scope_rect.left + 12, batch_scope_rect.centery)),
-                )
+                for status_rect in (batch_scope_rect, batch_cpu_workers_rect):
+                    pygame.draw.rect(screen, ui.DARK_GREY, status_rect)
+                    pygame.draw.rect(screen, ui.BLACK, status_rect, 3)
+                    rendered = batch_font.render(status_text, True, ui.LIGHT_GREY)
+                    screen.blit(
+                        rendered,
+                        rendered.get_rect(
+                            midleft=(
+                                status_rect.left + 12,
+                                status_rect.centery,
+                            )
+                        ),
+                    )
             batch_start_all_button.draw(screen, batch_font)
 
         # Draw inactive tabs behind the content window border

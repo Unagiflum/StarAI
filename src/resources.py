@@ -405,14 +405,18 @@ class AssetManager:
                     for s in (group if isinstance(group, tuple) else (group,))
                 ]
                 diameter = max(8, int(32 * scale))
-                sizes = [(diameter, diameter)]
+                size = (diameter, diameter)
+                sizes = (
+                    [size for _ in range(definition.frames)]
+                    if definition.frames > 1
+                    else [size]
+                )
                 used_placeholder = True
 
                 if not definition.omnidirectional and definition.frames > 1:
                     frame_sprites, frame_masks = _expand_directional_sprites(sprites)
                     sprites = [frame_sprites for _ in range(definition.frames)]
                     masks = [frame_masks for _ in range(definition.frames)]
-                    sizes = [(diameter, diameter) for _ in range(definition.frames)]
 
             if not definition.omnidirectional:
                 if definition.frames > 1:

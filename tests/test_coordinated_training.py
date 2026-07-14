@@ -14,7 +14,9 @@ from src.training.batched_value_network import BatchedValueNetworkParameterCache
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
 from src.training.coordinated import (
     CoordinatedActionRequest,
+    CoordinatedFixedFrameWindowResult,
     CoordinatedRuntimeComponents,
+    TrainingEpisodeResult,
     CoordinatedTrainingRecord,
     CoordinatedTrainingSession,
     append_coordinated_batch_timing_csv,
@@ -34,6 +36,7 @@ from src.training.process_worker import (
     StepFrameCommand,
     WindowFinishedResult,
     WindowObservationResult,
+    WindowStartedResult,
     WorkerErrorResult,
     WorkerReadyResult,
     WorkerStoppedResult,
@@ -52,6 +55,7 @@ from src.training.orchestration import OpponentSpec
 from src.training.orchestration import ValueNetworkPolicy
 from src.training.replay import ActionSelection, ReplaySample, TrainingReplayBuffer
 from src.training.value_network import ValueNetworkConfig, build_optimizer, build_value_network
+from src.resources import HeadlessAssetManager
 
 
 def _record(instance_id, ship, batch_grouping=1, **config_overrides):
@@ -206,6 +210,7 @@ class ScriptedSimulation:
         terminal_after=None,
         pending_rebirth=False,
         audio_service=None,
+        resources=None,
         rng=None,
         include_stars=False,
         training_event_ledger=None,
@@ -271,7 +276,7 @@ class StepLoggingSimulationFactory(ScriptedSimulationFactory):
         return simulation
 
 
-def fake_ship(name, _player_id, *, audio_service=None):
+def fake_ship(name, _player_id, *, resources=None, audio_service=None):
     return SimpleNamespace(
         name=name,
         position=(0.0, 0.0),
@@ -504,6 +509,28 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
             (0.0,) * OBSERVATION_INPUT_SIZE,
         )
         self.assertIsNotNone(observation.simple_opponent_controls)
+
+    def test_worker_constructs_battles_with_headless_resources(self):
+        constructed_resources = []
+
+        def recording_ship(name, player_id, *, resources=None, audio_service=None):
+            constructed_resources.append(resources)
+            return fake_ship(
+                name,
+                player_id,
+                resources=resources,
+                audio_service=audio_service,
+            )
+
+        worker = CoordinatedSimulationWorker(
+            simulation_factory=ScriptedSimulationFactory([{}]),
+            ship_factory=recording_ship,
+        )
+
+        self._start_window(worker)
+
+        self.assertIsInstance(worker._resources, HeadlessAssetManager)
+        self.assertEqual(constructed_resources, [worker._resources, worker._resources])
 
     def test_step_frame_returns_mature_samples_for_parent_replay_insertion(self):
         parent_replay = TrainingReplayBuffer(16)
@@ -846,6 +873,234 @@ class CoordinatedTimingCsvTests(unittest.TestCase):
         self.assertEqual(row["Reward Pipeline Seconds"], "0.750000")
         self.assertEqual(row["Collision Candidate Pairs"], "123")
         self.assertEqual(row["Collision Spatial Queries"], "45")
+
+
+class FakeWorkerClient:
+    def __init__(self, *, worker_id, record_id, fail_on_observation=False):
+        self.worker_id = int(worker_id)
+        self.record_id = int(record_id)
+        self.fail_on_observation = bool(fail_on_observation)
+        self.started = False
+        self.shutdown_called = False
+        self.frame = 0
+        self.frame_limit = 0
+        self.round_index = 0
+        self.opponent = OpponentSpec("Earthling")
+        self.sent_commands = []
+        self.results = []
+
+    def start(self, *, base_seed):
+        self.started = True
+        self.base_seed = int(base_seed)
+
+    def send(self, command):
+        self.sent_commands.append(command)
+        name = getattr(command, "name", "")
+        if name == "START_WINDOW":
+            self.frame = 0
+            self.round_index = int(command.round_index)
+            self.frame_limit = int(command.frame_limit)
+            self.opponent = command.opponent
+            self.results.append(
+                WindowStartedResult(
+                    record_id=self.record_id,
+                    round_index=self.round_index,
+                    frame_limit=self.frame_limit,
+                )
+            )
+        elif name == "REQUEST_OBSERVATION":
+            if self.fail_on_observation:
+                self.results.append(
+                    WorkerErrorResult(
+                        record_id=self.record_id,
+                        command_name=name,
+                        exception_type="RuntimeError",
+                        exception_message="worker observation failed",
+                        traceback_text="traceback text",
+                    )
+                )
+            else:
+                self.results.append(
+                    WindowObservationResult(
+                        record_id=self.record_id,
+                        round_index=self.round_index,
+                        frame_count=self.frame,
+                        trainee_observation=(0.0,) * OBSERVATION_INPUT_SIZE,
+                        simple_opponent_controls={"forward": False},
+                        complete=self.frame >= self.frame_limit,
+                    )
+                )
+        elif name == "STEP_FRAME":
+            self.frame += 1
+            sample = ReplaySample(
+                observation=(0.0,) * OBSERVATION_INPUT_SIZE,
+                action_index=int(command.trainee_action_index),
+                return_value=1.0,
+            )
+            self.results.append(
+                FrameSteppedResult(
+                    record_id=self.record_id,
+                    round_index=self.round_index,
+                    frame_count=self.frame,
+                    complete=self.frame >= self.frame_limit,
+                    progress_payload={
+                        "event": "frame",
+                        "frame": self.frame,
+                        "opponent": self.opponent,
+                        "action_index": int(command.trainee_action_index),
+                        "exploratory": bool(command.trainee_exploratory),
+                        "weighted_total_return": 1.0,
+                        "component_totals": {},
+                    },
+                    mature_samples=(sample,),
+                )
+            )
+        elif name == "FINISH_WINDOW":
+            episode = TrainingEpisodeResult(
+                opponent=self.opponent,
+                frames=self.frame,
+                terminal_reason="timeout",
+                mature_samples=self.frame,
+                total_return=1.0,
+                win=False,
+                loss=False,
+                draw=True,
+                component_totals={},
+            )
+            result = CoordinatedFixedFrameWindowResult(
+                opponent=self.opponent,
+                frames=self.frame,
+                mature_samples=self.frame,
+                episode_results=(episode,),
+                total_return=1.0,
+                win=False,
+                loss=False,
+                draw=True,
+                component_totals={},
+            )
+            self.results.append(
+                WindowFinishedResult(
+                    record_id=self.record_id,
+                    round_index=self.round_index,
+                    result=result,
+                )
+            )
+
+    def recv(self, **_kwargs):
+        return self.results.pop(0)
+
+    def shutdown(self):
+        self.shutdown_called = True
+
+
+class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
+    def test_worker_backed_batch_batches_parent_actions_and_inserts_replay(self):
+        clients = []
+        replay_buffers = {}
+
+        def worker_factory(**kwargs):
+            client = FakeWorkerClient(**kwargs)
+            clients.append(client)
+            return client
+
+        def component_builder(record):
+            replay = TrainingReplayBuffer(32)
+            replay_buffers[record.instance_id] = replay
+            return CoordinatedRuntimeComponents(
+                model=object(),
+                optimizer=object(),
+                replay_buffer=replay,
+            )
+
+        session = CoordinatedTrainingSession(
+            (
+                _record(
+                    1,
+                    "Earthling",
+                    batch_grouping=99,
+                    match_time_limit=2,
+                    epsilon=1.0,
+                    gamma=0.0,
+                ),
+                _record(
+                    2,
+                    "Androsynth",
+                    batch_grouping=99,
+                    match_time_limit=2,
+                    epsilon=1.0,
+                    gamma=0.0,
+                ),
+            ),
+            component_builder=component_builder,
+            run_batches=True,
+            coordinated_cpu_workers_enabled=True,
+            worker_client_factory=worker_factory,
+        )
+        for state in session._states.values():
+            state.components = component_builder(state.record)
+
+        with (
+            mock.patch(
+                "src.training.coordinated.simple_opponent_schedule",
+                return_value=(OpponentSpec("Earthling"),),
+            ),
+            mock.patch("src.training.coordinated.append_coordinated_batch_timing_csv"),
+        ):
+            self.assertTrue(session._run_one_coordinated_batch())
+
+        self.assertEqual(len(clients), 2)
+        self.assertTrue(all(client.started for client in clients))
+        self.assertTrue(all(client.shutdown_called for client in clients))
+        self.assertEqual(len(replay_buffers[1]), 2)
+        self.assertEqual(len(replay_buffers[2]), 2)
+        self.assertEqual(session.status_for_instance(1).completed_batches, 1)
+        self.assertEqual(session.status_for_instance(2).completed_batches, 1)
+        stats = session.inference_stats
+        self.assertEqual(stats.request_count, 4)
+        self.assertEqual(stats.exploratory_count, 4)
+        self.assertEqual(stats.mode_counts["exploration_only"], 2)
+
+    def test_worker_error_aborts_batch_and_shuts_down_workers(self):
+        clients = []
+
+        def worker_factory(**kwargs):
+            client = FakeWorkerClient(
+                **kwargs,
+                fail_on_observation=kwargs["record_id"] == 1,
+            )
+            clients.append(client)
+            return client
+
+        session = CoordinatedTrainingSession(
+            (
+                _record(1, "Earthling", match_time_limit=1, epsilon=1.0),
+                _record(2, "Androsynth", match_time_limit=1, epsilon=1.0),
+            ),
+            component_builder=lambda record: CoordinatedRuntimeComponents(
+                model=object(),
+                optimizer=object(),
+                replay_buffer=TrainingReplayBuffer(8),
+            ),
+            coordinated_cpu_workers_enabled=True,
+            worker_client_factory=worker_factory,
+        )
+        for state in session._states.values():
+            state.components = CoordinatedRuntimeComponents(
+                model=object(),
+                optimizer=object(),
+                replay_buffer=TrainingReplayBuffer(8),
+            )
+
+        with mock.patch(
+            "src.training.coordinated.simple_opponent_schedule",
+            return_value=(OpponentSpec("Earthling"),),
+        ):
+            with self.assertRaises(RuntimeError):
+                session._run_one_coordinated_batch()
+
+        self.assertTrue(all(client.shutdown_called for client in clients))
+        self.assertEqual(session.status_for_instance(1).completed_batches, 0)
+        self.assertEqual(session.status_for_instance(2).completed_batches, 0)
 
 
 class CoordinatedFrameLoopTests(unittest.TestCase):

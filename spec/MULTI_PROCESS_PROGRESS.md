@@ -25,13 +25,43 @@ Status: complete
 - Returned per-frame progress payloads, matured replay samples, terminal episode data, and optional next observations from `STEP_FRAME`.
 - Added tests proving a worker can start a fixed-frame window, return observations, step frames, return samples for parent replay insertion, handle terminal reset inside a fixed window, flush timeout samples on finish, and report command errors.
 
+## Phase 3: Parent Scheduler Integration
+
+Status: complete
+
+- Added an opt-in worker-backed coordinated scheduler path on `CoordinatedTrainingSession` via `coordinated_cpu_workers_enabled`, `coordinated_cpu_worker_count`, and an injectable worker client factory.
+- Preserved the existing in-process coordinated scheduler as the default path when CPU workers are not enabled.
+- Added a parent-owned `_ProcessWorkerClient` wrapper for persistent spawned simulation workers with explicit startup, request/response, unexpected-exit detection, graceful shutdown, and termination of unresponsive workers.
+- Implemented one worker per active coordinated record for the first worker-backed scheduler version.
+- Kept parent-side trainable model ownership, trainee batched inference, model-backed opponent batched inference, replay insertion, optimization, saving, metrics, and status updates.
+- Stripped model objects from `START_WINDOW` commands and added parent-side opponent-observation batching for model-backed worker opponents.
+- Returned worker mature replay samples into the parent replay buffers and adjusted progress payload replay sizes to reflect parent-owned buffers.
+- Added tests proving worker-backed batches complete through the parent scheduler, parent action batching is preserved, worker samples are inserted into parent replay buffers, and per-instance batch status advances.
+
+## Phase 4: Stop, Error, And Packaging Hardening
+
+Status: complete
+
+- Worker receive loops now honor coordinated stop requests and abort in-progress batches without recording partial completion.
+- Worker errors and unexpected exits are surfaced as coordinated run failures, with worker tracebacks included when supplied by the worker protocol.
+- Active workers are shut down in `finally` paths for completed, stopped, and failed worker-backed batches; real process clients terminate workers that do not exit after shutdown.
+- Added a scheduler test proving worker protocol errors abort the batch, leave completed batch counts unchanged, and still shut down all started workers.
+- Added `multiprocessing.freeze_support()` to the packaged entry point for Windows spawned workers.
+- Added `src.training.process_worker` to all PyInstaller specs as an explicit hidden import.
+- Extended the packaged smoke test to import and validate the worker process entry point.
+
 ## Verification
 
 - Passed: `.\.venv\Scripts\python.exe -m pytest tests\test_coordinated_training.py`
-- Result: 23 passed
+- Result: 25 passed
+- Passed: `.\.venv\Scripts\python.exe -m pytest tests\test_train_ai_ui.py tests\test_training_session.py`
+- Result: 122 passed
+- Passed: `.\.venv\Scripts\python.exe -m py_compile src\training\coordinated.py src\training\process_worker.py src\main.py`
+- Passed: `.\build.cmd -SkipTests`
+- Result: default PyInstaller build and packaged smoke test completed successfully; output at `dist\StarAI\StarAI.exe` and `dist\StarAI-windows-x64.zip`
 
 ## Deferred To Later Phases
 
-- Phase 3 parent scheduler integration is not implemented yet; coordinated `Start All` still uses the existing in-process scheduler path.
-- Worker pool scheduling, stop/terminate hardening, runtime configuration switches, and worker timing CSV fields remain for Phases 3-5.
-- Packaged-build verification remains pending for Phase 4.
+- The Batch tab exposes an opt-in `Run multiple CPU workers` checkbox for eligible coordinated runs.
+- Worker pool scheduling with fewer workers than records remains deferred.
+- Worker timing CSV fields remain for Phase 5.

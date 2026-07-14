@@ -101,6 +101,17 @@ class AndrosynthTests(unittest.TestCase):
         self.assertEqual(bubble.frame_timer, 3)
         self.ship.rng.randrange.assert_has_calls([mock.call(16), mock.call(4)])
 
+    def test_bubble_animation_tolerates_single_size_entry(self):
+        self.ship.rng = mock.Mock()
+        self.ship.rng.randrange.side_effect = [0, 0]
+        bubble = create_ability("AndrosynthA1", self.ship)
+        bubble.sizes = (bubble.sizes[0],)
+
+        bubble.update()
+
+        self.assertEqual(bubble.current_frame, 1)
+        self.assertEqual(bubble.size, list(bubble.sizes[0]))
+
     def test_transform_preserves_shared_state_then_forces_forward_thrust(self):
         self.ship.velocity = [12.0, -7.0]
         self.ship.heading = 9

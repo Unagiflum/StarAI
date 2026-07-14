@@ -24,6 +24,7 @@ from src.training.batched_value_network import (
     predict_action_values_from_batched_parameters,
     train_selected_action_regression_batched,
 )
+from src.training.contracts import TrainingAction
 from src.training.model_registry import (
     TrainingModelRepository,
     TrainingModelSlot,
@@ -151,6 +152,13 @@ class CoordinatedActionBatchResult:
     inference_mode: str
     request_count: int
     exploratory_count: int
+
+
+@dataclass(frozen=True)
+class CoordinatedOpponentActionRequest:
+    request_id: int
+    opponent: OpponentSpec
+    observation: Sequence[float]
 
 
 @dataclass(frozen=True)
@@ -339,6 +347,114 @@ class _CoordinatedWindowRuntime:
         return self.frames_consumed >= self.frame_limit
 
 
+@dataclass
+class _WorkerWindowRuntime:
+    state: _CoordinatedRecordState
+    client: Any
+    opponent: OpponentSpec
+    policy: Any
+    round_index: int
+    complete: bool = False
+
+
+class _WorkerRuntimeError(RuntimeError):
+    """Raised when a coordinated simulation worker reports or hits a failure."""
+
+
+class _ProcessWorkerClient:
+    def __init__(
+        self,
+        *,
+        worker_id: int,
+        record_id: int,
+        process_starter: Callable[..., Any] | None = None,
+    ) -> None:
+        self.worker_id = int(worker_id)
+        self.record_id = int(record_id)
+        self._process_starter = process_starter
+        self.process = None
+        self.connection = None
+
+    def start(self, *, base_seed: int) -> None:
+        from src.training.process_worker import StartRunCommand, start_worker_process
+
+        starter = self._process_starter or start_worker_process
+        self.process, self.connection = starter()
+        self.send(
+            StartRunCommand(
+                worker_id=self.worker_id,
+                record_id=self.record_id,
+                base_seed=int(base_seed),
+            )
+        )
+        result = self.recv()
+        _raise_for_worker_error(result)
+        if getattr(result, "name", "") != "WORKER_READY":
+            raise _WorkerRuntimeError(
+                f"worker {self.worker_id} returned {getattr(result, 'name', '')!r} "
+                "during startup"
+            )
+
+    def send(self, command: Any) -> None:
+        if self.connection is None:
+            raise _WorkerRuntimeError(f"worker {self.worker_id} is not started")
+        self.connection.send(command)
+
+    def recv(
+        self,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+        timeout: float | None = None,
+    ) -> Any:
+        if self.connection is None:
+            raise _WorkerRuntimeError(f"worker {self.worker_id} is not started")
+        started_at = time.perf_counter()
+        while True:
+            if self.connection.poll(0.05):
+                result = self.connection.recv()
+                _raise_for_worker_error(result)
+                return result
+            if stop_requested is not None and stop_requested():
+                raise TrainingBatchAborted("training stop requested")
+            if self.process is not None and not self.process.is_alive():
+                exitcode = getattr(self.process, "exitcode", None)
+                raise _WorkerRuntimeError(
+                    f"worker {self.worker_id} exited unexpectedly"
+                    + (f" with code {exitcode}" if exitcode is not None else "")
+                )
+            if timeout is not None and time.perf_counter() - started_at >= timeout:
+                raise _WorkerRuntimeError(
+                    f"worker {self.worker_id} did not respond within {timeout:.1f}s"
+                )
+
+    def shutdown(self, *, timeout: float = 2.0) -> None:
+        from src.training.process_worker import ShutdownCommand
+
+        try:
+            if self.connection is not None:
+                self.send(ShutdownCommand())
+                try:
+                    self.recv(timeout=timeout)
+                except Exception:
+                    pass
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        if self.connection is not None:
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+            self.connection = None
+        if self.process is not None:
+            self.process.join(0.1)
+            if self.process.is_alive():
+                self.process.terminate()
+                self.process.join(2.0)
+            self.process = None
+
+
 class CoordinatedTrainingStatusProxy:
     """Expose one record through the same narrow surface as TrainingSession."""
 
@@ -396,6 +512,9 @@ class CoordinatedTrainingSession:
         idle_sleep_seconds: float = 0.01,
         opponent_model_cache: Any | None = None,
         save_coordinator: Any | None = None,
+        coordinated_cpu_workers_enabled: bool = False,
+        coordinated_cpu_worker_count: int | str | None = 0,
+        worker_client_factory: Callable[..., Any] | None = None,
     ):
         if len(records) < 2:
             raise ValueError("Coordinated training requires at least two records")
@@ -436,6 +555,9 @@ class CoordinatedTrainingSession:
         self._idle_sleep_seconds = max(0.0, float(idle_sleep_seconds))
         self.opponent_model_cache = opponent_model_cache
         self.save_coordinator = save_coordinator
+        self.coordinated_cpu_workers_enabled = bool(coordinated_cpu_workers_enabled)
+        self.coordinated_cpu_worker_count = coordinated_cpu_worker_count
+        self._worker_client_factory = worker_client_factory
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
         self._thread: threading.Thread | None = None
@@ -696,6 +818,9 @@ class CoordinatedTrainingSession:
             self._mark_stopped()
 
     def _run_one_coordinated_batch(self) -> bool:
+        if self._should_use_cpu_workers():
+            return self._run_one_worker_backed_coordinated_batch()
+
         timing_seconds = _new_timing_seconds()
         timing_frame_count = 0
         timing_completed_batch = False
@@ -908,6 +1033,371 @@ class CoordinatedTrainingSession:
             frame_count=timing_frame_count,
         )
         return True
+
+    def _run_one_worker_backed_coordinated_batch(self) -> bool:
+        from src.training.process_worker import (
+            FinishWindowCommand,
+            RequestObservationCommand,
+            StartWindowCommand,
+            StepFrameCommand,
+        )
+
+        timing_seconds = _new_timing_seconds()
+        timing_frame_count = 0
+        batch_action_requests = 0
+        batch_exploratory_actions = 0
+        batch_inference_mode_counts: dict[str, int] = {}
+        trainee_parameter_cache = BatchedValueNetworkParameterCache()
+        opponent_parameter_cache = BatchedValueNetworkParameterCache()
+        workers: dict[int, Any] = {}
+        schedules = {
+            instance_id: self._opponents_for_batch(state)
+            for instance_id, state in self._states.items()
+        }
+        if any(not schedule for schedule in schedules.values()):
+            return False
+
+        batch_started_at = time.perf_counter()
+        with self._lock:
+            self._current_batch_started_at = batch_started_at
+            for instance_id, state in self._states.items():
+                state.status.display_message = "Running coordinated CPU workers"
+                state.status.battle_view = None
+                state.status.total_rounds = len(schedules[instance_id])
+                state.status.current_round = 0
+                state.status.current_frame = 0
+
+        results: dict[int, list[CoordinatedFixedFrameWindowResult]] = {
+            instance_id: []
+            for instance_id in self._states
+        }
+        try:
+            workers = self._start_cpu_workers()
+            for round_index in range(1, max(len(s) for s in schedules.values()) + 1):
+                active_windows: list[_WorkerWindowRuntime] = []
+                for instance_id, state in self._states.items():
+                    schedule = schedules[instance_id]
+                    if round_index > len(schedule):
+                        continue
+                    _raise_if_stop_requested(self._stop_requested.is_set)
+                    components = state.components
+                    if components is None:
+                        raise RuntimeError("coordinated components were not loaded")
+                    opponent = schedule[round_index - 1]
+                    with self._lock:
+                        state.status.current_round = round_index
+                        state.status.total_rounds = len(schedule)
+                        state.status.current_opponent = opponent.ship
+                        state.status.current_frame = 0
+                    policy = ValueNetworkPolicy(
+                        components.model,
+                        epsilon=state.current_epsilon,
+                        epsilon_frame_span=state.record.config.epsilon_frame_span,
+                        rng=self._rng,
+                    )
+                    window = _WorkerWindowRuntime(
+                        state=state,
+                        client=workers[instance_id],
+                        opponent=opponent,
+                        policy=policy,
+                        round_index=round_index,
+                    )
+                    window.client.send(
+                        StartWindowCommand(
+                            record_id=instance_id,
+                            round_index=round_index,
+                            config=state.record.config,
+                            opponent=replace(opponent, model=None),
+                            rng_seed=self._worker_window_seed(
+                                instance_id,
+                                round_index,
+                            ),
+                            frame_limit=state.record.config.match_time_limit,
+                        )
+                    )
+                    start_result = self._recv_worker_result(window.client)
+                    if getattr(start_result, "name", "") != "WINDOW_STARTED":
+                        raise _WorkerRuntimeError(
+                            f"worker {instance_id} returned "
+                            f"{getattr(start_result, 'name', '')!r} for START_WINDOW"
+                        )
+                    active_windows.append(window)
+
+                while any(not window.complete for window in active_windows):
+                    _raise_if_stop_requested(self._stop_requested.is_set)
+                    unfinished = tuple(
+                        window for window in active_windows if not window.complete
+                    )
+                    observed_at = _timing_started_at(timing_seconds)
+                    for window in unfinished:
+                        window.client.send(
+                            RequestObservationCommand(
+                                record_id=window.state.record.instance_id,
+                                round_index=window.round_index,
+                            )
+                        )
+                    observations = {
+                        window.state.record.instance_id: self._recv_worker_result(
+                            window.client,
+                        )
+                        for window in unfinished
+                    }
+                    _add_timing_seconds(timing_seconds, "observation", observed_at)
+
+                    frame_requests = []
+                    for window in unfinished:
+                        observation = observations[window.state.record.instance_id]
+                        if bool(getattr(observation, "complete", False)):
+                            window.complete = True
+                            continue
+                        frame_requests.append((window, observation))
+                    if not frame_requests:
+                        continue
+
+                    inference_started_at = _timing_started_at(timing_seconds)
+                    action_result = select_actions_for_records(
+                        tuple(
+                            CoordinatedActionRequest(
+                                record_id=window.state.record.instance_id,
+                                policy=window.policy,
+                                observation=observation.trainee_observation,
+                            )
+                            for window, observation in frame_requests
+                        ),
+                        parameter_cache=trainee_parameter_cache,
+                    )
+                    _add_timing_seconds(
+                        timing_seconds,
+                        "trainee_inference",
+                        inference_started_at,
+                    )
+                    batch_action_requests += int(action_result.request_count)
+                    batch_exploratory_actions += int(action_result.exploratory_count)
+                    batch_inference_mode_counts[action_result.inference_mode] = (
+                        batch_inference_mode_counts.get(
+                            action_result.inference_mode,
+                            0,
+                        )
+                        + 1
+                    )
+                    self._record_inference_batch(action_result)
+
+                    opponent_started_at = _timing_started_at(timing_seconds)
+                    opponent_controls = select_opponent_controls_for_observations(
+                        tuple(
+                            CoordinatedOpponentActionRequest(
+                                request_id=window.state.record.instance_id,
+                                opponent=window.opponent,
+                                observation=observation.opponent_observation,
+                            )
+                            for window, observation in frame_requests
+                            if observation.opponent_observation is not None
+                        ),
+                        parameter_cache=opponent_parameter_cache,
+                    )
+                    _add_timing_seconds(
+                        timing_seconds,
+                        "opponent_inference",
+                        opponent_started_at,
+                    )
+
+                    for window, observation in frame_requests:
+                        record_id = window.state.record.instance_id
+                        selection = action_result.selections[record_id]
+                        direct_controls = opponent_controls.get(record_id)
+                        if direct_controls is None:
+                            direct_controls = observation.simple_opponent_controls
+                        window.client.send(
+                            StepFrameCommand(
+                                record_id=record_id,
+                                round_index=window.round_index,
+                                trainee_action_index=selection.action_index,
+                                trainee_exploratory=selection.exploratory,
+                                trainee_action_values=selection.action_values,
+                                opponent_controls=_worker_controls_mapping(
+                                    direct_controls,
+                                ),
+                                sequence_number=timing_frame_count + 1,
+                            )
+                        )
+                    for window, _observation in frame_requests:
+                        frame_result = self._recv_worker_result(window.client)
+                        record_id = window.state.record.instance_id
+                        components = window.state.components
+                        if components is None:
+                            raise RuntimeError("coordinated components were not loaded")
+                        components.replay_buffer.extend(frame_result.mature_samples)
+                        timing_frame_count += 1
+                        window.complete = bool(frame_result.complete)
+                        if frame_result.terminal_episode is not None:
+                            window.policy.reset_exploration_span()
+                        progress_payload = frame_result.progress_payload
+                        if progress_payload:
+                            progress_payload = dict(progress_payload)
+                            progress_payload["replay_size"] = len(
+                                components.replay_buffer
+                            )
+                            self._on_record_progress(window.state, progress_payload)
+                        with self._lock:
+                            window.state.status.current_frame = int(
+                                frame_result.frame_count
+                            )
+                            window.state.status.replay_size = len(
+                                components.replay_buffer
+                            )
+                    _raise_if_stop_requested(self._stop_requested.is_set)
+
+                for window in active_windows:
+                    window.client.send(
+                        FinishWindowCommand(
+                            record_id=window.state.record.instance_id,
+                            round_index=window.round_index,
+                        )
+                    )
+                for window in active_windows:
+                    finish_result = self._recv_worker_result(window.client)
+                    components = window.state.components
+                    if components is None:
+                        raise RuntimeError("coordinated components were not loaded")
+                    components.replay_buffer.extend(finish_result.mature_samples)
+                    window.policy.reset_exploration_span()
+                    result = finish_result.result
+                    results[window.state.record.instance_id].append(result)
+                    with self._lock:
+                        window.state.status.previous_opponent = window.opponent.ship
+                        window.state.status.replay_size = len(components.replay_buffer)
+                        window.state.status.component_totals = dict(
+                            result.component_totals
+                        )
+            batch_finished_at = time.perf_counter()
+        except TrainingBatchAborted:
+            self._merge_timing_stats(
+                timing_seconds,
+                completed_batches=0,
+                frame_count=timing_frame_count,
+            )
+            return False
+        finally:
+            self._shutdown_cpu_workers(workers.values())
+            with self._lock:
+                self._current_batch_started_at = None
+
+        with self._lock:
+            for state in self._states.values():
+                state.status.display_message = "Applying gradient descent"
+                state.status.battle_view = None
+
+        optimization_started_at = _timing_started_at(timing_seconds)
+        optimization_losses = self._optimize_records()
+        _add_timing_seconds(
+            timing_seconds,
+            "optimization",
+            optimization_started_at,
+        )
+
+        completed_batch_numbers: dict[int, int] = {}
+        for instance_id, state in self._states.items():
+            components = state.components
+            if components is None:
+                continue
+            batch_number = self._record_completed_batch(
+                state,
+                TrainingBatchResult(
+                    completed_rounds=len(results[instance_id]),
+                    replay_size=len(components.replay_buffer),
+                    optimization_losses=optimization_losses[instance_id],
+                    round_results=tuple(results[instance_id]),
+                ),
+                batch_seconds=max(0.0, batch_finished_at - batch_started_at),
+            )
+            completed_batch_numbers[instance_id] = batch_number
+            if batch_number % state.record.batch_grouping == 0:
+                save_started_at = _timing_started_at(timing_seconds)
+                self._save_state(state, include_replay=False)
+                _add_timing_seconds(timing_seconds, "save", save_started_at)
+        inference_mode_summary = _format_inference_mode_counts(
+            batch_inference_mode_counts
+        )
+        for instance_id, state in self._states.items():
+            if instance_id not in completed_batch_numbers:
+                continue
+            if timing_seconds is not None:
+                self._append_coordinated_batch_timing_row(
+                    state,
+                    batch_number=completed_batch_numbers[instance_id],
+                    rounds=len(results[instance_id]),
+                    instance_frames=sum(result.frames for result in results[instance_id]),
+                    coordinated_record_frames=timing_frame_count,
+                    action_requests=batch_action_requests,
+                    exploratory_actions=batch_exploratory_actions,
+                    inference_mode=inference_mode_summary,
+                    timing_seconds=timing_seconds,
+                )
+        self._merge_timing_stats(
+            timing_seconds,
+            completed_batches=1,
+            frame_count=timing_frame_count,
+        )
+        return True
+
+    def _should_use_cpu_workers(self) -> bool:
+        if not self.coordinated_cpu_workers_enabled:
+            return False
+        worker_count = self.coordinated_cpu_worker_count
+        if worker_count in (None, 0, "0", "auto", "AUTO"):
+            return True
+        try:
+            return int(worker_count) >= len(self._states)
+        except (TypeError, ValueError):
+            return False
+
+    def _start_cpu_workers(self) -> dict[int, Any]:
+        workers: dict[int, Any] = {}
+        factory = self._worker_client_factory
+        for worker_id, (instance_id, _state) in enumerate(self._states.items(), start=1):
+            client = (
+                factory(worker_id=worker_id, record_id=instance_id)
+                if factory is not None
+                else _ProcessWorkerClient(worker_id=worker_id, record_id=instance_id)
+            )
+            start = getattr(client, "start", None)
+            if callable(start):
+                start(base_seed=self._worker_base_seed(instance_id))
+            else:
+                raise _WorkerRuntimeError("worker client does not provide start()")
+            workers[instance_id] = client
+        return workers
+
+    def _shutdown_cpu_workers(self, workers: Sequence[Any]) -> None:
+        for worker in tuple(workers):
+            shutdown = getattr(worker, "shutdown", None)
+            if callable(shutdown):
+                shutdown()
+                continue
+            close = getattr(worker, "close", None)
+            if callable(close):
+                close()
+
+    def _recv_worker_result(self, client: Any) -> Any:
+        recv = getattr(client, "recv", None)
+        if not callable(recv):
+            raise _WorkerRuntimeError("worker client does not provide recv()")
+        try:
+            result = recv(stop_requested=self._stop_requested.is_set)
+        except TypeError:
+            result = recv()
+        _raise_for_worker_error(result)
+        return result
+
+    def _worker_base_seed(self, instance_id: int) -> int:
+        return int(self._rng.randrange(0, 2**31)) ^ (int(instance_id) << 8)
+
+    def _worker_window_seed(self, instance_id: int, round_index: int) -> int:
+        return (
+            int(self._rng.randrange(0, 2**31))
+            ^ (int(instance_id) << 12)
+            ^ int(round_index)
+        )
 
     def _record_inference_batch(
         self,
@@ -1837,6 +2327,91 @@ def select_opponent_controls_for_windows(
     return controls
 
 
+def select_opponent_controls_for_observations(
+    requests: Sequence[CoordinatedOpponentActionRequest],
+    *,
+    parameter_cache: BatchedValueNetworkParameterCache | None = None,
+) -> Mapping[int, TrainingAction]:
+    controls: dict[int, TrainingAction] = {}
+    if not requests:
+        return controls
+
+    ai_requests = tuple(
+        request for request in requests if request.opponent.model is not None
+    )
+    missing_model = tuple(
+        request for request in requests if request.opponent.model is None
+    )
+    if missing_model:
+        ids = ", ".join(str(request.request_id) for request in missing_model)
+        raise _WorkerRuntimeError(
+            f"worker requested model-backed opponent controls without models: {ids}"
+        )
+
+    models = tuple(request.opponent.model for request in ai_requests)
+    observations = tuple(tuple(request.observation) for request in ai_requests)
+    try:
+        parameters = (
+            parameter_cache.get(models)
+            if parameter_cache is not None
+            else build_batched_value_network_parameters(models)
+        )
+    except (TypeError, ValueError, StopIteration):
+        parameters = None
+    if parameters is not None:
+        values = predict_action_values_from_batched_parameters(
+            parameters,
+            observations,
+        )
+        for request, row in zip(ai_requests, values):
+            action_index = int(row.detach().cpu().argmax().item())
+            controls[int(request.request_id)] = direct_controls_for_action_index(
+                action_index
+            )
+    else:
+        for request in ai_requests:
+            selection = select_action_epsilon_greedy(
+                request.opponent.model,
+                request.observation,
+                epsilon=0.0,
+                value_predictor=predict_action_values_read_only,
+            )
+            controls[int(request.request_id)] = direct_controls_for_action_index(
+                selection.action_index
+            )
+    return controls
+
+
+def _worker_controls_mapping(controls: Any) -> dict[str, bool]:
+    if controls is None:
+        raise _WorkerRuntimeError("worker frame step is missing opponent controls")
+    if isinstance(controls, Mapping):
+        return {
+            "forward": bool(controls.get("forward", controls.get("thrust", False))),
+            "left": bool(controls.get("left", controls.get("turn_left", False))),
+            "right": bool(controls.get("right", controls.get("turn_right", False))),
+            "action1": bool(controls.get("action1", controls.get("a1", False))),
+            "action2": bool(controls.get("action2", controls.get("a2", False))),
+        }
+    return {
+        "forward": bool(getattr(controls, "thrust", False)),
+        "left": bool(getattr(controls, "turn_left", False)),
+        "right": bool(getattr(controls, "turn_right", False)),
+        "action1": bool(getattr(controls, "a1", False)),
+        "action2": bool(getattr(controls, "a2", False)),
+    }
+
+
+def _raise_for_worker_error(result: Any) -> None:
+    if getattr(result, "name", "") != "WORKER_ERROR":
+        return
+    message = getattr(result, "exception_message", "worker error")
+    traceback_text = getattr(result, "traceback_text", "")
+    if traceback_text:
+        message = f"{message}\n{traceback_text}"
+    raise _WorkerRuntimeError(message)
+
+
 def _can_batch_record_optimization(
     states: Sequence[_CoordinatedRecordState],
 ) -> bool:
@@ -2014,10 +2589,21 @@ def _new_coordinated_battle(
     rng: Any,
     simulation_factory: Callable[..., BattleSimulation],
     audio_service: Any,
+    resources: Any | None = None,
     ship_factory: Callable[..., Any] = create_ship,
 ):
-    trainee = ship_factory(config.trainee_ship, 1, audio_service=audio_service)
-    opponent_ship = ship_factory(opponent.ship, 2, audio_service=audio_service)
+    trainee = ship_factory(
+        config.trainee_ship,
+        1,
+        resources=resources,
+        audio_service=audio_service,
+    )
+    opponent_ship = ship_factory(
+        opponent.ship,
+        2,
+        resources=resources,
+        audio_service=audio_service,
+    )
     ledger = event_ledger.BattleEventLedger()
     simulation = simulation_factory(
         None,
@@ -2025,6 +2611,7 @@ def _new_coordinated_battle(
         opponent_ship,
         audio_service=audio_service,
         rng=rng,
+        resources=resources,
         include_stars=False,
         training_event_ledger=ledger,
     )
@@ -2047,6 +2634,7 @@ def _advance_coordinated_window_frame(
     rng: Any,
     simulation_factory: Callable[..., BattleSimulation],
     audio_service: Any,
+    resources: Any | None = None,
     observation: Sequence[float] | None = None,
     selection: ActionSelection | None = None,
     opponent_controls: Mapping[str, bool] | None = None,
@@ -2203,6 +2791,7 @@ def _advance_coordinated_window_frame(
                 rng=rng,
                 simulation_factory=simulation_factory,
                 audio_service=audio_service,
+                resources=resources,
                 ship_factory=ship_factory,
             )
 
@@ -2260,6 +2849,7 @@ def _reset_coordinated_window_battle(
     rng: Any,
     simulation_factory: Callable[..., BattleSimulation],
     audio_service: Any,
+    resources: Any | None = None,
     ship_factory: Callable[..., Any] = create_ship,
 ) -> None:
     (
@@ -2273,6 +2863,7 @@ def _reset_coordinated_window_battle(
         rng=rng,
         simulation_factory=simulation_factory,
         audio_service=audio_service,
+        resources=resources,
         ship_factory=ship_factory,
     )
     runtime.episode_start_frame = runtime.frames_consumed

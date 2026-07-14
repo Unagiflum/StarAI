@@ -19,6 +19,7 @@ from src.Objects.Ships.Ilwrath.Ilwrath import Ilwrath
 from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
 from src.Objects.Ships.Pkunk.A2.PkunkA2 import PkunkA2
 from src.Objects.Ships.registry import create_ability, create_ship
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.space_ship import SpaceShip
 from src.UI.ui import SoundManager
 from src.resources import AssetManager, _interpolate_frames
@@ -282,6 +283,20 @@ class ResourceCharacterizationTests(unittest.TestCase):
         self.assertIs(ability.resources, resources)
         self.assertIs(ship.sprites, resources.ship("Earthling").sprites)
         self.assertIs(ability.sprites, resources.ability("EarthlingA1").sprites)
+
+    def test_placeholder_multiframe_ability_has_size_for_each_frame(self):
+        resources = AssetManager()
+        definition = ABILITY_DEFINITIONS["IlwrathA1"]
+
+        with mock.patch.object(
+            resources,
+            "_image",
+            side_effect=FileNotFoundError("missing test asset"),
+        ):
+            assets = resources.ability("IlwrathA1")
+
+        self.assertEqual(definition.frames, 8)
+        self.assertEqual(len(assets.sizes), definition.frames)
 
     def test_assets_are_shared_only_within_their_resource_provider(self):
         first_resources = AssetManager()

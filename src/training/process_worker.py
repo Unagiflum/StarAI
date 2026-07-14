@@ -13,6 +13,7 @@ import random
 from src.Battle.battle import BattleSimulation
 from src.Objects.Ships.registry import create_ship
 from src.audio import NullAudioService
+from src.resources import HeadlessAssetManager
 from src.training.coordinated import (
     CoordinatedFixedFrameWindowResult,
     CoordinatedRuntimeComponents,
@@ -207,6 +208,7 @@ class CoordinatedSimulationWorker:
         *,
         simulation_factory: Callable[..., BattleSimulation] = BattleSimulation,
         audio_service: Any | None = None,
+        resources: Any | None = None,
         ship_factory: Callable[..., Any] = create_ship,
     ) -> None:
         self.worker_id: int | None = None
@@ -215,6 +217,7 @@ class CoordinatedSimulationWorker:
         self._window_rng = random.Random()
         self._simulation_factory = simulation_factory
         self._audio_service = audio_service or NullAudioService()
+        self._resources = resources or HeadlessAssetManager()
         self._ship_factory = ship_factory
         self._runtime: _CoordinatedWindowRuntime | None = None
         self._collector: _ReplaySampleCollector | None = None
@@ -274,6 +277,7 @@ class CoordinatedSimulationWorker:
             rng=self._window_rng,
             simulation_factory=self._simulation_factory,
             audio_service=self._audio_service,
+            resources=self._resources,
             ship_factory=self._ship_factory,
         )
         self._collector = collector
@@ -330,6 +334,7 @@ class CoordinatedSimulationWorker:
             rng=self._window_rng,
             simulation_factory=self._simulation_factory,
             audio_service=self._audio_service,
+            resources=self._resources,
             selection=selection,
             opponent_controls=dict(opponent_controls),
             progress_callback=progress_payloads.append,

@@ -15,6 +15,8 @@ pygame.font.init()
 import src.const as const
 import src.Menus.train_ai as train_ai
 from src.UI import ui, ui_slider
+from src.training import torch_backend
+from src.training.session import TrainingSessionStatus
 from src.Menus.train_ai import (
     ACTION_TOP,
     EPSILON_DECAY_VALUES,
@@ -665,6 +667,20 @@ class TrainingInstanceManagerTests(unittest.TestCase):
             batch_settings_from_state(first.state),
         )
 
+    def test_coordinated_scope_unavailable_clears_cpu_worker_checkbox_state(self):
+        manager = TrainingInstanceManager()
+        manager.batch_scheduling.apply_to_all_open_instances = True
+        manager.batch_scheduling.run_multiple_cpu_workers = True
+        manager.active_instance.session = self.FakeSession(running=True)
+
+        validation = manager.coordinated_batch_validation(
+            lambda ship, slot: TrainingModelSlot(ship, slot, SLOT_EMPTY)
+        )
+
+        self.assertFalse(validation.can_start_all)
+        self.assertFalse(manager.batch_scheduling.apply_to_all_open_instances)
+        self.assertFalse(manager.batch_scheduling.run_multiple_cpu_workers)
+
     def test_instances_with_different_batch_settings_reports_mismatches(self):
         manager = TrainingInstanceManager()
         first = manager.active_instance
@@ -956,6 +972,75 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         def set_display_on(self, _enabled):
             pass
 
+    class FakeCoordinatedRepository:
+        def __init__(self, *_args):
+            self.user_dir = Path("unused")
+            self.slots = {}
+            for ship in ("Earthling", "Androsynth"):
+                metadata = metadata_from_state(
+                    ship=ship,
+                    slot=1,
+                    description=f"{ship} Ready",
+                    architecture=model_architecture_metadata(256, 2),
+                    training={},
+                )
+                self.slots[(ship, 1)] = TrainingModelSlot(
+                    ship,
+                    1,
+                    SLOT_USER,
+                    description=f"{ship} Ready",
+                    metadata=metadata,
+                )
+
+        def slot_for(self, ship, slot):
+            return self.slots.get(
+                (str(ship), int(slot)),
+                TrainingModelSlot(str(ship), int(slot), SLOT_EMPTY),
+            )
+
+        def slots_for_ship(self, ship):
+            return [self.slot_for(ship, slot) for slot in range(1, 5)]
+
+        def create_or_update_user_model(self, metadata):
+            slot = TrainingModelSlot(
+                metadata["ship"],
+                int(metadata["slot"]),
+                SLOT_USER,
+                description=metadata.get("description", ""),
+                metadata=metadata,
+            )
+            self.slots[(slot.ship, slot.slot)] = slot
+            return slot
+
+    class FakeCoordinatedSession:
+        created = []
+
+        def __init__(self, records, **kwargs):
+            self.records = records
+            self.kwargs = kwargs
+            self.active = True
+            self.started = False
+            self.proxies = {
+                record.instance_id: SimpleNamespace(
+                    slot=record.slot,
+                    status=TrainingSessionStatus(
+                        ship=record.slot.ship,
+                        running=True,
+                    ),
+                    history=(),
+                    log_lines=(),
+                    set_display_on=lambda _enabled: None,
+                )
+                for record in records
+            }
+            self.__class__.created.append(self)
+
+        def start(self):
+            self.started = True
+
+        def request_stop(self):
+            self.active = False
+
     def test_run_passes_shared_cache_and_save_coordinator_to_sessions(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         manager = TrainingInstanceManager()
@@ -1018,6 +1103,87 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertIsInstance(cache, OpponentModelCache)
         self.assertIsInstance(coordinator, ModelSaveCoordinator)
         self.assertIs(cache._save_coordinator, coordinator)
+
+    def test_run_multiple_cpu_workers_checkbox_enables_coordinated_workers(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.active_tab = "batch"
+        first.state.selected_ship = "Earthling"
+        first.state.selected_slot = 1
+        first.state.slot_labels[0] = "Earthling Ready"
+        first.state.training_device = torch_backend.DEVICE_GPU
+        second = manager.add_instance()
+        second.state.selected_ship = "Androsynth"
+        second.state.selected_slot = 1
+        second.state.slot_labels[0] = "Androsynth Ready"
+        second.state.training_device = torch_backend.DEVICE_GPU
+        manager.select_instance(first.instance_id)
+        self.FakeCoordinatedSession.created = []
+
+        batch_left = 16
+        batch_width = train_ai.CONTROL_WIDTH - 32
+        batch_top = train_ai.CONTENT_TOP + 18
+        batch_scope_bottom = batch_top + 6 * 40 + 6 + 38
+        cpu_workers_pos = (batch_left + 10, batch_scope_bottom + 8 + 10)
+        start_all_pos = (
+            batch_left + batch_width // 2,
+            batch_scope_bottom + 8 + 38 + 12 + 10,
+        )
+        events = [
+            pygame.event.Event(
+                pygame.MOUSEBUTTONDOWN,
+                {"button": 1, "pos": cpu_workers_pos},
+            ),
+            pygame.event.Event(
+                pygame.MOUSEBUTTONDOWN,
+                {"button": 1, "pos": start_all_pos},
+            ),
+        ]
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.TrainingInstanceManager",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeCoordinatedRepository,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.CoordinatedTrainingSession",
+                self.FakeCoordinatedSession,
+            ),
+            mock.patch("src.Menus.train_ai.torch_backend.get_torch", return_value=object()),
+            mock.patch("src.Menus.train_ai.torch_backend.cuda_available", return_value=True),
+            mock.patch(
+                "src.Menus.train_ai.torch_backend.training_device_key",
+                return_value=torch_backend.DEVICE_GPU,
+            ),
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite, "Androsynth": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=events),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+        self.assertEqual(len(self.FakeCoordinatedSession.created), 1)
+        created = self.FakeCoordinatedSession.created[0]
+        self.assertTrue(created.started)
+        self.assertTrue(
+            created.kwargs["coordinated_cpu_workers_enabled"]
+        )
 
 
 class TrainingLayoutTests(unittest.TestCase):
@@ -1511,6 +1677,19 @@ class TrainingConsoleTests(unittest.TestCase):
             f"{'Kill enemy':<{reward_name_width}} |     2.0000 |        -",
             lines,
         )
+
+    def test_display_off_console_keeps_error_details_visible(self):
+        status = self._status(
+            running=False,
+            error="worker 1 exited unexpectedly with code 1\nstartup traceback",
+        )
+
+        lines = _display_off_console_lines(status, ())
+
+        self.assertIn("Training error", lines)
+        self.assertIn("worker 1 exited unexpectedly with code 1", lines)
+        self.assertIn("startup traceback", lines)
+        self.assertIn("Current batch", lines)
 
     def test_batch_log_font_size_keeps_log_fitting(self):
         self.assertEqual(TRAINING_BATCH_LOG_FONT_SIZE, 11)
