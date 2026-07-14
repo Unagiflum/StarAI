@@ -1,4 +1,6 @@
 import csv
+import multiprocessing
+import pickle
 import tempfile
 import time
 import unittest
@@ -19,6 +21,23 @@ from src.training.coordinated import (
     select_actions_for_records,
     select_opponent_controls_for_windows,
     run_coordinated_fixed_frame_window,
+)
+from src.training.process_worker import (
+    COMMAND_REQUEST_OBSERVATION,
+    CoordinatedSimulationWorker,
+    FinishWindowCommand,
+    FrameSteppedResult,
+    RequestObservationCommand,
+    ShutdownCommand,
+    StartRunCommand,
+    StartWindowCommand,
+    StepFrameCommand,
+    WindowFinishedResult,
+    WindowObservationResult,
+    WorkerErrorResult,
+    WorkerReadyResult,
+    WorkerStoppedResult,
+    start_worker_process,
 )
 from src.training.rewards import RewardDecisionFrame, RewardFrameOutcome
 from src.training.model_registry import (
@@ -378,6 +397,232 @@ class CoordinatedFixedFrameWindowTests(unittest.TestCase):
         self.assertEqual(len(replay), 4)
         self.assertEqual(len(result.episode_results), 1)
         self.assertEqual(result.episode_results[0].terminal_reason, "timeout")
+
+
+class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):
+    def test_command_and_result_dataclasses_are_picklable(self):
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=3,
+        )
+        command = StartWindowCommand(
+            record_id=1,
+            round_index=2,
+            config=config,
+            opponent=OpponentSpec("Androsynth"),
+            rng_seed=123,
+        )
+        result = WindowObservationResult(
+            record_id=1,
+            round_index=2,
+            frame_count=0,
+            trainee_observation=(0.0,) * OBSERVATION_INPUT_SIZE,
+            simple_opponent_controls={"forward": True},
+        )
+
+        self.assertEqual(pickle.loads(pickle.dumps(command)), command)
+        self.assertEqual(pickle.loads(pickle.dumps(result)), result)
+
+    def test_worker_rejects_model_objects_in_start_window_commands(self):
+        config = TrainingOrchestrationConfig(trainee_ship="Earthling")
+
+        with self.assertRaises(ValueError):
+            StartWindowCommand(
+                record_id=1,
+                round_index=1,
+                config=config,
+                opponent=OpponentSpec("Earthling", model=object()),
+                rng_seed=1,
+            )
+
+    def test_worker_process_starts_and_shuts_down(self):
+        try:
+            context = multiprocessing.get_context("spawn")
+        except ValueError:
+            self.skipTest("spawn multiprocessing context is unavailable")
+        process, connection = start_worker_process(context=context)
+        try:
+            connection.send(StartRunCommand(worker_id=3, record_id=7, base_seed=11))
+            ready = connection.recv()
+            self.assertIsInstance(ready, WorkerReadyResult)
+            self.assertEqual(ready.worker_id, 3)
+            self.assertEqual(ready.record_id, 7)
+
+            connection.send(ShutdownCommand())
+            stopped = connection.recv()
+            self.assertIsInstance(stopped, WorkerStoppedResult)
+            self.assertEqual(stopped.worker_id, 3)
+            self.assertEqual(stopped.record_id, 7)
+        finally:
+            connection.close()
+            process.join(2.0)
+            if process.is_alive():
+                process.terminate()
+                process.join(2.0)
+        self.assertFalse(process.is_alive())
+
+
+class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
+    def _worker(self, *, simulation_factory=None):
+        return CoordinatedSimulationWorker(
+            simulation_factory=simulation_factory or ScriptedSimulationFactory([{}]),
+            ship_factory=fake_ship,
+        )
+
+    def _start_window(self, worker, *, config=None, opponent=None, rng_seed=123):
+        config = config or TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=3,
+            gamma=0.0,
+        )
+        worker.handle(StartRunCommand(worker_id=1, record_id=9, base_seed=1))
+        return worker.handle(
+            StartWindowCommand(
+                record_id=9,
+                round_index=1,
+                config=config,
+                opponent=opponent or OpponentSpec("Androsynth"),
+                rng_seed=rng_seed,
+            )
+        )
+
+    def test_start_window_and_observation_use_worker_local_state(self):
+        worker = self._worker()
+        with mock.patch(
+            "src.training.process_worker.encode_observation",
+            return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+        ):
+            started = self._start_window(worker)
+            observation = worker.handle(RequestObservationCommand(9, 1))
+
+        self.assertEqual(started.name, "WINDOW_STARTED")
+        self.assertEqual(started.frame_limit, 3)
+        self.assertIsInstance(observation, WindowObservationResult)
+        self.assertEqual(observation.frame_count, 0)
+        self.assertEqual(
+            observation.trainee_observation,
+            (0.0,) * OBSERVATION_INPUT_SIZE,
+        )
+        self.assertIsNotNone(observation.simple_opponent_controls)
+
+    def test_step_frame_returns_mature_samples_for_parent_replay_insertion(self):
+        parent_replay = TrainingReplayBuffer(16)
+        worker = self._worker()
+        with (
+            mock.patch(
+                "src.training.coordinated.encode_observation",
+                return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+            ),
+            mock.patch(
+                "src.training.process_worker.encode_observation",
+                return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+            ),
+            mock.patch(
+                "src.training.coordinated.decision_frame_from_battle_state",
+                side_effect=fake_decision_frame,
+            ),
+            mock.patch(
+                "src.training.coordinated.frame_outcome_from_battle_state",
+                side_effect=fake_frame_outcome,
+            ),
+        ):
+            self._start_window(worker)
+            step = worker.handle(
+                StepFrameCommand(
+                    record_id=9,
+                    round_index=1,
+                    trainee_action_index=3,
+                    trainee_exploratory=False,
+                    opponent_controls={"forward": False},
+                )
+            )
+
+        self.assertIsInstance(step, FrameSteppedResult)
+        self.assertEqual(step.frame_count, 1)
+        self.assertEqual(len(step.mature_samples), 1)
+        self.assertEqual(len(parent_replay), 0)
+        parent_replay.extend(step.mature_samples)
+        self.assertEqual(len(parent_replay), 1)
+        self.assertEqual(parent_replay[0].action_index, 3)
+
+    def test_terminal_reset_and_finish_window_preserve_fixed_window_semantics(self):
+        factory = ScriptedSimulationFactory(
+            (
+                {"terminal_after": 1},
+                {},
+            )
+        )
+        worker = self._worker(simulation_factory=factory)
+        with (
+            mock.patch(
+                "src.training.coordinated.encode_observation",
+                return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+            ),
+            mock.patch(
+                "src.training.process_worker.encode_observation",
+                return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+            ),
+            mock.patch(
+                "src.training.coordinated.decision_frame_from_battle_state",
+                side_effect=fake_decision_frame,
+            ),
+            mock.patch(
+                "src.training.coordinated.frame_outcome_from_battle_state",
+                side_effect=fake_frame_outcome,
+            ),
+        ):
+            self._start_window(
+                worker,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    match_time_limit=2,
+                    gamma=0.0,
+                ),
+            )
+            first = worker.handle(
+                StepFrameCommand(9, 1, 0, False, opponent_controls={})
+            )
+            second = worker.handle(
+                StepFrameCommand(9, 1, 0, False, opponent_controls={})
+            )
+            finished = worker.handle(FinishWindowCommand(9, 1))
+
+        self.assertEqual(len(factory.created), 2)
+        self.assertIsNotNone(first.terminal_episode)
+        self.assertEqual(first.terminal_episode.terminal_reason, "resolved")
+        self.assertTrue(second.complete)
+        self.assertIsInstance(finished, WindowFinishedResult)
+        self.assertEqual(finished.result.frames, 2)
+        self.assertEqual(
+            [episode.terminal_reason for episode in finished.result.episode_results],
+            ["resolved", "timeout"],
+        )
+        self.assertEqual(len(first.mature_samples), 1)
+        self.assertEqual(len(second.mature_samples), 1)
+
+    def test_worker_process_reports_command_errors(self):
+        try:
+            context = multiprocessing.get_context("spawn")
+        except ValueError:
+            self.skipTest("spawn multiprocessing context is unavailable")
+        process, connection = start_worker_process(context=context)
+        try:
+            connection.send(RequestObservationCommand(99, 1))
+            error = connection.recv()
+            self.assertIsInstance(error, WorkerErrorResult)
+            self.assertEqual(error.command_name, COMMAND_REQUEST_OBSERVATION)
+            self.assertIn("has not been started", error.exception_message)
+
+            connection.send(ShutdownCommand())
+            stopped = connection.recv()
+            self.assertIsInstance(stopped, WorkerStoppedResult)
+        finally:
+            connection.close()
+            process.join(2.0)
+            if process.is_alive():
+                process.terminate()
+                process.join(2.0)
+        self.assertFalse(process.is_alive())
 
 
 class CoordinatedActionSelectionTests(unittest.TestCase):
