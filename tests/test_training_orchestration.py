@@ -34,6 +34,7 @@ from src.training.orchestration import (
     ValueNetworkPolicy,
     _fully_arm_training_shofixti,
     _opponent_controls,
+    _randomize_training_start_hp,
     _round_terminal_state,
     controls_for_action_index,
     discover_existing_ai_opponents,
@@ -375,6 +376,18 @@ class TrainingRoundTests(unittest.TestCase):
         _fully_arm_training_shofixti(ship)
 
         self.assertEqual(ship.shofixti_arming_stage, ship.ARMED)
+
+    def test_training_start_hp_uses_sqrt_random_ceiled_with_minimum(self):
+        ship = SimpleNamespace(start_hp=10, current_hp=10)
+
+        _randomize_training_start_hp(ship, SequenceRng([0.0]))
+        self.assertEqual(ship.current_hp, 1)
+
+        _randomize_training_start_hp(ship, SequenceRng([0.25]))
+        self.assertEqual(ship.current_hp, 5)
+
+        _randomize_training_start_hp(ship, SequenceRng([0.99]))
+        self.assertEqual(ship.current_hp, 10)
 
     def test_pending_rebirth_prevents_terminal_resolution(self):
         simulation = SimpleNamespace(

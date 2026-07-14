@@ -49,6 +49,7 @@ from src.training.orchestration import (
     _fully_arm_training_shofixti,
     _opponent_direct_controls,
     _raise_if_stop_requested,
+    _randomize_training_start_hp,
     _select_policy_action,
     controls_for_action_index,
     direct_controls_for_action_index,
@@ -1839,6 +1840,8 @@ def run_coordinated_fixed_frame_window(
         )
         _fully_arm_training_shofixti(simulation.player1)
         _fully_arm_training_shofixti(simulation.player2)
+        _randomize_training_start_hp(simulation.player1, rng)
+        _randomize_training_start_hp(simulation.player2, rng)
         return simulation, ledger, RollingReturnPipeline(
             gamma=config.gamma,
             reward_weights=config.reward_weights,
@@ -2610,6 +2613,8 @@ def _new_coordinated_battle(
     )
     _fully_arm_training_shofixti(simulation.player1)
     _fully_arm_training_shofixti(simulation.player2)
+    _randomize_training_start_hp(simulation.player1, rng)
+    _randomize_training_start_hp(simulation.player2, rng)
     return (
         simulation,
         ledger,

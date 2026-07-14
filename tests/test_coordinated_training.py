@@ -276,12 +276,23 @@ class StepLoggingSimulationFactory(ScriptedSimulationFactory):
         return simulation
 
 
+class RandomSequence:
+    def __init__(self, values):
+        self.values = list(values)
+
+    def random(self):
+        if not self.values:
+            return 1.0
+        return self.values.pop(0)
+
+
 def fake_ship(name, _player_id, *, resources=None, audio_service=None):
     return SimpleNamespace(
         name=name,
         position=(0.0, 0.0),
         velocity=(0.0, 0.0),
         rotation=0.0,
+        start_hp=10,
         current_hp=1,
         currently_alive=True,
         current_energy=0.0,
@@ -305,7 +316,7 @@ def fake_frame_outcome(**kwargs):
 
 
 class CoordinatedFixedFrameWindowTests(unittest.TestCase):
-    def run_window(self, *, config, policy=None, simulation_factory=None):
+    def run_window(self, *, config, policy=None, simulation_factory=None, rng=None):
         replay = TrainingReplayBuffer(32)
         events = []
         policy = policy or FixedPolicy(0)
@@ -329,6 +340,7 @@ class CoordinatedFixedFrameWindowTests(unittest.TestCase):
                 trainee_policy=policy,
                 replay_buffer=replay,
                 config=config,
+                rng=rng,
                 simulation_factory=simulation_factory,
                 progress_callback=events.append,
                 ship_factory=fake_ship,
@@ -402,6 +414,23 @@ class CoordinatedFixedFrameWindowTests(unittest.TestCase):
         self.assertEqual(len(replay), 4)
         self.assertEqual(len(result.episode_results), 1)
         self.assertEqual(result.episode_results[0].terminal_reason, "timeout")
+
+    def test_new_window_randomizes_ship_start_hp(self):
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=1,
+            gamma=0.0,
+        )
+        factory = ScriptedSimulationFactory([{}])
+
+        self.run_window(
+            config=config,
+            simulation_factory=factory,
+            rng=RandomSequence([0.25, 0.01]),
+        )
+
+        self.assertEqual(factory.created[0].player1.current_hp, 5)
+        self.assertEqual(factory.created[0].player2.current_hp, 1)
 
 
 class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):

@@ -471,6 +471,8 @@ def run_training_round(
     )
     _fully_arm_training_shofixti(simulation.player1)
     _fully_arm_training_shofixti(simulation.player2)
+    _randomize_training_start_hp(simulation.player1, rng)
+    _randomize_training_start_hp(simulation.player2, rng)
     if _battle_view_enabled(battle_view_enabled):
         _emit_progress(
             progress_callback,
@@ -832,6 +834,11 @@ def _fully_arm_training_shofixti(ship) -> None:
         return
     armed = getattr(ship, "ARMED", 2)
     setattr(ship, "shofixti_arming_stage", armed)
+
+
+def _randomize_training_start_hp(ship, rng) -> None:
+    start_hp = max(1, int(getattr(ship, "start_hp", getattr(ship, "current_hp", 1))))
+    ship.current_hp = max(1, math.ceil(math.sqrt(float(rng.random())) * start_hp))
 
 
 def _accumulate_weighted_components(
