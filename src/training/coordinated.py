@@ -390,7 +390,12 @@ class _ProcessWorkerClient:
         self.process = None
         self.connection = None
 
-    def start(self, *, base_seed: int) -> None:
+    def start(
+        self,
+        *,
+        base_seed: int,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> None:
         from src.training.process_worker import StartRunCommand, start_worker_process
 
         starter = self._process_starter or start_worker_process
@@ -403,7 +408,7 @@ class _ProcessWorkerClient:
                 video_fps_multiplier=const.VIDEO_FPS_MULTIPLIER,
             )
         )
-        result = self.recv()
+        result = self.recv(stop_requested=stop_requested)
         _raise_for_worker_error(result)
         if getattr(result, "name", "") != "WORKER_READY":
             raise _WorkerRuntimeError(
@@ -469,6 +474,31 @@ class _ProcessWorkerClient:
                 self.process.terminate()
                 self.process.join(2.0)
             self.process = None
+
+    def abort_startup(self) -> None:
+        """Immediately discard a worker that has not entered batch execution."""
+
+        if self.connection is not None:
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+            self.connection = None
+        if self.process is None:
+            return
+        process = self.process
+        self.process = None
+        try:
+            if process.is_alive():
+                process.terminate()
+            process.join(0.5)
+            if process.is_alive():
+                kill = getattr(process, "kill", None)
+                if callable(kill):
+                    kill()
+                    process.join(0.5)
+        except Exception:
+            pass
 
 
 class CoordinatedTrainingStatusProxy:
@@ -1129,6 +1159,8 @@ class CoordinatedTrainingSession:
         try:
             try:
                 workers = self._start_cpu_workers()
+            except TrainingBatchAborted:
+                raise
             except Exception as exc:
                 raise _CpuWorkerStartupUnavailable(str(exc)) from exc
             schedules = {
@@ -1441,6 +1473,7 @@ class CoordinatedTrainingSession:
             for worker_id, (instance_id, _state) in enumerate(
                 self._states.items(), start=1
             ):
+                _raise_if_stop_requested(self._stop_requested.is_set)
                 client = (
                     factory(worker_id=worker_id, record_id=instance_id)
                     if factory is not None
@@ -1451,13 +1484,36 @@ class CoordinatedTrainingSession:
                 workers[instance_id] = client
                 start = getattr(client, "start", None)
                 if callable(start):
-                    start(base_seed=self._worker_base_seed(instance_id))
+                    start(
+                        base_seed=self._worker_base_seed(instance_id),
+                        stop_requested=self._stop_requested.is_set,
+                    )
                 else:
                     raise _WorkerRuntimeError("worker client does not provide start()")
+                _raise_if_stop_requested(self._stop_requested.is_set)
+        except TrainingBatchAborted:
+            self._abort_cpu_worker_startup(workers.values())
+            raise
         except Exception:
             self._shutdown_cpu_workers(workers.values())
             raise
         return workers
+
+    def _abort_cpu_worker_startup(self, workers: Sequence[Any]) -> None:
+        for worker in tuple(workers):
+            abort_startup = getattr(worker, "abort_startup", None)
+            if callable(abort_startup):
+                try:
+                    abort_startup()
+                except Exception:
+                    pass
+                continue
+            close = getattr(worker, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
 
     def _shutdown_cpu_workers(self, workers: Sequence[Any]) -> None:
         for worker in tuple(workers):

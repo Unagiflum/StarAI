@@ -23,6 +23,7 @@ from src.training.coordinated import (
     TrainingEpisodeResult,
     CoordinatedTrainingRecord,
     CoordinatedTrainingSession,
+    _ProcessWorkerClient,
     append_coordinated_batch_timing_csv,
     select_actions_for_records,
     select_opponent_controls_for_windows,
@@ -57,6 +58,7 @@ from src.training.model_registry import (
 )
 from src.training.orchestration import TrainingOrchestrationConfig
 from src.training.orchestration import OpponentSpec
+from src.training.orchestration import TrainingBatchAborted
 from src.training.orchestration import ValueNetworkPolicy
 from src.training.replay import ActionSelection, ReplaySample, TrainingReplayBuffer
 from src.training.value_network import ValueNetworkConfig, build_optimizer, build_value_network
@@ -1085,7 +1087,7 @@ class FakeWorkerClient:
         self.sent_commands = []
         self.results = []
 
-    def start(self, *, base_seed):
+    def start(self, *, base_seed, stop_requested=None):
         self.started = True
         self.base_seed = int(base_seed)
 
@@ -1190,6 +1192,71 @@ class FakeWorkerClient:
 
 
 class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
+    def test_process_worker_startup_wait_observes_stop_requests(self):
+        process = mock.Mock()
+        connection = mock.Mock()
+        stop_requested = mock.Mock(return_value=False)
+        client = _ProcessWorkerClient(
+            worker_id=1,
+            record_id=7,
+            process_starter=mock.Mock(return_value=(process, connection)),
+        )
+        client.recv = mock.Mock(side_effect=TrainingBatchAborted("stop requested"))
+
+        with self.assertRaises(TrainingBatchAborted):
+            client.start(base_seed=123, stop_requested=stop_requested)
+
+        client.recv.assert_called_once_with(stop_requested=stop_requested)
+
+    def test_stop_during_worker_startup_aborts_without_fallback(self):
+        clients = []
+        session = None
+
+        class StartupClient(FakeWorkerClient):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.abort_startup_called = False
+
+            def start(self, *, base_seed, stop_requested=None):
+                super().start(
+                    base_seed=base_seed,
+                    stop_requested=stop_requested,
+                )
+                session.request_stop()
+                if stop_requested is not None and stop_requested():
+                    raise TrainingBatchAborted("stop requested")
+
+            def abort_startup(self):
+                self.abort_startup_called = True
+
+        def worker_factory(**kwargs):
+            client = StartupClient(**kwargs)
+            clients.append(client)
+            return client
+
+        session = CoordinatedTrainingSession(
+            (
+                _record(1, "Earthling"),
+                _record(2, "Androsynth"),
+            ),
+            coordinated_cpu_workers_enabled=True,
+            worker_client_factory=worker_factory,
+        )
+
+        with mock.patch.object(
+            session,
+            "_run_one_in_process_coordinated_batch",
+            return_value=True,
+        ) as in_process:
+            self.assertFalse(session._run_one_coordinated_batch())
+
+        self.assertEqual(len(clients), 1)
+        self.assertTrue(clients[0].abort_startup_called)
+        self.assertFalse(clients[0].shutdown_called)
+        in_process.assert_not_called()
+        self.assertTrue(session.coordinated_cpu_workers_enabled)
+        self.assertIsNone(session.consume_notice())
+
     def test_worker_startup_failure_falls_back_and_posts_one_notice(self):
         session = CoordinatedTrainingSession(
             (
