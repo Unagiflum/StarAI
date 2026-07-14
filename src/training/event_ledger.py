@@ -10,6 +10,7 @@ import src.const as const
 
 EVENT_OBJECT_SPAWNED = "object_spawned"
 EVENT_OBJECT_REMOVED = "object_removed"
+EVENT_OBJECT_HP_CHANGED = "object_hp_changed"
 EVENT_ACTION_USED = "action_used"
 EVENT_CREW_CHANGED = "crew_changed"
 EVENT_BATTERY_CHANGED = "battery_changed"
@@ -93,6 +94,23 @@ class BattleEventLedger:
             action=_action_for_object(obj),
             removal_reason=reason,
             destroyed=bool(destroyed),
+            metadata=_removal_source_metadata(source, source_owner),
+        )
+
+    def record_object_hp_changed(self, obj, damage: float, *, source=None):
+        damage = max(0.0, float(damage))
+        if damage <= 0.0 or getattr(obj, "name", None) != "ChmmrSatellite":
+            return None
+        source_owner = _root_owner(source) if source is not None else None
+        return self.append(
+            EVENT_OBJECT_HP_CHANGED,
+            actor=source_owner,
+            owner=_root_owner(obj),
+            target=obj,
+            obj=source,
+            magnitude=-damage,
+            ability_name=_ability_name(source),
+            action=_action_for_object(source),
             metadata=_removal_source_metadata(source, source_owner),
         )
 
@@ -237,6 +255,12 @@ def record_removed(
             actor=actor,
             source=source,
         )
+
+
+def record_object_hp_changed(obj, damage: float, *, source=None) -> None:
+    ledger = ledger_for(obj)
+    if ledger is not None:
+        ledger.record_object_hp_changed(obj, damage, source=source)
 
 
 def record_action_used(ship, action_number: int) -> None:

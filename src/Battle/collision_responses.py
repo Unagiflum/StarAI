@@ -188,7 +188,7 @@ def apply_projectile_area_damage(
         )
         destroy_projectile(projectile, effects, direction, damage, source=source)
     else:
-        set_projectile_hp(projectile, remaining_hp)
+        set_projectile_hp(projectile, remaining_hp, source=source)
     return previous_hp - projectile.current_hp
 
 
@@ -309,11 +309,12 @@ def _apply_ramming_damage_to_projectile_like(
         return False
 
     if policy is ProjectileContactPolicy.FRAGILE:
-        set_projectile_hp(projectile, 0)
+        set_projectile_hp(projectile, 0, source=source)
     else:
         set_projectile_hp(
             projectile,
             projectile.current_hp - impact.ramming_damage,
+            source=source,
         )
 
     BattleEffect.play_boom(impact.ramming_damage)
@@ -323,6 +324,7 @@ def _apply_ramming_damage_to_projectile_like(
         normal,
         impact.ramming_damage,
         contact,
+        source=source,
     )
     return True
 
@@ -602,11 +604,11 @@ def _resolve_configured_special_object_pair(
         return CollisionOutcome.RESOLVED
 
     if outcome is SpecialObjectPairOutcome.DESTROY_FIRST:
-        set_projectile_hp(first, 0)
+        set_projectile_hp(first, 0, source=second)
         first_source = second
         second_source = None
     elif outcome is SpecialObjectPairOutcome.DESTROY_SECOND:
-        set_projectile_hp(second, 0)
+        set_projectile_hp(second, 0, source=first)
         first_source = None
         second_source = first
     else:
@@ -672,14 +674,15 @@ def _resolve_configured_projectile_contact(
     )
 
     if policy is ProjectileContactPolicy.FRAGILE:
-        set_projectile_hp(special_object, 0)
+        set_projectile_hp(special_object, 0, source=projectile)
     else:
         set_projectile_hp(
             special_object,
             special_object.current_hp - projectile_damage,
+            source=projectile,
         )
         if policy is ProjectileContactPolicy.TAKE_DAMAGE_AND_DESTROY_PROJECTILE:
-            set_projectile_hp(projectile, 0)
+            set_projectile_hp(projectile, 0, source=special_object)
 
     damage = max(special_object.current_damage, projectile.current_damage)
     BattleEffect.play_boom(damage)
@@ -835,7 +838,7 @@ def resolve_projectile_projectile_collision(
             source=first,
         )
     elif first_hp > 0 and first_hp > second_hp:
-        set_projectile_hp(first, first_hp)
+        set_projectile_hp(first, first_hp, source=second)
         destroy_projectile(
             second,
             effects,
@@ -853,7 +856,7 @@ def resolve_projectile_projectile_collision(
             contact,
             source=second,
         )
-        set_projectile_hp(second, second_hp)
+        set_projectile_hp(second, second_hp, source=first)
     else:
         destroy_projectile(
             first,
@@ -1228,7 +1231,7 @@ def _laser_target_is_active(laser, target, *, require_targetable):
 
 
 def apply_ship_laser_impact(ship, effects, normal, damage, contact, *, source=None):
-    damage_ship(ship, damage)
+    damage_ship(ship, damage, source=source)
 
 
 def apply_projectile_laser_impact(
@@ -1240,7 +1243,7 @@ def apply_projectile_laser_impact(
     *,
     source=None,
 ):
-    set_projectile_hp(projectile, projectile.current_hp - damage)
+    set_projectile_hp(projectile, projectile.current_hp - damage, source=source)
     if projectile.current_hp <= 0:
         destroy_projectile(
             projectile,
@@ -1379,8 +1382,7 @@ def destroy_projectile(
             )
         )
 
-    projectile.current_hp = 0
-    projectile.currently_alive = False
+    set_projectile_hp(projectile, 0, source=source)
     event_ledger.record_removed(
         projectile,
         destroyed=True,
@@ -1425,15 +1427,22 @@ def object_on_screen(obj, ships):
     )
 
 
-def set_projectile_hp(projectile, hp):
+def set_projectile_hp(projectile, hp, *, source=None):
+    previous_hp = max(0, getattr(projectile, "current_hp", 0))
     hp = max(0, hp)
     if isinstance(projectile, Ability):
         projectile.set_hp(hp)
-        return
-
-    # Compatibility boundary for collision test doubles.
-    set_hp = getattr(projectile, "set_hp", None)
-    if set_hp is not None:
-        set_hp(hp)
-        return
-    projectile.current_hp = hp
+    else:
+        # Compatibility boundary for lightweight collision test doubles.
+        set_hp = getattr(projectile, "set_hp", None)
+        if set_hp is not None:
+            set_hp(hp)
+        else:
+            projectile.current_hp = hp
+    damage = previous_hp - max(0, getattr(projectile, "current_hp", 0))
+    if damage > 0:
+        event_ledger.record_object_hp_changed(
+            projectile,
+            damage,
+            source=source,
+        )

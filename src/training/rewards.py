@@ -14,6 +14,7 @@ from src.training.event_ledger import (
     EVENT_CREW_CHANGED,
     EVENT_DEBUFF_APPLIED,
     EVENT_OBJECT_REMOVED,
+    EVENT_OBJECT_HP_CHANGED,
     EVENT_OBJECT_SPAWNED,
     EVENT_SHIP_DIED,
     TrainingBattleEvent,
@@ -493,10 +494,29 @@ def _calculate_immediate_reward_component_vector(
                     event.magnitude
                 )
         elif event.event_type == EVENT_OBJECT_REMOVED:
-            if _object_removed_by_owner_weapon(event, enemy_ship, self_ship):
+            if _is_chmmr_satellite_event(event):
+                if event.destroyed and _same_entity(event.owner, enemy_ship):
+                    if _same_entity(_removal_source_owner(event), self_ship):
+                        components[_REWARD_COMPONENT_INDEX[REWARD_KILL_ENEMY]] += 0.5
+                elif event.destroyed and _same_entity(event.owner, self_ship):
+                    components[_REWARD_COMPONENT_INDEX[REWARD_DIE]] += (
+                        1.0 / _configured_satellite_count(event.owner)
+                    )
+            elif _object_removed_by_owner_weapon(event, enemy_ship, self_ship):
                 components[_REWARD_COMPONENT_INDEX[REWARD_KILL_ENEMY_OBJECT]] += 1.0
             elif _object_removed_by_owner_weapon(event, self_ship, self_ship):
                 components[_REWARD_COMPONENT_INDEX[REWARD_DESTROY_OWN_OBJECT]] += 1.0
+        elif event.event_type == EVENT_OBJECT_HP_CHANGED:
+            if not _is_chmmr_satellite_event(event):
+                continue
+            damage = max(0.0, -float(event.magnitude)) * 0.5
+            if _same_entity(event.owner, self_ship):
+                components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_CREW]] += damage
+            elif (
+                _same_entity(event.owner, enemy_ship)
+                and _same_entity(event.actor, self_ship)
+            ):
+                components[_REWARD_COMPONENT_INDEX[REWARD_ENEMY_LOSES_CREW]] += damage
         elif event.event_type == EVENT_SHIP_DIED:
             if _same_entity(event.target, enemy_ship):
                 components[_REWARD_COMPONENT_INDEX[REWARD_KILL_ENEMY]] += (
@@ -744,6 +764,23 @@ def _object_removed_by_owner_weapon(
     if not _same_entity(metadata.get("source_owner"), source_owner):
         return False
     return metadata.get("source_type") in {"projectile", "special_object", "laser"}
+
+
+def _is_chmmr_satellite_event(event: TrainingBattleEvent) -> bool:
+    target = event.target if event.event_type == EVENT_OBJECT_HP_CHANGED else event.obj
+    return getattr(target, "name", None) == "ChmmrSatellite"
+
+
+def _removal_source_owner(event: TrainingBattleEvent):
+    metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
+    return metadata.get("source_owner")
+
+
+def _configured_satellite_count(owner) -> int:
+    from src.Objects.Ships.catalog import SHIP_DEFINITIONS
+
+    definition = SHIP_DEFINITIONS.get(getattr(owner, "name", ""))
+    return max(1, int(getattr(definition, "satellite_count", 1)))
 
 
 def _clamp01(value: float) -> float:

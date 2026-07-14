@@ -429,7 +429,7 @@ class CoordinatedFixedFrameWindowTests(unittest.TestCase):
             rng=RandomSequence([0.25, 0.01]),
         )
 
-        self.assertEqual(factory.created[0].player1.current_hp, 5)
+        self.assertEqual(factory.created[0].player1.current_hp, 3)
         self.assertEqual(factory.created[0].player2.current_hp, 1)
 
 

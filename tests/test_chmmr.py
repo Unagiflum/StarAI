@@ -24,6 +24,7 @@ from src.Objects.Ships.registry import create_ability, create_ship, get_ship_cla
 from src.Battle.collision_responses import resolve_projectile_projectile_collision
 from src.Battle.battle_aftermath import hide_dead_ship
 from src.audio import NullAudioService
+from src.training import event_ledger
 from src.toroidal import wrapped_delta, wrapped_distance
 
 
@@ -111,6 +112,40 @@ class ChmmrTests(unittest.TestCase):
         )
         self.assertEqual(angles, [0, 120, 240])
         self.chmmr.update()
+        self.assertEqual(self.chmmr.drain_spawned_objects(), [])
+
+    def test_training_spawn_randomizes_satellite_slots_and_combined_hp(self):
+        class SatelliteRng:
+            @staticmethod
+            def shuffle(values):
+                values.reverse()
+
+            @staticmethod
+            def random():
+                return 0.6
+
+        satellites = self.chmmr.spawn_satellites(
+            rng=SatelliteRng(),
+            randomized_health=True,
+        )
+
+        self.assertEqual(
+            [(satellite.orbit_index, satellite.current_hp) for satellite in satellites],
+            [(2, 10), (1, 8)],
+        )
+        self.assertEqual(self.chmmr.drain_spawned_objects(), list(satellites))
+        self.assertEqual(self.chmmr.drain_spawned_objects(), [])
+
+    def test_training_satellite_pool_can_spawn_no_satellites(self):
+        rng = mock.Mock()
+        rng.random.return_value = 0.0
+
+        satellites = self.chmmr.spawn_satellites(
+            rng=rng,
+            randomized_health=True,
+        )
+
+        self.assertEqual(satellites, ())
         self.assertEqual(self.chmmr.drain_spawned_objects(), [])
 
     def test_primary_creates_one_world_fixed_spark_and_ignores_own_satellites(self):
@@ -336,6 +371,30 @@ class ChmmrTests(unittest.TestCase):
 
         self.assertEqual(satellite.current_hp, 6)
         self.assertFalse(projectile.currently_alive)
+
+    def test_satellite_damage_records_source_attributed_hp_event(self):
+        satellite = ChmmrSatellite(self.chmmr)
+        projectile = create_ability("EarthlingA1", self.target)
+        ledger = event_ledger.BattleEventLedger()
+        for obj in (self.chmmr, self.target, satellite, projectile):
+            event_ledger.bind_ledger(obj, ledger)
+        satellite.position = [1200.0, 1200.0]
+        satellite.previous_position = satellite.position.copy()
+        projectile.position = satellite.position.copy()
+        projectile.previous_position = projectile.position.copy()
+        projectile.velocity = [0.0, 0.0]
+
+        resolve_projectile_projectile_collision(satellite, projectile, [])
+
+        hp_events = [
+            event
+            for event in ledger.events
+            if event.event_type == event_ledger.EVENT_OBJECT_HP_CHANGED
+        ]
+        self.assertEqual(len(hp_events), 1)
+        self.assertEqual(hp_events[0].magnitude, -4)
+        self.assertIs(hp_events[0].owner, self.chmmr)
+        self.assertIs(hp_events[0].actor, self.target)
 
 
 if __name__ == "__main__":

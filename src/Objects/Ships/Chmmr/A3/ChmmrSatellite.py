@@ -11,13 +11,17 @@ from src.toroidal import wrapped_delta, wrapped_distance
 
 
 class ChmmrSatellite(Ability):
-    def __init__(self, parent, orbit_index=0):
+    def __init__(self, parent, orbit_index=0, *, starting_hp=None):
         super().__init__("ChmmrSatellite", parent)
         definition = SHIP_DEFINITIONS[parent.name]
         laser_definition = ABILITY_DEFINITIONS["ChmmrSatelliteLaser"]
         self.orbit_index = orbit_index
         self.orbit_phase = orbit_index * definition.satellite_period / definition.satellite_count
-        self.current_hp = definition.satellite_hp
+        self.current_hp = (
+            definition.satellite_hp
+            if starting_hp is None
+            else max(1, min(definition.satellite_hp, int(starting_hp)))
+        )
         self.start_hp = definition.satellite_hp
         self.speed = definition.satellite_speed
         self.orbit_period = definition.satellite_period

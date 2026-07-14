@@ -377,14 +377,14 @@ class TrainingRoundTests(unittest.TestCase):
 
         self.assertEqual(ship.shofixti_arming_stage, ship.ARMED)
 
-    def test_training_start_hp_uses_sqrt_random_ceiled_with_minimum(self):
+    def test_training_start_hp_uses_linear_random_ceiled_with_minimum(self):
         ship = SimpleNamespace(start_hp=10, current_hp=10)
 
         _randomize_training_start_hp(ship, SequenceRng([0.0]))
         self.assertEqual(ship.current_hp, 1)
 
         _randomize_training_start_hp(ship, SequenceRng([0.25]))
-        self.assertEqual(ship.current_hp, 5)
+        self.assertEqual(ship.current_hp, 3)
 
         _randomize_training_start_hp(ship, SequenceRng([0.99]))
         self.assertEqual(ship.current_hp, 10)

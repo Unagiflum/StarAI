@@ -1,3 +1,5 @@
+import math
+
 from src.Objects.Ships.Chmmr.A1.ChmmrA1 import ChmmrA1
 from src.Objects.Ships.Chmmr.A2.ChmmrA2 import ChmmrA2
 from src.Objects.Ships.Chmmr.A3.ChmmrSatellite import ChmmrSatellite
@@ -21,12 +23,41 @@ class Chmmr(SpaceShip):
     def update(self):
         alive = super().update()
         if alive and not self._satellites_spawned:
-            count = SHIP_DEFINITIONS[self.name].satellite_count
-            self._spawned_objects.extend(
-                ChmmrSatellite(self, index) for index in range(count)
-            )
-            self._satellites_spawned = True
+            self.spawn_satellites()
         return alive
+
+    def spawn_satellites(self, *, rng=None, randomized_health=False):
+        if self._satellites_spawned:
+            return ()
+        definition = SHIP_DEFINITIONS[self.name]
+        count = int(definition.satellite_count)
+        hp_per_satellite = int(definition.satellite_hp)
+        orbit_indices = list(range(count))
+        if randomized_health:
+            rng = rng or self.rng
+            rng.shuffle(orbit_indices)
+            total_hp = math.floor(
+                count * hp_per_satellite * float(rng.random()) + 0.5
+            )
+        else:
+            total_hp = count * hp_per_satellite
+
+        satellites = []
+        for orbit_index in orbit_indices:
+            satellite_hp = min(hp_per_satellite, total_hp)
+            if satellite_hp <= 0:
+                break
+            satellites.append(
+                ChmmrSatellite(
+                    self,
+                    orbit_index,
+                    starting_hp=satellite_hp,
+                )
+            )
+            total_hp -= satellite_hp
+        self._spawned_objects.extend(satellites)
+        self._satellites_spawned = True
+        return tuple(satellites)
 
     def drain_spawned_objects(self):
         spawned, self._spawned_objects = self._spawned_objects, []

@@ -6,6 +6,7 @@ import src.const as const
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
 from src.Objects.Ships.space_ship import SpaceShip
+from src.training import event_ledger
 from src.audio import (
     PygameAudioService,
     compatibility_audio_service,
@@ -359,6 +360,11 @@ def hide_dead_ship(ship, game_objects):
                 continue
             ability.on_parent_removed()
             if not ability.is_alive():
+                event_ledger.record_removed(
+                    ability,
+                    destroyed=False,
+                    reason="parent_cleanup",
+                )
                 removed_owners.append(ability)
             pending.remove(ability)
             removed_any = True

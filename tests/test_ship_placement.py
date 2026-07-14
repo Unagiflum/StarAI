@@ -19,6 +19,7 @@ from src.Battle.battle import random_position_away_from, ship_spawn_obstacles
 from src.Battle.battle_init import (
     apply_training_starting_velocities,
     apply_vux_starting_conditions,
+    validate_training_ship_position,
     validate_ship_position,
 )
 from src.Battle.world import World
@@ -96,6 +97,30 @@ def stepped_vux_preferred_max_distance():
 
 
 class ShipPlacementTests(unittest.TestCase):
+    def test_training_position_rejects_overlap_without_clearance_bands(self):
+        ship = SimpleNamespace(player=1, size=[100, 100])
+        other_ship = arena_object(SpaceShip, [1000, 1000], player=2)
+        projectile = arena_object(
+            Ability,
+            [1300, 1000],
+            ability_type="projectile",
+            player=1,
+        )
+        projectile.masks = ()
+
+        self.assertFalse(
+            validate_training_ship_position([1099, 1000], [other_ship], ship)
+        )
+        self.assertTrue(
+            validate_training_ship_position([1100, 1000], [other_ship], ship)
+        )
+        self.assertTrue(
+            validate_training_ship_position([1100, 1000], [projectile], ship)
+        )
+        self.assertFalse(
+            validate_training_ship_position([1300, 1000], [projectile], ship)
+        )
+
     def test_position_validation_uses_toroidal_distance_from_arena_objects(self):
         obstacle = arena_object(Asteroid, [50, 100])
         ship = SimpleNamespace(player=1, size=[100, 100])
@@ -380,6 +405,47 @@ class ShipPlacementTests(unittest.TestCase):
         self.assertEqual(player2.position, [4000, 1000])
         self.assertEqual(player1.heading, heading_toward(player1, player2))
         self.assertEqual(rng.random.call_count, 2)
+
+    def test_two_close_spawning_vux_face_each_others_final_positions(self):
+        player1 = SimpleNamespace(
+            name="Vux",
+            battles_fought=2,
+            player=1,
+            position=[1000, 1000],
+            previous_position=[1000, 1000],
+            heading=0,
+            previous_heading=0,
+            rotation=0,
+        )
+        player2 = SimpleNamespace(
+            name="Vux",
+            battles_fought=2,
+            player=2,
+            position=[4000, 1000],
+            previous_position=[4000, 1000],
+            heading=0,
+            previous_heading=0,
+            rotation=0,
+        )
+        rng = mock.Mock()
+        rng.random.side_effect = [0.0, 0.0]
+        rng.uniform.return_value = 0.0
+
+        close_vux = apply_vux_starting_conditions(
+            player1,
+            player2,
+            rng=rng,
+            training_close_start_chance=1.0,
+            arena_objects=[player1, player2],
+        )
+
+        self.assertEqual(close_vux, (player1, player2))
+        self.assertEqual(player1.heading, asset_quantized_heading_toward(player1, player2))
+        self.assertEqual(player2.heading, asset_quantized_heading_toward(player2, player1))
+        self.assertLessEqual(
+            math.dist(player1.position, player2.position),
+            stepped_vux_preferred_max_distance(),
+        )
 
     def test_training_starting_velocity_uses_sqrt_random_speed(self):
         ship = SimpleNamespace(max_thrust=60, velocity=[0.0, 0.0])

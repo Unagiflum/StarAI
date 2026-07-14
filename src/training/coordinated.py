@@ -46,10 +46,9 @@ from src.training.orchestration import (
     _average_components,
     _average_value,
     _classify_round_outcome,
-    _fully_arm_training_shofixti,
+    _initialize_training_simulation_ships,
     _opponent_direct_controls,
     _raise_if_stop_requested,
-    _randomize_training_start_hp,
     _select_policy_action,
     controls_for_action_index,
     direct_controls_for_action_index,
@@ -1819,9 +1818,8 @@ def run_coordinated_fixed_frame_window(
 ) -> CoordinatedFixedFrameWindowResult:
     """Advance one opponent window for exactly ``match_time_limit`` frames.
 
-    Terminal battles reset inside the same fixed window. The window frame count
-    is scheduler-local, so a reset simulation with ``frame_id == 0`` cannot
-    extend the configured frame budget.
+    Real training simulations respawn dead ships in the same arena at episode
+    boundaries. Compatibility simulations without that lifecycle still reset.
     """
 
     rng = rng or random.Random()
@@ -1846,10 +1844,7 @@ def run_coordinated_fixed_frame_window(
             include_stars=False,
             training_event_ledger=ledger,
         )
-        _fully_arm_training_shofixti(simulation.player1)
-        _fully_arm_training_shofixti(simulation.player2)
-        _randomize_training_start_hp(simulation.player1, rng)
-        _randomize_training_start_hp(simulation.player2, rng)
+        _initialize_training_simulation_ships(simulation, rng)
         return simulation, ledger, RollingReturnPipeline(
             gamma=config.gamma,
             reward_weights=config.reward_weights,
@@ -1951,7 +1946,14 @@ def run_coordinated_fixed_frame_window(
             if callable(reset_span):
                 reset_span()
             if window_frames_consumed < window_frame_limit:
-                simulation, ledger, pipeline, simple_controller = new_battle()
+                if getattr(simulation, "training_episode_deaths", ()):
+                    pipeline = RollingReturnPipeline(
+                        gamma=config.gamma,
+                        reward_weights=config.reward_weights,
+                    )
+                    simple_controller = SimpleOpponentController(config, rng=rng)
+                else:
+                    simulation, ledger, pipeline, simple_controller = new_battle()
                 episode_start_window_frame = window_frames_consumed
                 episode_mature_count = 0
                 episode_return_sum = 0.0
@@ -2008,6 +2010,8 @@ def run_coordinated_fixed_frame_window(
 
 
 def _permanent_terminal_state(simulation) -> tuple[bool, str]:
+    if getattr(simulation, "training_episode_deaths", ()):
+        return True, "resolved"
     aftermath = getattr(simulation, "aftermath", None)
     if bool(getattr(aftermath, "pending_rebirths", None)):
         return False, "pending_rebirth"
@@ -2619,10 +2623,7 @@ def _new_coordinated_battle(
         include_stars=False,
         training_event_ledger=ledger,
     )
-    _fully_arm_training_shofixti(simulation.player1)
-    _fully_arm_training_shofixti(simulation.player2)
-    _randomize_training_start_hp(simulation.player1, rng)
-    _randomize_training_start_hp(simulation.player2, rng)
+    _initialize_training_simulation_ships(simulation, rng)
     return (
         simulation,
         ledger,
@@ -2858,20 +2859,28 @@ def _reset_coordinated_window_battle(
     resources: Any | None = None,
     ship_factory: Callable[..., Any] = create_ship,
 ) -> None:
-    (
-        runtime.simulation,
-        runtime.ledger,
-        runtime.pipeline,
-        runtime.simple_controller,
-    ) = _new_coordinated_battle(
-        runtime.state.record.config,
-        runtime.opponent,
-        rng=rng,
-        simulation_factory=simulation_factory,
-        audio_service=audio_service,
-        resources=resources,
-        ship_factory=ship_factory,
-    )
+    config = runtime.state.record.config
+    if getattr(runtime.simulation, "training_episode_deaths", ()):
+        runtime.pipeline = RollingReturnPipeline(
+            gamma=config.gamma,
+            reward_weights=config.reward_weights,
+        )
+        runtime.simple_controller = SimpleOpponentController(config, rng=rng)
+    else:
+        (
+            runtime.simulation,
+            runtime.ledger,
+            runtime.pipeline,
+            runtime.simple_controller,
+        ) = _new_coordinated_battle(
+            config,
+            runtime.opponent,
+            rng=rng,
+            simulation_factory=simulation_factory,
+            audio_service=audio_service,
+            resources=resources,
+            ship_factory=ship_factory,
+        )
     runtime.episode_start_frame = runtime.frames_consumed
     runtime.episode_mature_count = 0
     runtime.episode_return_sum = 0.0

@@ -8,6 +8,7 @@ from src.training.event_ledger import (
     EVENT_CREW_CHANGED,
     EVENT_DEBUFF_APPLIED,
     EVENT_OBJECT_REMOVED,
+    EVENT_OBJECT_HP_CHANGED,
     EVENT_OBJECT_SPAWNED,
     EVENT_SHIP_DIED,
     TrainingBattleEvent,
@@ -128,11 +129,85 @@ class TrainingRewardComponentTests(unittest.TestCase):
                 "Spawn A2 object": 4.0,
             }
         )
-
         self.assertEqual(weights[REWARD_A1_RANGE], 1.5)
         self.assertEqual(weights[REWARD_A2_RANGE], -2.0)
         self.assertEqual(weights[REWARD_SPAWN_A1], 3.0)
         self.assertEqual(weights[REWARD_SPAWN_A2], 4.0)
+
+    def test_satellite_damage_and_destruction_replace_generic_object_rewards(self):
+        trainee = SimpleNamespace(name="Chmmr")
+        enemy = SimpleNamespace(name="Chmmr")
+        own_satellite = SimpleNamespace(name="ChmmrSatellite")
+        enemy_satellite = SimpleNamespace(name="ChmmrSatellite")
+        events = (
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_HP_CHANGED,
+                actor=enemy,
+                owner=trainee,
+                target=own_satellite,
+                magnitude=-3,
+            ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_HP_CHANGED,
+                actor=trainee,
+                owner=enemy,
+                target=enemy_satellite,
+                magnitude=-4,
+            ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_REMOVED,
+                owner=enemy,
+                obj=enemy_satellite,
+                destroyed=True,
+                metadata={"source_owner": trainee, "source_type": "projectile"},
+            ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_OBJECT_REMOVED,
+                owner=trainee,
+                obj=own_satellite,
+                destroyed=True,
+                metadata={"source_owner": enemy, "source_type": "projectile"},
+            ),
+        )
+
+        components = calculate_reward_components(
+            decision(1, trainee, enemy),
+            [decision(1, trainee, enemy)],
+            [outcome(1, events=events)],
+        )
+
+        self.assertEqual(components[REWARD_LOSE_CREW], 1.5)
+        self.assertEqual(components[REWARD_ENEMY_LOSES_CREW], 2.0)
+        self.assertEqual(components[REWARD_KILL_ENEMY], 0.5)
+        self.assertAlmostEqual(components[REWARD_DIE], 1.0 / 3.0)
+        self.assertEqual(components[REWARD_KILL_ENEMY_OBJECT], 0.0)
+        self.assertEqual(components[REWARD_DESTROY_OWN_OBJECT], 0.0)
+
+    def test_satellite_parent_cleanup_has_no_reward(self):
+        trainee = SimpleNamespace(name="Chmmr")
+        enemy = SimpleNamespace(name="Chmmr")
+        satellite = SimpleNamespace(name="ChmmrSatellite")
+        cleanup = TrainingBattleEvent(
+            frame_id=1,
+            event_type=EVENT_OBJECT_REMOVED,
+            owner=trainee,
+            obj=satellite,
+            destroyed=False,
+            removal_reason="parent_cleanup",
+        )
+
+        components = calculate_reward_components(
+            decision(1, trainee, enemy),
+            [decision(1, trainee, enemy)],
+            [outcome(1, events=(cleanup,))],
+        )
+
+        self.assertEqual(components[REWARD_DIE], 0.0)
+        self.assertEqual(components[REWARD_DESTROY_OWN_OBJECT], 0.0)
 
     def test_events_and_endpoint_rewards_remain_distinct(self):
         events = (

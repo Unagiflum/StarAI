@@ -5,7 +5,9 @@ import math
 import src.const as const
 from src.configuration import GameSettingsRepository
 from src.toroidal import wrapped_distance
+from src.Battle.collision_geometry import objects_overlap_at_positions
 from src.Objects.Space.space_obj import Planet, Asteroid
+from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Battle.world import World
 
@@ -69,6 +71,41 @@ def validate_ship_position(position, arena_objects=(), ship=None):
             if distance < const.OBJECT_SPAWN_SEPARATION:
                 return False
     return True
+
+
+def validate_training_ship_position(position, arena_objects=(), ship=None):
+    """Accept a training spawn unless its collision shape actually overlaps."""
+    if ship is None:
+        return True
+    for obj in arena_objects:
+        if obj is ship or getattr(obj, "position", None) is None:
+            continue
+        if not getattr(obj, "currently_alive", True):
+            continue
+        if getattr(obj, "current_hp", 1) <= 0 or not getattr(obj, "can_collide", True):
+            continue
+        if not isinstance(obj, (SpaceShip, Planet, Asteroid, Ability)):
+            continue
+        if isinstance(obj, Ability) and getattr(obj, "type", None) not in {
+            "projectile",
+            "special_object",
+        }:
+            continue
+        if objects_overlap_at_positions(ship, obj, position, obj.position):
+            return False
+    return True
+
+
+def get_training_spawn_position(rng, ship, arena_objects=()):
+    """Sample a random overlap-free training position for one ship."""
+    for _ in range(1000):
+        candidate = get_random_position(rng)
+        if validate_training_ship_position(candidate, arena_objects, ship):
+            return candidate
+    for candidate in fallback_ship_positions():
+        if validate_training_ship_position(candidate, arena_objects, ship):
+            return candidate
+    raise RuntimeError("Unable to find a non-overlapping training ship position")
 
 
 def validate_vux_start_position(position, vux, arena_objects=()):
@@ -154,8 +191,13 @@ def apply_vux_starting_conditions(
     preserved_ships = tuple(preserved_ships or ())
     close_start_vux = []
     successful_close_start_vux = []
+    original_training_states = {}
 
     for p, opponent in [(player1, player2), (player2, player1)]:
+        if not getattr(opponent, "currently_alive", True) or getattr(
+            opponent, "current_hp", 1
+        ) <= 0:
+            continue
         if not _vux_close_start_enabled(
             p,
             preserved_ships,
@@ -166,6 +208,15 @@ def apply_vux_starting_conditions(
 
         if p.name == "Vux":
             close_start_vux.append((p, opponent))
+            if training_close_start_chance is not None:
+                original_heading = getattr(p, "heading", 0)
+                original_training_states[id(p)] = (
+                    list(p.position),
+                    list(getattr(p, "previous_position", p.position)),
+                    original_heading,
+                    getattr(p, "previous_heading", original_heading),
+                    getattr(p, "rotation", original_heading * const.TURN_ANGLE),
+                )
             # The Vux is the ship receiving the close-start exception. Keep the
             # opponent fixed so only the Vux bypasses normal spawn clearance.
             anchor = opponent
@@ -215,7 +266,13 @@ def apply_vux_starting_conditions(
                             (anchor.position[1] - math.cos(angle) * dist)
                             % const.ARENA_SIZE,
                         ]
-                        if validate_vux_start_position(candidate, p, arena_objects):
+                        obstacles = tuple(obj for obj in arena_objects if obj is not p)
+                        position_is_valid = (
+                            validate_training_ship_position(candidate, obstacles, p)
+                            if training_close_start_chance is not None
+                            else validate_vux_start_position(candidate, p, obstacles)
+                        )
+                        if position_is_valid:
                             new_pos = candidate
                             break
                     if new_pos is not None:
@@ -247,6 +304,25 @@ def apply_vux_starting_conditions(
         )
         p.previous_heading = p.heading
         p.rotation = p.heading * const.TURN_ANGLE
+
+    if training_close_start_chance is not None and any(
+        not validate_training_ship_position(
+            ship.position,
+            tuple(obj for obj in arena_objects if obj is not ship),
+            ship,
+        )
+        for ship in successful_close_start_vux
+    ):
+        for ship in successful_close_start_vux:
+            position, previous_position, heading, previous_heading, rotation = (
+                original_training_states[id(ship)]
+            )
+            ship.position = position
+            ship.previous_position = previous_position
+            ship.heading = heading
+            ship.previous_heading = previous_heading
+            ship.rotation = rotation
+        successful_close_start_vux.clear()
 
     return tuple(successful_close_start_vux)
 
@@ -304,17 +380,51 @@ def initialize_battle(
     # Stars are display-owned. ``include_stars`` is retained only as a
     # compatibility parameter for older callers.
 
-    # Initialize ships
-    pos1, pos2 = (
-        get_valid_ship_positions(rng, ships=(ship1, ship2))
-        if explicit_runtime
-        else get_valid_ship_positions(ships=(ship1, ship2))
-    )
-
     player1 = ship1
-    player1.initialize_in_battle(pos1, rng.randint(0, 15))
     player2 = ship2
-    player2.initialize_in_battle(pos2, rng.randint(0, 15))
+    planet = (
+        Planet.create_center(resources, rng)
+        if explicit_runtime
+        else Planet.create_center()
+    )
+    asteroids = []
+    training_mode = training_vux_close_start_chance is not None
+
+    if training_mode:
+        world.add(planet)
+        for _ in range(const.ASTEROID_COUNT):
+            asteroid = Asteroid(resources, rng) if explicit_runtime else Asteroid()
+            asteroid.set_planet(planet)
+            asteroid.position = asteroid.get_valid_asteroid_position(
+                planet,
+                (),
+                asteroids,
+            )
+            asteroid.previous_position = asteroid.position.copy()
+            asteroids.append(asteroid)
+            world.add(asteroid)
+
+        headings = [rng.randint(0, const.SHIP_DIRECTIONS - 1) for _ in range(2)]
+        placed_objects = [planet, *asteroids]
+        positions = []
+        for ship, heading in zip((player1, player2), headings):
+            ship.heading = heading
+            ship.rotation = heading * const.TURN_ANGLE
+            position = get_training_spawn_position(rng, ship, placed_objects)
+            ship.position = list(position)
+            positions.append(position)
+            placed_objects.append(ship)
+        player1.initialize_in_battle(positions[0], headings[0])
+        player2.initialize_in_battle(positions[1], headings[1])
+    else:
+        pos1, pos2 = (
+            get_valid_ship_positions(rng, ships=(ship1, ship2))
+            if explicit_runtime
+            else get_valid_ship_positions(ships=(ship1, ship2))
+        )
+        player1.initialize_in_battle(pos1, rng.randint(0, 15))
+        player2.initialize_in_battle(pos2, rng.randint(0, 15))
+
     player1.opponent = player2
     player2.opponent = player1
 
@@ -322,36 +432,30 @@ def initialize_battle(
         player1,
         player2,
         rng=rng,
+        arena_objects=([*world.objects, player1, player2] if training_mode else ()),
         training_close_start_chance=training_vux_close_start_chance,
     )
-    if training_vux_close_start_chance is not None:
+    if training_mode:
         apply_training_starting_velocities(
             (player1, player2),
             rng=rng,
             stationary_ships=close_start_vux,
         )
-
-    world.add(player1)
-    world.add(player2)
-
-    # Create planet
-    planet = (
-        Planet.create_center(resources, rng)
-        if explicit_runtime
-        else Planet.create_center()
-    )
-    world.add(planet)
-
-    asteroids = []
-    for _ in range(const.ASTEROID_COUNT):
-        asteroid = Asteroid(resources, rng) if explicit_runtime else Asteroid()
-        asteroid.set_planet(planet)
-        pos = asteroid.get_valid_asteroid_position(
-            planet, [player1, player2], [player1, player2, *asteroids]
-        )
-        asteroid.position = pos
-        asteroids.append(asteroid)
-        world.add(asteroid)
+        world.add(player1)
+        world.add(player2)
+    else:
+        world.add(player1)
+        world.add(player2)
+        world.add(planet)
+        for _ in range(const.ASTEROID_COUNT):
+            asteroid = Asteroid(resources, rng) if explicit_runtime else Asteroid()
+            asteroid.set_planet(planet)
+            pos = asteroid.get_valid_asteroid_position(
+                planet, [player1, player2], [player1, player2, *asteroids]
+            )
+            asteroid.position = pos
+            asteroids.append(asteroid)
+            world.add(asteroid)
 
     player1.set_planet(planet)
     player2.set_planet(planet)

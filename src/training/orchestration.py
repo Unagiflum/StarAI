@@ -469,10 +469,7 @@ def run_training_round(
         include_stars=False,
         training_event_ledger=ledger,
     )
-    _fully_arm_training_shofixti(simulation.player1)
-    _fully_arm_training_shofixti(simulation.player2)
-    _randomize_training_start_hp(simulation.player1, rng)
-    _randomize_training_start_hp(simulation.player2, rng)
+    _initialize_training_simulation_ships(simulation, rng)
     if _battle_view_enabled(battle_view_enabled):
         _emit_progress(
             progress_callback,
@@ -490,6 +487,7 @@ def run_training_round(
     mature_count = 0
     terminal_reason = "timeout"
     terminal_seen = False
+    episode_outcomes: list[tuple[bool, bool, bool]] = []
     next_display_frame_time = time.perf_counter()
     simple_opponent_controller = SimpleOpponentController(config, rng=rng)
 
@@ -565,8 +563,23 @@ def run_training_round(
                 next_display_frame_time = time.perf_counter()
             _raise_if_stop_requested(stop_requested)
         if terminal:
-            terminal_seen = True
-            break
+            episode_outcomes.append(
+                _classify_round_outcome(simulation, terminal_reason)
+            )
+            reset_span = getattr(trainee_policy, "reset_exploration_span", None)
+            if callable(reset_span):
+                reset_span()
+            if not getattr(simulation, "training_episode_deaths", ()):
+                terminal_seen = True
+                break
+            if state["frame_id"] >= config.match_time_limit:
+                terminal_seen = True
+                break
+            pipeline = RollingReturnPipeline(
+                gamma=config.gamma,
+                reward_weights=config.reward_weights,
+            )
+            simple_opponent_controller = SimpleOpponentController(config, rng=rng)
 
     if not terminal_seen:
         terminal_reason = "timeout"
@@ -579,11 +592,13 @@ def run_training_round(
         return_sum += sum(sample.return_value for sample in mature_samples)
         _accumulate_weighted_components(component_sums, mature_samples)
 
-    reset_span = getattr(trainee_policy, "reset_exploration_span", None)
-    if callable(reset_span):
-        reset_span()
-
-    win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
+    if not episode_outcomes:
+        episode_outcomes.append(
+            _classify_round_outcome(simulation, terminal_reason)
+        )
+    win = any(outcome[0] for outcome in episode_outcomes)
+    loss = any(outcome[1] for outcome in episode_outcomes)
+    draw = any(outcome[2] for outcome in episode_outcomes)
     return TrainingRoundResult(
         opponent=opponent,
         frames=simulation.frame_id,
@@ -790,6 +805,8 @@ def _choose_opponent_controller(
 
 
 def _round_terminal_state(simulation, *, elapsed_frames: int, frame_limit: int):
+    if getattr(simulation, "training_episode_deaths", ()):
+        return True, "resolved"
     aftermath = getattr(simulation, "aftermath", None)
     pending_rebirths = bool(getattr(aftermath, "pending_rebirths", None))
     if pending_rebirths:
@@ -814,6 +831,13 @@ def _flush_timeout_frame(
 
 
 def _classify_round_outcome(simulation, terminal_reason: str) -> tuple[bool, bool, bool]:
+    training_deaths = set(getattr(simulation, "training_episode_deaths", ()))
+    if training_deaths:
+        if training_deaths == {2}:
+            return True, False, False
+        if training_deaths == {1}:
+            return False, True, False
+        return False, False, True
     trainee_alive = _ship_alive(simulation.player1)
     opponent_alive = _ship_alive(simulation.player2)
     if terminal_reason == "timeout":
@@ -836,9 +860,18 @@ def _fully_arm_training_shofixti(ship) -> None:
     setattr(ship, "shofixti_arming_stage", armed)
 
 
+def _initialize_training_simulation_ships(simulation, rng) -> None:
+    if getattr(simulation, "training_spawn_initialized", False):
+        return
+    _fully_arm_training_shofixti(simulation.player1)
+    _fully_arm_training_shofixti(simulation.player2)
+    _randomize_training_start_hp(simulation.player1, rng)
+    _randomize_training_start_hp(simulation.player2, rng)
+
+
 def _randomize_training_start_hp(ship, rng) -> None:
     start_hp = max(1, int(getattr(ship, "start_hp", getattr(ship, "current_hp", 1))))
-    ship.current_hp = max(1, math.ceil(math.sqrt(float(rng.random())) * start_hp))
+    ship.current_hp = max(1, math.ceil(float(rng.random()) * start_hp))
 
 
 def _accumulate_weighted_components(
