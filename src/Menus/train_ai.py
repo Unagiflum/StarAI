@@ -460,12 +460,6 @@ def validate_coordinated_batch_start(
             blocking_code="device",
         )
 
-    if any(instance.state.display_on for instance, _slot in resolved_slots):
-        return CoordinatedBatchValidation(
-            blocking_reason="Display must be off for every instance",
-            blocking_code="display",
-        )
-
     return CoordinatedBatchValidation(
         included_instances=tuple(instance for instance, _slot in resolved_slots)
     )
@@ -484,6 +478,7 @@ class TrainingInstanceManager:
         self._writer_reservations: dict[tuple[str, int], int] = {}
         self._suspend_future_propagation = False
         self.active_tab = "trainee"
+        self.display_on = False
         self.batch_scheduling = TrainingBatchSchedulingState()
         self.instances = [
             TrainingInstance(
@@ -532,7 +527,8 @@ class TrainingInstanceManager:
             )
         instance_id = self._next_instance_id
         self._next_instance_id += 1
-        self.disable_display(self.active_instance)
+        previous = self.active_instance
+        self._set_instance_display(previous, False)
         instance = TrainingInstance(
             instance_id=instance_id,
             label=f"Instance {instance_id}",
@@ -540,6 +536,7 @@ class TrainingInstanceManager:
         )
         self.instances.append(instance)
         self.active_instance_id = instance_id
+        self._set_instance_display(instance, self.display_on)
         return instance
 
     def can_add_instance(self):
@@ -553,9 +550,10 @@ class TrainingInstanceManager:
         for instance in self.instances:
             if instance.instance_id == instance_id:
                 if instance.instance_id != self.active_instance_id:
-                    self.disable_display(previous)
-                    self.disable_display(instance)
+                    if previous.state.display_on:
+                        self._set_instance_display(previous, False)
                 self.active_instance_id = instance_id
+                self._set_instance_display(instance, self.display_on)
                 return instance
         raise ValueError(f"Unknown training instance {instance_id}")
 
@@ -588,7 +586,7 @@ class TrainingInstanceManager:
         self.instances.pop(index)
         next_index = min(index, len(self.instances) - 1)
         self.active_instance_id = self.instances[next_index].instance_id
-        self.disable_display(self.active_instance)
+        self._set_instance_display(self.active_instance, self.display_on)
         return True
 
     def request_close_active_instance(self):
@@ -606,7 +604,7 @@ class TrainingInstanceManager:
                 if self.instances[next_index] is instance:
                     next_index = 0
                 self.active_instance_id = self.instances[next_index].instance_id
-                self.disable_display(self.active_instance)
+            self._set_instance_display(self.active_instance, self.display_on)
             return "pending"
         if self.remove_active_stopped_instance():
             return "removed"
@@ -751,28 +749,27 @@ class TrainingInstanceManager:
         session = self.batch_scheduling.coordinated_session
         return bool(session is not None and session.active)
 
+    def _set_instance_display(self, instance, enabled):
+        enabled = bool(enabled)
+        changed = instance.state.display_on != enabled
+        instance.state.display_on = enabled
+        if (changed or not enabled) and instance.session is not None and (
+            not enabled or self.is_running_or_stopping(instance)
+        ):
+            instance.session.set_display_on(enabled)
+
     def disable_display(self, instance):
-        instance.state.display_on = False
-        if instance.session is not None:
-            instance.session.set_display_on(False)
+        self._set_instance_display(instance, False)
 
     def set_active_display(self, enabled):
+        self.display_on = bool(enabled)
         active_instance = self.active_instance
         if enabled:
             for instance in self.instances:
-                if instance is not active_instance:
-                    self.disable_display(instance)
-            active_instance.state.display_on = True
-            # A stopped coordinated run leaves a headless status proxy attached
-            # so its log/history remain available for a subsequent run.  It
-            # cannot render, and there is no live session to notify until the
-            # instance is started again.
-            if (
-                active_instance.session is not None
-                and self.is_running_or_stopping(active_instance)
-            ):
-                active_instance.session.set_display_on(True)
-        else:
+                if instance is not active_instance and instance.state.display_on:
+                    self._set_instance_display(instance, False)
+            self._set_instance_display(active_instance, True)
+        elif active_instance.state.display_on:
             self.disable_display(active_instance)
 
     def request_stop(self, instance):
@@ -858,11 +855,12 @@ class TrainingInstanceManager:
         for instance in self.instances:
             proxy = proxies.get(instance.instance_id)
             if proxy is not None:
-                self.disable_display(instance)
                 instance.session = proxy
                 instance.last_running = False
                 instance.state.running = True
+                instance.state.display_on = False
         scheduler.start()
+        self._set_instance_display(self.active_instance, self.display_on)
 
     def cleanup_coordinated_session(self):
         session = self.batch_scheduling.coordinated_session
@@ -886,7 +884,7 @@ class TrainingInstanceManager:
             for instance in self.instances
         ):
             self.active_instance_id = self.instances[0].instance_id
-            self.disable_display(self.active_instance)
+            self._set_instance_display(self.active_instance, self.display_on)
         self.release_stopped_writers()
 
 
@@ -2435,6 +2433,39 @@ def _training_battle_view_args(status):
     return battle_view
 
 
+@dataclass
+class TrainingDisplayPlayback:
+    instance_id: int | None = None
+    frame_id: int | None = None
+    elapsed_seconds: float = 0.0
+
+    def interpolation_for(self, instance_id, status, elapsed_seconds):
+        battle_view = (
+            getattr(status, "battle_view", None)
+            if status is not None
+            else None
+        )
+        frame_id = battle_view.get("frame_id") if battle_view else None
+        if instance_id != self.instance_id or frame_id != self.frame_id:
+            self.instance_id = instance_id
+            self.frame_id = frame_id
+            self.elapsed_seconds = 0.0
+        elif frame_id is not None:
+            self.elapsed_seconds += max(0.0, float(elapsed_seconds))
+        return min(1.0, self.elapsed_seconds * const.FPS)
+
+
+def _rendered_training_frame(battle_view, interp_t):
+    frames = tuple(battle_view.get("rendered_frames", ()))
+    if not frames:
+        return None
+    index = min(
+        len(frames) - 1,
+        int(max(0.0, min(1.0, interp_t)) * len(frames)),
+    )
+    return frames[index]
+
+
 def _draw_training_battle(
     screen,
     rect,
@@ -2443,6 +2474,7 @@ def _draw_training_battle(
     battle_draw_controller=None,
     status_font=None,
     status_small_font=None,
+    interp_t=0.0,
 ):
     if not getattr(status, "battle_view", None):
         status_font = status_font or pygame.font.SysFont(None, 36)
@@ -2451,6 +2483,23 @@ def _draw_training_battle(
         return
 
     battle_view = _training_battle_view_args(status)
+    rendered_frame = _rendered_training_frame(battle_view, interp_t)
+    if rendered_frame is not None:
+        source_rect = pygame.Rect(
+            const.SCREEN_LEFT,
+            0,
+            const.SCREEN_HEIGHT,
+            const.SCREEN_HEIGHT,
+        )
+        if source_rect.size == pygame.Rect(rect).size:
+            screen.blit(rendered_frame, rect, source_rect)
+        else:
+            arena = rendered_frame.subsurface(source_rect).copy()
+            screen.blit(
+                pygame.transform.smoothscale(arena, pygame.Rect(rect).size),
+                rect,
+            )
+        return
     controller = battle_draw_controller or BattleDrawController()
     controller.draw(
         screen,
@@ -2466,7 +2515,7 @@ def _draw_training_battle(
         entry_state=battle_view.get("entry_state"),
         frame_id=battle_view.get("frame_id", 0),
         original_ships=battle_view.get("original_ships"),
-        options=BattleDrawOptions(draw_huds=False),
+        options=BattleDrawOptions(draw_huds=False, interp_t=interp_t),
     )
 
 
@@ -2476,8 +2525,31 @@ def _draw_training_huds(
     status,
     star_field_renderer,
     battle_draw_controller=None,
+    interp_t=0.0,
 ):
     battle_view = _training_battle_view_args(status)
+    rendered_frame = _rendered_training_frame(battle_view, interp_t)
+    if rendered_frame is not None:
+        source_height = min(
+            pygame.Rect(hud_rects[0]).height,
+            rendered_frame.get_height(),
+        )
+        source_rects = (
+            pygame.Rect(0, 0, const.SCREEN_LEFT, source_height),
+            pygame.Rect(
+                const.SCREEN_LEFT + const.SCREEN_HEIGHT,
+                0,
+                const.SCREEN_WIDTH - const.SCREEN_LEFT - const.SCREEN_HEIGHT,
+                source_height,
+            ),
+        )
+        for target, source in zip(hud_rects, source_rects):
+            panel = rendered_frame.subsurface(source).copy()
+            screen.blit(
+                pygame.transform.smoothscale(panel, pygame.Rect(target).size),
+                target,
+            )
+        return
     controller = battle_draw_controller or BattleDrawController()
     controller.draw(
         screen,
@@ -2493,7 +2565,7 @@ def _draw_training_huds(
         entry_state=battle_view.get("entry_state"),
         frame_id=battle_view.get("frame_id", 0),
         original_ships=battle_view.get("original_ships"),
-        options=BattleDrawOptions(draw_arena=False),
+        options=BattleDrawOptions(draw_arena=False, interp_t=interp_t),
     )
 
 
@@ -2674,6 +2746,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     picker_tooltip_font = pygame.font.SysFont(None, PICKER_TOOLTIP_FONT_SIZE)
     training_battle_renderer = DisplayStarField()
     training_battle_controller = BattleDrawController()
+    training_display_playback = TrainingDisplayPlayback()
 
     def fallback_ship_sprite(_ship_name):
         surface = pygame.Surface((188, 188), pygame.SRCALPHA)
@@ -3132,7 +3205,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     def apply_state_to_ui():
         nonlocal trainee_scroll_y, rewards_scroll_y
-        display_checkbox.is_checked = state.display_on
+        display_checkbox.is_checked = instance_manager.display_on
         device_selector.selected = state.training_device
         refresh_slot_controls(load_labels=False)
         for slider in reward_sliders:
@@ -4003,6 +4076,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 )
             scheduler = CoordinatedTrainingSession(
                 tuple(records),
+                audio_service=audio_service,
                 opponent_model_cache=opponent_model_cache,
                 save_coordinator=save_coordinator,
                 coordinated_cpu_workers_enabled=True,
@@ -4492,7 +4566,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     and not coordinated_active
                 )
 
-        display_checkbox.enabled = not coordinated_active
+        display_checkbox.enabled = True
 
         if coordinated_active:
             start_stop_button.text = "Start"
@@ -4533,6 +4607,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             screen.fill(ui.BG_COLOR)
         if session_status is not None:
+            display_interp_t = training_display_playback.interpolation_for(
+                active_instance.instance_id,
+                session_status,
+                elapsed_seconds,
+            )
             if state.display_on:
                 _draw_training_battle(
                     screen,
@@ -4542,6 +4621,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     training_battle_controller,
                     arena_font,
                     small_font,
+                    display_interp_t,
                 )
             else:
                 batch_log_box.draw(screen, layout.arena_rect, log_font)
@@ -4745,6 +4825,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 session_status,
                 training_battle_renderer,
                 training_battle_controller,
+                display_interp_t,
             )
         else:
             _draw_hud_placeholders(screen, layout.hud_rects, small_font)

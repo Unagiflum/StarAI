@@ -5,14 +5,24 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 import multiprocessing
+from multiprocessing import shared_memory
 import traceback
 from types import SimpleNamespace
 from typing import Any
 import random
 
+import pygame
+
+import src.const as const
 from src.Battle.battle import BattleSimulation
+from src.Battle.battle_draw import (
+    BattleDrawController,
+    BattleDrawOptions,
+    DisplayStarField,
+    create_play_battle_layout,
+)
 from src.Objects.Ships.registry import create_ship
-from src.audio import NullAudioService
+from src.audio import RecordingAudioService
 from src.resources import HeadlessAssetManager
 from src.training.coordinated import (
     CoordinatedFixedFrameWindowResult,
@@ -54,6 +64,7 @@ class StartRunCommand:
     worker_id: int
     record_id: int
     base_seed: int
+    video_fps_multiplier: int = const.VIDEO_FPS_MULTIPLIER
     name: str = COMMAND_START_RUN
 
 
@@ -88,7 +99,17 @@ class StepFrameCommand:
     trainee_action_values: tuple[float, ...] | None = None
     opponent_controls: Mapping[str, bool] | None = None
     sequence_number: int = 0
+    capture_audio: bool = False
+    display_buffer: "DisplayBufferSpec | None" = None
     name: str = COMMAND_STEP_FRAME
+
+
+@dataclass(frozen=True)
+class DisplayBufferSpec:
+    name: str
+    width: int = const.SCREEN_WIDTH
+    height: int = const.SCREEN_HEIGHT
+    frame_count: int = const.VIDEO_FPS_MULTIPLIER
 
 
 @dataclass(frozen=True)
@@ -141,6 +162,8 @@ class FrameSteppedResult:
     timing_seconds: Mapping[str, float] = field(default_factory=dict)
     terminal_episode: TrainingEpisodeResult | None = None
     next_trainee_observation: tuple[float, ...] | None = None
+    audio_events: tuple[tuple[Any, ...], ...] = ()
+    display_frames_ready: int = 0
     name: str = RESULT_FRAME_STEPPED
 
 
@@ -216,12 +239,16 @@ class CoordinatedSimulationWorker:
         self._rng = random.Random()
         self._window_rng = random.Random()
         self._simulation_factory = simulation_factory
-        self._audio_service = audio_service or NullAudioService()
+        self._audio_service = audio_service or RecordingAudioService()
         self._resources = resources or HeadlessAssetManager()
         self._ship_factory = ship_factory
         self._runtime: _CoordinatedWindowRuntime | None = None
         self._collector: _ReplaySampleCollector | None = None
         self._round_index: int | None = None
+        self._display_memory: shared_memory.SharedMemory | None = None
+        self._display_surface: pygame.Surface | None = None
+        self._display_renderer: BattleDrawController | None = None
+        self._display_star_field: DisplayStarField | None = None
 
     def handle(self, command: Any) -> Any:
         name = getattr(command, "name", "")
@@ -236,6 +263,7 @@ class CoordinatedSimulationWorker:
         if name == COMMAND_FINISH_WINDOW:
             return self._handle_finish_window(command)
         if name == COMMAND_SHUTDOWN:
+            self.close()
             return WorkerStoppedResult(self.worker_id, self.record_id)
         raise ValueError(f"unknown worker command: {name!r}")
 
@@ -243,6 +271,9 @@ class CoordinatedSimulationWorker:
         self.worker_id = int(command.worker_id)
         self.record_id = int(command.record_id)
         self._rng = random.Random(int(command.base_seed))
+        const.VIDEO_FPS_MULTIPLIER = max(1, int(command.video_fps_multiplier))
+        const.VIDEO_FPS = const.FPS * const.VIDEO_FPS_MULTIPLIER
+        const._recompute_direction_constants()
         return WorkerReadyResult(
             worker_id=self.worker_id,
             record_id=self.record_id,
@@ -295,6 +326,7 @@ class CoordinatedSimulationWorker:
                 for component in REWARD_COMPONENTS
             },
         )
+        self._drain_audio_events(include=False)
         return WindowStartedResult(
             record_id=int(command.record_id),
             round_index=int(command.round_index),
@@ -314,6 +346,7 @@ class CoordinatedSimulationWorker:
         if collector is None:
             raise RuntimeError("worker replay collector is not initialized")
         progress_payloads: list[Mapping[str, Any]] = []
+        display_frames_ready = 0
         episode_count = len(runtime.episode_results)
         selection = ActionSelection(
             action_index=int(command.trainee_action_index),
@@ -329,6 +362,16 @@ class CoordinatedSimulationWorker:
             )
         if opponent_controls is None:
             raise RuntimeError("model-backed opponent controls were not provided")
+
+        def record_progress(payload):
+            nonlocal display_frames_ready
+            progress_payloads.append(payload)
+            if command.display_buffer is not None:
+                display_frames_ready = self._capture_display_frames(
+                    runtime,
+                    command.display_buffer,
+                )
+
         _advance_coordinated_window_frame(
             runtime,
             rng=self._window_rng,
@@ -337,7 +380,7 @@ class CoordinatedSimulationWorker:
             resources=self._resources,
             selection=selection,
             opponent_controls=dict(opponent_controls),
-            progress_callback=progress_payloads.append,
+            progress_callback=record_progress,
             ship_factory=self._ship_factory,
         )
         terminal_episode = (
@@ -348,6 +391,7 @@ class CoordinatedSimulationWorker:
         next_observation = None
         if not runtime.complete:
             next_observation = _trainee_observation(runtime)
+        audio_events = self._drain_audio_events(include=bool(command.capture_audio))
         return FrameSteppedResult(
             record_id=int(command.record_id),
             round_index=int(command.round_index),
@@ -357,7 +401,93 @@ class CoordinatedSimulationWorker:
             mature_samples=collector.drain_pending(),
             terminal_episode=terminal_episode,
             next_trainee_observation=next_observation,
+            audio_events=audio_events,
+            display_frames_ready=display_frames_ready,
         )
+
+    def _drain_audio_events(self, *, include: bool) -> tuple[tuple[Any, ...], ...]:
+        operations = getattr(self._audio_service, "operations", None)
+        if not isinstance(operations, list):
+            return ()
+        pending = tuple(operations)
+        operations.clear()
+        if not include:
+            return ()
+        events = []
+        for operation in pending:
+            if not operation:
+                continue
+            name, *args = operation
+            if name == "play_effect" and len(args) >= 2:
+                events.append((name, str(args[0]), float(args[1])))
+            elif name == "play_victory_ditty" and args:
+                events.append((name, getattr(args[0], "name", str(args[0]))))
+        return tuple(events)
+
+    def _capture_display_frames(
+        self,
+        runtime: _CoordinatedWindowRuntime,
+        spec: DisplayBufferSpec,
+    ) -> int:
+        width = int(spec.width)
+        height = int(spec.height)
+        frame_count = max(1, int(spec.frame_count))
+        frame_bytes = width * height * 3
+        required_bytes = frame_bytes * frame_count
+        if self._display_memory is None or self._display_memory.name != spec.name:
+            if self._display_memory is not None:
+                self._display_memory.close()
+            self._display_memory = shared_memory.SharedMemory(name=spec.name)
+        if self._display_memory.size < required_bytes:
+            raise ValueError("coordinated display buffer is too small")
+        if (
+            self._display_surface is None
+            or self._display_surface.get_size() != (width, height)
+        ):
+            if not pygame.font.get_init():
+                pygame.font.init()
+            self._display_surface = pygame.Surface((width, height))
+            self._display_renderer = BattleDrawController()
+            self._display_star_field = DisplayStarField(resources=self._resources)
+
+        surface = self._display_surface
+        renderer = self._display_renderer
+        star_field = self._display_star_field
+        if renderer is None or star_field is None:
+            raise RuntimeError("coordinated display renderer was not initialized")
+        native_arena = pygame.Rect(
+            const.SCREEN_LEFT,
+            0,
+            const.SCREEN_HEIGHT,
+            const.SCREEN_HEIGHT,
+        )
+        layout = create_play_battle_layout(native_arena)
+        simulation = runtime.simulation
+        for index in range(frame_count):
+            surface.fill((0, 0, 0))
+            renderer.draw(
+                surface,
+                simulation.world.snapshot(),
+                layout,
+                simulation.border_color,
+                star_field,
+                camera_targets=(simulation.player1, simulation.player2),
+                frame_id=simulation.frame_id,
+                original_ships=(simulation.player1, simulation.player2),
+                options=BattleDrawOptions(
+                    draw_instructions=False,
+                    interp_t=index / frame_count,
+                ),
+            )
+            pixels = pygame.image.tobytes(surface, "RGB")
+            offset = index * frame_bytes
+            self._display_memory.buf[offset : offset + frame_bytes] = pixels
+        return frame_count
+
+    def close(self) -> None:
+        if self._display_memory is not None:
+            self._display_memory.close()
+            self._display_memory = None
 
     def _handle_finish_window(
         self,
@@ -457,28 +587,31 @@ def worker_process_main(connection) -> None:
     """Run the request/response worker loop for one multiprocessing connection."""
 
     worker = CoordinatedSimulationWorker()
-    while True:
-        try:
-            command = connection.recv()
-        except EOFError:
-            break
-        command_name = getattr(command, "name", "")
-        try:
-            result = worker.handle(command)
-        except Exception as exc:
-            result = WorkerErrorResult(
-                record_id=getattr(command, "record_id", worker.record_id),
-                command_name=command_name,
-                exception_type=type(exc).__name__,
-                exception_message=str(exc),
-                traceback_text=traceback.format_exc(),
-            )
-        try:
-            connection.send(result)
-        except (BrokenPipeError, EOFError):
-            break
-        if getattr(result, "name", "") == RESULT_WORKER_STOPPED:
-            break
+    try:
+        while True:
+            try:
+                command = connection.recv()
+            except EOFError:
+                break
+            command_name = getattr(command, "name", "")
+            try:
+                result = worker.handle(command)
+            except Exception as exc:
+                result = WorkerErrorResult(
+                    record_id=getattr(command, "record_id", worker.record_id),
+                    command_name=command_name,
+                    exception_type=type(exc).__name__,
+                    exception_message=str(exc),
+                    traceback_text=traceback.format_exc(),
+                )
+            try:
+                connection.send(result)
+            except (BrokenPipeError, EOFError):
+                break
+            if getattr(result, "name", "") == RESULT_WORKER_STOPPED:
+                break
+    finally:
+        worker.close()
 
 
 def start_worker_process(

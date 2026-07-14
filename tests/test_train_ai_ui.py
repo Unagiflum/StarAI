@@ -526,22 +526,24 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertTrue(instance.state.display_on)
         self.assertEqual(instance.session.display_events, [])
 
-    def test_select_instance_turns_display_off_for_old_and_new_active(self):
+    def test_select_instance_transfers_global_display_to_new_active(self):
         manager = TrainingInstanceManager()
         first = manager.active_instance
         first.session = self.FakeSession(running=True)
         second = manager.add_instance()
         second.session = self.FakeSession(running=True)
         first.session.display_events.clear()
-        first.state.display_on = True
-        second.state.display_on = True
+        manager.set_active_display(True)
+        first.session.display_events.clear()
+        second.session.display_events.clear()
 
         manager.select_instance(first.instance_id)
 
         self.assertIs(manager.active_instance, first)
-        self.assertFalse(first.state.display_on)
+        self.assertTrue(manager.display_on)
+        self.assertTrue(first.state.display_on)
         self.assertFalse(second.state.display_on)
-        self.assertEqual(first.session.display_events, [False])
+        self.assertEqual(first.session.display_events, [True])
         self.assertEqual(second.session.display_events, [False])
 
     def test_back_action_stops_all_when_non_active_instance_is_running(self):
@@ -955,7 +957,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertFalse(validation.can_start_all)
         self.assertEqual(validation.blocking_code, "device")
 
-    def test_start_all_validation_blocks_display_on(self):
+    def test_start_all_validation_allows_display_on(self):
         manager, _first, second = self._coordinated_manager_with_two_user_slots()
         second.state.display_on = True
 
@@ -967,8 +969,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
             training_device_key_func=lambda _choice: "gpu",
         )
 
-        self.assertFalse(validation.can_start_all)
-        self.assertEqual(validation.blocking_code, "display")
+        self.assertTrue(validation.can_start_all)
 
     def test_coordinated_manager_attaches_proxies_and_releases_writers_after_stop(self):
         from src.training.coordinated import (
@@ -1449,11 +1450,11 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states[:4],
-            [("Display", False), ("Start", False), ("Stop All", True), ("Back", False)],
+            [("Display", True), ("Start", False), ("Stop All", True), ("Back", False)],
         )
         self.assertEqual(
             footer_states[-4:],
-            [("Display", False), ("Start", False), ("Stopping", False), ("Back", False)],
+            [("Display", True), ("Start", False), ("Stopping", False), ("Back", False)],
         )
 
     def test_individual_stopping_disables_stop_button(self):
@@ -2323,6 +2324,28 @@ class TrainingBatchLogBoxTests(unittest.TestCase):
 
 
 class TrainingBattleDisplayTests(unittest.TestCase):
+    def test_playback_interpolates_one_physics_frame_at_configured_ui_rate(self):
+        playback = train_ai.TrainingDisplayPlayback()
+        status = SimpleNamespace(battle_view={"frame_id": 10})
+
+        self.assertEqual(playback.interpolation_for(1, status, 0.01), 0.0)
+        self.assertAlmostEqual(
+            playback.interpolation_for(1, status, 1.0 / const.VIDEO_FPS),
+            const.FPS / const.VIDEO_FPS,
+        )
+        self.assertEqual(playback.interpolation_for(1, status, 1.0), 1.0)
+
+        status.battle_view = {"frame_id": 11}
+        self.assertEqual(playback.interpolation_for(1, status, 0.01), 0.0)
+
+    def test_playback_resets_when_switching_instances(self):
+        playback = train_ai.TrainingDisplayPlayback()
+        status = SimpleNamespace(battle_view={"frame_id": 10})
+        playback.interpolation_for(1, status, 0.0)
+        playback.interpolation_for(1, status, 1.0)
+
+        self.assertEqual(playback.interpolation_for(2, status, 0.1), 0.0)
+
     def test_legacy_training_hud_helpers_are_removed(self):
         for name in (
             "_ship_for_player",
@@ -2361,6 +2384,7 @@ class TrainingBattleDisplayTests(unittest.TestCase):
                 status,
                 star_field_renderer,
                 controller,
+                interp_t=0.5,
             )
 
         args, kwargs = controller.draw.call_args
@@ -2372,6 +2396,7 @@ class TrainingBattleDisplayTests(unittest.TestCase):
         self.assertIsNone(layout.player2_hud_rect)
         self.assertIs(args[4], star_field_renderer)
         self.assertFalse(options.draw_huds)
+        self.assertEqual(options.interp_t, 0.5)
         display_flip.assert_not_called()
 
     def test_display_on_without_battle_view_draws_status_instead_of_stale_frame(self):
@@ -2408,6 +2433,67 @@ class TrainingBattleDisplayTests(unittest.TestCase):
         controller.draw.assert_not_called()
         draw_status.assert_called_once_with(screen, rect, status, font, small_font)
 
+    def test_worker_rendered_frame_blits_without_reconstructing_object_graph(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        frame = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        frame.fill((12, 34, 56))
+        status = SimpleNamespace(
+            battle_view={"frame_id": 1, "rendered_frames": (frame,)}
+        )
+        controller = mock.Mock()
+
+        _draw_training_battle(
+            screen,
+            training_layout().arena_rect,
+            status,
+            object(),
+            controller,
+            interp_t=0.5,
+        )
+
+        controller.draw.assert_not_called()
+        self.assertEqual(
+            screen.get_at(training_layout().arena_rect.center)[:3],
+            (12, 34, 56),
+        )
+
+    def test_worker_rendered_huds_crop_native_panel_height_before_scaling(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        frame = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        frame.fill((0, 0, 255))
+        hud_rects = training_layout().hud_rects
+        source_height = hud_rects[0].height
+        frame.fill((255, 0, 0), pygame.Rect(0, 0, const.SCREEN_LEFT, source_height))
+        frame.fill(
+            (0, 255, 0),
+            pygame.Rect(
+                const.SCREEN_LEFT + const.SCREEN_HEIGHT,
+                0,
+                const.SCREEN_WIDTH - const.SCREEN_LEFT - const.SCREEN_HEIGHT,
+                source_height,
+            ),
+        )
+        status = SimpleNamespace(
+            battle_view={"frame_id": 1, "rendered_frames": (frame,)}
+        )
+        controller = mock.Mock()
+
+        _draw_training_huds(
+            screen,
+            hud_rects,
+            status,
+            object(),
+            controller,
+        )
+
+        controller.draw.assert_not_called()
+        left_color = screen.get_at(hud_rects[0].center)[:3]
+        right_color = screen.get_at(hud_rects[1].center)[:3]
+        self.assertGreater(left_color[0], 240)
+        self.assertLess(left_color[2], 5)
+        self.assertGreater(right_color[1], 240)
+        self.assertLess(right_color[2], 5)
+
     def test_display_on_huds_use_shared_controller_with_training_rects(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         hud_rects = training_layout().hud_rects
@@ -2430,6 +2516,7 @@ class TrainingBattleDisplayTests(unittest.TestCase):
             status,
             star_field_renderer,
             controller,
+            interp_t=0.5,
         )
 
         args, kwargs = controller.draw.call_args
@@ -2440,6 +2527,7 @@ class TrainingBattleDisplayTests(unittest.TestCase):
         self.assertEqual(layout.player2_hud_rect, hud_rects[1])
         self.assertIs(args[4], star_field_renderer)
         self.assertFalse(options.draw_arena)
+        self.assertEqual(options.interp_t, 0.5)
 
     def test_display_on_hud_draws_shared_live_ship_features(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))

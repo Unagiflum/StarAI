@@ -14,7 +14,8 @@ lifecycle rules:
 - `Start All` is available only when no training instance is running.
 - Every included instance must be GPU-backed.
 - Every included model must have the same value-network architecture.
-- During a coordinated run, only `Stop All` is available.
+- During a coordinated run, `Stop All`, instance selection, and the global
+  `Display` viewer toggle remain available.
 - Individual stop, close, add, remove, and training-setting edits are disabled
   until the coordinated run exits.
 
@@ -181,7 +182,6 @@ Coordinated scope is unavailable if any of these are true:
 - Resolved training devices differ.
 - Any resolved training device is not CUDA/GPU.
 - PyTorch or CUDA is unavailable.
-- Display is on for any instance.
 
 Device compatibility must compare resolved device keys, not only UI strings.
 For example, `auto` and explicit `GPU` are compatible if both resolve to the
@@ -220,7 +220,6 @@ comparable setting changes immediately.
   - hidden layer count
 - Every included instance resolves to the same CUDA/GPU device.
 - PyTorch and CUDA are available.
-- Display is off for all instances.
 
 If any check fails after the user clicks `Start All`, show one concise
 user-facing notice identifying the first blocking reason.
@@ -259,9 +258,13 @@ While the coordinated scheduler is running:
 - Individual `Start` / `Stop` is disabled.
 - `Close` is disabled.
 - `Add` is disabled.
-- Instance selection remains allowed for status inspection only.
+- Instance selection remains allowed for status and live-view selection.
 - Training-defining controls are disabled.
-- Display On is disabled.
+- Display remains enabled and transfers the live view to the selected instance.
+- While Display is on, synchronized physics-frame groups are capped at 24 Hz;
+  slower simulation groups are presented without additional delay.
+- The UI applies the configured video-frame interpolation between physics
+  snapshots. Display Off restores unrestricted coordinated throughput.
 - Back behaves like `Stop All` or is disabled until stop completes.
 
 No individual stop or close behavior is required for the first implementation.
@@ -287,8 +290,13 @@ Each instance should continue to expose status through the same UI concepts:
 The active instance's display-off console can continue to show only the active
 instance. The instance strip should still show which instances are running.
 
-Live battle rendering is out of scope for the first coordinated scheduler. The
-coordinated run should be headless.
+Live battle rendering publishes only the selected instance. In-process runs
+publish stable render snapshots. Multi-process runs render configured
+interpolation subframes in the selected worker and transfer them through shared
+memory so pygame surfaces are not serialized through the worker command pipe.
+Battle music and effects likewise follow only the selected displayed instance;
+multi-process workers relay its normalized audio events to the parent process.
+Turning Display off stops coordinated battle music.
 
 ## Functional Requirements
 
@@ -566,7 +574,6 @@ The first implementation should not include:
 - Individual stop during coordinated run.
 - Individual close during coordinated run.
 - Adding instances during coordinated run.
-- Live battle display during coordinated run.
 - Mixed CPU/GPU coordinated training.
 - Mixed architecture coordinated training.
 - Distributed training across processes or machines.
@@ -777,8 +784,8 @@ Add or update tests for:
   instances.
 - `Start All` reserves every writer key before scheduler start.
 - Failed scheduler startup releases all writer keys.
-- During coordinated run, add/close/individual start/individual stop/display are
-  disabled.
+- During coordinated run, add/close/individual start/individual stop are
+  disabled; Display and instance switching remain enabled.
 - `Stop All` requests scheduler stop.
 - Coordinated status snapshots populate active-instance console fields.
 - Fixed frame windows continue after terminal reset.

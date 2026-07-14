@@ -10,11 +10,15 @@ from pathlib import Path
 import random
 import threading
 import time
+from types import SimpleNamespace
 from typing import Any
 
+import pygame
+
+import src.const as const
 from src.Battle.battle import BattleSimulation
 from src.Objects.Ships.registry import create_ship
-from src.audio import NullAudioService
+from src.audio import DisplayGatedAudioService, NullAudioService
 from src.training import torch_backend
 from src.training import event_ledger
 from src.training.batched_value_network import (
@@ -54,9 +58,11 @@ from src.training.orchestration import (
     direct_controls_for_action_index,
     discover_existing_ai_opponents,
     existing_ai_opponent_schedule,
+    _battle_view_from_simulation,
     simple_opponent_schedule,
 )
 from src.training.opponent_cache import OpponentModelKey
+from src.training.render_view import freeze_battle_view
 from src.training.replay import (
     TrainingReplayBuffer,
     load_training_checkpoint,
@@ -394,6 +400,7 @@ class _ProcessWorkerClient:
                 worker_id=self.worker_id,
                 record_id=self.record_id,
                 base_seed=int(base_seed),
+                video_fps_multiplier=const.VIDEO_FPS_MULTIPLIER,
             )
         )
         result = self.recv()
@@ -494,8 +501,7 @@ class CoordinatedTrainingStatusProxy:
         self._scheduler.join(timeout)
 
     def set_display_on(self, enabled: bool) -> None:
-        if enabled:
-            raise RuntimeError("Coordinated training runs are headless")
+        self._scheduler.set_display_on(self._instance_id, enabled)
 
     def set_starting_epsilon(self, value: float) -> None:
         self._scheduler.set_starting_epsilon(self._instance_id, value)
@@ -559,6 +565,13 @@ class CoordinatedTrainingSession:
         self._component_builder = component_builder or build_coordinated_components
         self._simulation_factory = simulation_factory
         self._audio_service = audio_service or NullAudioService()
+        self._record_audio_services = {
+            instance_id: DisplayGatedAudioService(
+                self._audio_service,
+                lambda item=instance_id: self._display_enabled_for(item),
+            )
+            for instance_id in self._states
+        }
         self._rng = rng or random.Random()
         self._run_batches = bool(run_batches)
         self._idle_sleep_seconds = max(0.0, float(idle_sleep_seconds))
@@ -570,6 +583,10 @@ class CoordinatedTrainingSession:
         self._notices: list[str] = []
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
+        self._display_changed = threading.Event()
+        self._display_instance_id: int | None = None
+        self._next_display_frame_time = time.perf_counter()
+        self._display_memory = None
         self._thread: threading.Thread | None = None
         self._run_started_at: float | None = None
         self._run_stopped_at: float | None = None
@@ -733,6 +750,35 @@ class CoordinatedTrainingSession:
                 if state.status.running:
                     state.status.stopping = True
                     state.status.display_message = "Stopping coordinated run"
+
+    def set_display_on(self, instance_id: int, enabled: bool) -> None:
+        instance_id = int(instance_id)
+        start_music = False
+        stop_music = False
+        with self._lock:
+            if enabled:
+                if instance_id not in self._states:
+                    raise ValueError(f"unknown coordinated instance {instance_id}")
+                if self._display_instance_id == instance_id:
+                    return
+                stop_music = self._display_instance_id is not None
+                self._display_instance_id = instance_id
+                self._next_display_frame_time = time.perf_counter()
+                start_music = True
+                for other_id, state in self._states.items():
+                    if other_id != instance_id:
+                        state.status.battle_view = None
+            elif self._display_instance_id == instance_id:
+                self._display_instance_id = None
+                self._states[instance_id].status.battle_view = None
+                stop_music = True
+            else:
+                return
+        if stop_music:
+            self._audio_service.stop_music()
+        if start_music:
+            self._audio_service.start_battle_music()
+        self._display_changed.set()
 
     def join(self, timeout: float | None = None) -> None:
         if self._thread is not None:
@@ -904,7 +950,7 @@ class CoordinatedTrainingSession:
                             policy=policy,
                             rng=self._rng,
                             simulation_factory=self._simulation_factory,
-                            audio_service=self._audio_service,
+                            audio_service=self._audio_for_instance(instance_id),
                         )
                     )
                 while any(not window.complete for window in active_windows):
@@ -960,21 +1006,22 @@ class CoordinatedTrainingSession:
                             window,
                             rng=self._rng,
                             simulation_factory=self._simulation_factory,
-                            audio_service=self._audio_service,
+                            audio_service=self._audio_for_instance(
+                                window.state.record.instance_id
+                            ),
                             observation=request.observation,
                             selection=action_result.selections[request.record_id],
                             opponent_controls=opponent_controls_by_window[id(window)],
                             progress_callback=(
-                                lambda payload, item=window.state: self._on_record_progress(
-                                    item,
-                                    payload,
-                                )
+                                lambda payload, item=window:
+                                    self._on_in_process_window_progress(item, payload)
                             ),
                             stop_requested=self._stop_requested.is_set,
                             timing_seconds=timing_seconds,
                         )
                         if timing_seconds is not None:
                             timing_frame_count += 1
+                    self._throttle_display_frame()
                     _raise_if_stop_requested(self._stop_requested.is_set)
                 for window in active_windows:
                     result = _finish_coordinated_window(
@@ -1060,6 +1107,7 @@ class CoordinatedTrainingSession:
 
     def _run_one_worker_backed_coordinated_batch(self) -> bool:
         from src.training.process_worker import (
+            DisplayBufferSpec,
             FinishWindowCommand,
             RequestObservationCommand,
             StartWindowCommand,
@@ -1244,6 +1292,11 @@ class CoordinatedTrainingSession:
                                     direct_controls,
                                 ),
                                 sequence_number=timing_frame_count + 1,
+                                capture_audio=self._display_enabled_for(record_id),
+                                display_buffer=self._display_buffer_spec(
+                                    record_id,
+                                    DisplayBufferSpec,
+                                ),
                             )
                         )
                     for window, _observation in frame_requests:
@@ -1257,13 +1310,23 @@ class CoordinatedTrainingSession:
                         window.complete = bool(frame_result.complete)
                         if frame_result.terminal_episode is not None:
                             window.policy.reset_exploration_span()
+                        if frame_result.audio_events:
+                            self._relay_audio_events(record_id, frame_result.audio_events)
                         progress_payload = frame_result.progress_payload
                         if progress_payload:
                             progress_payload = dict(progress_payload)
                             progress_payload["replay_size"] = len(
                                 components.replay_buffer
                             )
+                            if frame_result.display_frames_ready:
+                                progress_payload["battle_view"] = (
+                                    self._battle_view_from_display_buffer(
+                                        frame_result.frame_count,
+                                        frame_result.display_frames_ready,
+                                    )
+                                )
                             self._on_record_progress(window.state, progress_payload)
+                    self._throttle_display_frame()
                     _raise_if_stop_requested(self._stop_requested.is_set)
 
                 for window in active_windows:
@@ -1298,6 +1361,7 @@ class CoordinatedTrainingSession:
             return False
         finally:
             self._shutdown_cpu_workers(workers.values())
+            self._release_display_buffer()
             with self._lock:
                 self._current_batch_started_at = None
 
@@ -1775,10 +1839,14 @@ class CoordinatedTrainingSession:
         if payload.get("event") != "frame":
             return
         frame = int(payload.get("frame", 0))
-        if not should_update_live_frame_status(frame):
+        display_on = self._display_enabled_for(state.record.instance_id)
+        if not should_update_live_frame_status(frame, display_on=display_on):
             return
         opponent = payload.get("opponent")
         opponent_label = getattr(opponent, "ship", "") if opponent is not None else ""
+        battle_view = payload.get("battle_view") if display_on else None
+        if battle_view is not None and "rendered_frames" not in battle_view:
+            battle_view = freeze_battle_view(battle_view)
         with self._lock:
             state.status.current_frame = frame
             state.status.current_opponent = opponent_label
@@ -1790,15 +1858,128 @@ class CoordinatedTrainingSession:
                 payload.get("weighted_total_return", 0.0)
             )
             state.status.component_totals = dict(payload.get("component_totals", {}))
+            if (
+                battle_view is not None
+                and self._display_instance_id == state.record.instance_id
+            ):
+                state.status.battle_view = battle_view
+
+    def _on_in_process_window_progress(
+        self,
+        window: _CoordinatedWindowRuntime,
+        payload: Mapping[str, Any],
+    ) -> None:
+        if self._display_enabled_for(window.state.record.instance_id):
+            payload = dict(payload)
+            battle_view = _battle_view_from_simulation(window.simulation)
+            battle_view["frame_id"] = int(payload.get("frame", window.frames_consumed))
+            payload["battle_view"] = battle_view
+        self._on_record_progress(window.state, payload)
+
+    def _display_enabled_for(self, instance_id: int) -> bool:
+        with self._lock:
+            return self._display_instance_id == int(instance_id)
+
+    def _audio_for_instance(self, instance_id: int):
+        return self._record_audio_services[int(instance_id)]
+
+    def _relay_audio_events(
+        self,
+        instance_id: int,
+        events: Sequence[tuple[Any, ...]],
+    ) -> None:
+        if not self._display_enabled_for(instance_id):
+            return
+        for event in events:
+            if not event:
+                continue
+            name, *args = event
+            if name == "play_effect" and len(args) >= 2:
+                self._audio_service.play_effect(args[0], args[1])
+            elif name == "play_victory_ditty" and args:
+                self._audio_service.play_victory_ditty(
+                    SimpleNamespace(name=str(args[0]))
+                )
+
+    def _throttle_display_frame(self) -> None:
+        with self._lock:
+            self._display_changed.clear()
+            if self._display_instance_id is None:
+                self._next_display_frame_time = time.perf_counter()
+                return
+            self._next_display_frame_time += 1.0 / const.FPS
+            sleep_seconds = self._next_display_frame_time - time.perf_counter()
+        if sleep_seconds > 0:
+            if self._display_changed.wait(sleep_seconds):
+                with self._lock:
+                    self._next_display_frame_time = time.perf_counter()
+        else:
+            with self._lock:
+                self._next_display_frame_time = time.perf_counter()
+
+    def _display_buffer_spec(self, instance_id: int, spec_type):
+        if not self._display_enabled_for(instance_id):
+            return None
+        if self._display_memory is None:
+            from multiprocessing import shared_memory
+
+            frame_bytes = const.SCREEN_WIDTH * const.SCREEN_HEIGHT * 3
+            self._display_memory = shared_memory.SharedMemory(
+                create=True,
+                size=frame_bytes * max(1, const.VIDEO_FPS_MULTIPLIER),
+            )
+        return spec_type(
+            name=self._display_memory.name,
+            width=const.SCREEN_WIDTH,
+            height=const.SCREEN_HEIGHT,
+            frame_count=max(1, const.VIDEO_FPS_MULTIPLIER),
+        )
+
+    def _battle_view_from_display_buffer(
+        self,
+        frame_id: int,
+        frame_count: int,
+    ) -> dict[str, Any]:
+        if self._display_memory is None:
+            raise RuntimeError("coordinated display buffer is not available")
+        width = const.SCREEN_WIDTH
+        height = const.SCREEN_HEIGHT
+        frame_bytes = width * height * 3
+        frames = []
+        for index in range(max(0, int(frame_count))):
+            offset = index * frame_bytes
+            pixels = bytes(self._display_memory.buf[offset : offset + frame_bytes])
+            frames.append(pygame.image.frombytes(pixels, (width, height), "RGB"))
+        return {
+            "rendered_frames": tuple(frames),
+            "frame_id": int(frame_id),
+        }
+
+    def _release_display_buffer(self) -> None:
+        memory = self._display_memory
+        self._display_memory = None
+        if memory is None:
+            return
+        try:
+            memory.close()
+        finally:
+            try:
+                memory.unlink()
+            except FileNotFoundError:
+                pass
 
     def _mark_stopped(self) -> None:
         with self._lock:
+            stop_music = self._display_instance_id is not None
+            self._display_instance_id = None
             self._run_stopped_at = time.perf_counter()
             for state in self._states.values():
                 state.status.running = False
                 state.status.stopping = False
                 if not state.status.error:
                     state.status.display_message = ""
+        if stop_music:
+            self._audio_service.stop_music()
 
     def _elapsed_seconds_locked(self) -> float:
         if self._run_started_at is None:

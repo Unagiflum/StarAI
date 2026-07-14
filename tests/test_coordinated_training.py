@@ -1,5 +1,6 @@
 import csv
 import multiprocessing
+from multiprocessing import shared_memory
 import pickle
 import tempfile
 import time
@@ -8,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import src.const as const
+from src.audio import RecordingAudioService
 from src.training import torch_backend
 from src.training import batched_value_network
 from src.training.coordinated import CPU_WORKER_FALLBACK_NOTICE
@@ -28,6 +31,7 @@ from src.training.coordinated import (
 from src.training.process_worker import (
     COMMAND_REQUEST_OBSERVATION,
     CoordinatedSimulationWorker,
+    DisplayBufferSpec,
     FinishWindowCommand,
     FrameSteppedResult,
     RequestObservationCommand,
@@ -85,12 +89,13 @@ def _record(instance_id, ship, batch_grouping=1, **config_overrides):
 
 
 class CoordinatedTrainingSessionTests(unittest.TestCase):
-    def _session(self, *, component_builder=None):
+    def _session(self, *, component_builder=None, **kwargs):
         return CoordinatedTrainingSession(
             (_record(1, "Earthling"), _record(2, "Androsynth")),
             component_builder=component_builder or self._component_builder([]),
             run_batches=False,
             idle_sleep_seconds=0.001,
+            **kwargs,
         )
 
     def _component_builder(self, built):
@@ -162,6 +167,70 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
         self.assertEqual(status.current_frame, 100)
         self.assertEqual(status.replay_size, 100)
         self.assertEqual(status.weighted_total_return, 10.0)
+
+    def test_display_proxy_selects_instance_and_paces_at_physics_rate(self):
+        session = self._session()
+        session.proxies[1].set_display_on(True)
+        session._display_changed.clear()
+        session._next_display_frame_time = 100.0
+
+        with (
+            mock.patch("src.training.coordinated.time.perf_counter", return_value=100.0),
+            mock.patch.object(session._display_changed, "wait", return_value=False) as wait,
+        ):
+            session._throttle_display_frame()
+
+        wait.assert_called_once()
+        self.assertAlmostEqual(wait.call_args.args[0], 1.0 / 24.0)
+
+    def test_display_progress_updates_selected_instance_every_frame(self):
+        session = self._session()
+        session.set_display_on(1, True)
+        rendered_frames = (object(),)
+
+        session._on_record_progress(
+            session._states[1],
+            {
+                "event": "frame",
+                "frame": 1,
+                "opponent": OpponentSpec("Earthling"),
+                "battle_view": {
+                    "frame_id": 1,
+                    "rendered_frames": rendered_frames,
+                },
+            },
+        )
+
+        status = session.status_for_instance(1)
+        self.assertEqual(status.current_frame, 1)
+        self.assertIs(status.battle_view["rendered_frames"], rendered_frames)
+
+    def test_display_starts_and_stops_coordinated_music_once(self):
+        audio = RecordingAudioService()
+        session = self._session(audio_service=audio)
+
+        session.set_display_on(1, True)
+        session.set_display_on(1, True)
+        session.set_display_on(1, False)
+
+        self.assertEqual(
+            audio.operations,
+            [("start_battle_music",), ("stop_music",)],
+        )
+
+    def test_coordinated_effects_follow_only_the_displayed_instance(self):
+        audio = RecordingAudioService()
+        session = self._session(audio_service=audio)
+        session.set_display_on(1, True)
+        audio.operations.clear()
+
+        session._relay_audio_events(2, (("play_effect", "hidden.wav", 0.5),))
+        session._relay_audio_events(1, (("play_effect", "visible.wav", 0.25),))
+
+        self.assertEqual(
+            audio.operations,
+            [("play_effect", Path("visible.wav"), 0.25)],
+        )
 
     def test_component_build_error_marks_all_records_and_exits(self):
         def fail(_record):
@@ -496,6 +565,58 @@ class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):
                 process.join(2.0)
         self.assertFalse(process.is_alive())
 
+    def test_worker_process_writes_selected_display_frame_to_shared_memory(self):
+        try:
+            context = multiprocessing.get_context("spawn")
+        except ValueError:
+            self.skipTest("spawn multiprocessing context is unavailable")
+        frame_bytes = const.SCREEN_WIDTH * const.SCREEN_HEIGHT * 3
+        memory = shared_memory.SharedMemory(create=True, size=frame_bytes)
+        process, connection = start_worker_process(context=context)
+        try:
+            connection.send(StartRunCommand(1, 1, 1, video_fps_multiplier=1))
+            self.assertIsInstance(connection.recv(), WorkerReadyResult)
+            connection.send(
+                StartWindowCommand(
+                    1,
+                    1,
+                    TrainingOrchestrationConfig(
+                        trainee_ship="Earthling",
+                        match_time_limit=1,
+                    ),
+                    OpponentSpec("Androsynth"),
+                    1,
+                )
+            )
+            self.assertIsInstance(connection.recv(), WindowStartedResult)
+            connection.send(
+                StepFrameCommand(
+                    1,
+                    1,
+                    0,
+                    False,
+                    opponent_controls={},
+                    display_buffer=DisplayBufferSpec(memory.name, frame_count=1),
+                )
+            )
+            result = connection.recv()
+            self.assertIsInstance(result, FrameSteppedResult)
+            self.assertEqual(result.display_frames_ready, 1)
+            self.assertTrue(any(memory.buf[:1000]))
+            connection.send(ShutdownCommand())
+            self.assertIsInstance(connection.recv(), WorkerStoppedResult)
+        finally:
+            connection.close()
+            process.join(3.0)
+            if process.is_alive():
+                process.terminate()
+                process.join(2.0)
+            memory.close()
+            try:
+                memory.unlink()
+            except FileNotFoundError:
+                pass
+
 
 class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
     def _worker(self, *, simulation_factory=None):
@@ -601,6 +722,51 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
         parent_replay.extend(step.mature_samples)
         self.assertEqual(len(parent_replay), 1)
         self.assertEqual(parent_replay[0].action_index, 3)
+
+    def test_step_frame_captures_interpolated_frames_when_requested(self):
+        worker = self._worker()
+        self._start_window(worker)
+        display_buffer = DisplayBufferSpec("unused", frame_count=3)
+
+        with mock.patch.object(
+            worker,
+            "_capture_display_frames",
+            return_value=3,
+        ) as capture:
+            step = worker.handle(
+                StepFrameCommand(
+                    9,
+                    1,
+                    0,
+                    False,
+                    opponent_controls={},
+                    display_buffer=display_buffer,
+                )
+            )
+
+        self.assertEqual(step.display_frames_ready, 3)
+        capture.assert_called_once_with(worker._runtime, display_buffer)
+
+    def test_step_frame_returns_audio_events_when_display_capture_is_enabled(self):
+        worker = self._worker()
+        self._start_window(worker)
+        worker._audio_service.play_effect(Path("effect.wav"), 0.25)
+
+        step = worker.handle(
+            StepFrameCommand(
+                9,
+                1,
+                0,
+                False,
+                opponent_controls={},
+                capture_audio=True,
+            )
+        )
+
+        self.assertEqual(
+            step.audio_events,
+            (("play_effect", str(Path("effect.wav")), 0.25),),
+        )
 
     def test_terminal_reset_and_finish_window_preserve_fixed_window_semantics(self):
         factory = ScriptedSimulationFactory(
