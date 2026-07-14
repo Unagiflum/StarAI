@@ -1499,7 +1499,7 @@ class TrainingConsoleTests(unittest.TestCase):
                 "Gamma     |          0.990",
                 "Eps decay |          0.990",
                 "Epsilon   |          0.36577",
-                "LR        |          0.00030",
+                "Learning  |          0.00030",
             ),
         )
         reward_name_width = max(len(label) for label in REWARD_LABELS)
@@ -1512,8 +1512,8 @@ class TrainingConsoleTests(unittest.TestCase):
             lines,
         )
 
-    def test_batch_log_font_size_uses_available_log_space(self):
-        self.assertEqual(TRAINING_BATCH_LOG_FONT_SIZE, 12)
+    def test_batch_log_font_size_keeps_log_fitting(self):
+        self.assertEqual(TRAINING_BATCH_LOG_FONT_SIZE, 11)
 
     def test_current_batch_ship_name_is_right_aligned(self):
         lines = _display_off_console_lines(self._status(ship="Mycon"), ())

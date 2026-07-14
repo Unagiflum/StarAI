@@ -126,7 +126,7 @@ CURRENT_BATCH_LABEL_WIDTH = 10
 CURRENT_BATCH_TEXT_VALUE_WIDTH = 11
 CURRENT_BATCH_REWARD_NAME_WIDTH = max((len(label) for label in REWARD_LABELS), default=0)
 CURRENT_BATCH_REWARD_VALUE_WIDTH = 8
-TRAINING_BATCH_LOG_FONT_SIZE = 12
+TRAINING_BATCH_LOG_FONT_SIZE = 11
 
 CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
 TAB_MARGIN = 8
@@ -1919,7 +1919,7 @@ def _current_batch_console_lines(status):
         _current_batch_row("Gamma", f"{getattr(status, 'gamma', 0.0):>15.3f}"),
         _current_batch_row("Eps decay", f"{getattr(status, 'epsilon_decay', 0.0):>15.3f}"),
         _current_batch_row("Epsilon", f"{getattr(status, 'current_epsilon', 0.0):>17.5f}"),
-        _current_batch_row("LR", f"{getattr(status, 'learning_rate', 0.0):>17.5f}"),
+        _current_batch_row("Learning", f"{getattr(status, 'learning_rate', 0.0):>17.5f}"),
         "",
     ]
     
