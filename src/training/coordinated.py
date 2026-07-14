@@ -1348,18 +1348,26 @@ class CoordinatedTrainingSession:
     def _start_cpu_workers(self) -> dict[int, Any]:
         workers: dict[int, Any] = {}
         factory = self._worker_client_factory
-        for worker_id, (instance_id, _state) in enumerate(self._states.items(), start=1):
-            client = (
-                factory(worker_id=worker_id, record_id=instance_id)
-                if factory is not None
-                else _ProcessWorkerClient(worker_id=worker_id, record_id=instance_id)
-            )
-            start = getattr(client, "start", None)
-            if callable(start):
-                start(base_seed=self._worker_base_seed(instance_id))
-            else:
-                raise _WorkerRuntimeError("worker client does not provide start()")
-            workers[instance_id] = client
+        try:
+            for worker_id, (instance_id, _state) in enumerate(
+                self._states.items(), start=1
+            ):
+                client = (
+                    factory(worker_id=worker_id, record_id=instance_id)
+                    if factory is not None
+                    else _ProcessWorkerClient(worker_id=worker_id, record_id=instance_id)
+                )
+                # Register before startup so a process/pipe created by a
+                # partially failed start is still closed.
+                workers[instance_id] = client
+                start = getattr(client, "start", None)
+                if callable(start):
+                    start(base_seed=self._worker_base_seed(instance_id))
+                else:
+                    raise _WorkerRuntimeError("worker client does not provide start()")
+        except Exception:
+            self._shutdown_cpu_workers(workers.values())
+            raise
         return workers
 
     def _shutdown_cpu_workers(self, workers: Sequence[Any]) -> None:

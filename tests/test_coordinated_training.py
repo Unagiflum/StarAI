@@ -1023,6 +1023,30 @@ class FakeWorkerClient:
 
 
 class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
+    def test_partial_worker_startup_failure_shuts_down_every_created_client(self):
+        clients = []
+
+        def worker_factory(**kwargs):
+            client = FakeWorkerClient(**kwargs)
+            if kwargs["record_id"] == 2:
+                client.start = mock.Mock(side_effect=RuntimeError("startup failed"))
+            clients.append(client)
+            return client
+
+        session = CoordinatedTrainingSession(
+            (
+                _record(1, "Earthling"),
+                _record(2, "Androsynth"),
+            ),
+            worker_client_factory=worker_factory,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "startup failed"):
+            session._start_cpu_workers()
+
+        self.assertEqual(len(clients), 2)
+        self.assertTrue(all(client.shutdown_called for client in clients))
+
     def test_worker_backed_batch_batches_parent_actions_and_inserts_replay(self):
         clients = []
         replay_buffers = {}

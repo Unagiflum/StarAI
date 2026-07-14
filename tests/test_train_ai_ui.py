@@ -502,6 +502,16 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(first.session.display_events, [False])
         self.assertEqual(second.session.display_events, [True])
 
+    def test_enabling_display_after_coordinated_run_does_not_notify_stopped_proxy(self):
+        manager = TrainingInstanceManager()
+        instance = manager.active_instance
+        instance.session = self.FakeSession(running=False)
+
+        manager.set_active_display(True)
+
+        self.assertTrue(instance.state.display_on)
+        self.assertEqual(instance.session.display_events, [])
+
     def test_select_instance_turns_display_off_for_old_and_new_active(self):
         manager = TrainingInstanceManager()
         first = manager.active_instance
@@ -1751,6 +1761,65 @@ class TrainingBatchLogBoxTests(unittest.TestCase):
         )
 
         self.assertLess(box.scroll_line, bottom_line)
+
+    def test_up_and_down_keys_scroll_when_pointer_is_over_log(self):
+        box, rect, font = self._box_with_lines()
+        bottom_line = box.scroll_line
+
+        with mock.patch("pygame.mouse.get_pos", return_value=rect.center):
+            handled = box.handle_event(
+                pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_UP}),
+                rect,
+                font,
+            )
+
+        self.assertTrue(handled)
+        self.assertEqual(box.scroll_line, bottom_line - 1)
+
+        with mock.patch("pygame.mouse.get_pos", return_value=(-1, -1)):
+            handled = box.handle_event(
+                pygame.event.Event(pygame.KEYDOWN, {"key": pygame.K_DOWN}),
+                rect,
+                font,
+            )
+
+        self.assertFalse(handled)
+        self.assertEqual(box.scroll_line, bottom_line - 1)
+
+    def test_scrollbar_track_pages_and_thumb_drags(self):
+        box, rect, font = self._box_with_lines(40)
+        track, thumb = box._scrollbar_geometry(rect, font)
+
+        self.assertEqual(thumb.bottom, track.bottom)
+        box.handle_event(
+            pygame.event.Event(
+                pygame.MOUSEBUTTONDOWN,
+                {"button": 1, "pos": (track.centerx, track.top + 1)},
+            ),
+            rect,
+            font,
+        )
+        self.assertLess(box.scroll_line, box._max_scroll_line())
+
+        track, thumb = box._scrollbar_geometry(rect, font)
+        box.handle_event(
+            pygame.event.Event(
+                pygame.MOUSEBUTTONDOWN,
+                {"button": 1, "pos": thumb.center},
+            ),
+            rect,
+            font,
+        )
+        box.handle_event(
+            pygame.event.Event(
+                pygame.MOUSEMOTION,
+                {"pos": (track.centerx, track.top)},
+            ),
+            rect,
+            font,
+        )
+
+        self.assertEqual(box.scroll_line, 0)
 
     def test_new_lines_do_not_force_scroll_when_user_reading_history(self):
         box, rect, font = self._box_with_lines()

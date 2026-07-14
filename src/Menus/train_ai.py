@@ -638,7 +638,14 @@ class TrainingInstanceManager:
                 if instance is not active_instance:
                     self.disable_display(instance)
             active_instance.state.display_on = True
-            if active_instance.session is not None:
+            # A stopped coordinated run leaves a headless status proxy attached
+            # so its log/history remain available for a subsequent run.  It
+            # cannot render, and there is no live session to notify until the
+            # instance is started again.
+            if (
+                active_instance.session is not None
+                and self.is_running_or_stopping(active_instance)
+            ):
                 active_instance.session.set_display_on(True)
         else:
             self.disable_display(active_instance)
@@ -1633,6 +1640,8 @@ class TrainingBatchLogBox:
         self.scroll_line = 0
         self.visible_count = 1
         self.dragging = False
+        self.scrollbar_dragging = False
+        self.scrollbar_drag_offset = 0
         self.selection_anchor: int | None = None
         self.selection_focus: int | None = None
 
@@ -1658,33 +1667,64 @@ class TrainingBatchLogBox:
 
     def handle_event(self, event, rect, font):
         if event.type == pygame.MOUSEWHEEL:
-            mouse_pos = getattr(event, "pos", pygame.mouse.get_pos())
+            mouse_pos = _event_mouse_position(event)
             if rect.collidepoint(mouse_pos):
                 self._update_visible_count(rect, font)
                 self._scroll_lines(-event.y * 3)
-            return
+                return True
+            return False
+
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_UP, pygame.K_DOWN):
+            if rect.collidepoint(_event_mouse_position(event)):
+                self._update_visible_count(rect, font)
+                self._scroll_lines(-1 if event.key == pygame.K_UP else 1)
+                return True
+            return False
 
         if event.type == pygame.MOUSEBUTTONDOWN and rect.collidepoint(event.pos):
             if event.button in (4, 5):
                 direction = -1 if event.button == 4 else 1
                 self._update_visible_count(rect, font)
                 self._scroll_lines(direction * 3)
+                return True
             elif event.button == 1:
+                self._update_visible_count(rect, font)
+                geometry = self._scrollbar_geometry(rect, font)
+                if geometry is not None:
+                    track, thumb = geometry
+                    if thumb.collidepoint(event.pos):
+                        self.scrollbar_dragging = True
+                        self.scrollbar_drag_offset = event.pos[1] - thumb.top
+                        return True
+                    if track.collidepoint(event.pos):
+                        direction = -1 if event.pos[1] < thumb.top else 1
+                        self._scroll_lines(direction * self.visible_count)
+                        return True
                 line_index = self._line_at_pos(event.pos, rect, font)
                 if line_index is not None:
                     self.dragging = True
                     self.selection_anchor = line_index
                     self.selection_focus = line_index
+                    return True
+        elif event.type == pygame.MOUSEMOTION and self.scrollbar_dragging:
+            self._drag_scrollbar(event.pos, rect, font)
+            return True
         elif event.type == pygame.MOUSEMOTION and self.dragging:
             line_index = self._line_at_pos(event.pos, rect, font)
             if line_index is not None:
                 self.selection_focus = line_index
+            return True
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            was_dragging = self.dragging or self.scrollbar_dragging
             self.dragging = False
+            self.scrollbar_dragging = False
+            if was_dragging:
+                return True
         elif event.type == pygame.KEYDOWN and event.key == pygame.K_c:
             modifiers = pygame.key.get_mods()
             if modifiers & (pygame.KMOD_CTRL | pygame.KMOD_META):
                 self._copy_selected_text()
+        return False
 
     def draw(self, surface, rect, font):
         pygame.draw.rect(surface, ui.BLACK, rect)
@@ -1704,7 +1744,11 @@ class TrainingBatchLogBox:
             surface.blit(rendered, (rect.left + 8, y))
             y += line_height
         surface.set_clip(None)
-        _draw_scrollbar(surface, rect, max(len(self.lines), self.visible_count) * line_height, start * line_height)
+        geometry = self._scrollbar_geometry(rect, font)
+        if geometry is not None:
+            track, thumb = geometry
+            pygame.draw.rect(surface, ui.DARK_GREY, track)
+            pygame.draw.rect(surface, ui.LIGHT_GREY, thumb)
 
     def _line_at_pos(self, pos, rect, font):
         if not self.lines:
@@ -1730,6 +1774,46 @@ class TrainingBatchLogBox:
 
     def _scroll_lines(self, amount):
         self.scroll_line += amount
+        self._clamp_scroll_line()
+
+    def _scrollbar_geometry(self, rect, font):
+        if len(self.lines) <= self.visible_count:
+            return None
+        track = pygame.Rect(rect.right - 8, rect.top, 8, rect.height)
+        thumb_height = max(
+            36,
+            track.height * self.visible_count // len(self.lines),
+        )
+        thumb_height = min(track.height, thumb_height)
+        max_scroll_line = self._max_scroll_line()
+        thumb_y = track.top + round(
+            self.scroll_line
+            * (track.height - thumb_height)
+            / max_scroll_line
+        )
+        thumb = pygame.Rect(track.x, thumb_y, track.width, thumb_height)
+        return track, thumb
+
+    def _drag_scrollbar(self, pos, rect, font):
+        self._update_visible_count(rect, font)
+        geometry = self._scrollbar_geometry(rect, font)
+        if geometry is None:
+            self.scrollbar_dragging = False
+            return
+        track, thumb = geometry
+        travel = track.height - thumb.height
+        if travel <= 0:
+            self.scroll_line = 0
+            return
+        thumb_top = max(
+            track.top,
+            min(
+                track.bottom - thumb.height,
+                pos[1] - self.scrollbar_drag_offset,
+            ),
+        )
+        ratio = (thumb_top - track.top) / travel
+        self.scroll_line = round(ratio * self._max_scroll_line())
         self._clamp_scroll_line()
 
     def _selected_range(self):
@@ -1821,6 +1905,11 @@ def _translated_event(event, viewport, scroll_y):
         event.pos[1] - viewport.y + scroll_y,
     )
     return pygame.event.Event(event.type, attributes)
+
+
+def _event_mouse_position(event):
+    pos = getattr(event, "pos", None)
+    return pos if pos is not None else pygame.mouse.get_pos()
 
 
 def _draw_scrollbar(screen, viewport, content_height, scroll_y):
@@ -3631,7 +3720,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     if menu_sound_manager:
                         menu_sound_manager.play_sound("menu")
                     continue
+            if event.type == pygame.KEYDOWN and event.key in (pygame.K_UP, pygame.K_DOWN):
+                if layout.arena_rect.collidepoint(_event_mouse_position(event)):
+                    if not display_checkbox.value:
+                        batch_log_box.handle_event(event, layout.arena_rect, log_font)
+                    continue
+                if not instance_dropdown.expanded:
+                    delta = -1 if event.key == pygame.K_UP else 1
+                    if select_relative_training_instance(delta):
+                        if menu_sound_manager:
+                            menu_sound_manager.play_sound("menu")
+                        continue
             if event.type == pygame.MOUSEWHEEL and not instance_dropdown.expanded:
+                if layout.arena_rect.collidepoint(_event_mouse_position(event)):
+                    if not display_checkbox.value:
+                        batch_log_box.handle_event(event, layout.arena_rect, log_font)
+                    continue
                 delta = _wheel_step(event.y)
                 if delta and select_relative_training_instance(delta):
                     continue
@@ -3640,6 +3744,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 and event.button in (4, 5)
                 and not instance_dropdown.expanded
             ):
+                if layout.arena_rect.collidepoint(event.pos):
+                    if not display_checkbox.value:
+                        batch_log_box.handle_event(event, layout.arena_rect, log_font)
+                    continue
                 delta = -1 if event.button == 4 else 1
                 if select_relative_training_instance(delta):
                     continue
