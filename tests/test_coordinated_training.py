@@ -1542,7 +1542,7 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
             "exploration_only:3",
         )
 
-    def test_batch_runs_synchronized_optimization_for_each_record(self):
+    def test_stop_during_fallback_optimization_finishes_every_record(self):
         replay_buffers = {}
 
         def component_builder(record):
@@ -1588,6 +1588,8 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
 
         def optimize(model, optimizer, replay_buffer, *, batch_size, rng=None):
             optimize_calls.append((model, optimizer, len(replay_buffer), batch_size))
+            if len(optimize_calls) == 1:
+                session.request_stop()
             return SimpleNamespace(loss=next(losses))
 
         with (
@@ -1613,6 +1615,9 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
             self.assertTrue(session._run_one_coordinated_batch())
 
         self.assertEqual(len(optimize_calls), 4)
+        self.assertTrue(session._stop_requested.is_set())
+        self.assertEqual(session.status_for_instance(1).completed_batches, 1)
+        self.assertEqual(session.status_for_instance(2).completed_batches, 1)
         self.assertEqual(session.status_for_instance(1).recent_loss, 0.5)
         self.assertEqual(session.status_for_instance(2).recent_loss, 1.5)
         self.assertEqual(
@@ -1620,7 +1625,7 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
             "Applying gradient descent",
         )
 
-    def test_compatible_records_use_batched_optimization_helper(self):
+    def test_stop_during_batched_optimization_finishes_all_updates(self):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")
 
@@ -1653,13 +1658,13 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
                     1,
                     "Earthling",
                     minibatch_size=1,
-                    replay_updates_per_batch=1,
+                    replay_updates_per_batch=2,
                 ),
                 _record(
                     2,
                     "Androsynth",
                     minibatch_size=1,
-                    replay_updates_per_batch=1,
+                    replay_updates_per_batch=2,
                 ),
             ),
             component_builder=component_builder,
@@ -1668,15 +1673,20 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
         for state in session._states.values():
             state.components = component_builder(state.record)
 
+        def train_batched_records(*args, **kwargs):
+            session.request_stop()
+            return (0.25, 0.75)
+
         with mock.patch(
             "src.training.coordinated.train_selected_action_regression_batched",
-            return_value=(0.25, 0.75),
+            side_effect=train_batched_records,
         ) as train_batched:
             losses = session._optimize_records()
 
-        train_batched.assert_called_once()
-        self.assertEqual(losses[1], (0.25,))
-        self.assertEqual(losses[2], (0.75,))
+        self.assertEqual(train_batched.call_count, 2)
+        self.assertTrue(session._stop_requested.is_set())
+        self.assertEqual(losses[1], (0.25, 0.25))
+        self.assertEqual(losses[2], (0.75, 0.75))
 
     def test_grouped_save_writes_metadata_and_notifies_cache(self):
         with self.subTest("grouped save"):

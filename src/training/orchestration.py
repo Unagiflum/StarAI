@@ -422,8 +422,10 @@ def run_training_batch(
         replay_size=len(replay_buffer),
     )
     losses: list[float] = []
+    # Optimization is the commit phase for a completed simulation batch. Once it
+    # starts, finish every configured update so a stop cannot leave the batch
+    # partially optimized and unrecorded.
     for _ in range(config.replay_updates_per_batch):
-        _raise_if_stop_requested(stop_requested)
         result = optimize_from_replay(
             model,
             optimizer,

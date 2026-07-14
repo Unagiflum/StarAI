@@ -788,6 +788,28 @@ class TrainingInstanceManager:
             self.disable_display(instance)
             self.request_stop(instance)
 
+    def join_all_sessions(self):
+        """Wait without a timeout for every distinct training owner to finish."""
+
+        owners = []
+        coordinated = self.batch_scheduling.coordinated_session
+        if coordinated is not None:
+            owners.append(coordinated)
+        for instance in self.instances:
+            session = instance.session
+            if session is None:
+                continue
+            owners.append(getattr(session, "_scheduler", session))
+        seen = set()
+        for owner in owners:
+            identity = id(owner)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            join = getattr(owner, "join", None)
+            if callable(join):
+                join()
+
     def set_apply_future_changes_to_all(self, enabled):
         self.batch_scheduling.apply_to_all_open_instances = bool(enabled)
 
@@ -3123,6 +3145,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     display_checkbox = None  # Instantiated later with other action buttons
     exited = [False]
+    application_close_requested = [False]
     stopping_background_instances = [False]
     last_starting_epsilon_slider_value = [state.starting_epsilon]
     batch_log_box = TrainingBatchLogBox()
@@ -4204,12 +4227,19 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         elapsed_seconds = clock.tick()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                if instance_manager.any_instance_running():
+                if not application_close_requested[0]:
+                    application_close_requested[0] = True
+                    confirmation_prompt[0] = None
+                    ship_picker = None
                     instance_manager.request_stop_all_running()
+                    for instance in instance_manager.instances:
+                        instance_manager.disable_display(instance)
                     display_checkbox.is_checked = False
-                save_current_session()
-                pygame.quit()
-                sys.exit()
+                    show_notice("Closing - finishing training and saving")
+                continue
+
+            if application_close_requested[0]:
+                continue
 
             if confirmation_prompt[0] is not None:
                 confirmation_prompt[0].handle_event(event, menu_sound_manager)
@@ -4597,10 +4627,32 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             display_checkbox.bg_color = ui.MENU_BUTTON_COLOR
             display_checkbox.hover_color = ui.MENU_BUTTON_COLOR_HI
 
+        if application_close_requested[0]:
+            apply_all_checkbox.enabled = False
+            device_selector.enabled = False
+            display_checkbox.enabled = False
+            start_stop_button.enabled = False
+            batch_start_all_button.text = "Closing"
+            batch_start_all_button.enabled = False
+            back_button.text = "Closing"
+            back_button.enabled = False
+            close_instance_button.enabled = False
+            add_instance_button.enabled = False
+            load_button.enabled = False
+            for slider in (
+                *reward_sliders,
+                *grouped_controls,
+                *regimen_sliders,
+                *batch_sliders,
+            ):
+                slider.enabled = False
+
         if notice[0] is not None:
             notice[0].remaining_seconds -= elapsed_seconds
             if notice[0].remaining_seconds <= 0:
                 notice[0] = None
+        if application_close_requested[0]:
+            show_notice("Closing - finishing training and saving")
 
         if background:
             screen.blit(background, (0, 0))
@@ -4888,3 +4940,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
 
         pygame.display.flip()
+
+        if (
+            application_close_requested[0]
+            and not instance_manager.any_instance_running()
+        ):
+            instance_manager.join_all_sessions()
+            instance_manager.release_stopped_writers()
+            instance_manager.cleanup_coordinated_session()
+            save_current_session()
+            pygame.quit()
+            sys.exit()

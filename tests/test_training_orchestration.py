@@ -563,6 +563,44 @@ class TrainingRoundTests(unittest.TestCase):
         self.assertEqual(optimization_events[0]["replay_updates"], 2)
         self.assertEqual(optimization_events[0]["replay_size"], len(replay))
 
+    def test_training_batch_finishes_optimization_after_stop_is_requested(self):
+        replay = TrainingReplayBuffer(capacity=8)
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            rounds_per_batch=1,
+            replay_updates_per_batch=3,
+        )
+        stop_requested = [False]
+        optimize_calls = []
+
+        def optimize(*args, **kwargs):
+            optimize_calls.append((args, kwargs))
+            if len(optimize_calls) == 1:
+                stop_requested[0] = True
+            return SimpleNamespace(loss=float(len(optimize_calls)))
+
+        with (
+            mock.patch(
+                "src.training.orchestration.run_training_round",
+                return_value=SimpleNamespace(),
+            ),
+            mock.patch(
+                "src.training.orchestration.optimize_from_replay",
+                side_effect=optimize,
+            ),
+        ):
+            result = run_training_batch(
+                model=object(),
+                optimizer=object(),
+                replay_buffer=replay,
+                config=config,
+                stop_requested=lambda: stop_requested[0],
+            )
+
+        self.assertTrue(stop_requested[0])
+        self.assertEqual(len(optimize_calls), 3)
+        self.assertEqual(result.optimization_losses, (1.0, 2.0, 3.0))
+
     def test_training_round_aborts_when_stop_is_requested_mid_round(self):
         replay = TrainingReplayBuffer(capacity=8)
         config = TrainingOrchestrationConfig(

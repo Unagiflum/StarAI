@@ -1706,7 +1706,6 @@ class CoordinatedTrainingSession:
         config = state.record.config
         losses: list[float] = []
         for _ in range(config.replay_updates_per_batch):
-            _raise_if_stop_requested(self._stop_requested.is_set)
             result = optimize_from_replay(
                 components.model,
                 components.optimizer,
@@ -1719,6 +1718,8 @@ class CoordinatedTrainingSession:
         return tuple(losses)
 
     def _optimize_records(self) -> dict[int, tuple[float, ...]]:
+        # Treat optimization as an atomic commit phase across coordinated
+        # records. Stop remains pending until every configured update finishes.
         states = tuple(self._states.values())
         if not _can_batch_record_optimization(states):
             return {
@@ -1728,7 +1729,6 @@ class CoordinatedTrainingSession:
         return _optimize_records_batched(
             states,
             rng=self._rng,
-            stop_requested=self._stop_requested.is_set,
         )
 
     def _save_unsaved_completed_progress(self) -> None:
@@ -2729,7 +2729,6 @@ def _optimize_records_batched(
     states: Sequence[_CoordinatedRecordState],
     *,
     rng: Any,
-    stop_requested: Callable[[], bool] | None,
 ) -> dict[int, tuple[float, ...]]:
     if not states:
         return {}
@@ -2746,7 +2745,6 @@ def _optimize_records_batched(
             raise RuntimeError("coordinated components were not loaded")
         record_batches: list[tuple[Any, ...] | None] = []
         for _ in range(update_count):
-            _raise_if_stop_requested(stop_requested)
             if len(components.replay_buffer) < batch_size:
                 record_batches.append(None)
             else:
@@ -2756,7 +2754,6 @@ def _optimize_records_batched(
         sampled_batches.append(record_batches)
 
     for update_index in range(update_count):
-        _raise_if_stop_requested(stop_requested)
         active: list[tuple[_CoordinatedRecordState, tuple[Any, ...]]] = []
         for state, record_batches in zip(states, sampled_batches):
             batch = record_batches[update_index]

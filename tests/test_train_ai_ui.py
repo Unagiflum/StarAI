@@ -178,6 +178,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
             )
             self.stop_requested = False
             self.display_events = []
+            self.join_calls = 0
 
         def request_stop(self):
             self.stop_requested = True
@@ -185,6 +186,9 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
         def set_display_on(self, enabled):
             self.display_events.append(enabled)
+
+        def join(self):
+            self.join_calls += 1
 
     def test_default_manager_creates_one_active_instance(self):
         manager = TrainingInstanceManager()
@@ -588,6 +592,19 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
         self.assertTrue(first.session.stop_requested)
         self.assertTrue(second.session.stop_requested)
+
+    def test_join_all_sessions_waits_for_each_distinct_owner_once(self):
+        manager = TrainingInstanceManager()
+        owner = mock.Mock()
+        first = manager.active_instance
+        second = manager.add_instance()
+        first.session = SimpleNamespace(_scheduler=owner)
+        second.session = SimpleNamespace(_scheduler=owner)
+        manager.batch_scheduling.coordinated_session = owner
+
+        manager.join_all_sessions()
+
+        owner.join.assert_called_once_with()
 
     def test_close_running_active_instance_disables_display_before_stop(self):
         manager = TrainingInstanceManager()
@@ -1123,6 +1140,116 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             )
             self.slots[(slot.ship, slot.slot)] = slot
             return slot
+
+    def test_window_close_waits_for_running_session_before_saving_and_exit(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        order = []
+
+        class ClosingSession:
+            def __init__(self):
+                self.status = TrainingSessionStatus(ship="Earthling", running=True)
+                self.history = ()
+                self.log_lines = ()
+
+            def request_stop(self):
+                order.append("stop")
+                self.status.stopping = True
+
+            def set_display_on(self, _enabled):
+                pass
+
+            def join(self):
+                order.append("join")
+
+        session = ClosingSession()
+        manager.active_instance.session = session
+        close_event = pygame.event.Event(pygame.QUIT)
+        event_calls = [0]
+
+        def events():
+            event_calls[0] += 1
+            if event_calls[0] == 1:
+                return [close_event]
+            self.assertNotIn("save", order)
+            if event_calls[0] == 2:
+                return [close_event]
+            session.status.running = False
+            session.status.stopping = False
+            return []
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeRepository,
+            ),
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch("src.Menus.train_ai.fit_ship_sprites", return_value={}),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", side_effect=events),
+            mock.patch("pygame.display.flip"),
+            mock.patch(
+                "src.Menus.train_ai.save_training_ui_session",
+                side_effect=lambda *_args, **_kwargs: order.append("save"),
+            ),
+            mock.patch(
+                "pygame.quit",
+                side_effect=lambda: order.append("pygame_quit"),
+            ),
+            mock.patch(
+                "src.Menus.train_ai.sys.exit",
+                side_effect=lambda: (_ for _ in ()).throw(self.StopRun()),
+            ),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+        self.assertGreaterEqual(event_calls[0], 3)
+        self.assertEqual(order, ["stop", "join", "save", "pygame_quit"])
+
+    def test_window_close_exits_immediately_when_training_is_idle(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        order = []
+        close_event = pygame.event.Event(pygame.QUIT)
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeRepository,
+            ),
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch("src.Menus.train_ai.fit_ship_sprites", return_value={}),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[close_event]),
+            mock.patch("pygame.display.flip"),
+            mock.patch(
+                "src.Menus.train_ai.save_training_ui_session",
+                side_effect=lambda *_args, **_kwargs: order.append("save"),
+            ),
+            mock.patch(
+                "pygame.quit",
+                side_effect=lambda: order.append("pygame_quit"),
+            ),
+            mock.patch(
+                "src.Menus.train_ai.sys.exit",
+                side_effect=lambda: (_ for _ in ()).throw(self.StopRun()),
+            ),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+        self.assertEqual(order, ["save", "pygame_quit"])
 
     class FakeCoordinatedSession:
         created = []
