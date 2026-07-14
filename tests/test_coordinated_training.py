@@ -810,6 +810,8 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
             second = worker.handle(
                 StepFrameCommand(9, 1, 0, False, opponent_controls={})
             )
+            display_memory = mock.Mock()
+            worker._display_memory = display_memory
             finished = worker.handle(FinishWindowCommand(9, 1))
 
         self.assertEqual(len(factory.created), 2)
@@ -824,6 +826,11 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
         )
         self.assertEqual(len(first.mature_samples), 1)
         self.assertEqual(len(second.mature_samples), 1)
+        self.assertIsNone(worker._runtime)
+        self.assertIsNone(worker._collector)
+        self.assertIsNone(worker._round_index)
+        self.assertIsNone(worker._display_memory)
+        display_memory.close.assert_called_once_with()
 
     def test_worker_process_reports_command_errors(self):
         try:
@@ -1313,7 +1320,7 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
         self.assertEqual(len(clients), 2)
         self.assertTrue(all(client.shutdown_called for client in clients))
 
-    def test_worker_backed_batch_batches_parent_actions_and_inserts_replay(self):
+    def test_worker_backed_batches_reuse_processes_and_insert_replay(self):
         clients = []
         replay_buffers = {}
 
@@ -1366,20 +1373,25 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
             mock.patch("src.training.coordinated.append_coordinated_batch_timing_csv"),
         ):
             self.assertTrue(session._run_one_coordinated_batch())
+            self.assertTrue(session._run_one_coordinated_batch())
 
         self.assertEqual(len(clients), 2)
         self.assertTrue(all(client.started for client in clients))
-        self.assertTrue(all(client.shutdown_called for client in clients))
-        self.assertEqual(len(replay_buffers[1]), 2)
-        self.assertEqual(len(replay_buffers[2]), 2)
-        self.assertEqual(session.status_for_instance(1).completed_batches, 1)
-        self.assertEqual(session.status_for_instance(2).completed_batches, 1)
+        self.assertTrue(all(not client.shutdown_called for client in clients))
+        self.assertEqual(len(replay_buffers[1]), 4)
+        self.assertEqual(len(replay_buffers[2]), 4)
+        self.assertEqual(session.status_for_instance(1).completed_batches, 2)
+        self.assertEqual(session.status_for_instance(2).completed_batches, 2)
         self.assertEqual(session.status_for_instance(1).current_frame, 0)
         self.assertEqual(session.status_for_instance(2).current_frame, 0)
         stats = session.inference_stats
-        self.assertEqual(stats.request_count, 4)
-        self.assertEqual(stats.exploratory_count, 4)
-        self.assertEqual(stats.mode_counts["exploration_only"], 2)
+        self.assertEqual(stats.request_count, 8)
+        self.assertEqual(stats.exploratory_count, 8)
+        self.assertEqual(stats.mode_counts["exploration_only"], 4)
+
+        session._shutdown_persistent_cpu_workers()
+
+        self.assertTrue(all(client.shutdown_called for client in clients))
 
     def test_worker_error_aborts_batch_and_shuts_down_workers(self):
         clients = []

@@ -485,6 +485,12 @@ class CoordinatedSimulationWorker:
         return frame_count
 
     def close(self) -> None:
+        self._runtime = None
+        self._collector = None
+        self._round_index = None
+        self._detach_display_memory()
+
+    def _detach_display_memory(self) -> None:
         if self._display_memory is not None:
             self._display_memory.close()
             self._display_memory = None
@@ -498,11 +504,16 @@ class CoordinatedSimulationWorker:
         if collector is None:
             raise RuntimeError("worker replay collector is not initialized")
         result = _finish_coordinated_window(runtime)
+        mature_samples = collector.drain_pending()
+        self._runtime = None
+        self._collector = None
+        self._round_index = None
+        self._detach_display_memory()
         return WindowFinishedResult(
             record_id=int(command.record_id),
             round_index=int(command.round_index),
             result=result,
-            mature_samples=collector.drain_pending(),
+            mature_samples=mature_samples,
         )
 
     def _ensure_record(self, record_id: int) -> None:

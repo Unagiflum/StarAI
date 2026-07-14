@@ -617,6 +617,7 @@ class CoordinatedTrainingSession:
         self._display_instance_id: int | None = None
         self._next_display_frame_time = time.perf_counter()
         self._display_memory = None
+        self._cpu_workers: dict[int, Any] = {}
         self._thread: threading.Thread | None = None
         self._run_started_at: float | None = None
         self._run_stopped_at: float | None = None
@@ -900,6 +901,14 @@ class CoordinatedTrainingSession:
                     state.status.stopping = True
         finally:
             try:
+                self._shutdown_persistent_cpu_workers()
+            except Exception as exc:
+                with self._lock:
+                    for state in self._states.values():
+                        if not state.status.error:
+                            state.status.error = str(exc)
+            self._release_display_buffer()
+            try:
                 self._save_unsaved_completed_progress()
             except Exception as exc:
                 with self._lock:
@@ -1151,18 +1160,20 @@ class CoordinatedTrainingSession:
         batch_inference_mode_counts: dict[str, int] = {}
         trainee_parameter_cache = BatchedValueNetworkParameterCache()
         opponent_parameter_cache = BatchedValueNetworkParameterCache()
-        workers: dict[int, Any] = {}
+        workers: dict[int, Any] = self._cpu_workers
         results: dict[int, list[CoordinatedFixedFrameWindowResult]] = {
             instance_id: []
             for instance_id in self._states
         }
         try:
-            try:
-                workers = self._start_cpu_workers()
-            except TrainingBatchAborted:
-                raise
-            except Exception as exc:
-                raise _CpuWorkerStartupUnavailable(str(exc)) from exc
+            if not workers:
+                try:
+                    workers = self._start_cpu_workers()
+                    self._cpu_workers = workers
+                except TrainingBatchAborted:
+                    raise
+                except Exception as exc:
+                    raise _CpuWorkerStartupUnavailable(str(exc)) from exc
             schedules = {
                 instance_id: self._opponents_for_batch(state)
                 for instance_id, state in self._states.items()
@@ -1391,8 +1402,10 @@ class CoordinatedTrainingSession:
                 frame_count=timing_frame_count,
             )
             return False
+        except Exception:
+            self._shutdown_persistent_cpu_workers()
+            raise
         finally:
-            self._shutdown_cpu_workers(workers.values())
             self._release_display_buffer()
             with self._lock:
                 self._current_batch_started_at = None
@@ -1514,6 +1527,11 @@ class CoordinatedTrainingSession:
                     close()
                 except Exception:
                     pass
+
+    def _shutdown_persistent_cpu_workers(self) -> None:
+        workers = self._cpu_workers
+        self._cpu_workers = {}
+        self._shutdown_cpu_workers(workers.values())
 
     def _shutdown_cpu_workers(self, workers: Sequence[Any]) -> None:
         for worker in tuple(workers):
