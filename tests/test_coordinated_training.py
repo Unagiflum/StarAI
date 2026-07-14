@@ -10,6 +10,7 @@ from unittest import mock
 
 from src.training import torch_backend
 from src.training import batched_value_network
+from src.training.coordinated import CPU_WORKER_FALLBACK_NOTICE
 from src.training.batched_value_network import BatchedValueNetworkParameterCache
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
 from src.training.coordinated import (
@@ -1023,6 +1024,38 @@ class FakeWorkerClient:
 
 
 class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
+    def test_worker_startup_failure_falls_back_and_posts_one_notice(self):
+        session = CoordinatedTrainingSession(
+            (
+                _record(1, "Earthling"),
+                _record(2, "Androsynth"),
+            ),
+            coordinated_cpu_workers_enabled=True,
+        )
+
+        with (
+            mock.patch(
+                "src.training.coordinated.simple_opponent_schedule",
+                return_value=(OpponentSpec("Earthling"),),
+            ),
+            mock.patch.object(
+                session,
+                "_start_cpu_workers",
+                side_effect=RuntimeError("startup failed"),
+            ),
+            mock.patch.object(
+                session,
+                "_run_one_in_process_coordinated_batch",
+                return_value=True,
+            ) as in_process,
+        ):
+            self.assertTrue(session._run_one_coordinated_batch())
+
+        in_process.assert_called_once_with()
+        self.assertFalse(session.coordinated_cpu_workers_enabled)
+        self.assertEqual(session.consume_notice(), CPU_WORKER_FALLBACK_NOTICE)
+        self.assertIsNone(session.consume_notice())
+
     def test_partial_worker_startup_failure_shuts_down_every_created_client(self):
         clients = []
 

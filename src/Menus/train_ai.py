@@ -164,8 +164,9 @@ INSTANCE_DROPDOWN_COLOR = (0, 70, 75, 235)
 INSTANCE_DROPDOWN_HOVER_COLOR = (0, 100, 110, 255)
 INSTANCE_BORDER_COLOR = (200, 200, 200)
 INSTANCE_BORDER_WIDTH = 3
-TRAIN_AI_SESSION_VERSION = 1
+TRAIN_AI_SESSION_VERSION = 2
 TRAIN_AI_SESSION_PATH = const.USER_DATA_ROOT / "train_ai_session.json"
+TRAIN_AI_TABS = ("trainee", "opponent", "rewards", "regimen", "batch")
 UI_TOP_MARGIN = INSTANCE_TOP + INSTANCE_CONTROL_HEIGHT + 12
 TAB_GAP = 8
 TAB_HEIGHT = 28
@@ -189,7 +190,6 @@ TAB_BOX_BORDER_WIDTH = 3
 
 @dataclass
 class TrainingUIState:
-    active_tab: str = "trainee"
     selected_ship: str | None = None
     selected_slot: int = 1
     slot_labels: list[str] = field(default_factory=lambda: ["", "", "", ""])
@@ -262,7 +262,6 @@ class TrainingInstance:
 @dataclass
 class TrainingBatchSchedulingState:
     apply_to_all_open_instances: bool = False
-    run_multiple_cpu_workers: bool = False
     coordinated_session: CoordinatedTrainingSession | None = None
 
 
@@ -275,10 +274,6 @@ class CoordinatedBatchValidation:
     @property
     def can_start_all(self):
         return not self.blocking_reason
-
-    @property
-    def coordinated_scope_available(self):
-        return self.can_start_all
 
 
 def batch_settings_from_state(state: TrainingUIState) -> dict[str, int | float]:
@@ -332,16 +327,6 @@ def architecture_for_slot_or_state(
     metadata = slot.metadata if isinstance(slot.metadata, dict) else {}
     architecture = metadata.get("architecture") if metadata else None
     return architecture if isinstance(architecture, dict) else architecture_for_state(state)
-
-
-def coordination_scope_status_text(validation: CoordinatedBatchValidation) -> str:
-    if validation.coordinated_scope_available:
-        return ""
-    if validation.blocking_code == "architecture":
-        return "Coordinated mode disabled; incompatible instances"
-    if validation.blocking_code == "running":
-        return "Coordinated mode disabled; training in progress"
-    return "Coordinated mode disabled"
 
 
 def validate_coordinated_batch_start(
@@ -491,6 +476,7 @@ class TrainingInstanceManager:
         self._next_instance_id = 2
         self._writer_reservations: dict[tuple[str, int], int] = {}
         self._suspend_future_propagation = False
+        self.active_tab = "trainee"
         self.batch_scheduling = TrainingBatchSchedulingState()
         self.instances = [
             TrainingInstance(
@@ -805,12 +791,6 @@ class TrainingInstanceManager:
         """Backward-compatible alias for the former Batch-only preference."""
         self.set_apply_future_changes_to_all(enabled)
 
-    def set_batch_cpu_workers_enabled(self, enabled):
-        self.batch_scheduling.run_multiple_cpu_workers = bool(enabled)
-
-    def force_batch_active_only(self):
-        self.batch_scheduling.run_multiple_cpu_workers = False
-
     def apply_batch_settings_to_all(self, source_state=None):
         source = source_state or self.active_state
         for instance in self.instances:
@@ -962,6 +942,7 @@ def _training_ui_state_from_json(payload):
 def training_instance_manager_to_json(manager):
     return {
         "version": TRAIN_AI_SESSION_VERSION,
+        "active_tab": manager.active_tab,
         "active_instance_id": manager.active_instance_id,
         "next_instance_id": manager._next_instance_id,
         "batch_scheduling": {
@@ -988,6 +969,7 @@ def training_instance_manager_from_json(payload):
 
     instances = []
     used_ids = set()
+    legacy_tabs: dict[int, str] = {}
     for raw_instance in raw_instances[: manager.supported_max]:
         if not isinstance(raw_instance, dict):
             continue
@@ -998,12 +980,18 @@ def training_instance_manager_from_json(payload):
         if instance_id <= 0 or instance_id in used_ids:
             instance_id = max(used_ids, default=0) + 1
         used_ids.add(instance_id)
+        raw_state = raw_instance.get("state")
+        if (
+            isinstance(raw_state, dict)
+            and raw_state.get("active_tab") in TRAIN_AI_TABS
+        ):
+            legacy_tabs[instance_id] = raw_state["active_tab"]
         label = str(raw_instance.get("label") or f"Instance {instance_id}")
         instances.append(
             TrainingInstance(
                 instance_id=instance_id,
                 label=label,
-                state=_training_ui_state_from_json(raw_instance.get("state")),
+                state=_training_ui_state_from_json(raw_state),
             )
         )
     if not instances:
@@ -1018,6 +1006,12 @@ def training_instance_manager_from_json(payload):
     if active_instance_id not in used_ids:
         active_instance_id = instances[0].instance_id
     manager.active_instance_id = active_instance_id
+    active_tab = payload.get("active_tab")
+    if active_tab not in TRAIN_AI_TABS:
+        # Version 1 stored the tab separately on every instance. Adopt the
+        # active instance's tab when migrating to the UI-wide selection.
+        active_tab = legacy_tabs.get(active_instance_id)
+    manager.active_tab = active_tab if active_tab in TRAIN_AI_TABS else "trainee"
     try:
         next_instance_id = int(payload.get("next_instance_id", 0) or 0)
     except (TypeError, ValueError):
@@ -2651,8 +2645,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     batch_font = largest_fitting_font(
         (
-            "Run multiple CPU workers",
-            "Coordinated mode disabled; incompatible instances",
             "Match frame limit: 12000",
             "Gradient steps: 500",
         ),
@@ -2693,7 +2685,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         tab_width,
         tab_height,
         "Trainee",
-        lambda: setattr(state, "active_tab", "trainee"),
+        lambda: setattr(instance_manager, "active_tab", "trainee"),
     )
     opponent_tab = TabButton(
         TAB_MARGIN + tab_width + TAB_GAP,
@@ -2701,7 +2693,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         tab_width,
         tab_height,
         "Opponent",
-        lambda: setattr(state, "active_tab", "opponent"),
+        lambda: setattr(instance_manager, "active_tab", "opponent"),
     )
     rewards_tab = TabButton(
         TAB_MARGIN + 2 * (tab_width + TAB_GAP),
@@ -2709,7 +2701,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         tab_width,
         tab_height,
         "Rewards",
-        lambda: setattr(state, "active_tab", "rewards"),
+        lambda: setattr(instance_manager, "active_tab", "rewards"),
     )
     regimen_tab = TabButton(
         TAB_MARGIN + 3 * (tab_width + TAB_GAP),
@@ -2717,7 +2709,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         tab_width,
         tab_height,
         "Regimen",
-        lambda: setattr(state, "active_tab", "regimen"),
+        lambda: setattr(instance_manager, "active_tab", "regimen"),
     )
     batch_tab = TabButton(
         TAB_MARGIN + 4 * (tab_width + TAB_GAP),
@@ -2725,7 +2717,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         tab_width,
         tab_height,
         "Batch",
-        lambda: setattr(state, "active_tab", "batch"),
+        lambda: setattr(instance_manager, "active_tab", "batch"),
     )
 
     ship_tile = pygame.Rect(16, 48, 200, 200)
@@ -3039,22 +3031,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider_width=batch_slider_width,
         ),
     )
-    batch_cpu_workers_rect = pygame.Rect(
-        batch_left,
-        batch_top + 6 * batch_spacing + 6,
-        batch_width,
-        38,
-    )
-    batch_cpu_workers_checkbox = ui_button.Checkbox(
-        batch_cpu_workers_rect.x,
-        batch_cpu_workers_rect.y,
-        batch_cpu_workers_rect.width,
-        batch_cpu_workers_rect.height,
-        "Run multiple CPU workers",
-    )
     batch_start_all_rect = pygame.Rect(
         batch_left,
-        batch_cpu_workers_rect.bottom + 12,
+        batch_top + 6 * batch_spacing + 6,
         batch_width,
         42,
     )
@@ -4024,9 +4003,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 tuple(records),
                 opponent_model_cache=opponent_model_cache,
                 save_coordinator=save_coordinator,
-                coordinated_cpu_workers_enabled=(
-                    instance_manager.batch_scheduling.run_multiple_cpu_workers
-                ),
+                coordinated_cpu_workers_enabled=True,
             )
             instance_manager.start_coordinated_session(scheduler)
             show_notice("Coordinated training started")
@@ -4247,27 +4224,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             display_checkbox.handle_event(event, menu_sound_manager)
             start_stop_button.handle_event(event, menu_sound_manager)
             back_button.handle_event(event, menu_sound_manager)
-            if state.active_tab == "batch":
-                validation = validate_start_all()
-                if (
-                    validation.coordinated_scope_available
-                    and event.type == pygame.MOUSEBUTTONDOWN
-                    and event.button == 1
-                    and batch_cpu_workers_checkbox.rect.collidepoint(event.pos)
-                ):
-                    if menu_sound_manager:
-                        menu_sound_manager.play_sound("menu")
-                    enabled = (
-                        not instance_manager.batch_scheduling.run_multiple_cpu_workers
-                    )
-                    instance_manager.set_batch_cpu_workers_enabled(enabled)
-                    batch_cpu_workers_checkbox.is_checked = enabled
-                    continue
+            if instance_manager.active_tab == "batch":
                 batch_start_all_button.handle_event(event, menu_sound_manager)
             if not display_checkbox.value:
                 batch_log_box.handle_event(event, layout.arena_rect, log_font)
 
-            if state.active_tab == "trainee":
+            if instance_manager.active_tab == "trainee":
                 translated = _translated_event(
                     event, layout.content_rect, trainee_scroll_y
                 )
@@ -4297,7 +4259,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 for delete_btn in delete_buttons:
                     delete_btn.handle_event(translated, menu_sound_manager)
                 load_button.handle_event(translated, menu_sound_manager)
-            elif state.active_tab == "rewards":
+            elif instance_manager.active_tab == "rewards":
                 if (
                     event.type == pygame.MOUSEBUTTONDOWN
                     and event.button in (4, 5)
@@ -4318,7 +4280,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 )
                 for slider in reward_sliders:
                     slider.handle_event(translated, menu_sound_manager)
-            elif state.active_tab == "opponent":
+            elif instance_manager.active_tab == "opponent":
                 translated = _translated_event(event, layout.content_rect, 0)
                 enabled = not state.running
                 ai_opponent_slider.enabled = enabled
@@ -4327,10 +4289,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 for slider in simple_activity_sliders:
                     slider.enabled = enabled
                     slider.handle_event(translated, menu_sound_manager)
-            elif state.active_tab == "regimen":
+            elif instance_manager.active_tab == "regimen":
                 for slider in regimen_sliders:
                     slider.handle_event(event, menu_sound_manager)
-            elif state.active_tab == "batch":
+            elif instance_manager.active_tab == "batch":
                 for slider in batch_sliders:
                     slider.handle_event(event, menu_sound_manager)
 
@@ -4385,6 +4347,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 instance_manager.release_writer(instance)
             instance.last_running = status.running
 
+        coordinated_session = instance_manager.batch_scheduling.coordinated_session
+        consume_notice = getattr(coordinated_session, "consume_notice", None)
+        if callable(consume_notice):
+            scheduler_notice = consume_notice()
+            if scheduler_notice:
+                show_notice(scheduler_notice)
+
         instance_manager.cleanup_coordinated_session()
         instance_manager.cleanup_stopped_pending_removals()
         if instance_manager.active_instance_id != previous_active_id:
@@ -4399,16 +4368,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         any_running = instance_manager.any_instance_running()
         coordinated_active = instance_manager.coordinated_run_active()
         batch_validation = validate_start_all()
-        batch_scope_available = batch_validation.coordinated_scope_available
-        if not batch_scope_available:
-            batch_cpu_workers_checkbox.is_checked = False
-        else:
-            batch_cpu_workers_checkbox.is_checked = (
-                instance_manager.batch_scheduling.run_multiple_cpu_workers
-            )
-        batch_cpu_workers_checkbox.enabled = (
-            batch_scope_available and not active_running
-        )
         apply_all_checkbox.is_checked = (
             instance_manager.batch_scheduling.apply_to_all_open_instances
         )
@@ -4551,13 +4510,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             _draw_arena_placeholder(screen, layout.arena_rect, state, arena_font)
 
-        trainee_tab.active = state.active_tab == "trainee"
-        opponent_tab.active = state.active_tab == "opponent"
-        rewards_tab.active = state.active_tab == "rewards"
-        regimen_tab.active = state.active_tab == "regimen"
-        batch_tab.active = state.active_tab == "batch"
+        trainee_tab.active = instance_manager.active_tab == "trainee"
+        opponent_tab.active = instance_manager.active_tab == "opponent"
+        rewards_tab.active = instance_manager.active_tab == "rewards"
+        regimen_tab.active = instance_manager.active_tab == "regimen"
+        batch_tab.active = instance_manager.active_tab == "batch"
 
-        if state.active_tab == "trainee":
+        if instance_manager.active_tab == "trainee":
             content = pygame.Surface(
                 (CONTROL_WIDTH, max(trainee_content_height, layout.content_rect.height)), pygame.SRCALPHA
             )
@@ -4615,7 +4574,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 layout.content_rect.height,
             )
             screen.blit(content, layout.content_rect, source)
-        elif state.active_tab == "rewards":
+        elif instance_manager.active_tab == "rewards":
             content = pygame.Surface(
                 (CONTROL_WIDTH, max(rewards_content_height, layout.content_rect.height)), pygame.SRCALPHA
             )
@@ -4642,7 +4601,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 rewards_content_height,
                 rewards_scroll_y,
             )
-        elif state.active_tab == "opponent":
+        elif instance_manager.active_tab == "opponent":
             content = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)
             content.fill((0, 0, 0, 155))
             mouse_pos = pygame.mouse.get_pos()
@@ -4658,34 +4617,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             for slider in simple_activity_sliders:
                 slider.draw(content, opponent_font)
             screen.blit(content, layout.content_rect)
-        elif state.active_tab == "regimen":
+        elif instance_manager.active_tab == "regimen":
             panel = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)
             panel.fill((0, 0, 0, 155))
             screen.blit(panel, layout.content_rect)
             for slider in regimen_sliders:
                 slider.draw(screen, regimen_font)
-        elif state.active_tab == "batch":
+        elif instance_manager.active_tab == "batch":
             content = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)
             content.fill((0, 0, 0, 155))
             screen.blit(content, layout.content_rect)
             for slider in batch_sliders:
                 slider.draw(screen, batch_font)
-            if batch_scope_available:
-                batch_cpu_workers_checkbox.draw(screen, batch_font)
-            else:
-                status_text = coordination_scope_status_text(batch_validation)
-                pygame.draw.rect(screen, ui.DARK_GREY, batch_cpu_workers_rect)
-                pygame.draw.rect(screen, ui.BLACK, batch_cpu_workers_rect, 3)
-                rendered = batch_font.render(status_text, True, ui.LIGHT_GREY)
-                screen.blit(
-                    rendered,
-                    rendered.get_rect(
-                        midleft=(
-                            batch_cpu_workers_rect.left + 12,
-                            batch_cpu_workers_rect.centery,
-                        )
-                    ),
-                )
             batch_start_all_button.draw(screen, batch_font)
 
         # Draw inactive tabs behind the content window border
@@ -4775,7 +4718,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             _draw_hud_placeholders(screen, layout.hud_rects, small_font)
 
         if (
-            state.active_tab == "trainee"
+            instance_manager.active_tab == "trainee"
             and state.selected_ship is not None
             and ship_picker is None
         ):

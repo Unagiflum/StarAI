@@ -361,6 +361,15 @@ class _WorkerRuntimeError(RuntimeError):
     """Raised when a coordinated simulation worker reports or hits a failure."""
 
 
+class _CpuWorkerStartupUnavailable(RuntimeError):
+    """Raised when coordinated worker processes cannot be started."""
+
+
+CPU_WORKER_FALLBACK_NOTICE = (
+    "Multiple CPU workers not available. Proceeding with single process."
+)
+
+
 class _ProcessWorkerClient:
     def __init__(
         self,
@@ -558,6 +567,7 @@ class CoordinatedTrainingSession:
         self.coordinated_cpu_workers_enabled = bool(coordinated_cpu_workers_enabled)
         self.coordinated_cpu_worker_count = coordinated_cpu_worker_count
         self._worker_client_factory = worker_client_factory
+        self._notices: list[str] = []
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
         self._thread: threading.Thread | None = None
@@ -772,6 +782,11 @@ class CoordinatedTrainingSession:
         with self._lock:
             return tuple(self._states[int(instance_id)].log_lines)
 
+    def consume_notice(self) -> str | None:
+        """Return and remove the oldest scheduler notice for the UI."""
+        with self._lock:
+            return self._notices.pop(0) if self._notices else None
+
     def set_starting_epsilon(self, instance_id: int, value: float) -> None:
         epsilon = max(0.0, min(1.0, float(value)))
         with self._lock:
@@ -819,8 +834,17 @@ class CoordinatedTrainingSession:
 
     def _run_one_coordinated_batch(self) -> bool:
         if self._should_use_cpu_workers():
-            return self._run_one_worker_backed_coordinated_batch()
+            try:
+                return self._run_one_worker_backed_coordinated_batch()
+            except _CpuWorkerStartupUnavailable:
+                with self._lock:
+                    self.coordinated_cpu_workers_enabled = False
+                    self._notices.append(CPU_WORKER_FALLBACK_NOTICE)
+                return self._run_one_in_process_coordinated_batch()
 
+        return self._run_one_in_process_coordinated_batch()
+
+    def _run_one_in_process_coordinated_batch(self) -> bool:
         timing_seconds = _new_timing_seconds()
         timing_frame_count = 0
         timing_completed_batch = False
@@ -1050,29 +1074,31 @@ class CoordinatedTrainingSession:
         trainee_parameter_cache = BatchedValueNetworkParameterCache()
         opponent_parameter_cache = BatchedValueNetworkParameterCache()
         workers: dict[int, Any] = {}
-        schedules = {
-            instance_id: self._opponents_for_batch(state)
-            for instance_id, state in self._states.items()
-        }
-        if any(not schedule for schedule in schedules.values()):
-            return False
-
-        batch_started_at = time.perf_counter()
-        with self._lock:
-            self._current_batch_started_at = batch_started_at
-            for instance_id, state in self._states.items():
-                state.status.display_message = "Running coordinated CPU workers"
-                state.status.battle_view = None
-                state.status.total_rounds = len(schedules[instance_id])
-                state.status.current_round = 0
-                state.status.current_frame = 0
-
         results: dict[int, list[CoordinatedFixedFrameWindowResult]] = {
             instance_id: []
             for instance_id in self._states
         }
         try:
-            workers = self._start_cpu_workers()
+            try:
+                workers = self._start_cpu_workers()
+            except Exception as exc:
+                raise _CpuWorkerStartupUnavailable(str(exc)) from exc
+            schedules = {
+                instance_id: self._opponents_for_batch(state)
+                for instance_id, state in self._states.items()
+            }
+            if any(not schedule for schedule in schedules.values()):
+                return False
+
+            batch_started_at = time.perf_counter()
+            with self._lock:
+                self._current_batch_started_at = batch_started_at
+                for instance_id, state in self._states.items():
+                    state.status.display_message = "Running coordinated CPU workers"
+                    state.status.battle_view = None
+                    state.status.total_rounds = len(schedules[instance_id])
+                    state.status.current_round = 0
+                    state.status.current_frame = 0
             for round_index in range(1, max(len(s) for s in schedules.values()) + 1):
                 active_windows: list[_WorkerWindowRuntime] = []
                 for instance_id, state in self._states.items():

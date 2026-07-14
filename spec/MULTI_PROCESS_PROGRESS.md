@@ -62,6 +62,8 @@ Status: complete
 
 ## Deferred To Later Phases
 
-- The Batch tab exposes an opt-in `Run multiple CPU workers` checkbox for eligible coordinated runs.
+- Eligible coordinated runs automatically attempt the worker-backed scheduler.
+- If worker processes cannot be started, training falls back to the in-process
+  coordinated scheduler and the UI displays a temporary notice.
 - Worker pool scheduling with fewer workers than records remains deferred.
 - Worker timing CSV fields remain for Phase 5.

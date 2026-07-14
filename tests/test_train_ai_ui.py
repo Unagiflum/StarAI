@@ -56,7 +56,6 @@ from src.Menus.train_ai import (
     architecture_for_state,
     batch_settings_from_state,
     coordinated_architecture_signature,
-    coordination_scope_status_text,
     instances_with_different_batch_settings,
     validate_coordinated_batch_start,
     TRAINING_HUD_HEIGHT,
@@ -228,15 +227,18 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         first_id = manager.active_instance.instance_id
         second = manager.add_instance()
         second.state.selected_ship = "Androsynth"
+        manager.active_tab = "opponent"
 
         manager.select_instance(first_id)
 
         self.assertIs(manager.active_instance, manager.instances[0])
         self.assertIsNone(manager.active_state.selected_ship)
+        self.assertEqual(manager.active_tab, "opponent")
 
         manager.select_instance(second.instance_id)
 
         self.assertEqual(manager.active_state.selected_ship, "Androsynth")
+        self.assertEqual(manager.active_tab, "opponent")
 
     def test_remove_active_stopped_instance_selects_neighbor(self):
         manager = TrainingInstanceManager()
@@ -381,6 +383,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         second.state.selected_slot = 3
         second.state.match_time_limit = 2400
         manager.batch_scheduling.apply_to_all_open_instances = True
+        manager.active_tab = "batch"
 
         restored = training_instance_manager_from_json(
             training_instance_manager_to_json(manager)
@@ -394,6 +397,17 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(restored.active_state.selected_ship, "Androsynth")
         self.assertEqual(restored.active_state.match_time_limit, 2400)
         self.assertTrue(restored.batch_scheduling.apply_to_all_open_instances)
+        self.assertEqual(restored.active_tab, "batch")
+
+    def test_version_one_session_migrates_active_instances_tab(self):
+        payload = training_instance_manager_to_json(TrainingInstanceManager())
+        payload.pop("active_tab")
+        payload["version"] = 1
+        payload["instances"][0]["state"]["active_tab"] = "rewards"
+
+        restored = training_instance_manager_from_json(payload)
+
+        self.assertEqual(restored.active_tab, "rewards")
 
     def test_training_session_save_and_load_uses_supplied_path(self):
         manager = TrainingInstanceManager()
@@ -726,7 +740,6 @@ class TrainingInstanceManagerTests(unittest.TestCase):
     def test_running_instance_temporarily_disables_future_changes_without_clearing_it(self):
         manager = TrainingInstanceManager()
         manager.batch_scheduling.apply_to_all_open_instances = True
-        manager.batch_scheduling.run_multiple_cpu_workers = True
         manager.active_instance.session = self.FakeSession(running=True)
 
         validation = manager.coordinated_batch_validation(
@@ -736,7 +749,6 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertFalse(validation.can_start_all)
         self.assertTrue(manager.batch_scheduling.apply_to_all_open_instances)
         self.assertFalse(manager.future_changes_effective())
-        self.assertTrue(manager.batch_scheduling.run_multiple_cpu_workers)
 
     def test_duplicate_ship_disables_slot_and_label_propagation(self):
         manager = TrainingInstanceManager()
@@ -866,10 +878,6 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
         self.assertFalse(validation.can_start_all)
         self.assertEqual(validation.blocking_code, "running")
-        self.assertEqual(
-            coordination_scope_status_text(validation),
-            "Coordinated mode disabled; training in progress",
-        )
         self.assertTrue(manager.batch_scheduling.apply_to_all_open_instances)
 
     def test_start_all_validation_blocks_incomplete_instances(self):
@@ -932,10 +940,6 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
         self.assertFalse(validation.can_start_all)
         self.assertEqual(validation.blocking_code, "architecture")
-        self.assertEqual(
-            coordination_scope_status_text(validation),
-            "Coordinated mode disabled; incompatible instances",
-        )
 
     def test_start_all_validation_blocks_non_gpu_devices(self):
         manager, _first, _second = self._coordinated_manager_with_two_user_slots()
@@ -1267,11 +1271,11 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             "Not all slots had eligible models to load"
         )
 
-    def test_run_multiple_cpu_workers_checkbox_enables_coordinated_workers(self):
+    def test_start_all_automatically_enables_coordinated_cpu_workers(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         manager = TrainingInstanceManager()
         first = manager.active_instance
-        first.state.active_tab = "batch"
+        manager.active_tab = "batch"
         first.state.selected_ship = "Earthling"
         first.state.selected_slot = 1
         first.state.slot_labels[0] = "Earthling Ready"
@@ -1287,17 +1291,12 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         batch_left = 16
         batch_width = train_ai.CONTROL_WIDTH - 32
         batch_top = train_ai.CONTENT_TOP + 18
-        cpu_workers_top = batch_top + 6 * 40 + 6
-        cpu_workers_pos = (batch_left + 10, cpu_workers_top + 10)
+        start_all_top = batch_top + 6 * 40 + 6
         start_all_pos = (
             batch_left + batch_width // 2,
-            cpu_workers_top + 38 + 12 + 10,
+            start_all_top + 10,
         )
         events = [
-            pygame.event.Event(
-                pygame.MOUSEBUTTONDOWN,
-                {"button": 1, "pos": cpu_workers_pos},
-            ),
             pygame.event.Event(
                 pygame.MOUSEBUTTONDOWN,
                 {"button": 1, "pos": start_all_pos},
