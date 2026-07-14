@@ -407,6 +407,7 @@ class CoordinatedTrainingSession:
                     completed_batches=int(
                         record.metadata.get("progress", {}).get("completed_batches", 0)
                     ),
+                    current_frame_limit=int(record.config.match_time_limit),
                     learning_rate=float(record.config.learning_rate),
                     current_epsilon=max(
                         float(record.config.epsilon_floor),
@@ -625,6 +626,7 @@ class CoordinatedTrainingSession:
                 current_opponent=status.current_opponent,
                 previous_opponent=status.previous_opponent,
                 current_frame=status.current_frame,
+                current_frame_limit=status.current_frame_limit,
                 replay_size=status.replay_size,
                 recent_loss=status.recent_loss,
                 learning_rate=status.learning_rate,

@@ -126,6 +126,7 @@ CURRENT_BATCH_LABEL_WIDTH = 10
 CURRENT_BATCH_TEXT_VALUE_WIDTH = 11
 CURRENT_BATCH_REWARD_NAME_WIDTH = max((len(label) for label in REWARD_LABELS), default=0)
 CURRENT_BATCH_REWARD_VALUE_WIDTH = 8
+TRAINING_BATCH_LOG_FONT_SIZE = 12
 
 CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
 TAB_MARGIN = 8
@@ -1889,14 +1890,10 @@ def _current_batch_console_lines(status):
         state_label = "Stopping"
     elapsed = getattr(status, "elapsed_training_seconds", 0.0)
     batches_per_hour = getattr(status, "batches_per_hour", 0.0)
-    total_round_width = max(
-        3,
-        len(str(status.current_round)),
-        len(str(status.total_rounds)),
-    )
     ship = getattr(status, "ship", "") or "-"
     opponent = status.current_opponent or "-"
     recent_loss = getattr(status, "recent_loss", None)
+    current_frame_limit = max(0, int(getattr(status, "current_frame_limit", 0)))
     lines = [
         "Current batch",
         _current_batch_row("Ship", f"{ship:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}"),
@@ -1907,7 +1904,11 @@ def _current_batch_console_lines(status):
         _current_batch_row("Batch", f"{status.completed_batches + 1:>11d}"),
         _current_batch_row(
             "Round",
-            f"{status.current_round:>11d} / {status.total_rounds:>{total_round_width}d}",
+            f"{status.current_round:>11d} / {status.total_rounds:d}",
+        ),
+        _current_batch_row(
+            "Frame",
+            f"{status.current_frame:>11d} / {current_frame_limit:d}",
         ),
         _current_batch_row("Batches/h", f"{batches_per_hour:>14.2f}"),
         _current_batch_row("Reward", f"{status.weighted_total_return:>16.4f}"),
@@ -1931,7 +1932,7 @@ def _current_batch_console_lines(status):
         col3_header = " Batch -"
     col3_width = max(9, len(col3_header))
     
-    lines.append(f"{'Reward components':<{CURRENT_BATCH_REWARD_NAME_WIDTH}}|{col2_header}|{col3_header:>{col3_width}}")
+    lines.append(f"{'Reward components':<{CURRENT_BATCH_REWARD_NAME_WIDTH}} |{col2_header}|{col3_header:>{col3_width}}")
     
     for name in REWARD_LABELS:
         col1 = f"{name:<{CURRENT_BATCH_REWARD_NAME_WIDTH}}"
@@ -1944,7 +1945,7 @@ def _current_batch_console_lines(status):
         else:
             col3 = f"{'-':>{col3_width}}"
             
-        lines.append(f"{col1}|{col2}|{col3}")
+        lines.append(f"{col1} |{col2}|{col3}")
         
     return tuple(lines)
 
@@ -2207,7 +2208,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     small_font = pygame.font.SysFont(None, 24)
     instance_font = pygame.font.SysFont("Consolas", 19)
     arena_font = pygame.font.SysFont(None, 32)
-    log_font = pygame.font.SysFont("Consolas", 11)
+    log_font = pygame.font.SysFont("Consolas", TRAINING_BATCH_LOG_FONT_SIZE)
     picker_title_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.042))
     picker_tooltip_font = pygame.font.SysFont(None, PICKER_TOOLTIP_FONT_SIZE)
     training_battle_renderer = DisplayStarField()

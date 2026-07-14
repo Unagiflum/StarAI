@@ -47,6 +47,7 @@ from src.Menus.train_ai import (
     SIMPLE_ACTIVITY_VALUES,
     TRAINING_INSTANCE_SOFT_MAX,
     TRAINING_INSTANCE_SUPPORTED_MAX,
+    TRAINING_BATCH_LOG_FONT_SIZE,
     RewardSlider,
     SliderRow,
     apply_batch_settings,
@@ -1449,7 +1450,8 @@ class TrainingConsoleTests(unittest.TestCase):
             "current_round": 12,
             "total_rounds": 25,
             "current_opponent": "Mycon",
-            "current_frame": 42,
+            "current_frame": 100,
+            "current_frame_limit": 1200,
             "replay_size": 30000,
             "last_action_exploratory": True,
             "weighted_total_return": -0.01,
@@ -1480,7 +1482,7 @@ class TrainingConsoleTests(unittest.TestCase):
         )
         current_batch_index = lines.index("Current batch")
         self.assertEqual(
-            lines[current_batch_index : current_batch_index + 15],
+            lines[current_batch_index : current_batch_index + 16],
             (
                 "Current batch",
                 "Ship      | Androsynth",
@@ -1489,7 +1491,8 @@ class TrainingConsoleTests(unittest.TestCase):
                 "Time      |         25h:21m:06s",
                 "Replay    |      30000 frames",
                 "Batch     |         16",
-                "Round     |         12 /  25",
+                "Round     |         12 / 25",
+                "Frame     |        100 / 1200",
                 "Batches/h |          5.69",
                 "Reward    |         -0.0100",
                 "Loss      |          0.2849",
@@ -1501,13 +1504,16 @@ class TrainingConsoleTests(unittest.TestCase):
         )
         reward_name_width = max(len(label) for label in REWARD_LABELS)
         self.assertIn(
-            f"{'Reward components':<{reward_name_width}}|   Chenjesu |  Batch -",
+            f"{'Reward components':<{reward_name_width}} |   Chenjesu |  Batch -",
             lines,
         )
         self.assertIn(
-            f"{'Kill enemy':<{reward_name_width}}|     2.0000 |        -",
+            f"{'Kill enemy':<{reward_name_width}} |     2.0000 |        -",
             lines,
         )
+
+    def test_batch_log_font_size_uses_available_log_space(self):
+        self.assertEqual(TRAINING_BATCH_LOG_FONT_SIZE, 12)
 
     def test_current_batch_ship_name_is_right_aligned(self):
         lines = _display_off_console_lines(self._status(ship="Mycon"), ())

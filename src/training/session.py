@@ -147,6 +147,7 @@ class TrainingSessionStatus:
     current_opponent: str = ""
     previous_opponent: str = ""
     current_frame: int = 0
+    current_frame_limit: int = 0
     replay_size: int = 0
     recent_loss: float | None = None
     learning_rate: float = 0.0
@@ -349,6 +350,7 @@ class TrainingSession:
             completed_batches=int(
                 self.metadata.get("progress", {}).get("completed_batches", 0)
             ),
+            current_frame_limit=int(config.match_time_limit),
             learning_rate=float(config.learning_rate),
             current_epsilon=self._current_epsilon,
             epsilon_decay=float(config.epsilon_decay),
@@ -420,6 +422,7 @@ class TrainingSession:
                 current_opponent=self._status.current_opponent,
                 previous_opponent=self._status.previous_opponent,
                 current_frame=self._status.current_frame,
+                current_frame_limit=self._status.current_frame_limit,
                 replay_size=self._status.replay_size,
                 recent_loss=self._status.recent_loss,
                 learning_rate=self._status.learning_rate,
