@@ -1457,6 +1457,10 @@ def _format_replay_buffer_size(sample_count):
     return f"~{megabytes}MB"
 
 
+def _format_update_to_data_ratio(minibatch_size, gradient_steps, samples_per_batch):
+    return f"{int(minibatch_size) * int(gradient_steps) / int(samples_per_batch):.2f}"
+
+
 def _normalized_training_settings(training):
     if not isinstance(training, dict):
         return training
@@ -2738,7 +2742,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Batch grouping: 1000",
             f"Replay size, batch=15M: 250k ({_format_replay_buffer_size(250_000)})",
             "Minibatch size: 4096",
-            "Gradient steps, UTD=999.9: 500",
+            "Gradient steps: 500 (UTD=999.99)",
             "Learning rate: 0.01000",
             "Starting Epsilon: 1.000",
             "Epsilon decay: 1.000",
@@ -4429,6 +4433,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         replay_size_hint = _format_replay_buffer_size(state.replay_buffer_size)
         regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value_suffix = (
             f" ({replay_size_hint})"
+        )
+        utd_ratio = _format_update_to_data_ratio(
+            state.minibatch_size,
+            state.replay_updates_per_batch,
+            max_batch_frames,
+        )
+        batch_sliders[BATCH_REPLAY_UPDATES_INDEX].value_suffix = (
+            f" (UTD={utd_ratio})"
         )
 
         previous_active_id = instance_manager.active_instance_id

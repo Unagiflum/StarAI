@@ -74,6 +74,7 @@ from src.Menus.train_ai import (
     _epsilon_for_model_update,
     _format_short_count,
     _format_replay_buffer_size,
+    _format_update_to_data_ratio,
     _format_training_duration,
     _instance_row_parts,
     _instance_status_text,
@@ -1982,6 +1983,12 @@ class SliderRowTests(unittest.TestCase):
     def test_short_count_formats_regimen_context_values(self):
         self.assertEqual(_format_short_count(30000), "30k")
         self.assertEqual(_format_short_count(15000000), "15M")
+
+    def test_update_to_data_ratio_uses_batch_samples(self):
+        self.assertEqual(
+            _format_update_to_data_ratio(4096, 10, 30000),
+            "1.37",
+        )
 
     def test_disabled_slider_value_remains_yellow(self):
         slider = SliderRow(
