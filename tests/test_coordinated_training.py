@@ -39,6 +39,8 @@ from src.training.coordinated import (
 )
 from src.training.process_worker import (
     _BELOW_NORMAL_PRIORITY_CLASS,
+    _OPENBLAS_NUM_THREADS_ENV,
+    _start_process_with_single_threaded_openblas,
     _set_worker_process_below_normal_priority,
     COMMAND_REQUEST_OBSERVATION,
     CoordinatedSimulationWorker,
@@ -516,6 +518,34 @@ class CoordinatedFixedFrameWindowTests(unittest.TestCase):
 
 
 class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):
+    def test_worker_process_inherits_single_openblas_thread(self):
+        environ = {_OPENBLAS_NUM_THREADS_ENV: "12"}
+        inherited = []
+        process = mock.Mock()
+        process.start.side_effect = lambda: inherited.append(
+            environ[_OPENBLAS_NUM_THREADS_ENV]
+        )
+
+        _start_process_with_single_threaded_openblas(
+            process,
+            environ=environ,
+        )
+
+        self.assertEqual(inherited, ["1"])
+        self.assertEqual(environ[_OPENBLAS_NUM_THREADS_ENV], "12")
+
+    def test_worker_process_openblas_setting_does_not_leak_to_parent(self):
+        environ = {}
+        process = mock.Mock()
+
+        _start_process_with_single_threaded_openblas(
+            process,
+            environ=environ,
+        )
+
+        process.start.assert_called_once_with()
+        self.assertNotIn(_OPENBLAS_NUM_THREADS_ENV, environ)
+
     @mock.patch("src.training.process_worker.ctypes.WinDLL", create=True)
     @mock.patch("src.training.process_worker.sys.platform", "win32")
     def test_windows_worker_process_uses_below_normal_priority(

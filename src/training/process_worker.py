@@ -7,7 +7,9 @@ from dataclasses import replace
 import ctypes
 import multiprocessing
 from multiprocessing import shared_memory
+import os
 import sys
+import threading
 import traceback
 from types import SimpleNamespace
 from typing import Any
@@ -66,6 +68,8 @@ from src.training.worker_protocol import (
 
 
 _BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+_OPENBLAS_NUM_THREADS_ENV = "OPENBLAS_NUM_THREADS"
+_WORKER_PROCESS_START_LOCK = threading.Lock()
 
 
 def _set_worker_process_below_normal_priority() -> bool:
@@ -89,6 +93,23 @@ def _set_worker_process_below_normal_priority() -> bool:
     except (AttributeError, OSError):
         # Priority is a responsiveness optimization, not a startup requirement.
         return False
+
+
+def _start_process_with_single_threaded_openblas(process, *, environ=None) -> None:
+    """Start a child with one OpenBLAS thread without changing the parent."""
+
+    environ = os.environ if environ is None else environ
+    missing = object()
+    with _WORKER_PROCESS_START_LOCK:
+        previous = environ.get(_OPENBLAS_NUM_THREADS_ENV, missing)
+        environ[_OPENBLAS_NUM_THREADS_ENV] = "1"
+        try:
+            process.start()
+        finally:
+            if previous is missing:
+                environ.pop(_OPENBLAS_NUM_THREADS_ENV, None)
+            else:
+                environ[_OPENBLAS_NUM_THREADS_ENV] = previous
 
 
 class _NoModelPolicy:
@@ -564,6 +585,6 @@ def start_worker_process(
         args=(child_connection,),
         daemon=True,
     )
-    process.start()
+    _start_process_with_single_threaded_openblas(process)
     child_connection.close()
     return process, parent_connection
