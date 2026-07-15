@@ -1722,6 +1722,36 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertLess(draw_order.index("hud"), draw_order.index("tooltip"))
 
 
+class TrainingMenuClockTests(unittest.TestCase):
+    def _clock(self, multiplier):
+        clock = mock.Mock(multiplier=multiplier)
+        clock.set_multiplier.side_effect = lambda value: setattr(
+            clock,
+            "multiplier",
+            value,
+        )
+        clock.tick.return_value = 0.125
+        return clock
+
+    def test_display_off_paces_training_menu_at_base_24_fps(self):
+        clock = self._clock(multiplier=const.VIDEO_FPS_MULTIPLIER)
+
+        elapsed = train_ai._tick_training_menu_clock(clock, display_on=False)
+
+        self.assertEqual(elapsed, 0.125)
+        clock.set_multiplier.assert_called_once_with(1)
+        clock.tick.assert_called_once_with()
+
+    def test_display_on_restores_configured_display_multiplier(self):
+        clock = self._clock(multiplier=1)
+
+        elapsed = train_ai._tick_training_menu_clock(clock, display_on=True)
+
+        self.assertEqual(elapsed, 0.125)
+        clock.set_multiplier.assert_called_once_with(const.VIDEO_FPS_MULTIPLIER)
+        clock.tick.assert_called_once_with()
+
+
 class TrainingStartAllStyleTests(unittest.TestCase):
     def test_start_all_green_is_darker_with_matching_state_alpha(self):
         self.assertEqual(train_ai.START_ALL_GREEN, (0, 105, 0, ui.OK_GREEN[3]))

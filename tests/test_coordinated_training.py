@@ -38,6 +38,8 @@ from src.training.coordinated import (
     run_coordinated_fixed_frame_window,
 )
 from src.training.process_worker import (
+    _BELOW_NORMAL_PRIORITY_CLASS,
+    _set_worker_process_below_normal_priority,
     COMMAND_REQUEST_OBSERVATION,
     CoordinatedSimulationWorker,
     DisplayBufferSpec,
@@ -514,6 +516,29 @@ class CoordinatedFixedFrameWindowTests(unittest.TestCase):
 
 
 class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):
+    @mock.patch("src.training.process_worker.ctypes.WinDLL", create=True)
+    @mock.patch("src.training.process_worker.sys.platform", "win32")
+    def test_windows_worker_process_uses_below_normal_priority(
+        self,
+        win_dll,
+    ):
+        kernel32 = win_dll.return_value
+        kernel32.GetCurrentProcess.return_value = 123
+        kernel32.SetPriorityClass.return_value = 1
+
+        changed = _set_worker_process_below_normal_priority()
+
+        self.assertTrue(changed)
+        win_dll.assert_called_once_with("kernel32", use_last_error=True)
+        kernel32.SetPriorityClass.assert_called_once_with(
+            123,
+            _BELOW_NORMAL_PRIORITY_CLASS,
+        )
+
+    @mock.patch("src.training.process_worker.sys.platform", "linux")
+    def test_non_windows_worker_process_leaves_priority_unchanged(self):
+        self.assertFalse(_set_worker_process_below_normal_priority())
+
     def test_command_and_result_dataclasses_are_picklable(self):
         config = TrainingOrchestrationConfig(
             trainee_ship="Earthling",

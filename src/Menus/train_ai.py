@@ -2710,6 +2710,15 @@ def _clear_reset_model_artifacts(model_slot):
                 pass
 
 
+def _tick_training_menu_clock(clock, *, display_on):
+    """Pace the training menu at battle-view speed only while it is visible."""
+
+    multiplier = const.VIDEO_FPS_MULTIPLIER if display_on else 1
+    if clock.multiplier != multiplier:
+        clock.set_multiplier(multiplier)
+    return clock.tick()
+
+
 def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     """Show the AI-training configuration UI without starting training yet."""
     clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
@@ -4272,7 +4281,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     apply_state_to_ui()
 
     while not exited[0]:
-        elapsed_seconds = clock.tick()
+        elapsed_seconds = _tick_training_menu_clock(
+            clock,
+            display_on=display_checkbox.value,
+        )
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 if not application_close_requested[0]:
