@@ -263,17 +263,16 @@ _COORDINATED_TIMING_CSV_HEADER = (
     "Inference Mode",
     "Batch Seconds",
     "Batches/Hour",
-    "Outcomes",
-    "Wins",
-    "Losses",
-    "Draws",
-    "Win %",
-    "Loss %",
-    "Draw %",
+    "Kills",
+    "Average Kills",
+    "Deaths",
+    "Average Deaths",
     "Score",
+    "Average Score",
     "Epsilon",
     "Learning Rate",
     "Loss",
+    "Average Loss",
     "Observation Seconds",
     "Trainee Inference Seconds",
     "Opponent Inference Seconds",
@@ -1691,7 +1690,7 @@ class CoordinatedTrainingSession:
             TRAINING_CSV_OUTPUT_ENABLED
             and batch_number % state.record.batch_grouping == 0
         ):
-            append_grouped_metrics_csv(self._csv_path(state), rolling)
+            append_grouped_metrics_csv(self._csv_path(state), metrics, rolling)
         return batch_number
 
     def _optimize_record(self, state: _CoordinatedRecordState) -> tuple[float, ...]:
@@ -1876,10 +1875,15 @@ class CoordinatedTrainingSession:
             return
         with self._lock:
             metrics = state.history[-1] if state.history else None
+            rolling = (
+                rolling_metrics(tuple(state.history), state.record.batch_grouping)
+                if state.history
+                else None
+            )
             status = state.status
             batch_seconds = float(status.last_batch_seconds)
             batches_per_hour = float(status.batches_per_hour)
-        if metrics is None:
+        if metrics is None or rolling is None:
             return
         append_coordinated_batch_timing_csv(
             self._coordinated_csv_path(state),
@@ -1897,6 +1901,7 @@ class CoordinatedTrainingSession:
             batch_seconds=batch_seconds,
             batches_per_hour=batches_per_hour,
             metrics=metrics,
+            rolling=rolling,
             timing_seconds=timing_seconds,
         )
 
@@ -2355,6 +2360,7 @@ def append_coordinated_batch_timing_csv(
     batch_seconds: float,
     batches_per_hour: float,
     metrics: BatchMetrics,
+    rolling: BatchMetrics,
     timing_seconds: Mapping[str, float],
 ) -> None:
     path = Path(path)
@@ -2368,10 +2374,6 @@ def append_coordinated_batch_timing_csv(
         max(0.0, float(timing_seconds.get(bucket, 0.0)))
         for bucket in _TIMING_TOTAL_BUCKETS
     )
-    denominator = metrics.outcome_count
-    win_rate = metrics.wins / denominator * 100.0 if denominator else 0.0
-    loss_rate = metrics.losses / denominator * 100.0 if denominator else 0.0
-    draw_rate = metrics.draws / denominator * 100.0 if denominator else 0.0
     with path.open("a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         if write_header:
@@ -2391,17 +2393,16 @@ def append_coordinated_batch_timing_csv(
                 str(inference_mode),
                 f"{float(batch_seconds):.6f}",
                 f"{float(batches_per_hour):.6f}",
-                str(metrics.outcome_count),
-                str(metrics.wins),
-                str(metrics.losses),
-                str(metrics.draws),
-                f"{win_rate:.1f}",
-                f"{loss_rate:.1f}",
-                f"{draw_rate:.1f}",
+                str(metrics.kills),
+                f"{rolling.average_kills:.6f}",
+                str(metrics.deaths),
+                f"{rolling.average_deaths:.6f}",
                 f"{metrics.average_match_score:.6f}",
+                f"{rolling.average_match_score:.6f}",
                 f"{metrics.epsilon:.6f}",
                 f"{metrics.learning_rate:.8f}",
                 f"{metrics.average_loss:.6f}",
+                f"{rolling.average_loss:.6f}",
                 f"{float(timing_seconds.get('observation', 0.0)):.6f}",
                 f"{float(timing_seconds.get('trainee_inference', 0.0)):.6f}",
                 f"{float(timing_seconds.get('opponent_inference', 0.0)):.6f}",

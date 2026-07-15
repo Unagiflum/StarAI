@@ -72,23 +72,29 @@ class CompatibilityReport:
 @dataclass(frozen=True)
 class BatchMetrics:
     batch: int
-    outcome_count: int
-    wins: int
-    losses: int
-    draws: int
+    kills: int
+    deaths: int
+    batch_count: int
     average_match_score: float
     epsilon: float
     learning_rate: float
     average_loss: float
 
+    @property
+    def average_kills(self) -> float:
+        return self.kills / self.batch_count if self.batch_count else 0.0
+
+    @property
+    def average_deaths(self) -> float:
+        return self.deaths / self.batch_count if self.batch_count else 0.0
+
 
 def batch_metrics_to_metadata(metrics: BatchMetrics) -> dict[str, Any]:
     return {
         "batch": metrics.batch,
-        "outcome_count": metrics.outcome_count,
-        "wins": metrics.wins,
-        "losses": metrics.losses,
-        "draws": metrics.draws,
+        "kills": metrics.kills,
+        "deaths": metrics.deaths,
+        "batch_count": metrics.batch_count,
         "average_match_score": metrics.average_match_score,
         "epsilon": metrics.epsilon,
         "learning_rate": metrics.learning_rate,
@@ -99,10 +105,9 @@ def batch_metrics_to_metadata(metrics: BatchMetrics) -> dict[str, Any]:
 def batch_metrics_from_metadata(value: Mapping[str, Any]) -> BatchMetrics:
     return BatchMetrics(
         batch=int(value["batch"]),
-        outcome_count=int(value["outcome_count"]),
-        wins=int(value["wins"]),
-        losses=int(value["losses"]),
-        draws=int(value["draws"]),
+        kills=int(value["kills"]),
+        deaths=int(value["deaths"]),
+        batch_count=int(value["batch_count"]),
         average_match_score=float(value["average_match_score"]),
         epsilon=float(value["epsilon"]),
         learning_rate=float(value["learning_rate"]),
@@ -242,12 +247,16 @@ def metrics_from_batch_result(
         )
     )
     score_total = sum(round_result.total_return for round_result in result.round_results)
+    simultaneous = tuple(
+        outcome
+        for outcome in outcomes
+        if outcome.draw and outcome.terminal_reason != "timeout"
+    )
     return BatchMetrics(
         batch=int(batch),
-        outcome_count=len(outcomes),
-        wins=sum(1 for outcome in outcomes if outcome.win),
-        losses=sum(1 for outcome in outcomes if outcome.loss),
-        draws=sum(1 for outcome in outcomes if outcome.draw),
+        kills=sum(1 for outcome in outcomes if outcome.win) + len(simultaneous),
+        deaths=sum(1 for outcome in outcomes if outcome.loss) + len(simultaneous),
+        batch_count=1,
         average_match_score=score_total / round_count if round_count else 0.0,
         epsilon=float(epsilon),
         learning_rate=float(learning_rate),
@@ -263,10 +272,9 @@ def rolling_metrics(history: tuple[BatchMetrics, ...], grouping: int) -> BatchMe
     latest = window[-1]
     return BatchMetrics(
         batch=latest.batch,
-        outcome_count=sum(item.outcome_count for item in window),
-        wins=sum(item.wins for item in window),
-        losses=sum(item.losses for item in window),
-        draws=sum(item.draws for item in window),
+        kills=sum(item.kills for item in window),
+        deaths=sum(item.deaths for item in window),
+        batch_count=count,
         average_match_score=sum(item.average_match_score for item in window) / count,
         epsilon=latest.epsilon,
         learning_rate=latest.learning_rate,
@@ -275,67 +283,56 @@ def rolling_metrics(history: tuple[BatchMetrics, ...], grouping: int) -> BatchMe
 
 
 def format_batch_summary_line(metrics: BatchMetrics, rolling: BatchMetrics) -> str:
-    win_rate = (metrics.wins / metrics.outcome_count * 100.0) if metrics.outcome_count > 0 else 0.0
-    loss_rate = (metrics.losses / metrics.outcome_count * 100.0) if metrics.outcome_count > 0 else 0.0
-    draw_rate = (metrics.draws / metrics.outcome_count * 100.0) if metrics.outcome_count > 0 else 0.0
-    rolling_win_rate = (rolling.wins / rolling.outcome_count * 100.0) if rolling.outcome_count > 0 else 0.0
-
     return (
-        f"Batch {metrics.batch:6d} | "
-        f"{metrics.outcome_count} outcomes: "
-        f"{metrics.wins} W ({win_rate:5.1f}%), "
-        f"{metrics.losses} L ({loss_rate:5.1f}%), "
-        f"{metrics.draws} D ({draw_rate:5.1f}%) | "
-        f"Rolling: {rolling.wins}/{rolling.outcome_count} W "
-        f"({rolling_win_rate:6.2f}%) | "
-        f"Score: {metrics.average_match_score: =7.3f} ({rolling.average_match_score: =7.3f}) | "
+        f"# {metrics.batch:6d} | "
+        f"{metrics.kills:4d} K ({rolling.average_kills:7.2f}), "
+        f"{metrics.deaths:4d} D ({rolling.average_deaths:7.2f}) | "
+        f"Score: {metrics.average_match_score:7.3f} ({rolling.average_match_score:7.3f}) | "
         f"Epsilon: {metrics.epsilon:.5f} | "
         f"LR: {metrics.learning_rate:.5f} | "
         f"Loss: {metrics.average_loss:.4f} ({rolling.average_loss:.4f})"
     )
 
 
-def append_grouped_metrics_csv(path: Path, metrics: BatchMetrics) -> None:
+def append_grouped_metrics_csv(
+    path: Path,
+    metrics: BatchMetrics,
+    rolling: BatchMetrics,
+) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not path.exists() or path.stat().st_size == 0
-    denominator = metrics.outcome_count
-    win_rate = (metrics.wins / denominator * 100.0) if denominator else 0.0
-    loss_rate = (metrics.losses / denominator * 100.0) if denominator else 0.0
-    draw_rate = (metrics.draws / denominator * 100.0) if denominator else 0.0
     with path.open("a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         if write_header:
             writer.writerow(
                 (
                     "Batch",
-                    "Outcomes",
-                    "Wins",
-                    "Losses",
-                    "Draws",
-                    "Win %",
-                    "Loss %",
-                    "Draw %",
+                    "Kills",
+                    "Average Kills",
+                    "Deaths",
+                    "Average Deaths",
                     "Score",
+                    "Average Score",
                     "Epsilon",
                     "Learning Rate",
                     "Loss",
+                    "Average Loss",
                 )
             )
         writer.writerow(
             (
                 str(metrics.batch),
-                str(metrics.outcome_count),
-                str(metrics.wins),
-                str(metrics.losses),
-                str(metrics.draws),
-                f"{win_rate:.1f}",
-                f"{loss_rate:.1f}",
-                f"{draw_rate:.1f}",
+                str(metrics.kills),
+                f"{rolling.average_kills:.2f}",
+                str(metrics.deaths),
+                f"{rolling.average_deaths:.2f}",
                 f"{metrics.average_match_score:.1f}",
+                f"{rolling.average_match_score:.1f}",
                 f"{metrics.epsilon:.5f}",
                 f"{metrics.learning_rate:.6f}",
                 f"{metrics.average_loss:.4f}",
+                f"{rolling.average_loss:.4f}",
             )
         )
 
@@ -758,7 +755,7 @@ class TrainingSession:
             self._status.replay_size = result.replay_size
 
         if TRAINING_CSV_OUTPUT_ENABLED and batch_number % self.batch_grouping == 0:
-            append_grouped_metrics_csv(self._csv_path(), rolling)
+            append_grouped_metrics_csv(self._csv_path(), metrics, rolling)
         self._trim_history()
         return batch_number
 

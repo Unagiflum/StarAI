@@ -47,11 +47,17 @@ from src.training.session import (
 from src.training.value_network import ValueNetworkConfig, build_value_network
 
 
-def _episode_result(*, win=False, loss=False, draw=True):
+def _episode_result(
+    *,
+    win=False,
+    loss=False,
+    draw=True,
+    terminal_reason=None,
+):
     return TrainingEpisodeResult(
         opponent=OpponentSpec("Earthling"),
         frames=1,
-        terminal_reason="timeout" if draw else "resolved",
+        terminal_reason=terminal_reason or ("timeout" if draw else "resolved"),
         mature_samples=1,
         total_return=0.0,
         win=win,
@@ -118,37 +124,53 @@ class _MutableOpponentCache:
 class TrainingMetricsTests(unittest.TestCase):
     def test_batch_summary_line_uses_specified_format(self):
         metrics = BatchMetrics(
-            batch=45,
-            outcome_count=250,
-            wins=120,
-            losses=30,
-            draws=100,
-            average_match_score=30.5,
-            epsilon=0.002,
-            learning_rate=0.0001,
-            average_loss=0.06,
+            batch=86,
+            kills=2,
+            deaths=4,
+            batch_count=1,
+            average_match_score=0.809,
+            epsilon=0.26545,
+            learning_rate=0.0003,
+            average_loss=1.2658,
         )
         rolling = BatchMetrics(
-            batch=45,
-            outcome_count=250,
-            wins=110,
-            losses=40,
-            draws=100,
-            average_match_score=25.0,
-            epsilon=0.002,
-            learning_rate=0.0001,
-            average_loss=0.05,
+            batch=86,
+            kills=231,
+            deaths=362,
+            batch_count=100,
+            average_match_score=0.819,
+            epsilon=0.26545,
+            learning_rate=0.0003,
+            average_loss=1.2658,
         )
 
         self.assertEqual(
             format_batch_summary_line(metrics, rolling),
-            "Batch     45 | 250 outcomes: 120 W ( 48.0%), 30 L ( 12.0%), "
-            "100 D ( 40.0%) | Rolling: 110/250 W ( 44.00%) | "
-            "Score:  30.500 ( 25.000) | Epsilon: 0.00200 | "
-            "LR: 0.00010 | Loss: 0.0600 (0.0500)",
+            "#     86 |    2 K (   2.31),    4 D (   3.62) | "
+            "Score:   0.809 (  0.819) | Epsilon: 0.26545 | "
+            "LR: 0.00030 | Loss: 1.2658 (1.2658)",
         )
 
-    def test_metrics_from_batch_result_counts_outcomes_and_average_score(self):
+    def test_batch_summary_keeps_negative_score_sign_adjacent(self):
+        metrics = BatchMetrics(86, 2, 4, 1, -0.809, 0.26545, 0.0003, 1.2658)
+        rolling = BatchMetrics(
+            86,
+            231,
+            362,
+            100,
+            -0.819,
+            0.26545,
+            0.0003,
+            1.2658,
+        )
+
+        summary = format_batch_summary_line(metrics, rolling)
+
+        self.assertIn("Score:  -0.809 ( -0.819)", summary)
+        self.assertNotIn("- 0.809", summary)
+        self.assertNotIn("- 0.819", summary)
+
+    def test_metrics_from_batch_result_counts_kills_deaths_and_average_score(self):
         result = TrainingBatchResult(
             completed_rounds=2,
             replay_size=10,
@@ -162,6 +184,7 @@ class TrainingMetricsTests(unittest.TestCase):
                     episode_results=(
                         _episode_result(win=True, draw=False),
                         _episode_result(loss=True, draw=False),
+                        _episode_result(terminal_reason="resolved"),
                     ),
                 ),
                 _round_result(2.0, episode_results=(_episode_result(),)),
@@ -175,36 +198,28 @@ class TrainingMetricsTests(unittest.TestCase):
             learning_rate=0.001,
         )
 
-        self.assertEqual(metrics.outcome_count, 3)
-        self.assertEqual((metrics.wins, metrics.losses, metrics.draws), (1, 1, 1))
+        self.assertEqual((metrics.kills, metrics.deaths), (2, 2))
+        self.assertEqual(metrics.batch_count, 1)
         self.assertAlmostEqual(metrics.average_match_score, 6.0)
         self.assertAlmostEqual(metrics.average_loss, 0.3)
 
     def test_rolling_metrics_uses_available_window(self):
         history = (
-            BatchMetrics(1, 1, 1, 0, 0, 10.0, 0.1, 0.001, 1.0),
-            BatchMetrics(2, 1, 0, 1, 0, 20.0, 0.2, 0.002, 3.0),
+            BatchMetrics(1, 1, 2, 1, 10.0, 0.1, 0.001, 1.0),
+            BatchMetrics(2, 3, 0, 1, 20.0, 0.2, 0.002, 3.0),
         )
 
         rolling = rolling_metrics(history, grouping=5)
 
         self.assertEqual(rolling.batch, 2)
+        self.assertEqual((rolling.kills, rolling.deaths), (4, 2))
+        self.assertEqual(rolling.batch_count, 2)
+        self.assertAlmostEqual(rolling.average_kills, 2.0)
+        self.assertAlmostEqual(rolling.average_deaths, 1.0)
         self.assertAlmostEqual(rolling.average_match_score, 15.0)
         self.assertAlmostEqual(rolling.average_loss, 2.0)
         self.assertAlmostEqual(rolling.epsilon, 0.2)
         self.assertAlmostEqual(rolling.learning_rate, 0.002)
-
-    def test_rolling_metrics_keeps_grouped_outcome_totals_for_win_rate(self):
-        history = (
-            BatchMetrics(1, 3, 1, 1, 1, 10.0, 0.1, 0.001, 1.0),
-            BatchMetrics(2, 3, 2, 1, 0, 20.0, 0.2, 0.002, 3.0),
-        )
-
-        rolling = rolling_metrics(history, grouping=2)
-
-        self.assertEqual(rolling.outcome_count, 6)
-        self.assertEqual((rolling.wins, rolling.losses, rolling.draws), (3, 2, 1))
-        self.assertIn("Rolling: 3/6 W ( 50.00%)", format_batch_summary_line(history[-1], rolling))
 
     def test_csv_append_writes_header_once(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -212,11 +227,13 @@ class TrainingMetricsTests(unittest.TestCase):
 
             append_grouped_metrics_csv(
                 path,
-                BatchMetrics(1000, 250, 0, 0, 0, 34.3, 0.002, 0.0001, 0.05),
+                BatchMetrics(1000, 2, 4, 1, 34.3, 0.002, 0.0001, 0.05),
+                BatchMetrics(1000, 231, 362, 100, 33.3, 0.002, 0.0001, 0.04),
             )
             append_grouped_metrics_csv(
                 path,
-                BatchMetrics(2000, 250, 0, 0, 0, 35.0, 0.003, 0.0002, 0.06),
+                BatchMetrics(2000, 5, 3, 1, 35.0, 0.003, 0.0002, 0.06),
+                BatchMetrics(2000, 250, 350, 100, 34.0, 0.003, 0.0002, 0.05),
             )
 
             with path.open(newline="", encoding="utf-8") as file:
@@ -226,28 +243,29 @@ class TrainingMetricsTests(unittest.TestCase):
             rows,
             [
                 [
-                    "Batch", "Outcomes", "Wins", "Losses", "Draws",
-                    "Win %", "Loss %", "Draw %", "Score", "Epsilon",
-                    "Learning Rate", "Loss",
+                    "Batch", "Kills", "Average Kills", "Deaths",
+                    "Average Deaths", "Score", "Average Score", "Epsilon",
+                    "Learning Rate", "Loss", "Average Loss",
                 ],
                 [
-                    "1000", "250", "0", "0", "0", "0.0", "0.0", "0.0",
-                    "34.3", "0.00200", "0.000100", "0.0500",
+                    "1000", "2", "2.31", "4", "3.62", "34.3", "33.3",
+                    "0.00200", "0.000100", "0.0500", "0.0400",
                 ],
                 [
-                    "2000", "250", "0", "0", "0", "0.0", "0.0", "0.0",
-                    "35.0", "0.00300", "0.000200", "0.0600",
+                    "2000", "5", "2.50", "3", "3.50", "35.0", "34.0",
+                    "0.00300", "0.000200", "0.0600", "0.0500",
                 ],
             ],
         )
 
-    def test_csv_append_writes_grouped_win_rate(self):
+    def test_csv_append_writes_current_counts_and_rolling_averages(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "Earthling-01.csv"
 
             append_grouped_metrics_csv(
                 path,
-                BatchMetrics(50, 10, 4, 3, 3, 12.5, 0.100, 0.001, 0.25),
+                BatchMetrics(50, 4, 3, 1, 12.5, 0.100, 0.001, 0.25),
+                BatchMetrics(50, 12, 9, 3, 11.5, 0.100, 0.001, 0.20),
             )
 
             with path.open(newline="", encoding="utf-8") as file:
@@ -256,13 +274,13 @@ class TrainingMetricsTests(unittest.TestCase):
         self.assertEqual(
             rows[-1],
             [
-                "50", "10", "4", "3", "3", "40.0", "30.0", "30.0",
-                "12.5", "0.10000", "0.001000", "0.2500",
+                "50", "4", "4.00", "3", "3.00", "12.5", "11.5",
+                "0.10000", "0.001000", "0.2500", "0.2000",
             ],
         )
 
     def test_batch_metrics_history_round_trips_through_metadata(self):
-        metrics = BatchMetrics(12, 25, 9, 10, 6, 42.5, 0.1, 0.001, 0.25)
+        metrics = BatchMetrics(12, 9, 10, 1, 42.5, 0.1, 0.001, 0.25)
         metadata = {
             "progress": {
                 "completed_batches": 12,
@@ -272,10 +290,10 @@ class TrainingMetricsTests(unittest.TestCase):
 
         self.assertEqual(batch_metrics_history_from_metadata(metadata), (metrics,))
 
-    def test_grouped_win_rate_survives_metadata_round_trip(self):
+    def test_grouped_kill_death_averages_survive_metadata_round_trip(self):
         history = (
-            BatchMetrics(12, 3, 1, 1, 1, 42.5, 0.1, 0.001, 0.25),
-            BatchMetrics(13, 3, 2, 1, 0, 43.5, 0.1, 0.001, 0.35),
+            BatchMetrics(12, 1, 1, 1, 42.5, 0.1, 0.001, 0.25),
+            BatchMetrics(13, 3, 1, 1, 43.5, 0.1, 0.001, 0.35),
         )
         metadata = {
             "progress": {
@@ -289,9 +307,9 @@ class TrainingMetricsTests(unittest.TestCase):
         restored = batch_metrics_history_from_metadata(metadata)
         rolling = rolling_metrics(restored, grouping=2)
 
-        self.assertEqual(rolling.outcome_count, 6)
-        self.assertEqual(rolling.wins, 3)
-        self.assertIn("Rolling: 3/6 W ( 50.00%)", format_batch_summary_line(restored[-1], rolling))
+        self.assertEqual((rolling.kills, rolling.deaths), (4, 2))
+        self.assertAlmostEqual(rolling.average_kills, 2.0)
+        self.assertAlmostEqual(rolling.average_deaths, 1.0)
 
 
 class TrainingCompatibilityTests(unittest.TestCase):
@@ -609,7 +627,7 @@ class TrainingSessionTests(unittest.TestCase):
                 progress={"completed_batches": 7},
             )
             slot = repository.create_or_update_user_model(metadata)
-            history = (BatchMetrics(7, 1, 1, 0, 0, 5.0, 0.1, 0.001, 0.25),)
+            history = (BatchMetrics(7, 1, 0, 1, 5.0, 0.1, 0.001, 0.25),)
             log_lines = ("Batch      7 | summary",)
 
             session = TrainingSession(
@@ -1335,8 +1353,8 @@ class TrainingSessionTests(unittest.TestCase):
         self.assertEqual(
             rows[-1],
             [
-                "3", "3", "0", "0", "3", "0.0", "0.0", "100.0",
-                "20.0", "0.10000", "0.001000", "0.1000",
+                "3", "0", "0.00", "0", "0.00", "30.0", "20.0",
+                "0.10000", "0.001000", "0.1000", "0.1000",
             ],
         )
 

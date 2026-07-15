@@ -1238,14 +1238,18 @@ class CoordinatedTimingCsvTests(unittest.TestCase):
                 batch_seconds=180.0,
                 batches_per_hour=20.0,
                 metrics=SimpleNamespace(
-                    wins=1,
-                    losses=1,
-                    draws=2,
-                    outcome_count=4,
+                    kills=2,
+                    deaths=4,
                     average_match_score=4.25,
                     epsilon=0.5,
                     learning_rate=0.001,
                     average_loss=0.125,
+                ),
+                rolling=SimpleNamespace(
+                    average_kills=2.31,
+                    average_deaths=3.62,
+                    average_match_score=4.0,
+                    average_loss=0.1,
                 ),
                 timing_seconds={
                     "observation": 1.0,
@@ -1274,13 +1278,14 @@ class CoordinatedTimingCsvTests(unittest.TestCase):
         self.assertEqual(row["Instance Frames"], "1200")
         self.assertEqual(row["Coordinated Record Frames"], "2400")
         self.assertEqual(row["Inference Mode"], "sequential_fallback:1200")
-        self.assertEqual(row["Outcomes"], "4")
-        self.assertEqual(row["Wins"], "1")
-        self.assertEqual(row["Losses"], "1")
-        self.assertEqual(row["Draws"], "2")
-        self.assertEqual(row["Win %"], "25.0")
-        self.assertEqual(row["Loss %"], "25.0")
-        self.assertEqual(row["Draw %"], "50.0")
+        self.assertEqual(row["Kills"], "2")
+        self.assertEqual(row["Average Kills"], "2.310000")
+        self.assertEqual(row["Deaths"], "4")
+        self.assertEqual(row["Average Deaths"], "3.620000")
+        self.assertEqual(row["Score"], "4.250000")
+        self.assertEqual(row["Average Score"], "4.000000")
+        self.assertEqual(row["Loss"], "0.125000")
+        self.assertEqual(row["Average Loss"], "0.100000")
         self.assertEqual(row["Timed Total Seconds"], "28.000000")
         self.assertEqual(row["Simulation Collision Seconds"], "1.250000")
         self.assertEqual(row["Reward Pipeline Seconds"], "0.750000")
