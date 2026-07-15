@@ -25,6 +25,8 @@ from src.training.observation_transfer import (
     unpack_observation_array,
 )
 from src.training.coordinated import (
+    _THREAD_PRIORITY_BELOW_NORMAL,
+    _set_current_thread_below_normal_priority,
     CoordinatedActionRequest,
     CoordinatedFixedFrameWindowResult,
     CoordinatedRuntimeComponents,
@@ -146,6 +148,44 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
         self.assertFalse(proxies[1].status.stopping)
         self.assertFalse(proxies[2].status.running)
 
+    def test_coordinator_worker_lowers_its_own_thread_priority(self):
+        session = self._session()
+
+        with mock.patch(
+            "src.training.coordinated._set_current_thread_below_normal_priority"
+        ) as lower_priority:
+            session.start()
+            deadline = time.time() + 1.0
+            while not lower_priority.called and time.time() < deadline:
+                time.sleep(0.005)
+            session.request_stop()
+            session.join(1.0)
+
+        lower_priority.assert_called_once_with()
+
+    @mock.patch("src.training.coordinated.ctypes.WinDLL", create=True)
+    @mock.patch("src.training.coordinated.sys.platform", "win32")
+    def test_windows_coordinator_thread_uses_below_normal_priority(
+        self,
+        win_dll,
+    ):
+        kernel32 = win_dll.return_value
+        kernel32.GetCurrentThread.return_value = 456
+        kernel32.SetThreadPriority.return_value = 1
+
+        changed = _set_current_thread_below_normal_priority()
+
+        self.assertTrue(changed)
+        win_dll.assert_called_once_with("kernel32", use_last_error=True)
+        kernel32.SetThreadPriority.assert_called_once_with(
+            456,
+            _THREAD_PRIORITY_BELOW_NORMAL,
+        )
+
+    @mock.patch("src.training.coordinated.sys.platform", "linux")
+    def test_non_windows_coordinator_thread_leaves_priority_unchanged(self):
+        self.assertFalse(_set_current_thread_below_normal_priority())
+
     def test_record_progress_updates_live_status_every_100_frames(self):
         session = self._session()
         state = session._states[1]
@@ -196,6 +236,30 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
 
         wait.assert_called_once()
         self.assertAlmostEqual(wait.call_args.args[0], 1.0 / 24.0)
+
+    def test_coordinator_yields_once_every_configured_frame_interval(self):
+        session = self._session()
+
+        with (
+            mock.patch.object(
+                const,
+                "COORDINATED_TRAINING_YIELD_INTERVAL_FRAMES",
+                16,
+            ),
+            mock.patch.object(
+                const,
+                "COORDINATED_TRAINING_YIELD_SECONDS",
+                0.001,
+            ),
+            mock.patch("src.training.coordinated.time.sleep") as sleep,
+        ):
+            for frame_count in range(1, 33):
+                session._yield_after_coordinated_frame(frame_count)
+
+        self.assertEqual(
+            sleep.call_args_list,
+            [mock.call(0.001), mock.call(0.001)],
+        )
 
     def test_display_progress_updates_selected_instance_every_frame(self):
         session = self._session()

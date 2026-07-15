@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import nullcontext
+import ctypes
 from dataclasses import dataclass, field, replace
 import csv
 from pathlib import Path
 import random
+import sys
 import threading
 import time
 from types import SimpleNamespace
@@ -113,6 +115,30 @@ from src.training.value_network import (
 
 
 TRAINEE_PARAMETER_CACHE_MAX_ENTRIES = 2
+_THREAD_PRIORITY_BELOW_NORMAL = -1
+
+
+def _set_current_thread_below_normal_priority() -> bool:
+    """Lower the Windows coordinator thread without lowering the UI process."""
+
+    if sys.platform != "win32":
+        return False
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        get_current_thread = kernel32.GetCurrentThread
+        get_current_thread.restype = ctypes.c_void_p
+        set_thread_priority = kernel32.SetThreadPriority
+        set_thread_priority.argtypes = (ctypes.c_void_p, ctypes.c_int)
+        set_thread_priority.restype = ctypes.c_int
+        return bool(
+            set_thread_priority(
+                get_current_thread(),
+                _THREAD_PRIORITY_BELOW_NORMAL,
+            )
+        )
+    except (AttributeError, OSError):
+        # Priority is a responsiveness optimization, not a startup requirement.
+        return False
 
 
 @dataclass(frozen=True)
@@ -841,6 +867,7 @@ class CoordinatedTrainingSession:
             state.status.current_epsilon = current_epsilon
 
     def _run_worker(self) -> None:
+        _set_current_thread_below_normal_priority()
         try:
             for state in self._states.values():
                 if self._stop_requested.is_set():
@@ -900,6 +927,7 @@ class CoordinatedTrainingSession:
     def _run_one_in_process_coordinated_batch(self) -> bool:
         timing_seconds = _new_timing_seconds()
         timing_frame_count = 0
+        coordinated_frame_count = 0
         timing_completed_batch = False
         batch_action_requests = 0
         batch_exploratory_actions = 0
@@ -1031,6 +1059,8 @@ class CoordinatedTrainingSession:
                         if timing_seconds is not None:
                             timing_frame_count += 1
                     self._throttle_display_frame()
+                    coordinated_frame_count += 1
+                    self._yield_after_coordinated_frame(coordinated_frame_count)
                     _raise_if_stop_requested(self._stop_requested.is_set)
                 for window in active_windows:
                     result = _finish_coordinated_window(
@@ -1124,6 +1154,7 @@ class CoordinatedTrainingSession:
 
         timing_seconds = _new_timing_seconds()
         timing_frame_count = 0
+        coordinated_frame_count = 0
         batch_action_requests = 0
         batch_exploratory_actions = 0
         batch_inference_mode_counts: dict[str, int] = {}
@@ -1364,6 +1395,8 @@ class CoordinatedTrainingSession:
                                 )
                             self._on_record_progress(window.state, progress_payload)
                     self._throttle_display_frame()
+                    coordinated_frame_count += 1
+                    self._yield_after_coordinated_frame(coordinated_frame_count)
                     _raise_if_stop_requested(self._stop_requested.is_set)
 
                 for window in active_windows:
@@ -1990,6 +2023,17 @@ class CoordinatedTrainingSession:
         else:
             with self._lock:
                 self._next_display_frame_time = time.perf_counter()
+
+    def _yield_after_coordinated_frame(self, frame_count: int) -> None:
+        interval = int(const.COORDINATED_TRAINING_YIELD_INTERVAL_FRAMES)
+        seconds = float(const.COORDINATED_TRAINING_YIELD_SECONDS)
+        if (
+            interval > 0
+            and seconds > 0.0
+            and int(frame_count) > 0
+            and int(frame_count) % interval == 0
+        ):
+            time.sleep(seconds)
 
     def _display_buffer_spec(self, instance_id: int, spec_type):
         if not self._display_enabled_for(instance_id):
