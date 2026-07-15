@@ -16,6 +16,14 @@ from src.training import batched_value_network
 from src.training.coordinated import CPU_WORKER_FALLBACK_NOTICE
 from src.training.batched_value_network import BatchedValueNetworkParameterCache
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
+from src.training.contracts import action_for_index
+from src.training.observation_transfer import (
+    PACKED_OBSERVATION_BYTES,
+    PackedObservation,
+    pack_observation,
+    unpack_observation,
+    unpack_observation_array,
+)
 from src.training.coordinated import (
     CoordinatedActionRequest,
     CoordinatedFixedFrameWindowResult,
@@ -522,7 +530,9 @@ class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):
             record_id=1,
             round_index=2,
             frame_count=0,
-            trainee_observation=(0.0,) * OBSERVATION_INPUT_SIZE,
+            trainee_observation=pack_observation(
+                (0.0,) * OBSERVATION_INPUT_SIZE
+            ),
             simple_opponent_controls={"forward": True},
         )
 
@@ -553,6 +563,7 @@ class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):
             self.assertIsInstance(ready, WorkerReadyResult)
             self.assertEqual(ready.worker_id, 3)
             self.assertEqual(ready.record_id, 7)
+            self.assertFalse(ready.torch_imported)
 
             connection.send(ShutdownCommand())
             stopped = connection.recv()
@@ -577,7 +588,9 @@ class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):
         process, connection = start_worker_process(context=context)
         try:
             connection.send(StartRunCommand(1, 1, 1, video_fps_multiplier=1))
-            self.assertIsInstance(connection.recv(), WorkerReadyResult)
+            ready = connection.recv()
+            self.assertIsInstance(ready, WorkerReadyResult)
+            self.assertFalse(ready.torch_imported)
             connection.send(
                 StartWindowCommand(
                     1,
@@ -590,7 +603,9 @@ class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):
                     1,
                 )
             )
-            self.assertIsInstance(connection.recv(), WindowStartedResult)
+            started = connection.recv()
+            self.assertIsInstance(started, WindowStartedResult)
+            self.assertFalse(started.torch_imported)
             connection.send(
                 StepFrameCommand(
                     1,
@@ -603,6 +618,7 @@ class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):
             )
             result = connection.recv()
             self.assertIsInstance(result, FrameSteppedResult)
+            self.assertFalse(result.torch_imported)
             self.assertEqual(result.display_frames_ready, 1)
             self.assertTrue(any(memory.buf[:1000]))
             connection.send(ShutdownCommand())
@@ -658,7 +674,7 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
         self.assertIsInstance(observation, WindowObservationResult)
         self.assertEqual(observation.frame_count, 0)
         self.assertEqual(
-            observation.trainee_observation,
+            tuple(unpack_observation(observation.trainee_observation)),
             (0.0,) * OBSERVATION_INPUT_SIZE,
         )
         self.assertIsNotNone(observation.simple_opponent_controls)
@@ -684,6 +700,100 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
 
         self.assertIsInstance(worker._resources, HeadlessAssetManager)
         self.assertEqual(constructed_resources, [worker._resources, worker._resources])
+
+    def test_worker_encodes_each_simple_decision_state_once(self):
+        worker = self._worker()
+        encoded = [0.0] * OBSERVATION_INPUT_SIZE
+        with (
+            mock.patch(
+                "src.training.process_worker.encode_observation",
+                return_value=encoded,
+            ) as encode,
+            mock.patch(
+                "src.training.coordinated_simulation.SimpleOpponentController."
+                "direct_controls_for_frame",
+                return_value=action_for_index(0),
+            ) as simple_controls,
+        ):
+            self._start_window(
+                worker,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    match_time_limit=3,
+                    gamma=0.0,
+                ),
+            )
+            # The compatibility/debug request returns the cache and does not encode.
+            worker.handle(RequestObservationCommand(9, 1))
+            first = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+            second = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+            third = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+
+        self.assertEqual(encode.call_count, 3)
+        self.assertEqual(simple_controls.call_count, 3)
+        self.assertFalse(first.complete)
+        self.assertFalse(second.complete)
+        self.assertTrue(third.complete)
+        self.assertIsNone(third.next_trainee_observation)
+        self.assertIsNone(third.next_opponent_observation)
+        self.assertIsNone(third.next_simple_opponent_controls)
+
+    def test_model_opponent_observations_are_encoded_once_per_decision_state(self):
+        worker = self._worker()
+        with mock.patch(
+            "src.training.process_worker.encode_observation",
+            return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+        ) as encode:
+            started = self._start_window(
+                worker,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    match_time_limit=2,
+                    gamma=0.0,
+                ),
+                opponent=OpponentSpec(
+                    "Androsynth",
+                    mode="all",
+                    slot=1,
+                ),
+            )
+            worker.handle(RequestObservationCommand(9, 1))
+            first = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+            second = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+
+        self.assertIsNotNone(started.opponent_observation)
+        self.assertIsNotNone(first.next_opponent_observation)
+        self.assertIsNone(second.next_opponent_observation)
+        self.assertEqual(encode.call_count, 4)
+
+    def test_terminal_reset_returns_first_observation_of_new_battle(self):
+        factory = ScriptedSimulationFactory(({"terminal_after": 1}, {}))
+        worker = self._worker(simulation_factory=factory)
+
+        def encode_for_battle(self_ship, _enemy_ship, **_kwargs):
+            value = 0.0 if self_ship is factory.created[0].player1 else 1.0
+            return [value] * OBSERVATION_INPUT_SIZE
+
+        with mock.patch(
+            "src.training.process_worker.encode_observation",
+            side_effect=encode_for_battle,
+        ):
+            self._start_window(
+                worker,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    match_time_limit=2,
+                    gamma=0.0,
+                ),
+            )
+            result = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+
+        self.assertIsNotNone(result.terminal_episode)
+        self.assertEqual(len(factory.created), 2)
+        self.assertEqual(
+            tuple(unpack_observation(result.next_trainee_observation)),
+            (1.0,) * OBSERVATION_INPUT_SIZE,
+        )
 
     def test_step_frame_returns_mature_samples_for_parent_replay_insertion(self):
         parent_replay = TrainingReplayBuffer(16)
@@ -858,6 +968,38 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
 
 
 class CoordinatedActionSelectionTests(unittest.TestCase):
+    def test_batched_inference_accepts_packed_observation_numeric_views(self):
+        if torch_backend.get_torch() is None:
+            self.skipTest("PyTorch is not installed")
+        torch = torch_backend.require_torch()
+        models = (
+            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1)),
+        )
+        with torch.no_grad():
+            for model in models:
+                for parameter in model.parameters():
+                    parameter.zero_()
+                model[-1].bias.copy_(torch.arange(ACTION_OUTPUT_SIZE).float())
+        requests = tuple(
+            CoordinatedActionRequest(
+                record_id=index,
+                policy=ValueNetworkPolicy(model, epsilon=0.0),
+                observation=unpack_observation_array(
+                    pack_observation([float(index)] * OBSERVATION_INPUT_SIZE)
+                ),
+            )
+            for index, model in enumerate(models, start=1)
+        )
+
+        result = select_actions_for_records(requests)
+
+        self.assertEqual(result.inference_mode, "batched_value_network")
+        self.assertEqual(
+            tuple(result.selections[index].action_index for index in (1, 2)),
+            (ACTION_OUTPUT_SIZE - 1, ACTION_OUTPUT_SIZE - 1),
+        )
+
     def test_select_actions_for_records_routes_epsilon_policy_results(self):
         policy1 = SequencePolicy((ActionSelection(3, exploratory=False),))
         policy2 = SequencePolicy((ActionSelection(7, exploratory=True),))
@@ -1139,10 +1281,10 @@ class CoordinatedTimingCsvTests(unittest.TestCase):
 
 
 class FakeWorkerClient:
-    def __init__(self, *, worker_id, record_id, fail_on_observation=False):
+    def __init__(self, *, worker_id, record_id, fail_on_step=False):
         self.worker_id = int(worker_id)
         self.record_id = int(record_id)
-        self.fail_on_observation = bool(fail_on_observation)
+        self.fail_on_step = bool(fail_on_step)
         self.started = False
         self.shutdown_called = False
         self.frame = 0
@@ -1169,31 +1311,26 @@ class FakeWorkerClient:
                     record_id=self.record_id,
                     round_index=self.round_index,
                     frame_limit=self.frame_limit,
+                    trainee_observation=pack_observation(
+                        (0.0,) * OBSERVATION_INPUT_SIZE
+                    ),
+                    simple_opponent_controls={"forward": False},
                 )
             )
         elif name == "REQUEST_OBSERVATION":
-            if self.fail_on_observation:
+            raise AssertionError("steady-state observation request was issued")
+        elif name == "STEP_FRAME":
+            if self.fail_on_step:
                 self.results.append(
                     WorkerErrorResult(
                         record_id=self.record_id,
                         command_name=name,
                         exception_type="RuntimeError",
-                        exception_message="worker observation failed",
+                        exception_message="worker step failed",
                         traceback_text="traceback text",
                     )
                 )
-            else:
-                self.results.append(
-                    WindowObservationResult(
-                        record_id=self.record_id,
-                        round_index=self.round_index,
-                        frame_count=self.frame,
-                        trainee_observation=(0.0,) * OBSERVATION_INPUT_SIZE,
-                        simple_opponent_controls={"forward": False},
-                        complete=self.frame >= self.frame_limit,
-                    )
-                )
-        elif name == "STEP_FRAME":
+                return
             self.frame += 1
             sample = ReplaySample(
                 observation=(0.0,) * OBSERVATION_INPUT_SIZE,
@@ -1216,6 +1353,16 @@ class FakeWorkerClient:
                         "component_totals": {},
                     },
                     mature_samples=(sample,),
+                    next_trainee_observation=(
+                        pack_observation((0.0,) * OBSERVATION_INPUT_SIZE)
+                        if self.frame < self.frame_limit
+                        else None
+                    ),
+                    next_simple_opponent_controls=(
+                        {"forward": False}
+                        if self.frame < self.frame_limit
+                        else None
+                    ),
                 )
             )
         elif name == "FINISH_WINDOW":
@@ -1446,6 +1593,13 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
         self.assertEqual(stats.request_count, 8)
         self.assertEqual(stats.exploratory_count, 8)
         self.assertEqual(stats.mode_counts["exploration_only"], 4)
+        self.assertFalse(
+            any(
+                command.name == COMMAND_REQUEST_OBSERVATION
+                for client in clients
+                for command in client.sent_commands
+            )
+        )
 
         session._shutdown_persistent_cpu_workers()
 
@@ -1457,7 +1611,7 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
         def worker_factory(**kwargs):
             client = FakeWorkerClient(
                 **kwargs,
-                fail_on_observation=kwargs["record_id"] == 1,
+                fail_on_step=kwargs["record_id"] == 1,
             )
             clients.append(client)
             return client

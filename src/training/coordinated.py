@@ -29,6 +29,18 @@ from src.training.batched_value_network import (
     train_selected_action_regression_batched,
 )
 from src.training.contracts import TrainingAction
+from src.training.coordinated_contracts import (
+    CoordinatedFixedFrameWindowResult,
+    TrainingEpisodeResult,
+)
+from src.training.coordinated_simulation import (
+    CoordinatedWindowRuntime as _CoordinatedWindowRuntime,
+    advance_coordinated_window_frame as _advance_coordinated_window_frame,
+    create_coordinated_window_runtime as _create_coordinated_window_runtime,
+    finish_coordinated_window as _finish_coordinated_window,
+    new_coordinated_battle as _new_coordinated_battle,
+)
+from src.training.observation_transfer import unpack_observation_array
 from src.training.model_registry import (
     TrainingModelRepository,
     TrainingModelSlot,
@@ -120,32 +132,6 @@ class CoordinatedRuntimeComponents:
     model: Any
     optimizer: Any
     replay_buffer: TrainingReplayBuffer
-
-
-@dataclass(frozen=True)
-class TrainingEpisodeResult:
-    opponent: OpponentSpec
-    frames: int
-    terminal_reason: str
-    mature_samples: int
-    total_return: float
-    win: bool
-    loss: bool
-    draw: bool
-    component_totals: Mapping[str, float] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class CoordinatedFixedFrameWindowResult:
-    opponent: OpponentSpec
-    frames: int
-    mature_samples: int
-    episode_results: tuple[TrainingEpisodeResult, ...]
-    total_return: float
-    win: bool
-    loss: bool
-    draw: bool
-    component_totals: Mapping[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -328,35 +314,6 @@ class _CoordinatedRecordState:
 
 
 @dataclass
-class _CoordinatedWindowRuntime:
-    state: _CoordinatedRecordState
-    opponent: OpponentSpec
-    policy: Any
-    simulation: Any
-    ledger: Any
-    pipeline: RollingReturnPipeline
-    simple_controller: SimpleOpponentController
-    frames_consumed: int = 0
-    total_mature_count: int = 0
-    return_sum: float = 0.0
-    component_sums: dict[str, float] = field(default_factory=dict)
-    episode_results: list[TrainingEpisodeResult] = field(default_factory=list)
-    episode_start_frame: int = 0
-    episode_mature_count: int = 0
-    episode_return_sum: float = 0.0
-    episode_component_sums: dict[str, float] = field(default_factory=dict)
-    episode_needs_timeout: bool = True
-
-    @property
-    def frame_limit(self) -> int:
-        return int(self.state.record.config.match_time_limit)
-
-    @property
-    def complete(self) -> bool:
-        return self.frames_consumed >= self.frame_limit
-
-
-@dataclass
 class _WorkerWindowRuntime:
     state: _CoordinatedRecordState
     client: Any
@@ -364,6 +321,9 @@ class _WorkerWindowRuntime:
     policy: Any
     round_index: int
     complete: bool = False
+    trainee_observation: Any | None = None
+    opponent_observation: Any | None = None
+    simple_opponent_controls: Mapping[str, bool] | None = None
 
 
 class _WorkerRuntimeError(RuntimeError):
@@ -1153,7 +1113,6 @@ class CoordinatedTrainingSession:
         from src.training.process_worker import (
             DisplayBufferSpec,
             FinishWindowCommand,
-            RequestObservationCommand,
             StartWindowCommand,
             StepFrameCommand,
         )
@@ -1245,6 +1204,12 @@ class CoordinatedTrainingSession:
                             f"worker {instance_id} returned "
                             f"{getattr(start_result, 'name', '')!r} for START_WINDOW"
                         )
+                    _retain_worker_decision_state(
+                        window,
+                        trainee_observation=start_result.trainee_observation,
+                        opponent_observation=start_result.opponent_observation,
+                        simple_opponent_controls=start_result.simple_opponent_controls,
+                    )
                     active_windows.append(window)
 
                 while any(not window.complete for window in active_windows):
@@ -1253,30 +1218,15 @@ class CoordinatedTrainingSession:
                         window for window in active_windows if not window.complete
                     )
                     observed_at = _timing_started_at(timing_seconds)
-                    for window in unfinished:
-                        window.client.send(
-                            RequestObservationCommand(
-                                record_id=window.state.record.instance_id,
-                                round_index=window.round_index,
-                            )
-                        )
-                    observations = {
-                        window.state.record.instance_id: self._recv_worker_result(
-                            window.client,
-                        )
-                        for window in unfinished
-                    }
-                    _add_timing_seconds(timing_seconds, "observation", observed_at)
-
                     frame_requests = []
                     for window in unfinished:
-                        observation = observations[window.state.record.instance_id]
-                        if bool(getattr(observation, "complete", False)):
-                            window.complete = True
-                            continue
-                        frame_requests.append((window, observation))
-                    if not frame_requests:
-                        continue
+                        if window.trainee_observation is None:
+                            raise _WorkerRuntimeError(
+                                f"worker {window.state.record.instance_id} did not "
+                                "return the next trainee observation"
+                            )
+                        frame_requests.append((window, window))
+                    _add_timing_seconds(timing_seconds, "observation", observed_at)
 
                     inference_started_at = _timing_started_at(timing_seconds)
                     action_result = select_actions_for_records(
@@ -1357,6 +1307,39 @@ class CoordinatedTrainingSession:
                         components.replay_buffer.extend(frame_result.mature_samples)
                         timing_frame_count += 1
                         window.complete = bool(frame_result.complete)
+                        observed_at = _timing_started_at(timing_seconds)
+                        if window.complete:
+                            if any(
+                                value is not None
+                                for value in (
+                                    frame_result.next_trainee_observation,
+                                    frame_result.next_opponent_observation,
+                                    frame_result.next_simple_opponent_controls,
+                                )
+                            ):
+                                raise _WorkerRuntimeError(
+                                    f"worker {record_id} returned stale decision state "
+                                    "for a completed window"
+                                )
+                            _clear_worker_decision_state(window)
+                        else:
+                            _retain_worker_decision_state(
+                                window,
+                                trainee_observation=(
+                                    frame_result.next_trainee_observation
+                                ),
+                                opponent_observation=(
+                                    frame_result.next_opponent_observation
+                                ),
+                                simple_opponent_controls=(
+                                    frame_result.next_simple_opponent_controls
+                                ),
+                            )
+                        _add_timing_seconds(
+                            timing_seconds,
+                            "observation",
+                            observed_at,
+                        )
                         if frame_result.terminal_episode is not None:
                             window.policy.reset_exploration_span()
                         if frame_result.audio_events:
@@ -2478,10 +2461,7 @@ def select_actions_for_records(
         # LRU cache so exploration-driven subsets cannot accumulate stacked
         # CUDA parameter copies throughout a long batch.
         models = tuple(request.policy.model for request in greedy_requests)
-        observations = tuple(
-            tuple(request.observation)
-            for request in greedy_requests
-        )
+        observations = tuple(request.observation for request in greedy_requests)
         try:
             parameters = (
                 parameter_cache.get(models, set_eval=True)
@@ -2652,7 +2632,7 @@ def select_opponent_controls_for_observations(
         )
 
     models = tuple(request.opponent.model for request in ai_requests)
-    observations = tuple(tuple(request.observation) for request in ai_requests)
+    observations = tuple(request.observation for request in ai_requests)
     try:
         parameters = (
             parameter_cache.get(models)
@@ -2703,6 +2683,42 @@ def _worker_controls_mapping(controls: Any) -> dict[str, bool]:
         "action1": bool(getattr(controls, "a1", False)),
         "action2": bool(getattr(controls, "a2", False)),
     }
+
+
+def _retain_worker_decision_state(
+    window: _WorkerWindowRuntime,
+    *,
+    trainee_observation: Any,
+    opponent_observation: Any | None,
+    simple_opponent_controls: Mapping[str, bool] | None,
+) -> None:
+    if trainee_observation is None:
+        raise _WorkerRuntimeError(
+            f"worker {window.state.record.instance_id} omitted a trainee observation"
+        )
+    window.trainee_observation = unpack_observation_array(
+        trainee_observation,
+        validate_finite=False,
+    )
+    window.opponent_observation = (
+        unpack_observation_array(opponent_observation, validate_finite=False)
+        if opponent_observation is not None
+        else None
+    )
+    window.simple_opponent_controls = simple_opponent_controls
+    if (
+        window.opponent_observation is None
+        and window.simple_opponent_controls is None
+    ):
+        raise _WorkerRuntimeError(
+            f"worker {window.state.record.instance_id} omitted opponent decision state"
+        )
+
+
+def _clear_worker_decision_state(window: _WorkerWindowRuntime) -> None:
+    window.trainee_observation = None
+    window.opponent_observation = None
+    window.simple_opponent_controls = None
 
 
 def _raise_for_worker_error(result: Any) -> None:
@@ -3297,6 +3313,16 @@ def _emit_window_progress(
 ) -> None:
     if callback is not None:
         callback({"event": "frame", **payload})
+
+
+# Keep the long-standing private names available to callers and tests while the
+# implementation itself lives below the CPU-only dependency boundary.
+from src.training.coordinated_simulation import (
+    advance_coordinated_window_frame as _advance_coordinated_window_frame,
+    create_coordinated_window_runtime as _create_coordinated_window_runtime,
+    finish_coordinated_window as _finish_coordinated_window,
+    new_coordinated_battle as _new_coordinated_battle,
+)
 
 
 def build_coordinated_components(

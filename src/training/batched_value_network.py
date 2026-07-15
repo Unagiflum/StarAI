@@ -112,8 +112,9 @@ def predict_action_values_from_batched_parameters(
     """Return action values using a previously stacked inference parameter bundle."""
 
     torch = torch_backend.require_torch()
+    numeric_observations = np.asarray(observations, dtype=np.float32)
     tensor = torch.as_tensor(
-        observations,
+        numeric_observations,
         dtype=parameters.dtype,
         device=parameters.device,
     )

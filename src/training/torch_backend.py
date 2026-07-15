@@ -7,14 +7,17 @@ elsewhere can break startup.
 
 from __future__ import annotations
 
+from importlib.util import find_spec
 
+
+_TORCH_NOT_LOADED = object()
+_torch = _TORCH_NOT_LOADED
+# Preserve the inexpensive startup/menu capability flag without importing the
+# very large runtime package. The actual import happens in ``get_torch``.
 try:
-    import torch as _torch
-except (ImportError, OSError):
-    _torch = None
-
-
-TORCH_AVAILABLE = _torch is not None
+    TORCH_AVAILABLE = find_spec("torch") is not None
+except (ImportError, OSError, ValueError):
+    TORCH_AVAILABLE = False
 DEVICE_AUTO = "auto"
 DEVICE_CPU = "cpu"
 DEVICE_GPU = "gpu"
@@ -26,42 +29,54 @@ class TorchUnavailableError(RuntimeError):
 
 
 def get_torch():
-    """Return the imported torch module, or None in lightweight builds."""
+    """Load and return torch on first model-side use, or None if unavailable."""
+    global _torch
+    if _torch is _TORCH_NOT_LOADED:
+        try:
+            import torch
+        except (ImportError, OSError):
+            _torch = None
+        else:
+            _torch = torch
     return _torch
 
 
 def require_torch():
     """Return torch or raise a clear error for optional-training boundaries."""
-    if _torch is None:
+    torch = get_torch()
+    if torch is None:
         raise TorchUnavailableError("PyTorch is required for AI training")
-    return _torch
+    return torch
 
 
 def preferred_device():
     """Return the best PyTorch device, preferring CUDA when available."""
-    if _torch is None:
+    torch = get_torch()
+    if torch is None:
         return None
-    return _torch.device("cuda" if _torch.cuda.is_available() else "cpu")
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def cuda_available() -> bool:
     """Return whether the active PyTorch install can use CUDA."""
-    return bool(_torch is not None and _torch.cuda.is_available())
+    torch = get_torch()
+    return bool(torch is not None and torch.cuda.is_available())
 
 
 def training_device(choice: str | None = DEVICE_AUTO):
     """Resolve a user-facing training device choice to a torch device."""
-    if _torch is None:
+    torch = get_torch()
+    if torch is None:
         return None
     choice = (choice or DEVICE_AUTO).lower()
     if choice == DEVICE_AUTO:
         return preferred_device()
     if choice == DEVICE_CPU:
-        return _torch.device("cpu")
+        return torch.device("cpu")
     if choice == DEVICE_GPU:
-        if not _torch.cuda.is_available():
+        if not torch.cuda.is_available():
             raise RuntimeError("GPU PyTorch is not available")
-        return _torch.device("cuda")
+        return torch.device("cuda")
     raise ValueError(f"Unsupported training device: {choice}")
 
 
@@ -80,7 +95,7 @@ def training_device_selector_visible() -> bool:
 
 def move_optimizer_state_to_device(optimizer, device) -> None:
     """Move loaded optimizer tensor state to the selected training device."""
-    if _torch is None or optimizer is None or device is None:
+    if optimizer is None or device is None:
         return
     for state in optimizer.state.values():
         for key, value in list(state.items()):

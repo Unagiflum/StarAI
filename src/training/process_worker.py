@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 import multiprocessing
 from multiprocessing import shared_memory
+import sys
 import traceback
 from types import SimpleNamespace
 from typing import Any
@@ -24,173 +25,43 @@ from src.Battle.battle_draw import (
 from src.Objects.Ships.registry import create_ship
 from src.audio import RecordingAudioService
 from src.resources import HeadlessAssetManager
-from src.training.coordinated import (
-    CoordinatedFixedFrameWindowResult,
-    CoordinatedRuntimeComponents,
-    TrainingEpisodeResult,
-    _CoordinatedWindowRuntime,
-    _advance_coordinated_window_frame,
-    _finish_coordinated_window,
-    _new_coordinated_battle,
+from src.training.coordinated_simulation import (
+    CoordinatedWindowRuntime,
+    advance_coordinated_window_frame,
+    finish_coordinated_window,
+    new_coordinated_battle,
 )
 from src.training.observation import encode_observation
-from src.training.orchestration import (
+from src.training.cpu_contracts import (
     OPPONENT_MODE_EXISTING_AI,
     OpponentSpec,
-    TrainingOrchestrationConfig,
 )
-from src.training.replay import ActionSelection, ReplaySample
+from src.training.observation_transfer import PackedObservation, pack_observation
+from src.training.replay_contracts import ActionSelection, ReplayTransferSample
 from src.training.rewards import MatureTrainingSample, REWARD_COMPONENTS
-
-
-COMMAND_START_RUN = "START_RUN"
-COMMAND_START_WINDOW = "START_WINDOW"
-COMMAND_REQUEST_OBSERVATION = "REQUEST_OBSERVATION"
-COMMAND_STEP_FRAME = "STEP_FRAME"
-COMMAND_FINISH_WINDOW = "FINISH_WINDOW"
-COMMAND_SHUTDOWN = "SHUTDOWN"
-
-RESULT_WORKER_READY = "WORKER_READY"
-RESULT_WINDOW_STARTED = "WINDOW_STARTED"
-RESULT_WINDOW_OBSERVATION = "WINDOW_OBSERVATION"
-RESULT_FRAME_STEPPED = "FRAME_STEPPED"
-RESULT_WINDOW_FINISHED = "WINDOW_FINISHED"
-RESULT_WORKER_ERROR = "WORKER_ERROR"
-RESULT_WORKER_STOPPED = "WORKER_STOPPED"
-
-
-@dataclass(frozen=True)
-class StartRunCommand:
-    worker_id: int
-    record_id: int
-    base_seed: int
-    video_fps_multiplier: int = const.VIDEO_FPS_MULTIPLIER
-    name: str = COMMAND_START_RUN
-
-
-@dataclass(frozen=True)
-class StartWindowCommand:
-    record_id: int
-    round_index: int
-    config: TrainingOrchestrationConfig
-    opponent: OpponentSpec
-    rng_seed: int
-    frame_limit: int | None = None
-    name: str = COMMAND_START_WINDOW
-
-    def __post_init__(self) -> None:
-        if self.opponent.model is not None:
-            raise ValueError("worker window commands must not include model objects")
-
-
-@dataclass(frozen=True)
-class RequestObservationCommand:
-    record_id: int
-    round_index: int
-    name: str = COMMAND_REQUEST_OBSERVATION
-
-
-@dataclass(frozen=True)
-class StepFrameCommand:
-    record_id: int
-    round_index: int
-    trainee_action_index: int
-    trainee_exploratory: bool
-    opponent_controls: Mapping[str, bool] | None = None
-    sequence_number: int = 0
-    capture_audio: bool = False
-    display_buffer: "DisplayBufferSpec | None" = None
-    name: str = COMMAND_STEP_FRAME
-
-
-@dataclass(frozen=True)
-class DisplayBufferSpec:
-    name: str
-    width: int = const.SCREEN_WIDTH
-    height: int = const.SCREEN_HEIGHT
-    frame_count: int = const.VIDEO_FPS_MULTIPLIER
-
-
-@dataclass(frozen=True)
-class FinishWindowCommand:
-    record_id: int
-    round_index: int
-    name: str = COMMAND_FINISH_WINDOW
-
-
-@dataclass(frozen=True)
-class ShutdownCommand:
-    name: str = COMMAND_SHUTDOWN
-
-
-@dataclass(frozen=True)
-class WorkerReadyResult:
-    worker_id: int
-    record_id: int
-    name: str = RESULT_WORKER_READY
-
-
-@dataclass(frozen=True)
-class WindowStartedResult:
-    record_id: int
-    round_index: int
-    frame_limit: int
-    name: str = RESULT_WINDOW_STARTED
-
-
-@dataclass(frozen=True)
-class WindowObservationResult:
-    record_id: int
-    round_index: int
-    frame_count: int
-    trainee_observation: tuple[float, ...]
-    opponent_observation: tuple[float, ...] | None = None
-    simple_opponent_controls: Mapping[str, bool] | None = None
-    complete: bool = False
-    name: str = RESULT_WINDOW_OBSERVATION
-
-
-@dataclass(frozen=True)
-class FrameSteppedResult:
-    record_id: int
-    round_index: int
-    frame_count: int
-    complete: bool
-    progress_payload: Mapping[str, Any] | None = None
-    mature_samples: tuple[ReplaySample, ...] = ()
-    timing_seconds: Mapping[str, float] = field(default_factory=dict)
-    terminal_episode: TrainingEpisodeResult | None = None
-    next_trainee_observation: tuple[float, ...] | None = None
-    audio_events: tuple[tuple[Any, ...], ...] = ()
-    display_frames_ready: int = 0
-    name: str = RESULT_FRAME_STEPPED
-
-
-@dataclass(frozen=True)
-class WindowFinishedResult:
-    record_id: int
-    round_index: int
-    result: CoordinatedFixedFrameWindowResult
-    mature_samples: tuple[ReplaySample, ...] = ()
-    timing_seconds: Mapping[str, float] = field(default_factory=dict)
-    name: str = RESULT_WINDOW_FINISHED
-
-
-@dataclass(frozen=True)
-class WorkerErrorResult:
-    record_id: int | None
-    command_name: str
-    exception_type: str
-    exception_message: str
-    traceback_text: str
-    name: str = RESULT_WORKER_ERROR
-
-
-@dataclass(frozen=True)
-class WorkerStoppedResult:
-    worker_id: int | None
-    record_id: int | None
-    name: str = RESULT_WORKER_STOPPED
+from src.training.worker_protocol import (
+    COMMAND_FINISH_WINDOW,
+    COMMAND_REQUEST_OBSERVATION,
+    COMMAND_SHUTDOWN,
+    COMMAND_START_RUN,
+    COMMAND_START_WINDOW,
+    COMMAND_STEP_FRAME,
+    RESULT_WORKER_STOPPED,
+    DisplayBufferSpec,
+    FinishWindowCommand,
+    FrameSteppedResult,
+    RequestObservationCommand,
+    ShutdownCommand,
+    StartRunCommand,
+    StartWindowCommand,
+    StepFrameCommand,
+    WindowFinishedResult,
+    WindowObservationResult,
+    WindowStartedResult,
+    WorkerErrorResult,
+    WorkerReadyResult,
+    WorkerStoppedResult,
+)
 
 
 class _NoModelPolicy:
@@ -200,23 +71,19 @@ class _NoModelPolicy:
 
 class _ReplaySampleCollector:
     def __init__(self) -> None:
-        self._samples: list[ReplaySample] = []
-        self._pending: list[ReplaySample] = []
+        self._samples: list[ReplayTransferSample] = []
+        self._pending: list[ReplayTransferSample] = []
 
     def __len__(self) -> int:
         return len(self._samples)
 
-    def extend(self, samples: Sequence[ReplaySample | MatureTrainingSample]) -> None:
+    def extend(self, samples: Sequence[MatureTrainingSample]) -> None:
         for sample in samples:
-            replay_sample = (
-                ReplaySample.from_mature_sample(sample)
-                if isinstance(sample, MatureTrainingSample)
-                else sample
-            )
+            replay_sample = ReplayTransferSample.from_mature_sample(sample)
             self._samples.append(replay_sample)
             self._pending.append(replay_sample)
 
-    def drain_pending(self) -> tuple[ReplaySample, ...]:
+    def drain_pending(self) -> tuple[ReplayTransferSample, ...]:
         samples = tuple(self._pending)
         self._pending.clear()
         return samples
@@ -241,9 +108,14 @@ class CoordinatedSimulationWorker:
         self._audio_service = audio_service or RecordingAudioService()
         self._resources = resources or HeadlessAssetManager()
         self._ship_factory = ship_factory
-        self._runtime: _CoordinatedWindowRuntime | None = None
+        self._runtime: CoordinatedWindowRuntime | None = None
         self._collector: _ReplaySampleCollector | None = None
         self._round_index: int | None = None
+        self._last_sequence_number = 0
+        self._trainee_observation: list[float] | None = None
+        self._packed_trainee_observation: PackedObservation | None = None
+        self._packed_opponent_observation: PackedObservation | None = None
+        self._simple_opponent_controls: dict[str, bool] | None = None
         self._display_memory: shared_memory.SharedMemory | None = None
         self._display_surface: pygame.Surface | None = None
         self._display_renderer: BattleDrawController | None = None
@@ -276,6 +148,7 @@ class CoordinatedSimulationWorker:
         return WorkerReadyResult(
             worker_id=self.worker_id,
             record_id=self.record_id,
+            torch_imported="torch" in sys.modules,
         )
 
     def _handle_start_window(
@@ -284,6 +157,7 @@ class CoordinatedSimulationWorker:
     ) -> WindowStartedResult:
         self._ensure_record(command.record_id)
         self._round_index = int(command.round_index)
+        self._last_sequence_number = 0
         config = command.config
         if command.frame_limit is not None:
             config = replace(config, match_time_limit=int(command.frame_limit))
@@ -295,13 +169,13 @@ class CoordinatedSimulationWorker:
         )
         state = SimpleNamespace(
             record=record,
-            components=CoordinatedRuntimeComponents(
+            components=SimpleNamespace(
                 model=None,
                 optimizer=None,
                 replay_buffer=collector,
             ),
         )
-        simulation, ledger, pipeline, simple_controller = _new_coordinated_battle(
+        simulation, ledger, pipeline, simple_controller = new_coordinated_battle(
             config,
             command.opponent,
             rng=self._window_rng,
@@ -311,7 +185,7 @@ class CoordinatedSimulationWorker:
             ship_factory=self._ship_factory,
         )
         self._collector = collector
-        self._runtime = _CoordinatedWindowRuntime(
+        self._runtime = CoordinatedWindowRuntime(
             state=state,
             opponent=command.opponent,
             policy=_NoModelPolicy(),
@@ -326,10 +200,17 @@ class CoordinatedSimulationWorker:
             },
         )
         self._drain_audio_events(include=False)
+        self._cache_decision_state(self._runtime)
+        if self._packed_trainee_observation is None:
+            raise RuntimeError("worker did not produce an initial trainee observation")
         return WindowStartedResult(
             record_id=int(command.record_id),
             round_index=int(command.round_index),
             frame_limit=self._runtime.frame_limit,
+            trainee_observation=self._packed_trainee_observation,
+            opponent_observation=self._packed_opponent_observation,
+            simple_opponent_controls=self._simple_opponent_controls,
+            torch_imported="torch" in sys.modules,
         )
 
     def _handle_request_observation(
@@ -341,6 +222,14 @@ class CoordinatedSimulationWorker:
 
     def _handle_step_frame(self, command: StepFrameCommand) -> FrameSteppedResult:
         runtime = self._runtime_for(command.record_id, command.round_index)
+        sequence_number = int(command.sequence_number)
+        if sequence_number > 0:
+            if sequence_number <= self._last_sequence_number:
+                raise RuntimeError(
+                    f"worker frame sequence {sequence_number} is not newer than "
+                    f"{self._last_sequence_number}"
+                )
+            self._last_sequence_number = sequence_number
         collector = self._collector
         if collector is None:
             raise RuntimeError("worker replay collector is not initialized")
@@ -351,13 +240,12 @@ class CoordinatedSimulationWorker:
             action_index=int(command.trainee_action_index),
             exploratory=bool(command.trainee_exploratory),
         )
+        observation = self._trainee_observation
+        if observation is None:
+            raise RuntimeError("worker decision observation is not initialized")
         opponent_controls = command.opponent_controls
-        if opponent_controls is None and not _opponent_requires_parent_controls(
-            runtime.opponent
-        ):
-            opponent_controls = runtime.simple_controller.direct_controls_for_frame(
-                runtime.simulation,
-            )
+        if opponent_controls is None and not _opponent_requires_parent_controls(runtime.opponent):
+            opponent_controls = self._simple_opponent_controls
         if opponent_controls is None:
             raise RuntimeError("model-backed opponent controls were not provided")
 
@@ -370,12 +258,13 @@ class CoordinatedSimulationWorker:
                     command.display_buffer,
                 )
 
-        _advance_coordinated_window_frame(
+        advance_coordinated_window_frame(
             runtime,
             rng=self._window_rng,
             simulation_factory=self._simulation_factory,
             audio_service=self._audio_service,
             resources=self._resources,
+            observation=observation,
             selection=selection,
             opponent_controls=dict(opponent_controls),
             progress_callback=record_progress,
@@ -386,9 +275,9 @@ class CoordinatedSimulationWorker:
             if len(runtime.episode_results) > episode_count
             else None
         )
-        next_observation = None
+        self._clear_decision_state()
         if not runtime.complete:
-            next_observation = _trainee_observation(runtime)
+            self._cache_decision_state(runtime)
         audio_events = self._drain_audio_events(include=bool(command.capture_audio))
         return FrameSteppedResult(
             record_id=int(command.record_id),
@@ -398,9 +287,12 @@ class CoordinatedSimulationWorker:
             progress_payload=progress_payloads[-1] if progress_payloads else None,
             mature_samples=collector.drain_pending(),
             terminal_episode=terminal_episode,
-            next_trainee_observation=next_observation,
+            next_trainee_observation=self._packed_trainee_observation,
+            next_opponent_observation=self._packed_opponent_observation,
+            next_simple_opponent_controls=self._simple_opponent_controls,
             audio_events=audio_events,
             display_frames_ready=display_frames_ready,
+            torch_imported="torch" in sys.modules,
         )
 
     def _drain_audio_events(self, *, include: bool) -> tuple[tuple[Any, ...], ...]:
@@ -424,7 +316,7 @@ class CoordinatedSimulationWorker:
 
     def _capture_display_frames(
         self,
-        runtime: _CoordinatedWindowRuntime,
+        runtime: CoordinatedWindowRuntime,
         spec: DisplayBufferSpec,
     ) -> int:
         width = int(spec.width)
@@ -486,6 +378,8 @@ class CoordinatedSimulationWorker:
         self._runtime = None
         self._collector = None
         self._round_index = None
+        self._last_sequence_number = 0
+        self._clear_decision_state()
         self._detach_display_memory()
 
     def _detach_display_memory(self) -> None:
@@ -501,11 +395,13 @@ class CoordinatedSimulationWorker:
         collector = self._collector
         if collector is None:
             raise RuntimeError("worker replay collector is not initialized")
-        result = _finish_coordinated_window(runtime)
+        result = finish_coordinated_window(runtime)
         mature_samples = collector.drain_pending()
         self._runtime = None
         self._collector = None
         self._round_index = None
+        self._last_sequence_number = 0
+        self._clear_decision_state()
         self._detach_display_memory()
         return WindowFinishedResult(
             record_id=int(command.record_id),
@@ -528,7 +424,7 @@ class CoordinatedSimulationWorker:
         self,
         record_id: int,
         round_index: int,
-    ) -> _CoordinatedWindowRuntime:
+    ) -> CoordinatedWindowRuntime:
         self._ensure_record(record_id)
         if self._runtime is None:
             raise RuntimeError("worker window has not been started")
@@ -540,52 +436,56 @@ class CoordinatedSimulationWorker:
 
     def _observation_result(
         self,
-        runtime: _CoordinatedWindowRuntime,
+        runtime: CoordinatedWindowRuntime,
     ) -> WindowObservationResult:
-        opponent_observation = None
-        simple_controls = None
-        if not runtime.complete:
-            if _opponent_requires_parent_controls(runtime.opponent):
-                opponent_observation = _opponent_observation(runtime)
-            else:
-                simple_controls = runtime.simple_controller.direct_controls_for_frame(
-                    runtime.simulation,
-                )
         return WindowObservationResult(
             record_id=int(runtime.state.record.instance_id),
             round_index=int(self._round_index or 0),
             frame_count=runtime.frames_consumed,
-            trainee_observation=(
-                _trainee_observation(runtime) if not runtime.complete else ()
-            ),
-            opponent_observation=opponent_observation,
-            simple_opponent_controls=simple_controls,
+            trainee_observation=self._packed_trainee_observation,
+            opponent_observation=self._packed_opponent_observation,
+            simple_opponent_controls=self._simple_opponent_controls,
             complete=runtime.complete,
         )
 
-
-def _trainee_observation(runtime: _CoordinatedWindowRuntime) -> tuple[float, ...]:
-    simulation = runtime.simulation
-    return tuple(
-        encode_observation(
+    def _cache_decision_state(self, runtime: CoordinatedWindowRuntime) -> None:
+        if runtime.complete:
+            self._clear_decision_state()
+            return
+        simulation = runtime.simulation
+        observation = encode_observation(
             simulation.player1,
             simulation.player2,
             frame_id=simulation.frame_id,
             game_objects=simulation.world,
         )
-    )
+        self._trainee_observation = observation
+        self._packed_trainee_observation = pack_observation(observation)
+        if _opponent_requires_parent_controls(runtime.opponent):
+            opponent_observation = encode_observation(
+                simulation.player2,
+                simulation.player1,
+                frame_id=simulation.frame_id,
+                game_objects=simulation.world,
+            )
+            self._packed_opponent_observation = pack_observation(opponent_observation)
+            self._simple_opponent_controls = None
+        else:
+            controls = runtime.simple_controller.direct_controls_for_frame(simulation)
+            self._packed_opponent_observation = None
+            self._simple_opponent_controls = {
+                "forward": bool(controls.thrust),
+                "left": bool(controls.turn_left),
+                "right": bool(controls.turn_right),
+                "action1": bool(controls.a1),
+                "action2": bool(controls.a2),
+            }
 
-
-def _opponent_observation(runtime: _CoordinatedWindowRuntime) -> tuple[float, ...]:
-    simulation = runtime.simulation
-    return tuple(
-        encode_observation(
-            simulation.player2,
-            simulation.player1,
-            frame_id=simulation.frame_id,
-            game_objects=simulation.world,
-        )
-    )
+    def _clear_decision_state(self) -> None:
+        self._trainee_observation = None
+        self._packed_trainee_observation = None
+        self._packed_opponent_observation = None
+        self._simple_opponent_controls = None
 
 
 def _opponent_requires_parent_controls(opponent: OpponentSpec) -> bool:

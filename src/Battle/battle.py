@@ -18,7 +18,6 @@ from src.Battle.battle_init import (
 )
 from src.Battle.collisions import CollisionMetrics, handle_collisions
 from src.Battle.battle_draw import DisplayStarField, draw_battle
-from src.Battle.battle_ai import BattleAIManager
 from src.Battle.battle_entry import (
     EntryState,
     entry_complete,
@@ -35,9 +34,15 @@ from src.audio import (
 from src.resources import use_asset_manager
 from src.frame_timing import PresentationClock
 from src.UI.match_dialog import confirm_end_match
-from src.training.model_loader import InferenceModelCache
-from src.training.model_registry import TrainingModelRepository
 import src.const as const
+
+
+# Lazily populated compatibility hooks. Keeping these names at module scope
+# preserves existing patch/injection boundaries without importing model code in
+# headless simulation workers.
+BattleAIManager = None
+InferenceModelCache = None
+TrainingModelRepository = None
 
 CONTROL_NAMES = ("Forward", "Left", "Right", "Action 1", "Action 2")
 ACTION_ALIASES = {
@@ -807,6 +812,24 @@ def run(
     player1_ai=False,
     player2_ai=False,
 ):
+    # Interactive AI/model dependencies are intentionally lazy so headless
+    # training workers can import ``BattleSimulation`` without the model stack.
+    global BattleAIManager, InferenceModelCache, TrainingModelRepository
+    if BattleAIManager is None:
+        from src.Battle.battle_ai import BattleAIManager as battle_ai_manager
+
+        BattleAIManager = battle_ai_manager
+    if InferenceModelCache is None:
+        from src.training.model_loader import InferenceModelCache as model_cache
+
+        InferenceModelCache = model_cache
+    if TrainingModelRepository is None:
+        from src.training.model_registry import (
+            TrainingModelRepository as model_repository,
+        )
+
+        TrainingModelRepository = model_repository
+
     clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
     simulation = BattleSimulation(
         screen,

@@ -16,6 +16,8 @@ import numpy as np
 from src.training import torch_backend
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
 from src.training.model_registry import replay_checkpoint_path
+from src.training.observation_transfer import unpack_observation_array
+from src.training.replay_contracts import ActionSelection, ReplayTransferSample
 from src.training.rewards import MatureTrainingSample
 from src.training.value_network import (
     predict_action_values,
@@ -131,12 +133,24 @@ class TrainingReplayBuffer:
         self._start = 0
         self._next = 0
 
-    def add(self, sample: ReplaySample | MatureTrainingSample) -> None:
+    def add(
+        self,
+        sample: ReplaySample | MatureTrainingSample | ReplayTransferSample,
+    ) -> None:
         if isinstance(sample, MatureTrainingSample):
             sample = ReplaySample.from_mature_sample(sample)
-        if not isinstance(sample, ReplaySample):
-            raise TypeError("sample must be a ReplaySample or MatureTrainingSample")
-        observation = np.asarray(sample.observation, dtype=np.float32)
+        if isinstance(sample, ReplayTransferSample):
+            observation = unpack_observation_array(
+                sample.observation,
+                validate_finite=False,
+            )
+        elif isinstance(sample, ReplaySample):
+            observation = np.asarray(sample.observation, dtype=np.float32)
+        else:
+            raise TypeError(
+                "sample must be a ReplaySample, MatureTrainingSample, "
+                "or ReplayTransferSample"
+            )
         return_value = np.float32(sample.return_value)
         if not np.all(np.isfinite(observation)) or not np.isfinite(return_value):
             raise ValueError("sample values must be representable as float32")
@@ -155,7 +169,12 @@ class TrainingReplayBuffer:
             self._start = (self._start + 1) % self._allocated_capacity
         self._next = (self._next + 1) % self._allocated_capacity
 
-    def extend(self, samples: Sequence[ReplaySample | MatureTrainingSample]) -> None:
+    def extend(
+        self,
+        samples: Sequence[
+            ReplaySample | MatureTrainingSample | ReplayTransferSample
+        ],
+    ) -> None:
         for sample in samples:
             self.add(sample)
 
@@ -261,13 +280,6 @@ class TrainingReplayBuffer:
             action_index=int(self._action_indices[physical_index]),
             return_value=float(self._returns[physical_index]),
         )
-
-
-@dataclass(frozen=True)
-class ActionSelection:
-    action_index: int
-    exploratory: bool
-    action_values: tuple[float, ...] | None = None
 
 
 def select_action_epsilon_greedy(
