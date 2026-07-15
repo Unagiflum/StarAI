@@ -100,6 +100,9 @@ from src.training.value_network import (
 )
 
 
+TRAINEE_PARAMETER_CACHE_MAX_ENTRIES = 2
+
+
 @dataclass(frozen=True)
 class CoordinatedTrainingRecord:
     instance_id: int
@@ -936,7 +939,9 @@ class CoordinatedTrainingSession:
         batch_action_requests = 0
         batch_exploratory_actions = 0
         batch_inference_mode_counts: dict[str, int] = {}
-        trainee_parameter_cache = BatchedValueNetworkParameterCache()
+        trainee_parameter_cache = BatchedValueNetworkParameterCache(
+            max_entries=TRAINEE_PARAMETER_CACHE_MAX_ENTRIES,
+        )
         opponent_parameter_cache = BatchedValueNetworkParameterCache()
         schedules = {
             instance_id: self._opponents_for_batch(state)
@@ -1158,7 +1163,9 @@ class CoordinatedTrainingSession:
         batch_action_requests = 0
         batch_exploratory_actions = 0
         batch_inference_mode_counts: dict[str, int] = {}
-        trainee_parameter_cache = BatchedValueNetworkParameterCache()
+        trainee_parameter_cache = BatchedValueNetworkParameterCache(
+            max_entries=TRAINEE_PARAMETER_CACHE_MAX_ENTRIES,
+        )
         opponent_parameter_cache = BatchedValueNetworkParameterCache()
         workers: dict[int, Any] = self._cpu_workers
         results: dict[int, list[CoordinatedFixedFrameWindowResult]] = {
@@ -2467,11 +2474,14 @@ def select_actions_for_records(
 
     inference_mode = "exploration_only"
     if greedy_requests:
-        # Cache one stable full-record parameter stack. Caching only the
-        # randomly changing greedy subset creates combinatorial CUDA growth as
-        # epsilon exploration produces new model tuples over a long batch.
-        models = tuple(request.policy.model for request in requests)
-        observations = tuple(tuple(request.observation) for request in requests)
+        # Infer only the greedy subset. The scheduler supplies a small bounded
+        # LRU cache so exploration-driven subsets cannot accumulate stacked
+        # CUDA parameter copies throughout a long batch.
+        models = tuple(request.policy.model for request in greedy_requests)
+        observations = tuple(
+            tuple(request.observation)
+            for request in greedy_requests
+        )
         try:
             parameters = (
                 parameter_cache.get(models, set_eval=True)
@@ -2486,14 +2496,8 @@ def select_actions_for_records(
                 observations,
             )
             action_indices = values.argmax(dim=1).detach().cpu().tolist()
-            greedy_record_ids = {
-                int(request.record_id)
-                for request in greedy_requests
-            }
-            for request, action_index in zip(requests, action_indices):
+            for request, action_index in zip(greedy_requests, action_indices):
                 record_id = int(request.record_id)
-                if record_id not in greedy_record_ids:
-                    continue
                 selections[record_id] = request.policy.complete_greedy_selection(
                     int(action_index),
                 )

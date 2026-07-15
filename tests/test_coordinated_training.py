@@ -972,7 +972,7 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
         self.assertEqual(first.inference_mode, "batched_value_network")
         self.assertEqual(second.inference_mode, "batched_value_network")
 
-    def test_select_actions_cache_uses_full_model_tuple_when_greedy_subset_changes(self):
+    def test_select_actions_cache_uses_only_changing_greedy_subset(self):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")
         models = (
@@ -1009,7 +1009,7 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
             )
             for index, policy in enumerate(policies, start=1)
         )
-        cache = BatchedValueNetworkParameterCache()
+        cache = BatchedValueNetworkParameterCache(max_entries=2)
         stack_parameters = batched_value_network._stack_linear_parameters
 
         with mock.patch(
@@ -1019,7 +1019,10 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
             first = select_actions_for_records(requests, parameter_cache=cache)
             second = select_actions_for_records(requests, parameter_cache=cache)
 
-        self.assertEqual(stack_mock.call_count, 1)
+        self.assertEqual(stack_mock.call_count, 2)
+        self.assertEqual(stack_mock.call_args_list[0].args[0], (models[1],))
+        self.assertEqual(stack_mock.call_args_list[1].args[0], (models[0],))
+        self.assertEqual(len(cache), 2)
         self.assertTrue(first.selections[1].exploratory)
         self.assertFalse(first.selections[2].exploratory)
         self.assertFalse(second.selections[1].exploratory)
