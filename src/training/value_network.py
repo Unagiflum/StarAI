@@ -61,8 +61,8 @@ def build_optimizer(model, learning_rate: float, name: str = "adam"):
 
 def _as_observation_tensor(observations, torch, device=None):
     tensor = observations
-    if not hasattr(tensor, "shape"):
-        tensor = torch.tensor(tensor, dtype=torch.float32, device=device)
+    if not torch.is_tensor(tensor):
+        tensor = torch.as_tensor(tensor, dtype=torch.float32, device=device)
     else:
         tensor = tensor.to(device=device, dtype=torch.float32) if device else tensor.float()
     if tensor.ndim != 2 or tensor.shape[1] != OBSERVATION_INPUT_SIZE:

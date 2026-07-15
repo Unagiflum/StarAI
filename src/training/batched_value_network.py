@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
+
+import numpy as np
 
 from src.training import torch_backend
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
@@ -23,10 +26,22 @@ class BatchedValueNetworkParameters:
 
 
 class BatchedValueNetworkParameterCache:
-    """Cache stacked same-shaped inference parameters for stable model tuples."""
+    """Bounded LRU cache of stacked parameters for stable model tuples."""
 
-    def __init__(self):
-        self._entries: dict[tuple[int, ...], BatchedValueNetworkParameters] = {}
+    def __init__(self, max_entries: int = 8):
+        if int(max_entries) <= 0:
+            raise ValueError("max_entries must be positive")
+        self.max_entries = int(max_entries)
+        self._entries: OrderedDict[
+            tuple[int, ...],
+            BatchedValueNetworkParameters,
+        ] = OrderedDict()
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    def clear(self) -> None:
+        self._entries.clear()
 
     def get(
         self,
@@ -41,12 +56,16 @@ class BatchedValueNetworkParameterCache:
             cached_model is model
             for cached_model, model in zip(cached.models, model_tuple)
         ):
+            self._entries.move_to_end(key)
             return cached
         cached = build_batched_value_network_parameters(
             model_tuple,
             set_eval=set_eval,
         )
         self._entries[key] = cached
+        self._entries.move_to_end(key)
+        while len(self._entries) > self.max_entries:
+            self._entries.popitem(last=False)
         return cached
 
 
@@ -74,10 +93,10 @@ def build_batched_value_network_parameters(
     model_tuple = tuple(models)
     if not model_tuple:
         raise ValueError("at least one model is required")
+    params = _stack_linear_parameters(model_tuple, torch, detach=True)
     if set_eval:
         for model in model_tuple:
             model.eval()
-    params = _stack_linear_parameters(model_tuple, torch, detach=True)
     return BatchedValueNetworkParameters(
         models=model_tuple,
         params=params,
@@ -155,9 +174,21 @@ def train_selected_action_regression_batched(
     params = _stack_linear_parameters(models, torch)
     device = params[0][0].device
     dtype = params[0][0].dtype
-    observations = torch.as_tensor(observations_by_model, dtype=dtype, device=device)
-    actions = torch.as_tensor(action_indices_by_model, dtype=torch.long, device=device)
-    returns = torch.as_tensor(returns_by_model, dtype=dtype, device=device)
+    observations = torch.as_tensor(
+        _stack_numpy_batches(observations_by_model),
+        dtype=dtype,
+        device=device,
+    )
+    actions = torch.as_tensor(
+        _stack_numpy_batches(action_indices_by_model),
+        dtype=torch.long,
+        device=device,
+    )
+    returns = torch.as_tensor(
+        _stack_numpy_batches(returns_by_model),
+        dtype=dtype,
+        device=device,
+    )
     if observations.ndim != 3 or observations.shape[0] != model_count:
         raise ValueError("observations must have shape [model_count, batch, input]")
     if observations.shape[2] != OBSERVATION_INPUT_SIZE:
@@ -181,8 +212,8 @@ def train_selected_action_regression_batched(
     per_model_losses = per_sample_losses.mean(dim=1)
     per_model_losses.sum().backward()
     detached_losses = tuple(
-        float(loss.detach().cpu().item())
-        for loss in per_model_losses
+        float(loss)
+        for loss in per_model_losses.detach().cpu().tolist()
     )
     for optimizer in optimizers:
         optimizer.step()
@@ -197,6 +228,14 @@ def _batched_forward(params, observations):
         if layer_index < len(params) - 1:
             values = values.relu()
     return values.squeeze(1) if squeeze_model_batch else values
+
+
+def _stack_numpy_batches(values):
+    if isinstance(values, np.ndarray):
+        return values
+    if len(values) > 0 and all(isinstance(value, np.ndarray) for value in values):
+        return np.stack(values, axis=0)
+    return values
 
 
 def _stack_linear_parameters(models: Sequence[Any], torch, *, detach: bool = False):

@@ -49,6 +49,7 @@ from src.training.coordinated import (
 from src.training.orchestration import TrainingOrchestrationConfig
 from src.training.opponent_cache import ModelSaveCoordinator, OpponentModelCache
 from src.training.rewards import LEGACY_REWARD_ALIASES, REWARD_COMPONENTS
+from src.training.replay import PACKED_REPLAY_SAMPLE_BYTES
 from src.training.session import (
     TrainingSession,
     TrainingSessionError,
@@ -1449,6 +1450,13 @@ def _format_short_count(value):
     return f"{sign}{value}"
 
 
+def _format_replay_buffer_size(sample_count):
+    megabytes = int(
+        round(int(sample_count) * PACKED_REPLAY_SAMPLE_BYTES / 1_000_000)
+    )
+    return f"~{megabytes}MB"
+
+
 def _normalized_training_settings(training):
     if not isinstance(training, dict):
         return training
@@ -2728,7 +2736,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Match frame limit: 12000",
             "Rounds per batch: 50",
             "Batch grouping: 1000",
-            "Replay size, batch=15M: 250k (1250MB)",
+            f"Replay size, batch=15M: 250k ({_format_replay_buffer_size(250_000)})",
             "Minibatch size: 4096",
             "Gradient steps, UTD=999.9: 500",
             "Learning rate: 0.01000",
@@ -4418,8 +4426,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         regimen_sliders[
             REGIMEN_REPLAY_BUFFER_INDEX
         ].label = f"Replay size, batch={_format_short_count(max_batch_frames)}"
-        buffer_size_mb = int((state.replay_buffer_size / 1000) * 5)
-        regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value_suffix = f" ({buffer_size_mb}MB)"
+        replay_size_hint = _format_replay_buffer_size(state.replay_buffer_size)
+        regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value_suffix = (
+            f" ({replay_size_hint})"
+        )
 
         previous_active_id = instance_manager.active_instance_id
         for instance in list(instance_manager.instances):

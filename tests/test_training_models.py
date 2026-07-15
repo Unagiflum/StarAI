@@ -179,6 +179,18 @@ class ValueNetworkTests(unittest.TestCase):
         self.assertEqual(stack_mock.call_count, 1)
         self.assertTrue(torch.allclose(first.detach().cpu(), second.detach().cpu()))
 
+    def test_batched_prediction_cache_evicts_least_recent_model_tuple(self):
+        models = tuple(
+            build_value_network(ValueNetworkConfig(8, 1))
+            for _ in range(3)
+        )
+        cache = BatchedValueNetworkParameterCache(max_entries=2)
+
+        for model in models:
+            cache.get((model,))
+
+        self.assertEqual(len(cache), 2)
+
     def test_batched_training_matches_individual_model_updates(self):
         torch = torch_backend.require_torch()
         torch.manual_seed(101)

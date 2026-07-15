@@ -1330,7 +1330,6 @@ class CoordinatedTrainingSession:
                                 round_index=window.round_index,
                                 trainee_action_index=selection.action_index,
                                 trainee_exploratory=selection.exploratory,
-                                trainee_action_values=selection.action_values,
                                 opponent_controls=_worker_controls_mapping(
                                     direct_controls,
                                 ),
@@ -2468,8 +2467,11 @@ def select_actions_for_records(
 
     inference_mode = "exploration_only"
     if greedy_requests:
-        models = tuple(request.policy.model for request in greedy_requests)
-        observations = tuple(tuple(request.observation) for request in greedy_requests)
+        # Cache one stable full-record parameter stack. Caching only the
+        # randomly changing greedy subset creates combinatorial CUDA growth as
+        # epsilon exploration produces new model tuples over a long batch.
+        models = tuple(request.policy.model for request in requests)
+        observations = tuple(tuple(request.observation) for request in requests)
         try:
             parameters = (
                 parameter_cache.get(models, set_eval=True)
@@ -2483,13 +2485,18 @@ def select_actions_for_records(
                 parameters,
                 observations,
             )
-            for request, row in zip(greedy_requests, values):
-                cpu_row = row.detach().cpu()
-                selection = request.policy.complete_greedy_selection(
-                    int(cpu_row.argmax().item()),
-                    tuple(float(value) for value in cpu_row.tolist()),
+            action_indices = values.argmax(dim=1).detach().cpu().tolist()
+            greedy_record_ids = {
+                int(request.record_id)
+                for request in greedy_requests
+            }
+            for request, action_index in zip(requests, action_indices):
+                record_id = int(request.record_id)
+                if record_id not in greedy_record_ids:
+                    continue
+                selections[record_id] = request.policy.complete_greedy_selection(
+                    int(action_index),
                 )
-                selections[int(request.record_id)] = selection
             inference_mode = "batched_value_network"
         else:
             for request in greedy_requests:
@@ -2500,7 +2507,7 @@ def select_actions_for_records(
                     rng=request.policy.rng,
                 )
                 selections[int(request.record_id)] = (
-                    request.policy.complete_greedy_selection(selection)
+                    request.policy.complete_greedy_selection(selection.action_index)
                 )
             inference_mode = "sequential_fallback"
 
@@ -2593,12 +2600,15 @@ def select_opponent_controls_for_windows(
                 parameters,
                 tuple(observation for _window, observation in ai_requests),
             )
-            for (window, _observation), row in zip(ai_requests, values):
-                action_index = int(row.detach().cpu().argmax().item())
+            action_indices = values.argmax(dim=1).detach().cpu().tolist()
+            for (window, _observation), action_index in zip(
+                ai_requests,
+                action_indices,
+            ):
                 controls[id(window)] = (
-                    direct_controls_for_action_index(action_index)
+                    direct_controls_for_action_index(int(action_index))
                     if direct
-                    else controls_for_action_index(action_index)
+                    else controls_for_action_index(int(action_index))
                 )
         else:
             for window, observation in ai_requests:
@@ -2652,10 +2662,10 @@ def select_opponent_controls_for_observations(
             parameters,
             observations,
         )
-        for request, row in zip(ai_requests, values):
-            action_index = int(row.detach().cpu().argmax().item())
+        action_indices = values.argmax(dim=1).detach().cpu().tolist()
+        for request, action_index in zip(ai_requests, action_indices):
             controls[int(request.request_id)] = direct_controls_for_action_index(
-                action_index
+                int(action_index)
             )
     else:
         for request in ai_requests:
@@ -2738,27 +2748,41 @@ def _optimize_records_batched(
         state.record.instance_id: []
         for state in states
     }
-    sampled_batches: list[list[tuple[Any, ...] | None]] = []
+    # Preserve the established deterministic RNG order (all updates for one
+    # record before the next) while retaining only compact integer indices.
+    sampled_indices: list[list[Any | None]] = []
     for state in states:
         components = state.components
         if components is None:
             raise RuntimeError("coordinated components were not loaded")
-        record_batches: list[tuple[Any, ...] | None] = []
+        record_indices = []
         for _ in range(update_count):
-            if len(components.replay_buffer) < batch_size:
-                record_batches.append(None)
-            else:
-                record_batches.append(
-                    components.replay_buffer.sample_minibatch(batch_size, rng=rng)
+            record_indices.append(
+                components.replay_buffer.sample_minibatch_indices(
+                    batch_size,
+                    rng=rng,
                 )
-        sampled_batches.append(record_batches)
+                if len(components.replay_buffer) >= batch_size
+                else None
+            )
+        sampled_indices.append(record_indices)
 
     for update_index in range(update_count):
-        active: list[tuple[_CoordinatedRecordState, tuple[Any, ...]]] = []
-        for state, record_batches in zip(states, sampled_batches):
-            batch = record_batches[update_index]
-            if batch is not None:
-                active.append((state, batch))
+        active: list[tuple[_CoordinatedRecordState, tuple[Any, Any, Any]]] = []
+        for state, record_indices in zip(states, sampled_indices):
+            components = state.components
+            if components is None:
+                raise RuntimeError("coordinated components were not loaded")
+            indices = record_indices[update_index]
+            if indices is not None:
+                active.append(
+                    (
+                        state,
+                        components.replay_buffer.minibatch_arrays_for_indices(
+                            indices,
+                        ),
+                    )
+                )
         if not active:
             continue
         batch_losses = _train_sampled_batches_batched(active)
@@ -2771,7 +2795,9 @@ def _optimize_records_batched(
 
 
 def _train_sampled_batches_batched(
-    active: Sequence[tuple[_CoordinatedRecordState, tuple[Any, ...]]],
+    active: Sequence[
+        tuple[_CoordinatedRecordState, tuple[Any, Any, Any]]
+    ],
 ) -> tuple[float, ...]:
     models = []
     optimizers = []
@@ -2784,9 +2810,10 @@ def _train_sampled_batches_batched(
             raise RuntimeError("coordinated components were not loaded")
         models.append(components.model)
         optimizers.append(components.optimizer)
-        observations_by_model.append([sample.observation for sample in batch])
-        action_indices_by_model.append([sample.action_index for sample in batch])
-        returns_by_model.append([sample.return_value for sample in batch])
+        observations, action_indices, returns = batch
+        observations_by_model.append(observations)
+        action_indices_by_model.append(action_indices)
+        returns_by_model.append(returns)
     try:
         return train_selected_action_regression_batched(
             models,
@@ -2801,13 +2828,14 @@ def _train_sampled_batches_batched(
             components = state.components
             if components is None:
                 raise RuntimeError("coordinated components were not loaded")
+            observations, action_indices, returns = batch
             losses.append(
                 train_selected_action_regression(
                     components.model,
                     components.optimizer,
-                    [sample.observation for sample in batch],
-                    [sample.action_index for sample in batch],
-                    [sample.return_value for sample in batch],
+                    observations,
+                    action_indices,
+                    returns,
                 )
             )
         return tuple(losses)

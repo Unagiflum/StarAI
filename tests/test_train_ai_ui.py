@@ -73,6 +73,7 @@ from src.Menus.train_ai import (
     _draw_training_battle,
     _epsilon_for_model_update,
     _format_short_count,
+    _format_replay_buffer_size,
     _format_training_duration,
     _instance_row_parts,
     _instance_status_text,
@@ -102,6 +103,13 @@ from src.Battle.battle_draw import (
     VIEWPORT_SIZE,
 )
 from src.UI.ui_button import Checkbox
+
+
+class ReplayBufferSizeHintTests(unittest.TestCase):
+    def test_hint_uses_packed_replay_payload_size(self):
+        self.assertEqual(_format_replay_buffer_size(20_000), "~46MB")
+        self.assertEqual(_format_replay_buffer_size(30_000), "~69MB")
+        self.assertEqual(_format_replay_buffer_size(250_000), "~572MB")
 
 
 class TrainingUIStateTests(unittest.TestCase):

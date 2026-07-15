@@ -931,6 +931,8 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
         self.assertEqual(result.exploratory_count, 0)
         self.assertEqual(result.selections[1].action_index, 3)
         self.assertEqual(result.selections[2].action_index, 5)
+        self.assertIsNone(result.selections[1].action_values)
+        self.assertIsNone(result.selections[2].action_values)
 
     def test_select_actions_for_records_reuses_cached_batched_parameters(self):
         if torch_backend.get_torch() is None:
@@ -969,6 +971,59 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
         self.assertEqual(stack_mock.call_count, 1)
         self.assertEqual(first.inference_mode, "batched_value_network")
         self.assertEqual(second.inference_mode, "batched_value_network")
+
+    def test_select_actions_cache_uses_full_model_tuple_when_greedy_subset_changes(self):
+        if torch_backend.get_torch() is None:
+            self.skipTest("PyTorch is not installed")
+        models = (
+            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1)),
+        )
+        policies = []
+        prepared_results = (
+            (
+                ActionSelection(action_index=1, exploratory=True),
+                None,
+            ),
+            (
+                None,
+                ActionSelection(action_index=2, exploratory=True),
+            ),
+        )
+        for model, results in zip(models, prepared_results):
+            policy = mock.Mock()
+            policy.model = model
+            policy.prepare_action_selection.side_effect = results
+            policy.complete_greedy_selection.side_effect = (
+                lambda action_index: ActionSelection(
+                    action_index=int(action_index),
+                    exploratory=False,
+                )
+            )
+            policies.append(policy)
+        requests = tuple(
+            CoordinatedActionRequest(
+                index,
+                policy,
+                [float(index)] * OBSERVATION_INPUT_SIZE,
+            )
+            for index, policy in enumerate(policies, start=1)
+        )
+        cache = BatchedValueNetworkParameterCache()
+        stack_parameters = batched_value_network._stack_linear_parameters
+
+        with mock.patch(
+            "src.training.batched_value_network._stack_linear_parameters",
+            wraps=stack_parameters,
+        ) as stack_mock:
+            first = select_actions_for_records(requests, parameter_cache=cache)
+            second = select_actions_for_records(requests, parameter_cache=cache)
+
+        self.assertEqual(stack_mock.call_count, 1)
+        self.assertTrue(first.selections[1].exploratory)
+        self.assertFalse(first.selections[2].exploratory)
+        self.assertFalse(second.selections[1].exploratory)
+        self.assertTrue(second.selections[2].exploratory)
 
     def test_opponent_controls_batch_only_ai_backed_windows(self):
         if torch_backend.get_torch() is None:

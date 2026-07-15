@@ -96,7 +96,6 @@ class StepFrameCommand:
     round_index: int
     trainee_action_index: int
     trainee_exploratory: bool
-    trainee_action_values: tuple[float, ...] | None = None
     opponent_controls: Mapping[str, bool] | None = None
     sequence_number: int = 0
     capture_audio: bool = False
@@ -351,7 +350,6 @@ class CoordinatedSimulationWorker:
         selection = ActionSelection(
             action_index=int(command.trainee_action_index),
             exploratory=bool(command.trainee_exploratory),
-            action_values=command.trainee_action_values,
         )
         opponent_controls = command.opponent_controls
         if opponent_controls is None and not _opponent_requires_parent_controls(

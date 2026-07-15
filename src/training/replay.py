@@ -11,6 +11,8 @@ import random
 import tempfile
 from typing import Any
 
+import numpy as np
+
 from src.training import torch_backend
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
 from src.training.model_registry import replay_checkpoint_path
@@ -22,6 +24,11 @@ from src.training.value_network import (
 
 
 REPLAY_CHECKPOINT_FORMAT_VERSION = 2
+PACKED_REPLAY_SAMPLE_BYTES = (
+    OBSERVATION_INPUT_SIZE * np.dtype(np.float32).itemsize
+    + np.dtype(np.uint8).itemsize
+    + np.dtype(np.float32).itemsize
+)
 
 
 @dataclass(frozen=True)
@@ -65,56 +72,148 @@ class ReplaySample:
 
 
 class TrainingReplayBuffer:
-    """Capacity-bound FIFO replay store with deterministic eviction."""
+    """Capacity-bound packed FIFO replay store with deterministic eviction."""
+
+    _INITIAL_ALLOCATION = 1024
 
     def __init__(self, capacity: int):
         if int(capacity) <= 0:
             raise ValueError("capacity must be positive")
         self.capacity = int(capacity)
-        self._samples: list[ReplaySample] = []
+        self._initialize_storage()
+
+    def _initialize_storage(self) -> None:
+        allocated = min(self.capacity, self._INITIAL_ALLOCATION)
+        self._observations = np.empty(
+            (allocated, OBSERVATION_INPUT_SIZE),
+            dtype=np.float32,
+        )
+        self._action_indices = np.empty(allocated, dtype=np.uint8)
+        self._returns = np.empty(allocated, dtype=np.float32)
+        self._allocated_capacity = allocated
+        self._size = 0
+        self._start = 0
+        self._next = 0
 
     def __len__(self) -> int:
-        return len(self._samples)
+        return self._size
 
     def __iter__(self):
-        return iter(self._samples)
+        for index in range(self._size):
+            yield self[index]
 
-    def __getitem__(self, index: int) -> ReplaySample:
-        return self._samples[index]
+    def __getitem__(self, index: int | slice) -> ReplaySample | tuple[ReplaySample, ...]:
+        if isinstance(index, slice):
+            return tuple(self[item] for item in range(*index.indices(self._size)))
+        logical_index = int(index)
+        if logical_index < 0:
+            logical_index += self._size
+        if not 0 <= logical_index < self._size:
+            raise IndexError("replay index out of range")
+        physical_index = (self._start + logical_index) % self._allocated_capacity
+        return self._sample_at(physical_index)
 
     @property
     def samples(self) -> tuple[ReplaySample, ...]:
-        return tuple(self._samples)
+        return tuple(self)
+
+    @property
+    def storage_bytes(self) -> int:
+        """Return bytes currently allocated for packed sample payloads."""
+        return int(
+            self._observations.nbytes
+            + self._action_indices.nbytes
+            + self._returns.nbytes
+        )
 
     def clear(self) -> None:
-        self._samples.clear()
+        self._size = 0
+        self._start = 0
+        self._next = 0
 
     def add(self, sample: ReplaySample | MatureTrainingSample) -> None:
         if isinstance(sample, MatureTrainingSample):
             sample = ReplaySample.from_mature_sample(sample)
         if not isinstance(sample, ReplaySample):
             raise TypeError("sample must be a ReplaySample or MatureTrainingSample")
-        if len(self._samples) >= self.capacity:
-            del self._samples[0]
-        self._samples.append(sample)
+        observation = np.asarray(sample.observation, dtype=np.float32)
+        return_value = np.float32(sample.return_value)
+        if not np.all(np.isfinite(observation)) or not np.isfinite(return_value):
+            raise ValueError("sample values must be representable as float32")
+
+        if self._size == self._allocated_capacity and self._size < self.capacity:
+            self._grow_storage()
+
+        physical_index = self._next
+        self._observations[physical_index] = observation
+        self._action_indices[physical_index] = sample.action_index
+        self._returns[physical_index] = return_value
+
+        if self._size < self.capacity:
+            self._size += 1
+        else:
+            self._start = (self._start + 1) % self._allocated_capacity
+        self._next = (self._next + 1) % self._allocated_capacity
 
     def extend(self, samples: Sequence[ReplaySample | MatureTrainingSample]) -> None:
         for sample in samples:
             self.add(sample)
 
     def sample_minibatch(self, batch_size: int, rng: Any | None = None) -> tuple[ReplaySample, ...]:
+        indices = self._sample_indices(batch_size, rng=rng)
+        return tuple(self[index] for index in indices)
+
+    def sample_minibatch_arrays(
+        self,
+        batch_size: int,
+        rng: Any | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return one packed minibatch in observation/action/return order."""
+        indices = self.sample_minibatch_indices(batch_size, rng=rng)
+        return self.minibatch_arrays_for_indices(indices)
+
+    def sample_minibatch_indices(
+        self,
+        batch_size: int,
+        rng: Any | None = None,
+    ) -> np.ndarray:
+        """Select logical replay indices without materializing samples."""
+        return np.asarray(
+            self._sample_indices(batch_size, rng=rng),
+            dtype=np.int64,
+        )
+
+    def minibatch_arrays_for_indices(
+        self,
+        indices,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Materialize packed arrays for previously selected logical indices."""
+        logical_indices = np.asarray(indices, dtype=np.int64)
+        if logical_indices.ndim != 1:
+            raise ValueError("replay indices must be one-dimensional")
+        if np.any(logical_indices < 0) or np.any(logical_indices >= self._size):
+            raise IndexError("replay index out of range")
+        physical_indices = (
+            self._start + logical_indices
+        ) % self._allocated_capacity
+        return (
+            self._observations[physical_indices],
+            self._action_indices[physical_indices],
+            self._returns[physical_indices],
+        )
+
+    def _sample_indices(self, batch_size: int, rng: Any | None = None) -> list[int]:
         if int(batch_size) <= 0:
             raise ValueError("batch_size must be positive")
-        if int(batch_size) > len(self._samples):
+        if int(batch_size) > self._size:
             raise ValueError("batch_size cannot exceed replay occupancy")
         rng = rng or random
-        indices = rng.sample(range(len(self._samples)), int(batch_size))
-        return tuple(self._samples[index] for index in indices)
+        return rng.sample(range(self._size), int(batch_size))
 
     def to_state(self) -> dict[str, Any]:
         return {
             "capacity": self.capacity,
-            "samples": [sample.to_state() for sample in self._samples],
+            "samples": [sample.to_state() for sample in self],
         }
 
     def load_state(self, value: Mapping[str, Any]) -> None:
@@ -123,7 +222,45 @@ class TrainingReplayBuffer:
             raise ValueError("replay capacity must be positive")
         samples = [ReplaySample.from_state(sample) for sample in value.get("samples", ())]
         self.capacity = capacity
-        self._samples = samples[-capacity:]
+        self._initialize_storage()
+        self.extend(samples[-capacity:])
+
+    def _grow_storage(self) -> None:
+        new_capacity = min(
+            self.capacity,
+            max(self._allocated_capacity + 1, self._allocated_capacity * 2),
+        )
+        observations = np.empty(
+            (new_capacity, OBSERVATION_INPUT_SIZE),
+            dtype=np.float32,
+        )
+        action_indices = np.empty(new_capacity, dtype=np.uint8)
+        returns = np.empty(new_capacity, dtype=np.float32)
+        physical_indices = self._ordered_physical_indices()
+        observations[: self._size] = self._observations[physical_indices]
+        action_indices[: self._size] = self._action_indices[physical_indices]
+        returns[: self._size] = self._returns[physical_indices]
+        self._observations = observations
+        self._action_indices = action_indices
+        self._returns = returns
+        self._allocated_capacity = new_capacity
+        self._start = 0
+        self._next = self._size
+
+    def _ordered_physical_indices(self) -> np.ndarray:
+        return (
+            self._start + np.arange(self._size, dtype=np.int64)
+        ) % self._allocated_capacity
+
+    def _sample_at(self, physical_index: int) -> ReplaySample:
+        return ReplaySample(
+            observation=tuple(
+                float(value)
+                for value in self._observations[physical_index]
+            ),
+            action_index=int(self._action_indices[physical_index]),
+            return_value=float(self._returns[physical_index]),
+        )
 
 
 @dataclass(frozen=True)
@@ -175,13 +312,16 @@ def optimize_from_replay(
 ) -> OptimizationResult | None:
     if len(replay_buffer) < int(batch_size):
         return None
-    batch = replay_buffer.sample_minibatch(batch_size, rng=rng)
+    observations, action_indices, returns = replay_buffer.sample_minibatch_arrays(
+        batch_size,
+        rng=rng,
+    )
     loss = train_selected_action_regression(
         model,
         optimizer,
-        [sample.observation for sample in batch],
-        [sample.action_index for sample in batch],
-        [sample.return_value for sample in batch],
+        observations,
+        action_indices,
+        returns,
     )
     return OptimizationResult(loss=loss, batch_size=int(batch_size))
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from src.training import torch_backend
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
 from src.training.replay import (
+    PACKED_REPLAY_SAMPLE_BYTES,
     ReplaySample,
     TrainingReplayBuffer,
     load_training_checkpoint,
@@ -43,6 +44,22 @@ class TrainingReplayBufferTests(unittest.TestCase):
 
         self.assertEqual(len(replay), 3)
         self.assertEqual([entry.observation[0] for entry in replay.samples], [2.0, 3.0, 4.0])
+
+    def test_replay_uses_packed_arrays_and_samples_them_directly(self):
+        replay = TrainingReplayBuffer(capacity=3)
+        replay.extend(sample(identifier, action_index=identifier) for identifier in range(5))
+
+        observations, actions, returns = replay.sample_minibatch_arrays(
+            2,
+            rng=random.Random(4),
+        )
+
+        self.assertEqual(observations.shape, (2, OBSERVATION_INPUT_SIZE))
+        self.assertEqual(observations.dtype.name, "float32")
+        self.assertEqual(actions.dtype.name, "uint8")
+        self.assertEqual(returns.dtype.name, "float32")
+        self.assertEqual(replay.storage_bytes, 3 * PACKED_REPLAY_SAMPLE_BYTES)
+        self.assertEqual([entry.observation[0] for entry in replay], [2.0, 3.0, 4.0])
 
     def test_seeded_minibatch_sampling_is_deterministic(self):
         replay = TrainingReplayBuffer(capacity=10)
