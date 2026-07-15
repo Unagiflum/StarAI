@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import json
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -1481,6 +1482,14 @@ def _normalized_training_settings(training):
 
 def _training_settings_match(first, second):
     return _normalized_training_settings(first) == _normalized_training_settings(second)
+
+
+def _mark_model_loaded(state, *, ship, slot, architecture, training):
+    """Record the model conditions that a successful start is now using."""
+    state.loaded_ship = str(ship)
+    state.loaded_slot = int(slot)
+    state.loaded_architecture = deepcopy(architecture)
+    state.loaded_training = deepcopy(training)
 
 
 def _set_slider_value(slider, value):
@@ -4017,6 +4026,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             instance_manager.set_active_session(session)
             state.running = True
             session.start()
+            _mark_model_loaded(
+                state,
+                ship=model_slot.ship,
+                slot=model_slot.slot,
+                architecture=architecture_metadata(),
+                training=training_metadata(),
+            )
             show_notice(f"Training {describe_model(model_slot)}")
         except (TrainingSessionError, RuntimeError, ValueError) as exc:
             instance_manager.release_writer(active_instance)
@@ -4156,6 +4172,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 coordinated_cpu_workers_enabled=True,
             )
             instance_manager.start_coordinated_session(scheduler)
+            for (instance, _model_slot), record in zip(instance_slots, records):
+                _mark_model_loaded(
+                    instance.state,
+                    ship=record.slot.ship,
+                    slot=record.slot.slot,
+                    architecture=record.metadata.get("architecture", {}),
+                    training=record.metadata.get("training", {}),
+                )
             show_notice("Coordinated training started")
         except (RuntimeError, ValueError, PermissionError) as exc:
             for instance, _slot in instance_slots:

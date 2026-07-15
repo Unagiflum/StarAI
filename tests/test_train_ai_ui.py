@@ -1359,6 +1359,13 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertTrue(created.started)
         self.assertIs(manager.active_session, created)
+        self.assertEqual(manager.active_state.loaded_ship, "Earthling")
+        self.assertEqual(manager.active_state.loaded_slot, 1)
+        self.assertEqual(
+            manager.active_state.loaded_architecture,
+            architecture_for_state(manager.active_state),
+        )
+        self.assertIsNotNone(manager.active_state.loaded_training)
         self.assertIsInstance(cache, OpponentModelCache)
         self.assertIsInstance(coordinator, ModelSaveCoordinator)
         self.assertIs(cache._save_coordinator, coordinator)
@@ -1498,6 +1505,19 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertTrue(
             created.kwargs["coordinated_cpu_workers_enabled"]
         )
+        records_by_id = {record.instance_id: record for record in created.records}
+        for instance in (first, second):
+            record = records_by_id[instance.instance_id]
+            self.assertEqual(instance.state.loaded_ship, record.slot.ship)
+            self.assertEqual(instance.state.loaded_slot, record.slot.slot)
+            self.assertEqual(
+                instance.state.loaded_architecture,
+                record.metadata["architecture"],
+            )
+            self.assertEqual(
+                instance.state.loaded_training,
+                record.metadata["training"],
+            )
 
     def test_coordinated_stop_all_confirms_before_showing_stopping(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
