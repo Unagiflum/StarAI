@@ -1,4 +1,4 @@
-"""Reward components and discounted normalized returns for training."""
+"""Per-event and per-second reward components with discounted returns."""
 
 from __future__ import annotations
 
@@ -74,21 +74,15 @@ LEGACY_REWARD_ALIASES = {
     REWARD_A2_RANGE: "Get in A2 weapon range",
 }
 
-NORMALIZED_SHAPING_COMPONENTS = (
+ONGOING_REWARD_COMPONENTS = (
     REWARD_POINT_A1,
     REWARD_A1_RANGE,
     REWARD_POINT_A2,
     REWARD_A2_RANGE,
+    REWARD_HIGH_SPEED,
+    REWARD_BATTERY_AT_ZERO,
 )
-
-DISCOUNTED_SUM_COMPONENTS = (
-    REWARD_KILL_ENEMY,
-    REWARD_DIE,
-)
-_DISCOUNTED_SUM_COMPONENT_INDICES = frozenset(
-    _REWARD_COMPONENT_INDEX[component]
-    for component in DISCOUNTED_SUM_COMPONENTS
-)
+SUSTAINED_A2_REWARD_SHIPS = frozenset({"Ilwrath", "Androsynth"})
 
 DISCOUNT_CUTOFF_WEIGHT = 0.01
 
@@ -213,9 +207,6 @@ class RollingReturnPipeline:
             self.gamma,
             self.discount_cutoff_frames,
         )
-        self._discount_weight_sums = _discount_weight_sums(
-            self._discount_powers,
-        )
         self._pending: deque[_PendingSample] = deque()
         self._component_window: deque[tuple[float, ...]] = deque()
         self._window_totals = _zero_component_vector()
@@ -260,10 +251,7 @@ class RollingReturnPipeline:
         matured = [
             _sample_from_component_vector(
                 pending.decision,
-                _discounted_average_component_vector(
-                    self._window_totals,
-                    self._discount_weight_sums[self.discount_cutoff_frames],
-                ),
+                self._window_totals,
                 self.reward_weights,
                 end_frame_id=outcome.frame_id,
                 actual_frame_count=self.discount_cutoff_frames,
@@ -332,14 +320,10 @@ class RollingReturnPipeline:
             actual_frame_count = len(components) - offset
             if actual_frame_count <= 0:
                 continue
-            averaged = _discounted_average_component_vector(
-                samples_by_offset[offset],
-                self._discount_weight_sums[actual_frame_count],
-            )
             matured.append(
                 _sample_from_component_vector(
                     pending.decision,
-                    averaged,
+                    samples_by_offset[offset],
                     self.reward_weights,
                     end_frame_id=end_frame_id,
                     actual_frame_count=actual_frame_count,
@@ -391,32 +375,11 @@ def _discount_powers(gamma: float, frame_count: int) -> tuple[float, ...]:
     return tuple(powers)
 
 
-def _discount_weight_sums(discount_powers: Sequence[float]) -> tuple[float, ...]:
-    sums = [0.0]
-    total = 0.0
-    for discount in discount_powers:
-        total += float(discount)
-        sums.append(total)
-    return tuple(sums)
-
-
 def _component_dict_from_vector(components: Sequence[float]) -> dict[str, float]:
     return {
         component: float(components[index])
         for index, component in enumerate(REWARD_COMPONENTS)
     }
-
-
-def _discounted_average_component_vector(
-    totals: Sequence[float],
-    weight_sum: float,
-) -> tuple[float, ...]:
-    return tuple(
-        float(total)
-        if index in _DISCOUNTED_SUM_COMPONENT_INDICES
-        else float(total) / weight_sum
-        for index, total in enumerate(totals)
-    )
 
 
 def calculate_immediate_reward_components(
@@ -436,23 +399,24 @@ def _calculate_immediate_reward_component_vector(
         raise ValueError("decision and outcome frame IDs must match")
     components = [0.0] * _REWARD_COMPONENT_COUNT
 
+    frame_seconds = 1.0 / float(const.FPS)
     components[_REWARD_COMPONENT_INDEX[REWARD_POINT_A1]] = (
-        1.0 if decision.a1_pointing else 0.0
+        frame_seconds if decision.a1_pointing else 0.0
     )
     components[_REWARD_COMPONENT_INDEX[REWARD_A1_RANGE]] = (
-        1.0 if decision.a1_in_range else 0.0
+        frame_seconds if decision.a1_in_range else 0.0
     )
     components[_REWARD_COMPONENT_INDEX[REWARD_POINT_A2]] = (
-        1.0 if decision.a2_pointing else 0.0
+        frame_seconds if decision.a2_pointing else 0.0
     )
     components[_REWARD_COMPONENT_INDEX[REWARD_A2_RANGE]] = (
-        1.0 if decision.a2_in_range else 0.0
+        frame_seconds if decision.a2_in_range else 0.0
     )
 
     if outcome.self_max_thrust > 0.0 and outcome.self_speed > outcome.self_max_thrust:
         components[_REWARD_COMPONENT_INDEX[REWARD_HIGH_SPEED]] = (
             outcome.self_speed - outcome.self_max_thrust
-        ) / outcome.self_max_thrust
+        ) / outcome.self_max_thrust * frame_seconds
 
     battery_delta = outcome.self_battery - decision.self_battery
     if battery_delta > 0:
@@ -460,12 +424,12 @@ def _calculate_immediate_reward_component_vector(
     elif battery_delta < 0:
         components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_BATTERY]] = -battery_delta
     if outcome.self_battery <= 0:
-        components[_REWARD_COMPONENT_INDEX[REWARD_BATTERY_AT_ZERO]] = 1.0
+        components[_REWARD_COMPONENT_INDEX[REWARD_BATTERY_AT_ZERO]] = frame_seconds
 
     self_ship = decision.self_ship
     enemy_ship = decision.enemy_ship
     if _uses_sustained_a2_reward(self_ship) and outcome.self_sustained_a2_active:
-        components[_REWARD_COMPONENT_INDEX[REWARD_SPAWN_A2]] = 1.0
+        components[_REWARD_COMPONENT_INDEX[REWARD_SPAWN_A2]] = frame_seconds
     for event in outcome.events:
         if _is_self_action_use_event(event, self_ship):
             if _is_a1_use_event(event):
@@ -536,18 +500,11 @@ def calculate_reward_components(
     if not decisions or not outcomes or len(decisions) != len(outcomes):
         raise ValueError("reward windows require matching decisions and outcomes")
     components = {component: 0.0 for component in REWARD_COMPONENTS}
-    actual_frames = len(outcomes)
-
-    if actual_frames <= 0:
-        raise ValueError("reward windows must contain at least one frame")
     for decision, outcome in zip(decisions, outcomes):
         for component, value in calculate_immediate_reward_components(
             decision, outcome
         ).items():
             components[component] += value
-    for component in REWARD_COMPONENTS:
-        if component not in DISCOUNTED_SUM_COMPONENTS:
-            components[component] /= actual_frames
     return components
 
 
@@ -581,7 +538,7 @@ def build_discounted_training_sample(
 ) -> MatureTrainingSample:
     if not immediate_components:
         raise ValueError("reward windows must contain at least one frame")
-    components = discounted_average_components(immediate_components, gamma)
+    components = discounted_sum_components(immediate_components, gamma)
     return _sample_from_components(
         start_decision,
         components,
@@ -592,7 +549,7 @@ def build_discounted_training_sample(
     )
 
 
-def discounted_average_components(
+def discounted_sum_components(
     immediate_components: Sequence[Mapping[str, float]],
     gamma: float,
 ) -> dict[str, float]:
@@ -601,20 +558,11 @@ def discounted_average_components(
         raise ValueError("reward windows must contain at least one frame")
     totals = {component: 0.0 for component in REWARD_COMPONENTS}
     discount = 1.0
-    weight_sum = 0.0
     for frame_components in immediate_components:
-        weight_sum += discount
         for component in REWARD_COMPONENTS:
             totals[component] += float(frame_components.get(component, 0.0)) * discount
         discount *= gamma
-    return {
-        component: (
-            totals[component]
-            if component in DISCOUNTED_SUM_COMPONENTS
-            else totals[component] / weight_sum
-        )
-        for component in REWARD_COMPONENTS
-    }
+    return totals
 
 
 def _sample_from_components(
@@ -705,7 +653,7 @@ def _is_orz_turret_turn_event(event: TrainingBattleEvent) -> bool:
 
 
 def _uses_sustained_a2_reward(ship: object | None) -> bool:
-    return getattr(ship, "name", None) in {"Ilwrath", "Androsynth"}
+    return getattr(ship, "name", None) in SUSTAINED_A2_REWARD_SHIPS
 
 
 def _sustained_a2_active(ship: object | None) -> bool:

@@ -49,7 +49,13 @@ from src.training.coordinated import (
 )
 from src.training.orchestration import TrainingOrchestrationConfig
 from src.training.opponent_cache import ModelSaveCoordinator, OpponentModelCache
-from src.training.rewards import LEGACY_REWARD_ALIASES, REWARD_COMPONENTS
+from src.training.rewards import (
+    LEGACY_REWARD_ALIASES,
+    ONGOING_REWARD_COMPONENTS,
+    REWARD_COMPONENTS,
+    REWARD_SPAWN_A2,
+    SUSTAINED_A2_REWARD_SHIPS,
+)
 from src.training.replay import PACKED_REPLAY_SAMPLE_BYTES
 from src.training.session import (
     TrainingSession,
@@ -1431,7 +1437,7 @@ def largest_fitting_font(texts, max_width, max_height=36, maximum=36, minimum=16
 
 
 def _format_reward(value):
-    return "0.00" if value == 0 else f"{value:+.2f}"
+    return f"{value:.2f}"
 
 
 def _format_percent(value):
@@ -1684,6 +1690,7 @@ class SliderRow:
         decimal_places=None,
         value_suffix="",
         value_formatter=None,
+        value_suffix_reserve="",
         layout=LABEL_SLIDER_VALUE,
         label_width=278,
         value_width=70,
@@ -1713,6 +1720,7 @@ class SliderRow:
                 else 0
             )
         self.value_suffix = value_suffix
+        self.value_suffix_reserve = value_suffix_reserve
         self.value_formatter = value_formatter
         self.layout = layout
         self.label_width = label_width
@@ -1817,9 +1825,23 @@ class SliderRow:
     def _rendered_value(self, font):
         rendered = font.render(self.format_value(), True, self.VALUE_COLOR)
         if self.layout == self.LABEL_VALUE_SLIDER:
+            suffix_reserve_width = (
+                font.size(self.value_suffix_reserve)[0]
+                if self.value_suffix_reserve
+                else 0
+            )
+            suffix_width = (
+                font.size(self.value_suffix)[0]
+                if self.value_suffix_reserve
+                else suffix_reserve_width
+            )
             rect = rendered.get_rect(
                 midright=(
-                    self.line_rect.left - self.handle_radius - self.VALUE_HANDLE_GAP,
+                    self.line_rect.left
+                    - self.handle_radius
+                    - self.VALUE_HANDLE_GAP
+                    - suffix_reserve_width
+                    + suffix_width,
                     self.rect.centery,
                 )
             )
@@ -1889,9 +1911,10 @@ class SliderRow:
 
 
 class RewardSlider(SliderRow):
-    """Compatibility wrapper for tests and older training UI callers."""
+    """Reward row with stable storage keys and aligned optional rate units."""
 
-    def __init__(self, rect, label, value=0.0):
+    def __init__(self, rect, label, value=0.0, *, ship_name=None):
+        self.reward_key = label
         super().__init__(
             rect,
             label,
@@ -1900,6 +1923,23 @@ class RewardSlider(SliderRow):
             value,
             values=REWARD_VALUES,
             value_formatter=_format_reward,
+            value_suffix_reserve="/s",
+            layout=self.LABEL_VALUE_SLIDER,
+            label_width=278,
+            value_width=70,
+        )
+        self.set_ship(ship_name)
+
+    def set_ship(self, ship_name):
+        sustained_a2 = (
+            self.reward_key == REWARD_SPAWN_A2
+            and ship_name in SUSTAINED_A2_REWARD_SHIPS
+        )
+        self.label = "Maintain A2" if sustained_a2 else self.reward_key
+        self.value_suffix = (
+            "/s"
+            if self.reward_key in ONGOING_REWARD_COMPONENTS or sustained_a2
+            else ""
         )
 
 
@@ -2922,16 +2962,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     rewards_top = 8
     reward_sliders = [
-        SliderRow(
+        RewardSlider(
             (12, rewards_top + index * step, CONTROL_WIDTH - 24, min(30, step - 2)),
             label,
-            REWARD_VALUES[0],
-            REWARD_VALUES[-1],
             state.rewards.get(label, 0.0),
-            values=REWARD_VALUES,
-            value_formatter=_format_reward,
-            label_width=278,
-            value_width=70,
+            ship_name=state.selected_ship,
         )
         for index, label in enumerate(REWARD_LABELS)
     ]
@@ -3223,7 +3258,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         elif state.training_device == torch_backend.DEVICE_GPU:
             state.training_device = torch_backend.DEVICE_AUTO
         state.rewards.update(
-            (slider.label, slider.value) for slider in reward_sliders
+            (slider.reward_key, slider.value) for slider in reward_sliders
         )
         state.ai_opponent_chance = ai_opponent_slider.value
         state.opponent_mode = "all" if state.ai_opponent_chance > 0 else "simple"
@@ -3292,7 +3327,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         device_selector.selected = state.training_device
         refresh_slot_controls(load_labels=False)
         for slider in reward_sliders:
-            _set_slider_value(slider, state.rewards.get(slider.label, 0.0))
+            slider.set_ship(state.selected_ship)
+            _set_slider_value(slider, state.rewards.get(slider.reward_key, 0.0))
         _set_slider_value(ai_opponent_slider, state.ai_opponent_chance)
         _set_slider_value(simple_activity_sliders[0], state.forward_activity)
         _set_slider_value(simple_activity_sliders[1], state.a1_activity)
@@ -3771,9 +3807,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             rewards = training.get("rewards", {})
             if isinstance(rewards, dict):
                 for slider in reward_sliders:
-                    reward_key = slider.label
+                    reward_key = slider.reward_key
                     if reward_key not in rewards:
-                        legacy_key = LEGACY_REWARD_ALIASES.get(slider.label)
+                        legacy_key = LEGACY_REWARD_ALIASES.get(slider.reward_key)
                         if legacy_key not in rewards:
                             continue
                         reward_key = legacy_key
@@ -3782,10 +3818,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     try:
                         value = float(rewards[reward_key])
                     except (TypeError, ValueError):
-                        skipped.append(slider.label)
+                        skipped.append(slider.reward_key)
                         continue
                     if not _set_slider_value(slider, value):
-                        skipped.append(slider.label)
+                        skipped.append(slider.reward_key)
 
             regimen = training.get("regimen", {})
             if isinstance(regimen, dict):
@@ -4494,6 +4530,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider.enabled = controls_enabled
 
         for slider in reward_sliders:
+            slider.set_ship(state.selected_ship)
             slider.enabled = not state.running
         for slider in regimen_sliders:
             slider.enabled = not state.running

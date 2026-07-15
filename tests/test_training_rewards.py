@@ -1,6 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
+import src.const as const
 from src.collision_capabilities import CollisionCapabilities, CollisionRole
 from src.training.event_ledger import BattleEventLedger
 from src.training.event_ledger import (
@@ -99,7 +100,7 @@ class TrainingRewardComponentTests(unittest.TestCase):
         self.trainee = SimpleNamespace(name="Earthling")
         self.enemy = SimpleNamespace(name="Chenjesu")
 
-    def test_pointing_and_range_are_normalized_by_actual_window_length(self):
+    def test_pointing_and_range_accumulate_as_seconds_maintained(self):
         decisions = [
             decision(10, self.trainee, self.enemy, a1_pointing=True, a1_in_range=True),
             decision(11, self.trainee, self.enemy, a1_pointing=False, a1_in_range=True),
@@ -110,9 +111,9 @@ class TrainingRewardComponentTests(unittest.TestCase):
 
         components = calculate_reward_components(decisions[0], decisions, outcomes)
 
-        self.assertEqual(components[REWARD_POINT_A1], 0.25)
-        self.assertEqual(components[REWARD_A1_RANGE], 0.5)
-        self.assertEqual(components[REWARD_POINT_A2], 0.5)
+        self.assertEqual(components[REWARD_POINT_A1], 1 / const.FPS)
+        self.assertEqual(components[REWARD_A1_RANGE], 2 / const.FPS)
+        self.assertEqual(components[REWARD_POINT_A2], 2 / const.FPS)
 
     def test_range_reward_labels_and_legacy_weights(self):
         self.assertEqual(REWARD_A1_RANGE, "In A1 range")
@@ -282,7 +283,7 @@ class TrainingRewardComponentTests(unittest.TestCase):
 
         self.assertEqual(components[REWARD_SPAWN_A1], 1.0)
         self.assertEqual(components[REWARD_SPAWN_A2], 1.0)
-        self.assertAlmostEqual(components[REWARD_HIGH_SPEED], 0.1)
+        self.assertAlmostEqual(components[REWARD_HIGH_SPEED], 0.1 / const.FPS)
         self.assertEqual(components[REWARD_ENEMY_LOSES_CREW], 2.0)
         self.assertEqual(components[REWARD_LOSE_CREW], 3.0)
         self.assertEqual(components[REWARD_GAIN_CREW], 1.0)
@@ -425,7 +426,7 @@ class TrainingRewardComponentTests(unittest.TestCase):
                 components = calculate_reward_components(
                     decisions[0], decisions, outcomes
                 )
-                self.assertEqual(components[REWARD_SPAWN_A2], 2 / 3)
+                self.assertEqual(components[REWARD_SPAWN_A2], 2 / const.FPS)
 
     def test_ilwrath_and_androsynth_toggle_events_do_not_count_as_use_a2(self):
         for ship in (
@@ -468,9 +469,9 @@ class TrainingRewardComponentTests(unittest.TestCase):
         components = calculate_reward_components(start, [start], [end])
 
         self.assertEqual(components[REWARD_LOSE_BATTERY], 4.0)
-        self.assertEqual(components[REWARD_BATTERY_AT_ZERO], 1.0)
+        self.assertEqual(components[REWARD_BATTERY_AT_ZERO], 1 / const.FPS)
 
-    def test_high_speed_reward_is_per_frame_excess_speed_ratio(self):
+    def test_high_speed_reward_is_per_second_excess_speed_ratio(self):
         decisions = [
             decision(1, self.trainee, self.enemy, speed=15, max_thrust=10),
             decision(2, self.trainee, self.enemy, speed=12, max_thrust=10),
@@ -484,7 +485,10 @@ class TrainingRewardComponentTests(unittest.TestCase):
 
         components = calculate_reward_components(decisions[0], decisions, outcomes)
 
-        self.assertAlmostEqual(components[REWARD_HIGH_SPEED], (0.5 + 0.2) / 3)
+        self.assertAlmostEqual(
+            components[REWARD_HIGH_SPEED],
+            (0.5 + 0.2) / const.FPS,
+        )
 
     def test_natural_expiration_does_not_count_as_kill_enemy_object(self):
         event = TrainingBattleEvent(
@@ -786,13 +790,19 @@ class RollingReturnPipelineTests(unittest.TestCase):
         self.assertEqual(sample.action_index, 3)
         self.assertEqual(sample.actual_frame_count, 3)
         self.assertFalse(sample.terminal_truncated)
-        discount_sum = 1.0 + gamma + gamma**2
         self.assertAlmostEqual(
             sample.component_values[REWARD_POINT_A1],
-            1.0 / discount_sum,
+            1.0 / const.FPS,
         )
-        self.assertEqual(sample.component_values[REWARD_GAIN_BATTERY], 1.0)
-        self.assertAlmostEqual(sample.return_value, 6.0 / discount_sum + 2.0)
+        discount_sum = 1.0 + gamma + gamma**2
+        self.assertAlmostEqual(
+            sample.component_values[REWARD_GAIN_BATTERY],
+            discount_sum,
+        )
+        self.assertAlmostEqual(
+            sample.return_value,
+            6.0 / const.FPS + 2.0 * discount_sum,
+        )
 
     def test_terminal_frame_flushes_every_pending_window_and_truncates_return(self):
         gamma = 0.5
@@ -819,13 +829,13 @@ class RollingReturnPipelineTests(unittest.TestCase):
         self.assertTrue(all(sample.terminal_truncated for sample in matured))
         self.assertAlmostEqual(
             matured[0].return_value,
-            10.0 * ((1.0 + gamma**2) / (1.0 + gamma + gamma**2)),
+            10.0 * (1.0 + gamma**2) / const.FPS,
         )
         self.assertAlmostEqual(
             matured[1].return_value,
-            10.0 * (gamma / (1.0 + gamma)),
+            10.0 * gamma / const.FPS,
         )
-        self.assertAlmostEqual(matured[2].return_value, 10.0)
+        self.assertAlmostEqual(matured[2].return_value, 10.0 / const.FPS)
 
         with self.assertRaises(RuntimeError):
             pipeline.add_frame(
@@ -854,7 +864,7 @@ class RollingReturnPipelineTests(unittest.TestCase):
         self.assertEqual([sample.end_frame_id for sample in matured], [99, 99])
         self.assertEqual([sample.actual_frame_count for sample in matured], [2, 1])
         self.assertTrue(all(sample.terminal_truncated for sample in matured))
-        self.assertAlmostEqual(matured[0].return_value, 10.0 / (1.0 + gamma))
+        self.assertAlmostEqual(matured[0].return_value, 10.0 / const.FPS)
         self.assertAlmostEqual(matured[1].return_value, 0.0)
         self.assertEqual(pipeline.pending_count, 0)
         with self.assertRaises(RuntimeError):
@@ -933,7 +943,7 @@ class RollingReturnPipelineTests(unittest.TestCase):
         )
         self.assertFalse(matured[0].terminal_truncated)
 
-    def test_constant_per_frame_rewards_are_match_length_invariant(self):
+    def test_ongoing_rewards_grow_with_maintained_duration(self):
         gamma = 0.2
         full_pipeline = RollingReturnPipeline(
             gamma=gamma,
@@ -956,8 +966,18 @@ class RollingReturnPipelineTests(unittest.TestCase):
 
         self.assertEqual(len(full_matured), 1)
         self.assertEqual(len(truncated_matured), 1)
-        self.assertAlmostEqual(full_matured[0].return_value, 10.0)
-        self.assertAlmostEqual(truncated_matured[0].return_value, 10.0)
+        self.assertAlmostEqual(
+            full_matured[0].return_value,
+            10.0 * (1.0 + gamma + gamma**2) / const.FPS,
+        )
+        self.assertAlmostEqual(
+            truncated_matured[0].return_value,
+            10.0 / const.FPS,
+        )
+        self.assertGreater(
+            full_matured[0].return_value,
+            truncated_matured[0].return_value,
+        )
 
 
 if __name__ == "__main__":

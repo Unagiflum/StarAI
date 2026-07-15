@@ -17,6 +17,7 @@ import src.Menus.train_ai as train_ai
 from src.UI import ui, ui_slider
 from src.training import torch_backend
 from src.training.session import TrainingSessionStatus
+from src.training.rewards import REWARD_POINT_A1, REWARD_SPAWN_A1, REWARD_SPAWN_A2
 from src.Menus.train_ai import (
     ACTION_TOP,
     EPSILON_DECAY_VALUES,
@@ -2016,6 +2017,47 @@ class RewardSliderTests(unittest.TestCase):
         slider.draw(surface, font, mouse_pos=(-1, -1))
 
         self.assertEqual(surface.get_at((2, 2))[:3], ui.DARK_GREY)
+
+    def test_reward_values_use_hundredths_without_positive_sign(self):
+        slider = RewardSlider((0, 0, 550, 40), REWARD_SPAWN_A1, 40.96)
+
+        self.assertEqual(slider.format_value(), "40.96")
+        slider.value = 0.0
+        self.assertEqual(slider.format_value(), "0.00")
+        slider.value = -5.12
+        self.assertEqual(slider.format_value(), "-5.12")
+
+    def test_ongoing_reward_uses_per_second_suffix_and_aligned_numeric_edge(self):
+        font = pygame.font.Font(None, 20)
+        discrete = RewardSlider((0, 0, 550, 40), REWARD_SPAWN_A1, 40.96)
+        ongoing = RewardSlider((0, 40, 550, 40), REWARD_POINT_A1, 40.96)
+
+        _, discrete_rect = discrete._rendered_value(font)
+        _, ongoing_rect = ongoing._rendered_value(font)
+        suffix_width = font.size("/s")[0]
+
+        self.assertEqual(discrete.format_value(), "40.96")
+        self.assertEqual(ongoing.format_value(), "40.96/s")
+        self.assertEqual(discrete_rect.right, ongoing_rect.right - suffix_width)
+        self.assertEqual(discrete.layout, SliderRow.LABEL_VALUE_SLIDER)
+
+    def test_a2_reward_presentation_tracks_ship_without_changing_storage_key(self):
+        slider = RewardSlider(
+            (0, 0, 550, 40),
+            REWARD_SPAWN_A2,
+            10.24,
+            ship_name="Ilwrath",
+        )
+
+        self.assertEqual(slider.reward_key, REWARD_SPAWN_A2)
+        self.assertEqual(slider.label, "Maintain A2")
+        self.assertEqual(slider.format_value(), "10.24/s")
+
+        slider.set_ship("Earthling")
+
+        self.assertEqual(slider.reward_key, REWARD_SPAWN_A2)
+        self.assertEqual(slider.label, REWARD_SPAWN_A2)
+        self.assertEqual(slider.format_value(), "10.24")
 
 
 class SliderRowTests(unittest.TestCase):
