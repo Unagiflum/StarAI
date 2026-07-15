@@ -263,7 +263,13 @@ _COORDINATED_TIMING_CSV_HEADER = (
     "Inference Mode",
     "Batch Seconds",
     "Batches/Hour",
+    "Outcomes",
+    "Wins",
+    "Losses",
+    "Draws",
     "Win %",
+    "Loss %",
+    "Draw %",
     "Score",
     "Epsilon",
     "Learning Rate",
@@ -2362,11 +2368,10 @@ def append_coordinated_batch_timing_csv(
         max(0.0, float(timing_seconds.get(bucket, 0.0)))
         for bucket in _TIMING_TOTAL_BUCKETS
     )
-    win_rate = (
-        metrics.wins / metrics.match_count * 100.0
-        if metrics.match_count
-        else 0.0
-    )
+    denominator = metrics.outcome_count
+    win_rate = metrics.wins / denominator * 100.0 if denominator else 0.0
+    loss_rate = metrics.losses / denominator * 100.0 if denominator else 0.0
+    draw_rate = metrics.draws / denominator * 100.0 if denominator else 0.0
     with path.open("a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         if write_header:
@@ -2386,7 +2391,13 @@ def append_coordinated_batch_timing_csv(
                 str(inference_mode),
                 f"{float(batch_seconds):.6f}",
                 f"{float(batches_per_hour):.6f}",
+                str(metrics.outcome_count),
+                str(metrics.wins),
+                str(metrics.losses),
+                str(metrics.draws),
                 f"{win_rate:.1f}",
+                f"{loss_rate:.1f}",
+                f"{draw_rate:.1f}",
                 f"{metrics.average_match_score:.6f}",
                 f"{metrics.epsilon:.6f}",
                 f"{metrics.learning_rate:.8f}",

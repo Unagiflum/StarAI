@@ -21,6 +21,7 @@ from src.training.contracts import (
     TrainingAction,
     action_for_index,
 )
+from src.training.coordinated_contracts import TrainingEpisodeResult
 from src.training.cpu_contracts import (
     DEFAULT_MINIBATCH_SIZE,
     DEFAULT_REPLAY_UPDATES_PER_BATCH,
@@ -76,6 +77,7 @@ class TrainingRoundResult:
     loss: bool
     draw: bool
     component_totals: Mapping[str, float] = field(default_factory=dict)
+    episode_results: tuple[TrainingEpisodeResult, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -412,7 +414,13 @@ def run_training_round(
     mature_count = 0
     terminal_reason = "timeout"
     terminal_seen = False
-    episode_outcomes: list[tuple[bool, bool, bool]] = []
+    episode_results: list[TrainingEpisodeResult] = []
+    episode_start_frame = 0
+    episode_mature_count = 0
+    episode_return_sum = 0.0
+    episode_component_sums = {
+        component: 0.0 for component in REWARD_COMPONENTS
+    }
     next_display_frame_time = time.perf_counter()
     simple_opponent_controller = SimpleOpponentController(config, rng=rng)
 
@@ -461,8 +469,12 @@ def run_training_round(
         mature_samples = pipeline.add_frame(decision, outcome)
         replay_buffer.extend(mature_samples)
         mature_count += len(mature_samples)
-        return_sum += sum(sample.return_value for sample in mature_samples)
+        episode_mature_count += len(mature_samples)
+        sample_return = sum(sample.return_value for sample in mature_samples)
+        return_sum += sample_return
+        episode_return_sum += sample_return
         _accumulate_weighted_components(component_sums, mature_samples)
+        _accumulate_weighted_components(episode_component_sums, mature_samples)
         normalized_return = _average_value(return_sum, mature_count)
         progress_payload = {
             "event": "frame",
@@ -488,8 +500,25 @@ def run_training_round(
                 next_display_frame_time = time.perf_counter()
             _raise_if_stop_requested(stop_requested)
         if terminal:
-            episode_outcomes.append(
-                _classify_round_outcome(simulation, terminal_reason)
+            win, loss, draw = _classify_round_outcome(
+                simulation, terminal_reason
+            )
+            episode_results.append(
+                TrainingEpisodeResult(
+                    opponent=opponent,
+                    frames=state["frame_id"] - episode_start_frame,
+                    terminal_reason=terminal_reason,
+                    mature_samples=episode_mature_count,
+                    total_return=_average_value(
+                        episode_return_sum, episode_mature_count
+                    ),
+                    win=win,
+                    loss=loss,
+                    draw=draw,
+                    component_totals=_average_components(
+                        episode_component_sums, episode_mature_count
+                    ),
+                )
             )
             reset_span = getattr(trainee_policy, "reset_exploration_span", None)
             if callable(reset_span):
@@ -505,6 +534,12 @@ def run_training_round(
                 reward_weights=config.reward_weights,
             )
             simple_opponent_controller = SimpleOpponentController(config, rng=rng)
+            episode_start_frame = state["frame_id"]
+            episode_mature_count = 0
+            episode_return_sum = 0.0
+            episode_component_sums = {
+                component: 0.0 for component in REWARD_COMPONENTS
+            }
 
     if not terminal_seen:
         terminal_reason = "timeout"
@@ -514,16 +549,34 @@ def run_training_round(
             replay_buffer,
         )
         mature_count += len(mature_samples)
-        return_sum += sum(sample.return_value for sample in mature_samples)
+        episode_mature_count += len(mature_samples)
+        sample_return = sum(sample.return_value for sample in mature_samples)
+        return_sum += sample_return
+        episode_return_sum += sample_return
         _accumulate_weighted_components(component_sums, mature_samples)
-
-    if not episode_outcomes:
-        episode_outcomes.append(
-            _classify_round_outcome(simulation, terminal_reason)
+        _accumulate_weighted_components(episode_component_sums, mature_samples)
+        win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
+        episode_results.append(
+            TrainingEpisodeResult(
+                opponent=opponent,
+                frames=simulation.frame_id - episode_start_frame,
+                terminal_reason=terminal_reason,
+                mature_samples=episode_mature_count,
+                total_return=_average_value(
+                    episode_return_sum, episode_mature_count
+                ),
+                win=win,
+                loss=loss,
+                draw=draw,
+                component_totals=_average_components(
+                    episode_component_sums, episode_mature_count
+                ),
+            )
         )
-    win = any(outcome[0] for outcome in episode_outcomes)
-    loss = any(outcome[1] for outcome in episode_outcomes)
-    draw = any(outcome[2] for outcome in episode_outcomes)
+
+    win = any(episode.win for episode in episode_results)
+    loss = any(episode.loss for episode in episode_results)
+    draw = any(episode.draw for episode in episode_results)
     return TrainingRoundResult(
         opponent=opponent,
         frames=simulation.frame_id,
@@ -534,6 +587,7 @@ def run_training_round(
         loss=loss,
         draw=draw,
         component_totals=_average_components(component_sums, mature_count),
+        episode_results=tuple(episode_results),
     )
 
 

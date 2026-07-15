@@ -94,6 +94,41 @@ class PendingRebirthSimulation:
         return {"frame_id": self.frame_id}
 
 
+class RespawningOutcomeSimulation:
+    def __init__(
+        self,
+        _screen,
+        player1,
+        player2,
+        *,
+        audio_service=None,
+        rng=None,
+        include_stars=False,
+        training_event_ledger=None,
+    ):
+        self.player1 = player1
+        self.player2 = player2
+        self.frame_id = 0
+        self.world = []
+        self.aftermath = None
+        self.training_episode_deaths = ()
+        self.training_spawn_initialized = True
+        for player, position in (
+            (self.player1, [4000.0, 4000.0]),
+            (self.player2, [4100.0, 4000.0]),
+        ):
+            player.position = position
+            player.velocity = [0.0, 0.0]
+            player.rotation = 0.0
+            player.current_hp = max(1, getattr(player, "current_hp", 1))
+            player.currently_alive = True
+
+    def step(self, actions=None):
+        self.frame_id += 1
+        self.training_episode_deaths = (2,) if self.frame_id == 1 else ()
+        return {"frame_id": self.frame_id}
+
+
 class SequenceRng:
     def __init__(self, values):
         self.values = list(values)
@@ -276,6 +311,40 @@ class ValueNetworkPolicyTests(unittest.TestCase):
 
 
 class TrainingRoundTests(unittest.TestCase):
+    def test_respawned_death_and_trailing_timeout_are_separate_episodes(self):
+        replay = TrainingReplayBuffer(capacity=16)
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=2,
+            gamma=0.0,
+        )
+
+        result = run_training_round(
+            opponent=OpponentSpec("Earthling"),
+            trainee_policy=FixedPolicy(0),
+            replay_buffer=replay,
+            config=config,
+            rng=random.Random(1),
+            simulation_factory=RespawningOutcomeSimulation,
+            battle_view_enabled=lambda: False,
+        )
+
+        self.assertEqual(
+            [episode.terminal_reason for episode in result.episode_results],
+            ["resolved", "timeout"],
+        )
+        self.assertEqual(
+            [episode.frames for episode in result.episode_results],
+            [1, 1],
+        )
+        self.assertEqual(
+            [
+                (episode.win, episode.loss, episode.draw)
+                for episode in result.episode_results
+            ],
+            [(True, False, False), (False, False, True)],
+        )
+
     def test_terminal_timeout_flushes_every_pending_sample(self):
         replay = TrainingReplayBuffer(capacity=16)
         config = TrainingOrchestrationConfig(

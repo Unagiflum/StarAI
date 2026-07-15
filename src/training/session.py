@@ -72,7 +72,7 @@ class CompatibilityReport:
 @dataclass(frozen=True)
 class BatchMetrics:
     batch: int
-    match_count: int
+    outcome_count: int
     wins: int
     losses: int
     draws: int
@@ -85,7 +85,7 @@ class BatchMetrics:
 def batch_metrics_to_metadata(metrics: BatchMetrics) -> dict[str, Any]:
     return {
         "batch": metrics.batch,
-        "match_count": metrics.match_count,
+        "outcome_count": metrics.outcome_count,
         "wins": metrics.wins,
         "losses": metrics.losses,
         "draws": metrics.draws,
@@ -99,7 +99,7 @@ def batch_metrics_to_metadata(metrics: BatchMetrics) -> dict[str, Any]:
 def batch_metrics_from_metadata(value: Mapping[str, Any]) -> BatchMetrics:
     return BatchMetrics(
         batch=int(value["batch"]),
-        match_count=int(value["match_count"]),
+        outcome_count=int(value["outcome_count"]),
         wins=int(value["wins"]),
         losses=int(value["losses"]),
         draws=int(value["draws"]),
@@ -232,15 +232,23 @@ def metrics_from_batch_result(
     epsilon: float,
     learning_rate: float,
 ) -> BatchMetrics:
-    match_count = len(result.round_results)
+    round_count = len(result.round_results)
+    outcomes = tuple(
+        outcome
+        for round_result in result.round_results
+        for outcome in (
+            tuple(getattr(round_result, "episode_results", ()))
+            or (round_result,)
+        )
+    )
     score_total = sum(round_result.total_return for round_result in result.round_results)
     return BatchMetrics(
         batch=int(batch),
-        match_count=match_count,
-        wins=sum(1 for round_result in result.round_results if round_result.win),
-        losses=sum(1 for round_result in result.round_results if round_result.loss),
-        draws=sum(1 for round_result in result.round_results if round_result.draw),
-        average_match_score=score_total / match_count if match_count else 0.0,
+        outcome_count=len(outcomes),
+        wins=sum(1 for outcome in outcomes if outcome.win),
+        losses=sum(1 for outcome in outcomes if outcome.loss),
+        draws=sum(1 for outcome in outcomes if outcome.draw),
+        average_match_score=score_total / round_count if round_count else 0.0,
         epsilon=float(epsilon),
         learning_rate=float(learning_rate),
         average_loss=float(result.average_loss or 0.0),
@@ -255,7 +263,7 @@ def rolling_metrics(history: tuple[BatchMetrics, ...], grouping: int) -> BatchMe
     latest = window[-1]
     return BatchMetrics(
         batch=latest.batch,
-        match_count=sum(item.match_count for item in window),
+        outcome_count=sum(item.outcome_count for item in window),
         wins=sum(item.wins for item in window),
         losses=sum(item.losses for item in window),
         draws=sum(item.draws for item in window),
@@ -267,17 +275,19 @@ def rolling_metrics(history: tuple[BatchMetrics, ...], grouping: int) -> BatchMe
 
 
 def format_batch_summary_line(metrics: BatchMetrics, rolling: BatchMetrics) -> str:
-    win_rate = (metrics.wins / metrics.match_count * 100.0) if metrics.match_count > 0 else 0.0
-    loss_rate = (metrics.losses / metrics.match_count * 100.0) if metrics.match_count > 0 else 0.0
-    draw_rate = (metrics.draws / metrics.match_count * 100.0) if metrics.match_count > 0 else 0.0
-    rolling_win_rate = (rolling.wins / rolling.match_count * 100.0) if rolling.match_count > 0 else 0.0
+    win_rate = (metrics.wins / metrics.outcome_count * 100.0) if metrics.outcome_count > 0 else 0.0
+    loss_rate = (metrics.losses / metrics.outcome_count * 100.0) if metrics.outcome_count > 0 else 0.0
+    draw_rate = (metrics.draws / metrics.outcome_count * 100.0) if metrics.outcome_count > 0 else 0.0
+    rolling_win_rate = (rolling.wins / rolling.outcome_count * 100.0) if rolling.outcome_count > 0 else 0.0
 
     return (
         f"Batch {metrics.batch:6d} | "
-        f"{win_rate:5.1f}% W, "
-        f"{loss_rate:5.1f}% L, "
-        f"{draw_rate:5.1f}% D | "
-        f"({rolling_win_rate:6.2f}% W) | "
+        f"{metrics.outcome_count} outcomes: "
+        f"{metrics.wins} W ({win_rate:5.1f}%), "
+        f"{metrics.losses} L ({loss_rate:5.1f}%), "
+        f"{metrics.draws} D ({draw_rate:5.1f}%) | "
+        f"Rolling: {rolling.wins}/{rolling.outcome_count} W "
+        f"({rolling_win_rate:6.2f}%) | "
         f"Score: {metrics.average_match_score: =7.3f} ({rolling.average_match_score: =7.3f}) | "
         f"Epsilon: {metrics.epsilon:.5f} | "
         f"LR: {metrics.learning_rate:.5f} | "
@@ -289,15 +299,39 @@ def append_grouped_metrics_csv(path: Path, metrics: BatchMetrics) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not path.exists() or path.stat().st_size == 0
-    win_rate = (metrics.wins / metrics.match_count * 100.0) if metrics.match_count else 0.0
+    denominator = metrics.outcome_count
+    win_rate = (metrics.wins / denominator * 100.0) if denominator else 0.0
+    loss_rate = (metrics.losses / denominator * 100.0) if denominator else 0.0
+    draw_rate = (metrics.draws / denominator * 100.0) if denominator else 0.0
     with path.open("a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         if write_header:
-            writer.writerow(("Batch", "Win %", "Score", "Epsilon", "Learning Rate", "Loss"))
+            writer.writerow(
+                (
+                    "Batch",
+                    "Outcomes",
+                    "Wins",
+                    "Losses",
+                    "Draws",
+                    "Win %",
+                    "Loss %",
+                    "Draw %",
+                    "Score",
+                    "Epsilon",
+                    "Learning Rate",
+                    "Loss",
+                )
+            )
         writer.writerow(
             (
                 str(metrics.batch),
+                str(metrics.outcome_count),
+                str(metrics.wins),
+                str(metrics.losses),
+                str(metrics.draws),
                 f"{win_rate:.1f}",
+                f"{loss_rate:.1f}",
+                f"{draw_rate:.1f}",
                 f"{metrics.average_match_score:.1f}",
                 f"{metrics.epsilon:.5f}",
                 f"{metrics.learning_rate:.6f}",
