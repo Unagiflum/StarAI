@@ -63,6 +63,7 @@ from src.training.orchestration import (
     _accumulate_weighted_components,
     _average_components,
     _average_value,
+    _classify_kills_deaths,
     _classify_round_outcome,
     _initialize_training_simulation_ships,
     _opponent_direct_controls,
@@ -2247,6 +2248,7 @@ def run_coordinated_fixed_frame_window(
 
         if terminal:
             win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
+            kills, deaths = _classify_kills_deaths(simulation)
             episode_results.append(
                 TrainingEpisodeResult(
                     opponent=opponent,
@@ -2260,6 +2262,8 @@ def run_coordinated_fixed_frame_window(
                     win=win,
                     loss=loss,
                     draw=draw,
+                    kills=kills,
+                    deaths=deaths,
                     component_totals=_average_components(
                         episode_component_sums,
                         episode_mature_count,
@@ -2301,6 +2305,7 @@ def run_coordinated_fixed_frame_window(
         _accumulate_weighted_components(component_sums, mature_samples)
         _accumulate_weighted_components(episode_component_sums, mature_samples)
         win, loss, draw = _classify_round_outcome(simulation, "timeout")
+        kills, deaths = _classify_kills_deaths(simulation)
         episode_results.append(
             TrainingEpisodeResult(
                 opponent=opponent,
@@ -2311,6 +2316,8 @@ def run_coordinated_fixed_frame_window(
                 win=win,
                 loss=loss,
                 draw=draw,
+                kills=kills,
+                deaths=deaths,
                 component_totals=_average_components(
                     episode_component_sums,
                     episode_mature_count,
@@ -3207,6 +3214,7 @@ def _record_coordinated_terminal_episode(
     terminal_reason: str,
 ) -> None:
     win, loss, draw = _classify_round_outcome(runtime.simulation, terminal_reason)
+    kills, deaths = _classify_kills_deaths(runtime.simulation)
     runtime.episode_results.append(
         TrainingEpisodeResult(
             opponent=runtime.opponent,
@@ -3220,6 +3228,8 @@ def _record_coordinated_terminal_episode(
             win=win,
             loss=loss,
             draw=draw,
+            kills=kills,
+            deaths=deaths,
             component_totals=_average_components(
                 runtime.episode_component_sums,
                 runtime.episode_mature_count,
@@ -3315,6 +3325,7 @@ def _finish_coordinated_window(
         )
         reward_terminal_started_at = _timing_started_at(timing_seconds)
         win, loss, draw = _classify_round_outcome(runtime.simulation, "timeout")
+        kills, deaths = _classify_kills_deaths(runtime.simulation)
         _add_timing_seconds(
             timing_seconds,
             "reward_terminal",
@@ -3333,6 +3344,8 @@ def _finish_coordinated_window(
                 win=win,
                 loss=loss,
                 draw=draw,
+                kills=kills,
+                deaths=deaths,
                 component_totals=_average_components(
                     runtime.episode_component_sums,
                     runtime.episode_mature_count,

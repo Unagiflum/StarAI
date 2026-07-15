@@ -247,15 +247,10 @@ def metrics_from_batch_result(
         )
     )
     score_total = sum(round_result.total_return for round_result in result.round_results)
-    simultaneous = tuple(
-        outcome
-        for outcome in outcomes
-        if outcome.draw and outcome.terminal_reason != "timeout"
-    )
     return BatchMetrics(
         batch=int(batch),
-        kills=sum(1 for outcome in outcomes if outcome.win) + len(simultaneous),
-        deaths=sum(1 for outcome in outcomes if outcome.loss) + len(simultaneous),
+        kills=sum(int(getattr(outcome, "kills", 0)) for outcome in outcomes),
+        deaths=sum(int(getattr(outcome, "deaths", 0)) for outcome in outcomes),
         batch_count=1,
         average_match_score=score_total / round_count if round_count else 0.0,
         epsilon=float(epsilon),

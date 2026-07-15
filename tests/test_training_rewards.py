@@ -633,7 +633,7 @@ class TrainingRewardComponentTests(unittest.TestCase):
 
         self.assertEqual(components[REWARD_ENEMY_LOSES_CREW], 0.0)
 
-    def test_enemy_druuge_a2_crew_loss_receives_partial_credit(self):
+    def test_enemy_druuge_a2_crew_loss_receives_no_credit(self):
         event = TrainingBattleEvent(
             frame_id=1,
             event_type=EVENT_CREW_CHANGED,
@@ -650,23 +650,88 @@ class TrainingRewardComponentTests(unittest.TestCase):
             [outcome(1, events=(event,))],
         )
 
-        self.assertEqual(components[REWARD_ENEMY_LOSES_CREW], 1.0)
+        self.assertEqual(components[REWARD_ENEMY_LOSES_CREW], 0.0)
 
-    def test_enemy_death_uses_accumulated_source_weighted_crew_loss_credit(self):
+    def test_enemy_shofixti_a2_crew_loss_receives_no_credit(self):
+        event = TrainingBattleEvent(
+            frame_id=1,
+            event_type=EVENT_CREW_CHANGED,
+            target=self.enemy,
+            obj=SimpleNamespace(name="ShofixtiA2"),
+            ability_name="ShofixtiA2",
+            magnitude=-4,
+        )
+        start = decision(1, self.trainee, self.enemy)
+
+        components = calculate_reward_components(
+            start,
+            [start],
+            [outcome(1, events=(event,))],
+        )
+
+        self.assertEqual(components[REWARD_ENEMY_LOSES_CREW], 0.0)
+
+    def test_self_crew_loss_and_death_rewards_keep_full_credit(self):
+        planet = SimpleNamespace(
+            collision_capabilities=CollisionCapabilities(CollisionRole.PLANET)
+        )
+        sources = (
+            ("planet", planet, None),
+            ("Druuge A2", SimpleNamespace(name="DruugeA2"), "DruugeA2"),
+            (
+                "Shofixti A2",
+                SimpleNamespace(name="ShofixtiA2"),
+                "ShofixtiA2",
+            ),
+        )
+        start = decision(1, self.trainee, self.enemy)
+
+        for label, source, ability_name in sources:
+            with self.subTest(source=label):
+                crew_loss = TrainingBattleEvent(
+                    frame_id=1,
+                    event_type=EVENT_CREW_CHANGED,
+                    target=self.trainee,
+                    obj=source,
+                    ability_name=ability_name,
+                    magnitude=-4,
+                )
+                self_death = TrainingBattleEvent(
+                    frame_id=1,
+                    event_type=EVENT_SHIP_DIED,
+                    target=self.trainee,
+                    obj=source,
+                    ability_name=ability_name,
+                    metadata={"enemy_death_reward_credit": 0.0},
+                )
+
+                components = calculate_reward_components(
+                    start,
+                    [start],
+                    [outcome(1, events=(crew_loss, self_death))],
+                )
+
+                self.assertEqual(components[REWARD_LOSE_CREW], 4.0)
+                self.assertEqual(components[REWARD_DIE], 1.0)
+
+    def test_enemy_death_uses_configured_source_weighted_crew_loss_credit(self):
         ledger = BattleEventLedger()
         planet = SimpleNamespace(
             collision_capabilities=CollisionCapabilities(CollisionRole.PLANET)
         )
         druuge_a2 = SimpleNamespace(name="DruugeA2")
+        shofixti_a2 = SimpleNamespace(name="ShofixtiA2")
         weapon = SimpleNamespace(name="EarthlingA1")
         enemy = SimpleNamespace(name="Druuge", current_hp=10)
 
         enemy.current_hp = 8
         ledger.record_crew_changed(enemy, -2, source=planet)
-        enemy.current_hp = 7
-        ledger.record_crew_changed(enemy, -1, source=druuge_a2)
+        enemy.current_hp = 6
+        ledger.record_crew_changed(enemy, -2, source=druuge_a2)
+        enemy.current_hp = 4
+        ledger.record_crew_changed(enemy, -2, source=shofixti_a2)
         enemy.current_hp = 0
-        ledger.record_crew_changed(enemy, -7, source=weapon)
+        ledger.record_crew_changed(enemy, -4, source=weapon)
         death_event = ledger.events[-1]
         start = decision(1, self.trainee, enemy)
 
@@ -679,7 +744,7 @@ class TrainingRewardComponentTests(unittest.TestCase):
         self.assertEqual(death_event.event_type, EVENT_SHIP_DIED)
         self.assertAlmostEqual(
             components[REWARD_KILL_ENEMY],
-            (2 * 0.0 + 1 * 0.25 + 7 * 1.0) / 10,
+            (2 * 0.0 + 2 * 0.0 + 2 * 0.0 + 4 * 1.0) / 10,
         )
 
 

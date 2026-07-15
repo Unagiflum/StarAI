@@ -53,6 +53,8 @@ def _episode_result(
     loss=False,
     draw=True,
     terminal_reason=None,
+    kills=0,
+    deaths=0,
 ):
     return TrainingEpisodeResult(
         opponent=OpponentSpec("Earthling"),
@@ -63,6 +65,8 @@ def _episode_result(
         win=win,
         loss=loss,
         draw=draw,
+        kills=kills,
+        deaths=deaths,
     )
 
 
@@ -182,9 +186,13 @@ class TrainingMetricsTests(unittest.TestCase):
                     loss=True,
                     draw=False,
                     episode_results=(
-                        _episode_result(win=True, draw=False),
-                        _episode_result(loss=True, draw=False),
-                        _episode_result(terminal_reason="resolved"),
+                        _episode_result(win=True, draw=False, kills=1),
+                        _episode_result(loss=True, draw=False, deaths=1),
+                        _episode_result(
+                            terminal_reason="resolved",
+                            kills=1,
+                            deaths=1,
+                        ),
                     ),
                 ),
                 _round_result(2.0, episode_results=(_episode_result(),)),
@@ -202,6 +210,33 @@ class TrainingMetricsTests(unittest.TestCase):
         self.assertEqual(metrics.batch_count, 1)
         self.assertAlmostEqual(metrics.average_match_score, 6.0)
         self.assertAlmostEqual(metrics.average_loss, 0.3)
+
+    def test_metrics_do_not_infer_kills_or_deaths_from_outcomes(self):
+        result = TrainingBatchResult(
+            completed_rounds=1,
+            replay_size=0,
+            optimization_losses=(),
+            round_results=(
+                _round_result(
+                    win=True,
+                    loss=True,
+                    draw=False,
+                    episode_results=(
+                        _episode_result(win=True, draw=False),
+                        _episode_result(loss=True, draw=False, deaths=1),
+                    ),
+                ),
+            ),
+        )
+
+        metrics = metrics_from_batch_result(
+            result,
+            batch=1,
+            epsilon=0.0,
+            learning_rate=0.001,
+        )
+
+        self.assertEqual((metrics.kills, metrics.deaths), (0, 1))
 
     def test_rolling_metrics_uses_available_window(self):
         history = (

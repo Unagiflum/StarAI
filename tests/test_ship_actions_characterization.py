@@ -1050,6 +1050,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertTrue(battle_ship.shofixti_self_destruct)
         self.assertEqual(battle_ship.current_hp, 0)
         self.assertIsNotNone(result)
+        self.assertIs(battle_ship.last_lethal_damage_source, result)
 
     def test_shofixti_secondary_arming_requires_distinct_key_presses(self):
         ship = create_ship("Shofixti", 1)

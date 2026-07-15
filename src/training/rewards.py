@@ -520,7 +520,7 @@ def _calculate_immediate_reward_component_vector(
         elif event.event_type == EVENT_SHIP_DIED:
             if _same_entity(event.target, enemy_ship):
                 components[_REWARD_COMPONENT_INDEX[REWARD_KILL_ENEMY]] += (
-                    _kill_reward_credit(event)
+                    _enemy_death_reward_credit(event)
                 )
             elif _same_entity(event.target, self_ship):
                 components[_REWARD_COMPONENT_INDEX[REWARD_DIE]] += 1.0
@@ -735,18 +735,33 @@ def _source_reward_credit(event: TrainingBattleEvent) -> float:
         return _clamp01(_finite_float(metadata["source_credit"], default=1.0))
     source_name = _ability_name(event)
     if source_name == "DruugeA2":
-        return const.DRUUGE_A2_KILL_CREDIT
+        return const.DRUUGE_A2_CREW_LOSS_REWARD_FACTOR
+    if source_name == "ShofixtiA2":
+        return const.SHOFIXTI_A2_CREW_LOSS_REWARD_FACTOR
     role = getattr(getattr(event.obj, "collision_capabilities", None), "role", None)
     if getattr(role, "name", None) == "PLANET":
-        return const.PLANET_KILL_CREDIT
+        return const.PLANET_CREW_LOSS_REWARD_FACTOR
     return 1.0
 
 
-def _kill_reward_credit(event: TrainingBattleEvent) -> float:
+def _enemy_death_reward_credit(event: TrainingBattleEvent) -> float:
     metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
-    if "kill_credit" in metadata:
-        return _clamp01(_finite_float(metadata["kill_credit"], default=1.0))
-    return _source_reward_credit(event)
+    if "enemy_death_reward_credit" in metadata:
+        return _clamp01(
+            _finite_float(
+                metadata["enemy_death_reward_credit"],
+                default=1.0,
+            )
+        )
+    source_name = _ability_name(event)
+    if source_name == "DruugeA2":
+        return const.DRUUGE_A2_ENEMY_DEATH_REWARD_FACTOR
+    if source_name == "ShofixtiA2":
+        return const.SHOFIXTI_A2_ENEMY_DEATH_REWARD_FACTOR
+    role = getattr(getattr(event.obj, "collision_capabilities", None), "role", None)
+    if getattr(role, "name", None) == "PLANET":
+        return const.PLANET_ENEMY_DEATH_REWARD_FACTOR
+    return 1.0
 
 
 def _object_removed_by_owner_weapon(

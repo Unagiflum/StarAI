@@ -461,6 +461,8 @@ class SpaceShip(PlayerObject):
         min_hp = 1 if non_lethal else 0
         self.current_hp = max(min_hp, self.current_hp - damage)
         applied = previous_hp - self.current_hp
+        if applied > 0 and self.current_hp <= 0:
+            self.last_lethal_damage_source = source
         event_ledger.record_crew_changed(self, -applied, source=source)
         return applied
 
@@ -690,6 +692,8 @@ class SpaceShip(PlayerObject):
             return ActionResult.invalid()
         if plan.crew_change:
             self.current_hp += plan.crew_change
+            if plan.crew_change < 0 and self.current_hp <= 0:
+                self.last_lethal_damage_source = plan.crew_change_source
             if not self._crew_change_is_launched_unit_transfer(plan):
                 event_ledger.record_crew_changed(
                     self,

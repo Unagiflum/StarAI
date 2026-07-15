@@ -503,6 +503,7 @@ def run_training_round(
             win, loss, draw = _classify_round_outcome(
                 simulation, terminal_reason
             )
+            kills, deaths = _classify_kills_deaths(simulation)
             episode_results.append(
                 TrainingEpisodeResult(
                     opponent=opponent,
@@ -515,6 +516,8 @@ def run_training_round(
                     win=win,
                     loss=loss,
                     draw=draw,
+                    kills=kills,
+                    deaths=deaths,
                     component_totals=_average_components(
                         episode_component_sums, episode_mature_count
                     ),
@@ -556,6 +559,7 @@ def run_training_round(
         _accumulate_weighted_components(component_sums, mature_samples)
         _accumulate_weighted_components(episode_component_sums, mature_samples)
         win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
+        kills, deaths = _classify_kills_deaths(simulation)
         episode_results.append(
             TrainingEpisodeResult(
                 opponent=opponent,
@@ -568,6 +572,8 @@ def run_training_round(
                 win=win,
                 loss=loss,
                 draw=draw,
+                kills=kills,
+                deaths=deaths,
                 component_totals=_average_components(
                     episode_component_sums, episode_mature_count
                 ),
@@ -826,6 +832,16 @@ def _classify_round_outcome(simulation, terminal_reason: str) -> tuple[bool, boo
     if trainee_alive is False and opponent_alive:
         return False, True, False
     return False, False, True
+
+
+def _classify_kills_deaths(simulation) -> tuple[int, int]:
+    trainee_player = 1
+    credited_killers = set(getattr(simulation, "training_episode_kills", ()))
+    dead_players = set(getattr(simulation, "training_episode_deaths", ()))
+    return (
+        int(trainee_player in credited_killers),
+        int(trainee_player in dead_players),
+    )
 
 
 def _ship_alive(ship) -> bool:

@@ -19,6 +19,8 @@ class TrainingEpisodeResult:
     loss: bool
     draw: bool
     component_totals: Mapping[str, float] = field(default_factory=dict)
+    kills: int = 0
+    deaths: int = 0
 
 
 @dataclass(frozen=True)
@@ -32,4 +34,3 @@ class CoordinatedFixedFrameWindowResult:
     loss: bool
     draw: bool
     component_totals: Mapping[str, float] = field(default_factory=dict)
-

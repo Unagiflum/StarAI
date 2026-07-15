@@ -49,7 +49,7 @@ class BattleEventLedger:
         self.events: list[TrainingBattleEvent] = []
         self._removed_object_ids: set[int] = set()
         self._crew_loss_totals: dict[int, float] = {}
-        self._credited_crew_loss_totals: dict[int, float] = {}
+        self._enemy_death_credited_crew_loss_totals: dict[int, float] = {}
 
     def append(self, event_type: str, **fields) -> TrainingBattleEvent:
         event = TrainingBattleEvent(
@@ -139,7 +139,11 @@ class BattleEventLedger:
             metadata={"source_credit": source_credit},
         )
         if delta < 0:
-            self._record_crew_loss_credit(ship, -float(delta), source_credit)
+            self._record_enemy_death_reward_credit(
+                ship,
+                -float(delta),
+                _source_enemy_death_reward_factor(source),
+            )
         if delta < 0 and getattr(ship, "current_hp", 1) <= 0:
             self.append(
                 EVENT_SHIP_DIED,
@@ -149,11 +153,15 @@ class BattleEventLedger:
                 obj=source,
                 ability_name=_ability_name(source),
                 action=_action_for_object(source),
-                metadata={"kill_credit": self._kill_credit_for_ship(ship)},
+                metadata={
+                    "enemy_death_reward_credit": (
+                        self._enemy_death_reward_credit_for_ship(ship)
+                    )
+                },
             )
         return event
 
-    def _record_crew_loss_credit(
+    def _record_enemy_death_reward_credit(
         self,
         ship,
         crew_lost: float,
@@ -164,17 +172,20 @@ class BattleEventLedger:
         self._crew_loss_totals[ship_id] = (
             self._crew_loss_totals.get(ship_id, 0.0) + loss
         )
-        self._credited_crew_loss_totals[ship_id] = (
-            self._credited_crew_loss_totals.get(ship_id, 0.0)
+        self._enemy_death_credited_crew_loss_totals[ship_id] = (
+            self._enemy_death_credited_crew_loss_totals.get(ship_id, 0.0)
             + loss * source_credit
         )
 
-    def _kill_credit_for_ship(self, ship) -> float:
+    def _enemy_death_reward_credit_for_ship(self, ship) -> float:
         ship_id = id(ship)
         total_loss = self._crew_loss_totals.get(ship_id, 0.0)
         if total_loss <= 0.0:
             return 1.0
-        credited_loss = self._credited_crew_loss_totals.get(ship_id, 0.0)
+        credited_loss = self._enemy_death_credited_crew_loss_totals.get(
+            ship_id,
+            0.0,
+        )
         return _clamp01(credited_loss / total_loss)
 
     def record_battery_changed(self, ship, delta: float, *, actor=None, source=None):
@@ -333,6 +344,20 @@ def _root_owner(obj):
     return current
 
 
+def damage_source_owner(source):
+    """Return the player ship ultimately responsible for a damage source."""
+    if source is None:
+        return None
+    current = source
+    seen = set()
+    while getattr(current, "parent", None) is not None and id(current) not in seen:
+        seen.add(id(current))
+        current = current.parent
+    if getattr(current, "player", None) is None:
+        return None
+    return current
+
+
 def _ability_name(obj) -> str | None:
     if obj is None:
         return None
@@ -372,9 +397,26 @@ def _source_reward_credit(source) -> float:
         return 1.0
     role = getattr(getattr(source, "collision_capabilities", None), "role", None)
     if getattr(role, "name", None) == "PLANET":
-        return const.PLANET_KILL_CREDIT
-    if _ability_name(source) == "DruugeA2":
-        return const.DRUUGE_A2_KILL_CREDIT
+        return const.PLANET_CREW_LOSS_REWARD_FACTOR
+    source_name = _ability_name(source)
+    if source_name == "DruugeA2":
+        return const.DRUUGE_A2_CREW_LOSS_REWARD_FACTOR
+    if source_name == "ShofixtiA2":
+        return const.SHOFIXTI_A2_CREW_LOSS_REWARD_FACTOR
+    return 1.0
+
+
+def _source_enemy_death_reward_factor(source) -> float:
+    if source is None:
+        return 1.0
+    role = getattr(getattr(source, "collision_capabilities", None), "role", None)
+    if getattr(role, "name", None) == "PLANET":
+        return const.PLANET_ENEMY_DEATH_REWARD_FACTOR
+    source_name = _ability_name(source)
+    if source_name == "DruugeA2":
+        return const.DRUUGE_A2_ENEMY_DEATH_REWARD_FACTOR
+    if source_name == "ShofixtiA2":
+        return const.SHOFIXTI_A2_ENEMY_DEATH_REWARD_FACTOR
     return 1.0
 
 

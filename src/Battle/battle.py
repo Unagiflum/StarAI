@@ -33,6 +33,7 @@ from src.audio import (
 )
 from src.resources import use_asset_manager
 from src.frame_timing import PresentationClock
+from src.training.event_ledger import damage_source_owner
 from src.UI.match_dialog import confirm_end_match
 import src.const as const
 
@@ -221,6 +222,7 @@ class BattleSimulation:
         self.player2 = battle_state["player2"]
         self.player1_ships = player1_ships
         self.player2_ships = player2_ships
+        self.training_episode_kills: tuple[int, ...] = ()
         self.training_episode_deaths: tuple[int, ...] = ()
         self._training_pending_explosions = []
         if getattr(self, "training_mode", False):
@@ -284,6 +286,7 @@ class BattleSimulation:
             return self.state()
 
         self.frame_id += 1
+        self.training_episode_kills = ()
         self.training_episode_deaths = ()
         training_event_ledger = getattr(self, "training_event_ledger", None)
         if training_event_ledger is not None:
@@ -577,6 +580,14 @@ class BattleSimulation:
     def _respawn_training_ships(self, dead_ships):
         dead_ships = tuple(dead_ships)
         dead_players = tuple(sorted(ship.player for ship in dead_ships))
+        credited_killers = set()
+        for ship in dead_ships:
+            source_owner = damage_source_owner(
+                getattr(ship, "last_lethal_damage_source", None)
+            )
+            killer_player = getattr(source_owner, "player", None)
+            if killer_player is not None and killer_player != ship.player:
+                credited_killers.add(killer_player)
         living_ships = [
             ship
             for ship in (self.player1, self.player2)
@@ -641,6 +652,7 @@ class BattleSimulation:
             ship.on_round_started()
         battle_aftermath.restore_reborn_opponents(self.world, replacements)
         reset_key_states(self.key_states)
+        self.training_episode_kills = tuple(sorted(credited_killers))
         self.training_episode_deaths = dead_players
 
     @staticmethod
@@ -783,6 +795,7 @@ class BattleSimulation:
             "aftermath": self.aftermath,
             "entry": getattr(self, "entry", None),
             "winner": self.winner(),
+            "training_episode_kills": getattr(self, "training_episode_kills", ()),
             "training_episode_deaths": getattr(self, "training_episode_deaths", ()),
         }
 

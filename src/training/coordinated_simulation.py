@@ -357,6 +357,7 @@ def record_coordinated_terminal_episode(
     runtime: CoordinatedWindowRuntime, *, terminal_reason: str
 ) -> None:
     win, loss, draw = classify_round_outcome(runtime.simulation, terminal_reason)
+    kills, deaths = classify_kills_deaths(runtime.simulation)
     runtime.episode_results.append(
         TrainingEpisodeResult(
             opponent=runtime.opponent,
@@ -369,6 +370,8 @@ def record_coordinated_terminal_episode(
             win=win,
             loss=loss,
             draw=draw,
+            kills=kills,
+            deaths=deaths,
             component_totals=average_components(
                 runtime.episode_component_sums, runtime.episode_mature_count
             ),
@@ -448,6 +451,7 @@ def finish_coordinated_window(
         add_timing_seconds(timing_seconds, "reward_accumulate", accumulate_started_at)
         terminal_started_at = timing_started_at(timing_seconds)
         win, loss, draw = classify_round_outcome(runtime.simulation, "timeout")
+        kills, deaths = classify_kills_deaths(runtime.simulation)
         add_timing_seconds(timing_seconds, "reward_terminal", terminal_started_at)
         runtime.episode_results.append(
             TrainingEpisodeResult(
@@ -461,6 +465,8 @@ def finish_coordinated_window(
                 win=win,
                 loss=loss,
                 draw=draw,
+                kills=kills,
+                deaths=deaths,
                 component_totals=average_components(
                     runtime.episode_component_sums, runtime.episode_mature_count
                 ),
@@ -521,6 +527,16 @@ def classify_round_outcome(simulation, terminal_reason: str) -> tuple[bool, bool
     if trainee_alive is False and opponent_alive:
         return False, True, False
     return False, False, True
+
+
+def classify_kills_deaths(simulation) -> tuple[int, int]:
+    trainee_player = 1
+    credited_killers = set(getattr(simulation, "training_episode_kills", ()))
+    dead_players = set(getattr(simulation, "training_episode_deaths", ()))
+    return (
+        int(trainee_player in credited_killers),
+        int(trainee_player in dead_players),
+    )
 
 
 def accumulate_weighted_components(

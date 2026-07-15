@@ -1,6 +1,7 @@
 import os
 import random
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -66,6 +67,43 @@ class TrainingGameplayTests(unittest.TestCase):
         old_pkunk.attempt_rebirth.assert_not_called()
         self.assertIsNot(simulation.player1, old_pkunk)
         self.assertEqual(simulation.training_episode_deaths, (1,))
+
+    def test_training_kill_requires_trainee_owned_lethal_source(self):
+        simulation, _audio = self.create_simulation()
+        trainee = simulation.player1
+        old_opponent = simulation.player2
+        old_opponent.current_hp = 0
+        old_opponent.last_lethal_damage_source = SimpleNamespace(parent=trainee)
+
+        state = simulation.step(actions={1: {}, 2: {}})
+
+        self.assertEqual(state["training_episode_kills"], (1,))
+        self.assertEqual(state["training_episode_deaths"], (2,))
+
+    def test_opponent_self_destruct_does_not_credit_trainee_kill(self):
+        simulation, _audio = self.create_simulation(opponent="Shofixti")
+        old_opponent = simulation.player2
+        old_opponent.current_hp = 0
+        old_opponent.last_lethal_damage_source = SimpleNamespace(
+            name="ShofixtiA2",
+            parent=old_opponent,
+        )
+
+        state = simulation.step(actions={1: {}, 2: {}})
+
+        self.assertEqual(state["training_episode_kills"], ())
+        self.assertEqual(state["training_episode_deaths"], (2,))
+
+    def test_planet_death_counts_without_trainee_kill(self):
+        simulation, _audio = self.create_simulation()
+        old_trainee = simulation.player1
+        old_trainee.current_hp = 0
+        old_trainee.last_lethal_damage_source = SimpleNamespace(name="Planet")
+
+        state = simulation.step(actions={1: {}, 2: {}})
+
+        self.assertEqual(state["training_episode_kills"], ())
+        self.assertEqual(state["training_episode_deaths"], (1,))
 
     def test_training_chmmr_satellite_spawn_is_resolved_before_first_step(self):
         simulation, _audio = self.create_simulation(trainee="Chmmr", seed=11)

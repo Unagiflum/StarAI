@@ -533,6 +533,23 @@ class OrzAbilityTests(unittest.TestCase):
             ["OrzA3Launch.wav", "OrzA3Alarm.wav", "OrzA3Zap.wav"],
         )
 
+    def test_boarded_a3_is_recorded_as_the_lethal_source(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        enemy.current_hp = 2
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
+        marine.handle_ship_contact(enemy)
+        marine.rng = mock.Mock()
+        marine.rng.randrange.return_value = 16
+        marine.boarding_timer = 1
+
+        marine.update()
+
+        self.assertEqual(enemy.current_hp, 0)
+        self.assertIs(enemy.last_lethal_damage_source, marine)
+
     def test_shofixti_self_destruct_kills_boarded_marines(self):
         enemy = create_ship("Shofixti", 2)
         enemy.initialize_in_battle([700, 500], 0)

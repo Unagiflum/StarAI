@@ -64,6 +64,7 @@ class Shofixti(SpaceShip):
             2,
             explosion,
             crew_change=crew_change,
+            crew_change_source=explosion,
             side_effects=side_effects,
         )
 

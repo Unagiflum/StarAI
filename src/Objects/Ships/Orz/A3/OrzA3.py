@@ -216,7 +216,7 @@ class OrzA3(Ability):
             self._die()
             return False
         if roll < self.KILL_ROLL_LIMIT:
-            damage = ship.take_damage(1, shieldable=False)
+            damage = ship.take_damage(1, shieldable=False, source=self)
             if damage and self.zap_sound:
                 self.zap_sound.play()
             if ship.current_hp <= 0:
@@ -437,7 +437,7 @@ class OrzA3(Ability):
             self.shield_bounce_timer = self.SHIELD_BOUNCE_FRAMES
             return True
 
-        ship.take_damage(1, shieldable=False)
+        ship.take_damage(1, shieldable=False, source=self)
         if ship.current_hp <= 0:
             self._begin_return()
             return True
