@@ -1657,6 +1657,9 @@ class SliderRow:
     LABEL_SLIDER_VALUE = "label-slider-value"
     LABEL_VALUE_SLIDER = "label-value-slider"
     VALUE_COLOR = (255, 255, 0)
+    TEXT_PADDING = 8
+    LABEL_VALUE_GAP = 4
+    VALUE_HANDLE_GAP = 4
 
     def __init__(
         self,
@@ -1802,6 +1805,21 @@ class SliderRow:
             return f"{int(self.value)}{self.value_suffix}"
         return f"{self.value:.{self.decimal_places}f}{self.value_suffix}"
 
+    def _rendered_value(self, font):
+        rendered = font.render(self.format_value(), True, self.VALUE_COLOR)
+        if self.layout == self.LABEL_VALUE_SLIDER:
+            rect = rendered.get_rect(
+                midright=(
+                    self.line_rect.left - self.handle_radius - self.VALUE_HANDLE_GAP,
+                    self.rect.centery,
+                )
+            )
+        else:
+            rect = rendered.get_rect(
+                midright=(self.rect.right - self.TEXT_PADDING, self.rect.centery)
+            )
+        return rendered, rect
+
     def draw(self, surface, font, mouse_pos=None):
         if mouse_pos is None:
             mouse_pos = pygame.mouse.get_pos()
@@ -1814,32 +1832,43 @@ class SliderRow:
         surface.blit(row, self.rect)
 
         label_color = ui.WHITE if self.enabled else ui.GREY
-        value_color = self.VALUE_COLOR
         label_text = f"{self.label}: " if self.layout == self.LABEL_VALUE_SLIDER else self.label
         label = font.render(label_text, True, label_color)
-        label_rect = label.get_rect(midleft=(self.rect.left + 8, self.rect.centery))
-        old_clip = None
+        label_rect = label.get_rect(
+            midleft=(self.rect.left + self.TEXT_PADDING, self.rect.centery)
+        )
+        value, value_rect = self._rendered_value(font)
         if self.layout == self.LABEL_VALUE_SLIDER:
             old_clip = surface.get_clip()
-            text_clip = pygame.Rect(
-                self.rect.left + 8,
+            text_left = self.rect.left + self.TEXT_PADDING
+            text_right = self.line_rect.left - self.handle_radius - self.VALUE_HANDLE_GAP
+            label_right = min(
+                value_rect.left - self.LABEL_VALUE_GAP,
+                text_right,
+            )
+            label_clip = pygame.Rect(
+                text_left,
                 self.rect.top,
-                max(1, self.line_rect.left - self.rect.left - 16),
+                max(0, label_right - text_left),
                 self.rect.height,
             )
-            surface.set_clip(text_clip.clip(old_clip))
-        surface.blit(label, label_rect)
+            if label_clip.width:
+                surface.set_clip(label_clip.clip(old_clip))
+                surface.blit(label, label_rect)
 
-        value = font.render(self.format_value(), True, value_color)
-        if self.layout == self.LABEL_VALUE_SLIDER:
-            value_rect = value.get_rect(
-                midleft=(min(label_rect.right + 2, self.line_rect.left - 8), self.rect.centery)
+            value_clip = pygame.Rect(
+                text_left,
+                self.rect.top,
+                max(0, text_right - text_left),
+                self.rect.height,
             )
-        else:
-            value_rect = value.get_rect(midright=(self.rect.right - 8, self.rect.centery))
-        surface.blit(value, value_rect)
-        if old_clip is not None:
+            if value_clip.width:
+                surface.set_clip(value_clip.clip(old_clip))
+                surface.blit(value, value_rect)
             surface.set_clip(old_clip)
+        else:
+            surface.blit(label, label_rect)
+            surface.blit(value, value_rect)
 
         pygame.draw.rect(surface, ui.SLIDER_LINE, self.line_rect)
         pygame.draw.circle(
@@ -2997,6 +3026,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             step=0.025,
             values=EPSILON_VALUES,
             decimal_places=3,
+            value_suffix=f" ({state.current_epsilon:.3f})",
             layout=regimen_layout,
             slider_width=regimen_slider_width,
         ),
@@ -4125,8 +4155,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     def start_all_models():
         if instance_manager.coordinated_run_active():
-            instance_manager.request_stop_all_running()
-            show_notice("Stopping coordinated training")
+            def stop_coordinated_training():
+                instance_manager.request_stop_all_running()
+                show_notice("Stopping coordinated training")
+
+            confirmation_prompt[0] = ConfirmationPrompt(
+                "Do you want to stop all running training instances?",
+                stop_coordinated_training,
+            )
             return
         sync_state_from_ui()
         validation = validate_start_all()
@@ -4488,6 +4524,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if instance_manager.active_instance_id != previous_active_id:
             state = instance_manager.active_state
             apply_state_to_ui()
+        regimen_sliders[REGIMEN_STARTING_EPSILON_INDEX].value_suffix = (
+            f" ({state.current_epsilon:.3f})"
+        )
 
         active_instance = instance_manager.active_instance
         active_session = active_instance.session

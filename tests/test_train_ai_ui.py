@@ -1499,7 +1499,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             created.kwargs["coordinated_cpu_workers_enabled"]
         )
 
-    def test_coordinated_stop_disables_footer_and_shows_stopping(self):
+    def test_coordinated_stop_all_confirms_before_showing_stopping(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         manager = TrainingInstanceManager()
         first = manager.active_instance
@@ -1530,6 +1530,11 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         click_stop_all = pygame.event.Event(
             pygame.MOUSEBUTTONDOWN,
             {"button": 1, "pos": start_all_pos},
+        )
+        prompt = train_ai.ConfirmationPrompt("", lambda: None)
+        confirm_stop_all = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": prompt.yes_button.rect.center},
         )
         footer_states = []
 
@@ -1570,7 +1575,11 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
             mock.patch(
                 "pygame.event.get",
-                side_effect=[[click_start_all], [click_stop_all]],
+                side_effect=[
+                    [click_start_all],
+                    [click_stop_all],
+                    [confirm_stop_all],
+                ],
             ),
             mock.patch(
                 "src.Menus.train_ai.ui_button.Button.draw",
@@ -1578,7 +1587,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             ),
             mock.patch(
                 "pygame.display.flip",
-                side_effect=[None, self.StopRun()],
+                side_effect=[None, None, self.StopRun()],
             ),
         ):
             with self.assertRaises(self.StopRun):
@@ -1586,6 +1595,10 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states[:4],
+            [("Display", True), ("Start", False), ("Stop All", True), ("Back", False)],
+        )
+        self.assertEqual(
+            footer_states[4:8],
             [("Display", True), ("Start", False), ("Stop All", True), ("Back", False)],
         )
         self.assertEqual(
@@ -1979,6 +1992,58 @@ class SliderRowTests(unittest.TestCase):
         self.assertEqual(first.line_rect.x, second.line_rect.x)
         self.assertEqual(first.line_rect.width, second.line_rect.width)
         self.assertEqual(first.line_rect.right, second.line_rect.right)
+
+    def test_label_value_slider_right_justifies_values_before_handle(self):
+        font = pygame.font.Font(None, 20)
+        short = SliderRow(
+            (16, 20, 544, 34),
+            "Starting Epsilon",
+            0,
+            1,
+            0.5,
+            decimal_places=3,
+            layout=SliderRow.LABEL_VALUE_SLIDER,
+            slider_width=184,
+        )
+        long = SliderRow(
+            (16, 60, 544, 34),
+            "Starting Epsilon",
+            0,
+            1,
+            0.5,
+            decimal_places=3,
+            value_suffix=" (0.223)",
+            layout=SliderRow.LABEL_VALUE_SLIDER,
+            slider_width=184,
+        )
+
+        _, short_rect = short._rendered_value(font)
+        _, long_rect = long._rendered_value(font)
+        expected_right = (
+            short.line_rect.left
+            - short.handle_radius
+            - short.VALUE_HANDLE_GAP
+        )
+
+        self.assertEqual(short_rect.right, expected_right)
+        self.assertEqual(long_rect.right, expected_right)
+        self.assertLess(long_rect.right, long.line_rect.left - long.handle_radius)
+        self.assertLess(long_rect.left, short_rect.left)
+
+    def test_starting_epsilon_value_includes_current_epsilon(self):
+        slider = SliderRow(
+            (16, 20, 544, 34),
+            "Starting Epsilon",
+            0,
+            1,
+            0.5,
+            decimal_places=3,
+            value_suffix=" (0.223)",
+            layout=SliderRow.LABEL_VALUE_SLIDER,
+            slider_width=184,
+        )
+
+        self.assertEqual(slider.format_value(), "0.500 (0.223)")
 
     def test_short_count_formats_regimen_context_values(self):
         self.assertEqual(_format_short_count(30000), "30k")
