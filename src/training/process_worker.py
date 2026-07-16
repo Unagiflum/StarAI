@@ -10,6 +10,7 @@ from multiprocessing import shared_memory
 import os
 import sys
 import threading
+import time
 import traceback
 from types import SimpleNamespace
 from typing import Any
@@ -45,12 +46,14 @@ from src.training.rewards import MatureTrainingSample, REWARD_COMPONENTS
 from src.training.worker_protocol import (
     COMMAND_FINISH_WINDOW,
     COMMAND_REQUEST_OBSERVATION,
+    COMMAND_REQUEST_TIMING,
     COMMAND_SHUTDOWN,
     COMMAND_START_RUN,
     COMMAND_START_WINDOW,
     COMMAND_STEP_FRAME,
     REPLAY_TRANSFER_CHUNK_SIZE,
     RESULT_WORKER_STOPPED,
+    RESULT_WINDOW_FINISHED,
     DisplayBufferSpec,
     FinishWindowCommand,
     FrameSteppedResult,
@@ -65,12 +68,66 @@ from src.training.worker_protocol import (
     WorkerErrorResult,
     WorkerReadyResult,
     WorkerStoppedResult,
+    WorkerTimingResult,
+)
+from src.training.worker_transport import (
+    TransportTimingAccumulator,
+    receive_timed,
+    send_timed,
 )
 
 
 _BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
 _OPENBLAS_NUM_THREADS_ENV = "OPENBLAS_NUM_THREADS"
 _WORKER_PROCESS_START_LOCK = threading.Lock()
+
+
+def _new_worker_timing_seconds() -> dict[str, float]:
+    return {
+        "window_start": 0.0,
+        "worker_step": 0.0,
+        "worker_finish": 0.0,
+        "observation_encode": 0.0,
+        "audio": 0.0,
+        "display": 0.0,
+        "simulation": 0.0,
+        "simulation_ship_inputs": 0.0,
+        "simulation_tracking": 0.0,
+        "simulation_update_objects": 0.0,
+        "simulation_collision": 0.0,
+        "simulation_aftermath": 0.0,
+        "reward": 0.0,
+        "reward_decision": 0.0,
+        "reward_terminal": 0.0,
+        "reward_outcome": 0.0,
+        "reward_pipeline": 0.0,
+        "reward_replay_insert": 0.0,
+        "reward_accumulate": 0.0,
+        "reward_progress": 0.0,
+        "reward_flush": 0.0,
+        "collision_possible_physical_pairs": 0.0,
+        "collision_candidate_pairs": 0.0,
+        "collision_dispatched_pairs": 0.0,
+        "collision_possible_laser_targets": 0.0,
+        "collision_laser_candidates": 0.0,
+        "collision_possible_area_targets": 0.0,
+        "collision_area_candidates": 0.0,
+        "collision_area_full_scan_fallbacks": 0.0,
+        "collision_spatial_queries": 0.0,
+        "collision_spatial_returned_candidates": 0.0,
+    }
+
+
+def _add_worker_timing(
+    timing_seconds: dict[str, float] | None,
+    bucket: str,
+    started_at: float,
+) -> None:
+    if timing_seconds is not None:
+        timing_seconds[bucket] = timing_seconds.get(bucket, 0.0) + max(
+            0.0,
+            time.perf_counter() - float(started_at),
+        )
 
 
 def _set_worker_process_below_normal_priority() -> bool:
@@ -173,6 +230,8 @@ class CoordinatedSimulationWorker:
         self._runtime: CoordinatedWindowRuntime | None = None
         self._collector: _ReplaySampleCollector | None = None
         self._round_index: int | None = None
+        self._timing_enabled = False
+        self._window_timing_seconds: dict[str, float] | None = None
         self._last_sequence_number = 0
         self._trainee_observation: list[float] | None = None
         self._packed_trainee_observation: PackedObservation | None = None
@@ -204,6 +263,7 @@ class CoordinatedSimulationWorker:
         self.worker_id = int(command.worker_id)
         self.record_id = int(command.record_id)
         self._rng = random.Random(int(command.base_seed))
+        self._timing_enabled = bool(command.timing_enabled)
         const.VIDEO_FPS_MULTIPLIER = max(1, int(command.video_fps_multiplier))
         const.VIDEO_FPS = const.FPS * const.VIDEO_FPS_MULTIPLIER
         const._recompute_direction_constants()
@@ -217,6 +277,11 @@ class CoordinatedSimulationWorker:
         self,
         command: StartWindowCommand,
     ) -> WindowStartedResult:
+        timing_seconds = (
+            _new_worker_timing_seconds() if self._timing_enabled else None
+        )
+        self._window_timing_seconds = timing_seconds
+        window_started_at = time.perf_counter() if timing_seconds is not None else 0.0
         self._ensure_record(command.record_id)
         self._round_index = int(command.round_index)
         self._last_sequence_number = 0
@@ -262,10 +327,19 @@ class CoordinatedSimulationWorker:
             },
         )
         self._drain_audio_events(include=False)
+        observation_started_at = (
+            time.perf_counter() if timing_seconds is not None else 0.0
+        )
         self._cache_decision_state(self._runtime)
+        if timing_seconds is not None:
+            _add_worker_timing(
+                timing_seconds,
+                "observation_encode",
+                observation_started_at,
+            )
         if self._packed_trainee_observation is None:
             raise RuntimeError("worker did not produce an initial trainee observation")
-        return WindowStartedResult(
+        result = WindowStartedResult(
             record_id=int(command.record_id),
             round_index=int(command.round_index),
             frame_limit=self._runtime.frame_limit,
@@ -274,6 +348,9 @@ class CoordinatedSimulationWorker:
             simple_opponent_controls=self._simple_opponent_controls,
             torch_imported="torch" in sys.modules,
         )
+        if timing_seconds is not None:
+            _add_worker_timing(timing_seconds, "window_start", window_started_at)
+        return result
 
     def _handle_request_observation(
         self,
@@ -284,6 +361,8 @@ class CoordinatedSimulationWorker:
 
     def _handle_step_frame(self, command: StepFrameCommand) -> FrameSteppedResult:
         runtime = self._runtime_for(command.record_id, command.round_index)
+        timing_seconds = self._window_timing_seconds
+        step_started_at = time.perf_counter() if timing_seconds is not None else 0.0
         sequence_number = int(command.sequence_number)
         if sequence_number > 0:
             if sequence_number <= self._last_sequence_number:
@@ -316,10 +395,19 @@ class CoordinatedSimulationWorker:
             if command.include_progress:
                 progress_payloads.append(payload)
             if command.display_buffer is not None:
+                display_started_at = (
+                    time.perf_counter() if timing_seconds is not None else 0.0
+                )
                 display_frames_ready = self._capture_display_frames(
                     runtime,
                     command.display_buffer,
                 )
+                if timing_seconds is not None:
+                    _add_worker_timing(
+                        timing_seconds,
+                        "display",
+                        display_started_at,
+                    )
 
         progress_callback = (
             record_progress
@@ -337,6 +425,7 @@ class CoordinatedSimulationWorker:
             selection=selection,
             opponent_controls=dict(opponent_controls),
             progress_callback=progress_callback,
+            timing_seconds=timing_seconds,
             ship_factory=self._ship_factory,
         )
         terminal_episode = (
@@ -346,9 +435,21 @@ class CoordinatedSimulationWorker:
         )
         self._clear_decision_state()
         if not runtime.complete:
+            observation_started_at = (
+                time.perf_counter() if timing_seconds is not None else 0.0
+            )
             self._cache_decision_state(runtime)
+            if timing_seconds is not None:
+                _add_worker_timing(
+                    timing_seconds,
+                    "observation_encode",
+                    observation_started_at,
+                )
+        audio_started_at = time.perf_counter() if timing_seconds is not None else 0.0
         audio_events = self._drain_audio_events(include=bool(command.capture_audio))
-        return FrameSteppedResult(
+        if timing_seconds is not None:
+            _add_worker_timing(timing_seconds, "audio", audio_started_at)
+        result = FrameSteppedResult(
             record_id=int(command.record_id),
             round_index=int(command.round_index),
             frame_count=runtime.frames_consumed,
@@ -362,6 +463,9 @@ class CoordinatedSimulationWorker:
             display_frames_ready=display_frames_ready,
             torch_imported="torch" in sys.modules,
         )
+        if timing_seconds is not None:
+            _add_worker_timing(timing_seconds, "worker_step", step_started_at)
+        return result
 
     def _drain_audio_events(self, *, include: bool) -> tuple[tuple[Any, ...], ...]:
         operations = getattr(self._audio_service, "operations", None)
@@ -447,6 +551,7 @@ class CoordinatedSimulationWorker:
         self._collector = None
         self._round_index = None
         self._last_sequence_number = 0
+        self._window_timing_seconds = None
         self._clear_decision_state()
         self._detach_display_memory()
 
@@ -463,7 +568,12 @@ class CoordinatedSimulationWorker:
         collector = self._collector
         if collector is None:
             raise RuntimeError("worker replay collector is not initialized")
-        result = finish_coordinated_window(runtime)
+        timing_seconds = self._window_timing_seconds
+        finish_started_at = time.perf_counter() if timing_seconds is not None else 0.0
+        result = finish_coordinated_window(
+            runtime,
+            timing_seconds=timing_seconds,
+        )
         mature_sample_chunks = collector.drain_pending_chunks()
         self._runtime = None
         self._collector = None
@@ -471,11 +581,15 @@ class CoordinatedSimulationWorker:
         self._last_sequence_number = 0
         self._clear_decision_state()
         self._detach_display_memory()
+        if timing_seconds is not None:
+            _add_worker_timing(timing_seconds, "worker_finish", finish_started_at)
+        self._window_timing_seconds = None
         return WindowFinishedResult(
             record_id=int(command.record_id),
             round_index=int(command.round_index),
             result=result,
             mature_sample_chunks=mature_sample_chunks,
+            timing_seconds=(dict(timing_seconds) if timing_seconds is not None else None),
         )
 
     def _ensure_record(self, record_id: int) -> None:
@@ -565,13 +679,37 @@ def worker_process_main(connection) -> None:
 
     _set_worker_process_below_normal_priority()
     worker = CoordinatedSimulationWorker()
+    timing_enabled = False
+    transport_timing = TransportTimingAccumulator()
+    last_window_transport_metrics: Mapping[str, float | int] = {}
     try:
         while True:
             try:
-                command = connection.recv()
+                if timing_enabled:
+                    connection.poll(None)
+                    command, receive_measurement = receive_timed(connection)
+                else:
+                    command = connection.recv()
+                    receive_measurement = None
             except EOFError:
                 break
             command_name = getattr(command, "name", "")
+            if command_name == COMMAND_REQUEST_TIMING:
+                result = WorkerTimingResult(
+                    worker_id=worker.worker_id,
+                    record_id=worker.record_id,
+                    transport_metrics=dict(last_window_transport_metrics),
+                )
+                try:
+                    connection.send(result)
+                except (BrokenPipeError, EOFError):
+                    break
+                continue
+            if timing_enabled:
+                if command_name == COMMAND_START_WINDOW:
+                    transport_timing.reset()
+                if receive_measurement is not None:
+                    transport_timing.record_receive(receive_measurement)
             try:
                 result = worker.handle(command)
             except Exception as exc:
@@ -583,9 +721,17 @@ def worker_process_main(connection) -> None:
                     traceback_text=traceback.format_exc(),
                 )
             try:
-                connection.send(result)
+                if timing_enabled:
+                    send_measurement = send_timed(connection, result)
+                    transport_timing.record_send(send_measurement)
+                    if getattr(result, "name", "") == RESULT_WINDOW_FINISHED:
+                        last_window_transport_metrics = transport_timing.snapshot()
+                else:
+                    connection.send(result)
             except (BrokenPipeError, EOFError):
                 break
+            if command_name == COMMAND_START_RUN:
+                timing_enabled = bool(command.timing_enabled)
             if getattr(result, "name", "") == RESULT_WORKER_STOPPED:
                 break
     finally:

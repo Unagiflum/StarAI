@@ -1,6 +1,7 @@
 import csv
 import multiprocessing
 from multiprocessing import shared_memory
+from multiprocessing.reduction import ForkingPickler
 import pickle
 import random
 import tempfile
@@ -940,6 +941,24 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
         self.assertIsNone(without_progress.progress_payload)
         self.assertIsNotNone(with_progress.progress_payload)
 
+    def test_worker_omits_timing_payload_when_measurement_is_disabled(self):
+        worker = self._worker()
+        with mock.patch("src.training.process_worker._add_worker_timing") as add_timing:
+            self._start_window(
+                worker,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    match_time_limit=1,
+                    gamma=0.0,
+                ),
+            )
+
+            worker.handle(StepFrameCommand(9, 1, 0, False))
+            finished = worker.handle(FinishWindowCommand(9, 1))
+
+        self.assertIsNone(finished.timing_seconds)
+        add_timing.assert_not_called()
+
     def test_model_opponent_observations_are_encoded_once_per_decision_state(self):
         worker = self._worker()
         with mock.patch(
@@ -1505,6 +1524,13 @@ class CoordinatedTimingCsvTests(unittest.TestCase):
                     "ipc": 0.5,
                     "optimization": 6.0,
                     "save": 7.0,
+                    "batch_wall_seconds": 31.0,
+                    "coordinator_unattributed_seconds": 2.5,
+                    "worker_sum_simulation": 12.0,
+                    "worker_max_simulation": 7.0,
+                    "worker_wait_seconds": 8.0,
+                    "parent_sent_bytes": 1234,
+                    "worker_received_bytes": 1234,
                     "collision_candidate_pairs": 123,
                     "collision_spatial_queries": 45,
                 },
@@ -1530,12 +1556,22 @@ class CoordinatedTimingCsvTests(unittest.TestCase):
         self.assertEqual(row["Average Score"], "4.000000")
         self.assertEqual(row["Loss"], "0.125000")
         self.assertEqual(row["Average Loss"], "0.100000")
-        self.assertEqual(row["IPC Seconds"], "0.500000")
-        self.assertEqual(row["Timed Total Seconds"], "28.000000")
+        self.assertEqual(row["IPC Endpoint Seconds"], "0.500000")
+        self.assertEqual(
+            row["Coordinator Timed Phase Total Seconds"],
+            "28.000000",
+        )
         self.assertEqual(row["Simulation Collision Seconds"], "1.250000")
         self.assertEqual(row["Reward Pipeline Seconds"], "0.750000")
         self.assertEqual(row["Collision Candidate Pairs"], "123")
         self.assertEqual(row["Collision Spatial Queries"], "45")
+        self.assertEqual(row["Batch Wall Seconds"], "31.000000")
+        self.assertEqual(row["Coordinator Unattributed Seconds"], "2.500000")
+        self.assertEqual(row["Worker Sum Simulation Seconds"], "12.000000")
+        self.assertEqual(row["Worker Max Simulation Seconds"], "7.000000")
+        self.assertEqual(row["Worker Wait Seconds"], "8.000000")
+        self.assertEqual(row["Parent Sent Bytes"], "1234")
+        self.assertEqual(row["Worker Received Bytes"], "1234")
 
 
 class FakeWorkerClient:
@@ -1551,6 +1587,7 @@ class FakeWorkerClient:
         self.opponent = OpponentSpec("Earthling")
         self.sent_commands = []
         self.results = []
+        self.timing_pending = False
 
     def start(self, *, base_seed, stop_requested=None):
         self.started = True
@@ -1560,6 +1597,7 @@ class FakeWorkerClient:
         self.sent_commands.append(command)
         name = getattr(command, "name", "")
         if name == "START_WINDOW":
+            self.timing_pending = True
             self.frame = 0
             self.round_index = int(command.round_index)
             self.frame_limit = int(command.frame_limit)
@@ -1650,6 +1688,15 @@ class FakeWorkerClient:
                     record_id=self.record_id,
                     round_index=self.round_index,
                     result=result,
+                    timing_seconds=(
+                        {
+                            "worker_step": float(self.frame) * 0.01,
+                            "simulation": float(self.frame) * 0.006,
+                            "reward": float(self.frame) * 0.002,
+                        }
+                        if const.TRAINING_TIMING_ENABLED
+                        else None
+                    ),
                 )
             )
 
@@ -1659,21 +1706,115 @@ class FakeWorkerClient:
     def shutdown(self):
         self.shutdown_called = True
 
+    def request_worker_timing(self):
+        return {
+            "send_serialize_seconds": 0.001,
+            "send_transfer_seconds": 0.002,
+            "recv_transfer_seconds": 0.001,
+            "recv_deserialize_seconds": 0.001,
+            "sent_bytes": 200,
+            "received_bytes": 100,
+            "sent_messages": 3,
+            "received_messages": 3,
+        }
+
+    def drain_timing_metrics(self, worker_transport_metrics=None):
+        if not self.timing_pending:
+            return {}
+        self.timing_pending = False
+        metrics = {
+            "parent_send_serialize_seconds": 0.001,
+            "parent_send_transfer_seconds": 0.001,
+            "parent_recv_transfer_seconds": 0.001,
+            "parent_recv_deserialize_seconds": 0.001,
+            "parent_sent_bytes": 100,
+            "parent_received_bytes": 200,
+            "parent_sent_messages": 3,
+            "parent_received_messages": 3,
+            "worker_wait_seconds": 0.02,
+        }
+        for key, value in (worker_transport_metrics or {}).items():
+            metrics[f"worker_{key}"] = value
+        return metrics
+
 
 class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
-    def test_process_worker_client_measures_and_drains_ipc_time(self):
+    def test_process_worker_client_uses_original_transport_when_timing_is_off(self):
         connection = mock.Mock()
         connection.poll.return_value = True
-        connection.recv.return_value = SimpleNamespace(name="OK")
+        result = SimpleNamespace(name="OK")
+        connection.recv.return_value = result
         client = _ProcessWorkerClient(worker_id=1, record_id=7)
         client.connection = connection
 
+        command = SimpleNamespace(name="COMMAND")
+        with mock.patch("src.training.coordinated.time.perf_counter") as clock:
+            client.send(command)
+            self.assertIs(client.recv(), result)
+
+        connection.send.assert_called_once_with(command)
+        connection.recv.assert_called_once_with()
+        connection.send_bytes.assert_not_called()
+        connection.recv_bytes.assert_not_called()
+        clock.assert_not_called()
+        self.assertEqual(client.ipc_seconds, 0.0)
+
+    def test_process_worker_client_measures_and_drains_ipc_time(self):
+        connection = mock.Mock()
+        connection.poll.return_value = True
+        result = SimpleNamespace(name="OK")
+        connection.recv_bytes.return_value = ForkingPickler.dumps(result)
+        client = _ProcessWorkerClient(worker_id=1, record_id=7)
+        client.connection = connection
+        client._timing_enabled = True
+
         client.send(SimpleNamespace(name="COMMAND"))
-        self.assertEqual(client.recv(), connection.recv.return_value)
+        self.assertEqual(client.recv(), result)
         measured = client.drain_ipc_seconds()
 
         self.assertGreater(measured, 0.0)
         self.assertEqual(client.ipc_seconds, 0.0)
+
+    def test_process_worker_reports_opt_in_worker_and_transport_timings(self):
+        client = _ProcessWorkerClient(worker_id=1, record_id=7)
+        with mock.patch.object(const, "TRAINING_TIMING_ENABLED", True):
+            try:
+                client.start(base_seed=11)
+                client.send(
+                    StartWindowCommand(
+                        record_id=7,
+                        round_index=1,
+                        config=TrainingOrchestrationConfig(
+                            trainee_ship="Earthling",
+                            match_time_limit=1,
+                        ),
+                        opponent=OpponentSpec("Androsynth"),
+                        rng_seed=123,
+                    )
+                )
+                self.assertIsInstance(client.recv(), WindowStartedResult)
+                client.send(StepFrameCommand(7, 1, 0, False))
+                self.assertTrue(client.recv().complete)
+                client.send(FinishWindowCommand(7, 1))
+                finished = client.recv()
+                worker_transport = client.request_worker_timing()
+                transport = client.drain_timing_metrics(worker_transport)
+            finally:
+                client.shutdown()
+
+        self.assertIsNotNone(finished.timing_seconds)
+        self.assertGreater(finished.timing_seconds["worker_step"], 0.0)
+        self.assertGreater(finished.timing_seconds["simulation"], 0.0)
+        self.assertGreater(transport["parent_sent_bytes"], 0.0)
+        self.assertGreater(transport["parent_received_bytes"], 0.0)
+        self.assertEqual(
+            transport["parent_sent_bytes"],
+            transport["worker_received_bytes"],
+        )
+        self.assertEqual(
+            transport["parent_received_bytes"],
+            transport["worker_sent_bytes"],
+        )
 
     def test_process_worker_startup_wait_observes_stop_requests(self):
         process = mock.Mock()
@@ -1689,7 +1830,10 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
         with self.assertRaises(TrainingBatchAborted):
             client.start(base_seed=123, stop_requested=stop_requested)
 
-        client.recv.assert_called_once_with(stop_requested=stop_requested)
+        client.recv.assert_called_once_with(
+            stop_requested=stop_requested,
+            record_timing=False,
+        )
 
     def test_stop_during_worker_startup_aborts_without_fallback(self):
         clients = []
@@ -1889,6 +2033,74 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
 
         self.assertTrue(all(client.shutdown_called for client in clients))
 
+    def test_worker_backed_timing_merges_worker_and_transport_measurements(self):
+        clients = []
+
+        def worker_factory(**kwargs):
+            client = FakeWorkerClient(**kwargs)
+            clients.append(client)
+            return client
+
+        session = CoordinatedTrainingSession(
+            (
+                _record(
+                    1,
+                    "Earthling",
+                    batch_grouping=99,
+                    match_time_limit=2,
+                    epsilon=1.0,
+                    gamma=0.0,
+                ),
+                _record(
+                    2,
+                    "Androsynth",
+                    batch_grouping=99,
+                    match_time_limit=2,
+                    epsilon=1.0,
+                    gamma=0.0,
+                ),
+            ),
+            component_builder=lambda _record: CoordinatedRuntimeComponents(
+                model=object(),
+                optimizer=object(),
+                replay_buffer=TrainingReplayBuffer(16),
+            ),
+            coordinated_cpu_workers_enabled=True,
+            worker_client_factory=worker_factory,
+        )
+        for state in session._states.values():
+            state.components = CoordinatedRuntimeComponents(
+                model=object(),
+                optimizer=object(),
+                replay_buffer=TrainingReplayBuffer(16),
+            )
+
+        with (
+            mock.patch.object(const, "TRAINING_TIMING_ENABLED", True),
+            mock.patch(
+                "src.training.coordinated.simple_opponent_schedule",
+                return_value=(OpponentSpec("Earthling"),),
+            ),
+            mock.patch("src.training.coordinated.append_grouped_metrics_csv"),
+            mock.patch(
+                "src.training.coordinated.append_coordinated_batch_timing_csv"
+            ) as timing_csv,
+        ):
+            self.assertTrue(session._run_one_coordinated_batch())
+
+        timing = timing_csv.call_args.kwargs["timing_seconds"]
+        self.assertGreater(timing["batch_wall_seconds"], 0.0)
+        self.assertEqual(timing["worker_sum_worker_step"], 0.04)
+        self.assertEqual(timing["worker_sum_simulation"], 0.024)
+        self.assertEqual(timing["worker_sum_reward"], 0.008)
+        self.assertEqual(timing["parent_sent_bytes"], 200)
+        self.assertEqual(timing["worker_received_bytes"], 200)
+        self.assertEqual(timing["parent_received_bytes"], 400)
+        self.assertEqual(timing["worker_sent_bytes"], 400)
+        self.assertEqual(timing["worker_wait_seconds"], 0.04)
+
+        session._shutdown_persistent_cpu_workers()
+
     def test_worker_error_aborts_batch_and_shuts_down_workers(self):
         clients = []
 
@@ -1989,8 +2201,7 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
                 "src.training.coordinated.frame_outcome_from_battle_state",
                 side_effect=fake_frame_outcome,
             ),
-            mock.patch("src.training.coordinated.COORDINATED_TIMING_METRICS_ENABLED", True),
-            mock.patch("src.training.coordinated.TRAINING_CSV_OUTPUT_ENABLED", True),
+            mock.patch.object(const, "TRAINING_TIMING_ENABLED", True),
             mock.patch("src.training.coordinated.append_coordinated_batch_timing_csv") as timing_csv,
         ):
             self.assertTrue(session._run_one_coordinated_batch())

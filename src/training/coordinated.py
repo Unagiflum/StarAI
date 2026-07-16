@@ -99,7 +99,6 @@ from src.training.session import (
     MAX_BATCH_LOG_LINES,
     RECENT_BATCH_METRICS_KEY,
     TrainingSessionStatus,
-    TRAINING_CSV_OUTPUT_ENABLED,
     append_grouped_metrics_csv,
     batch_metrics_to_metadata,
     batch_metrics_history_from_metadata,
@@ -114,6 +113,11 @@ from src.training.value_network import (
     build_value_network,
     predict_action_values_read_only,
     train_selected_action_regression,
+)
+from src.training.worker_transport import (
+    TransportTimingAccumulator,
+    receive_timed,
+    send_timed,
 )
 
 
@@ -272,13 +276,78 @@ _TIMING_COUNTER_BUCKETS = (
     "collision_spatial_returned_candidates",
 )
 
+_WORKER_TIMING_BUCKETS = (
+    "window_start",
+    "worker_step",
+    "worker_finish",
+    "observation_encode",
+    "audio",
+    "display",
+    "simulation",
+    "simulation_ship_inputs",
+    "simulation_tracking",
+    "simulation_update_objects",
+    "simulation_collision",
+    "simulation_aftermath",
+    "reward",
+    "reward_decision",
+    "reward_terminal",
+    "reward_outcome",
+    "reward_pipeline",
+    "reward_replay_insert",
+    "reward_accumulate",
+    "reward_progress",
+    "reward_flush",
+)
+
+_WORKER_COUNTER_BUCKETS = _TIMING_COUNTER_BUCKETS
+_WORKER_MAX_TIMING_BUCKETS = (
+    "window_start",
+    "worker_step",
+    "worker_finish",
+    "observation_encode",
+    "audio",
+    "display",
+    "simulation",
+    "reward",
+)
+
+_TRANSPORT_TIMING_BUCKETS = (
+    "parent_send_serialize_seconds",
+    "parent_send_transfer_seconds",
+    "parent_recv_transfer_seconds",
+    "parent_recv_deserialize_seconds",
+    "parent_sent_bytes",
+    "parent_received_bytes",
+    "parent_sent_messages",
+    "parent_received_messages",
+    "worker_wait_seconds",
+    "worker_send_serialize_seconds",
+    "worker_send_transfer_seconds",
+    "worker_recv_transfer_seconds",
+    "worker_recv_deserialize_seconds",
+    "worker_sent_bytes",
+    "worker_received_bytes",
+    "worker_sent_messages",
+    "worker_received_messages",
+)
+
 _TIMING_BUCKETS = (
     *_TIMING_TOTAL_BUCKETS,
     *_TIMING_DETAIL_BUCKETS,
     *_TIMING_COUNTER_BUCKETS,
+    "batch_wall_seconds",
+    "coordinator_unattributed_seconds",
+    "worker_startup_seconds",
+    "worker_sum_active_seconds",
+    "worker_max_active_seconds",
+    "worker_sum_unattributed_seconds",
+    "worker_max_unattributed_seconds",
+    *tuple(f"worker_sum_{bucket}" for bucket in _WORKER_TIMING_BUCKETS),
+    *tuple(f"worker_sum_{bucket}" for bucket in _WORKER_COUNTER_BUCKETS),
+    *tuple(f"worker_max_{bucket}" for bucket in _WORKER_MAX_TIMING_BUCKETS),
+    *_TRANSPORT_TIMING_BUCKETS,
 )
-
-COORDINATED_TIMING_METRICS_ENABLED = False
 
 _COORDINATED_TIMING_CSV_HEADER = (
     "Batch",
@@ -322,10 +391,10 @@ _COORDINATED_TIMING_CSV_HEADER = (
     "Reward Accumulate Seconds",
     "Reward Progress Seconds",
     "Reward Flush Seconds",
-    "IPC Seconds",
+    "IPC Endpoint Seconds",
     "Optimization Seconds",
     "Save Seconds",
-    "Timed Total Seconds",
+    "Coordinator Timed Phase Total Seconds",
     "Collision Possible Physical Pairs",
     "Collision Candidate Pairs",
     "Collision Dispatched Pairs",
@@ -336,6 +405,64 @@ _COORDINATED_TIMING_CSV_HEADER = (
     "Collision Area Full Scan Fallbacks",
     "Collision Spatial Queries",
     "Collision Spatial Returned Candidates",
+)
+
+_ADDITIONAL_TIMING_CSV_FIELDS = (
+    ("Batch Wall Seconds", "batch_wall_seconds", False),
+    ("Worker Startup Seconds", "worker_startup_seconds", False),
+    (
+        "Coordinator Unattributed Seconds",
+        "coordinator_unattributed_seconds",
+        False,
+    ),
+    ("Worker Sum Active Seconds", "worker_sum_active_seconds", False),
+    ("Worker Max Active Seconds", "worker_max_active_seconds", False),
+    (
+        "Worker Sum Unattributed Seconds",
+        "worker_sum_unattributed_seconds",
+        False,
+    ),
+    (
+        "Worker Max Unattributed Seconds",
+        "worker_max_unattributed_seconds",
+        False,
+    ),
+    *tuple(
+        (
+            f"Worker Sum {bucket.replace('_', ' ').title()} Seconds",
+            f"worker_sum_{bucket}",
+            False,
+        )
+        for bucket in _WORKER_TIMING_BUCKETS
+    ),
+    *tuple(
+        (
+            f"Worker Sum {bucket.replace('_', ' ').title()}",
+            f"worker_sum_{bucket}",
+            True,
+        )
+        for bucket in _WORKER_COUNTER_BUCKETS
+    ),
+    *tuple(
+        (
+            f"Worker Max {bucket.replace('_', ' ').title()} Seconds",
+            f"worker_max_{bucket}",
+            False,
+        )
+        for bucket in _WORKER_MAX_TIMING_BUCKETS
+    ),
+    *tuple(
+        (
+            bucket.replace("_", " ").title(),
+            bucket,
+            bucket.endswith(("_bytes", "_messages")),
+        )
+        for bucket in _TRANSPORT_TIMING_BUCKETS
+    ),
+)
+
+_COORDINATED_TIMING_CSV_HEADER += tuple(
+    label for label, _bucket, _integer in _ADDITIONAL_TIMING_CSV_FIELDS
 )
 
 
@@ -390,6 +517,9 @@ class _ProcessWorkerClient:
         self.process = None
         self.connection = None
         self._ipc_seconds = 0.0
+        self._timing_enabled = False
+        self._transport_timing = TransportTimingAccumulator()
+        self._worker_wait_seconds = 0.0
 
     @property
     def ipc_seconds(self) -> float:
@@ -399,6 +529,23 @@ class _ProcessWorkerClient:
         elapsed = self._ipc_seconds
         self._ipc_seconds = 0.0
         return elapsed
+
+    def drain_timing_metrics(
+        self,
+        worker_transport_metrics: Mapping[str, float | int] | None = None,
+    ) -> dict[str, float]:
+        parent = self._transport_timing.snapshot()
+        metrics = {
+            f"parent_{key}": float(value)
+            for key, value in parent.items()
+        }
+        metrics["worker_wait_seconds"] = float(self._worker_wait_seconds)
+        for key, value in (worker_transport_metrics or {}).items():
+            metrics[f"worker_{key}"] = float(value)
+        self._transport_timing.reset()
+        self._worker_wait_seconds = 0.0
+        self._ipc_seconds = 0.0
+        return metrics
 
     def start(
         self,
@@ -416,37 +563,66 @@ class _ProcessWorkerClient:
                 record_id=self.record_id,
                 base_seed=int(base_seed),
                 video_fps_multiplier=const.VIDEO_FPS_MULTIPLIER,
-            )
+                timing_enabled=bool(const.TRAINING_TIMING_ENABLED),
+            ),
+            record_timing=False,
         )
-        result = self.recv(stop_requested=stop_requested)
+        result = self.recv(
+            stop_requested=stop_requested,
+            record_timing=False,
+        )
         _raise_for_worker_error(result)
         if getattr(result, "name", "") != "WORKER_READY":
             raise _WorkerRuntimeError(
                 f"worker {self.worker_id} returned {getattr(result, 'name', '')!r} "
                 "during startup"
             )
+        self._timing_enabled = bool(const.TRAINING_TIMING_ENABLED)
 
-    def send(self, command: Any) -> None:
+    def send(self, command: Any, *, record_timing: bool = True) -> None:
         if self.connection is None:
             raise _WorkerRuntimeError(f"worker {self.worker_id} is not started")
-        started_at = time.perf_counter()
+        if self._timing_enabled and record_timing:
+            if getattr(command, "name", "") == "START_WINDOW":
+                self._transport_timing.reset()
+                self._worker_wait_seconds = 0.0
+            measurement = send_timed(self.connection, command)
+            self._transport_timing.record_send(measurement)
+            self._ipc_seconds += (
+                measurement.serialization_seconds + measurement.transfer_seconds
+            )
+            return
         self.connection.send(command)
-        self._ipc_seconds += time.perf_counter() - started_at
 
     def recv(
         self,
         *,
         stop_requested: Callable[[], bool] | None = None,
         timeout: float | None = None,
+        record_timing: bool = True,
     ) -> Any:
         if self.connection is None:
             raise _WorkerRuntimeError(f"worker {self.worker_id} is not started")
-        started_at = time.perf_counter()
+        started_at = (
+            time.perf_counter()
+            if self._timing_enabled or timeout is not None
+            else 0.0
+        )
         while True:
             if self.connection.poll(0.05):
-                ipc_started_at = time.perf_counter()
-                result = self.connection.recv()
-                self._ipc_seconds += time.perf_counter() - ipc_started_at
+                if self._timing_enabled and record_timing:
+                    self._worker_wait_seconds += max(
+                        0.0,
+                        time.perf_counter() - started_at,
+                    )
+                    result, measurement = receive_timed(self.connection)
+                    self._transport_timing.record_receive(measurement)
+                    self._ipc_seconds += (
+                        measurement.transfer_seconds
+                        + measurement.serialization_seconds
+                    )
+                else:
+                    result = self.connection.recv()
                 _raise_for_worker_error(result)
                 return result
             if stop_requested is not None and stop_requested():
@@ -461,6 +637,23 @@ class _ProcessWorkerClient:
                 raise _WorkerRuntimeError(
                     f"worker {self.worker_id} did not respond within {timeout:.1f}s"
                 )
+
+    def request_worker_timing(self) -> Mapping[str, float | int]:
+        if not self._timing_enabled:
+            return {}
+        from src.training.worker_protocol import (
+            RequestTimingCommand,
+            WorkerTimingResult,
+        )
+
+        self.send(RequestTimingCommand(), record_timing=False)
+        result = self.recv(record_timing=False)
+        if not isinstance(result, WorkerTimingResult):
+            raise _WorkerRuntimeError(
+                f"worker {self.worker_id} returned "
+                f"{getattr(result, 'name', '')!r} for REQUEST_TIMING"
+            )
+        return result.transport_metrics
 
     def shutdown(self, *, timeout: float = 2.0) -> None:
         from src.training.process_worker import ShutdownCommand
@@ -947,6 +1140,7 @@ class CoordinatedTrainingSession:
 
     def _run_one_in_process_coordinated_batch(self) -> bool:
         timing_seconds = _new_timing_seconds()
+        measurement_started_at = _timing_started_at(timing_seconds)
         timing_frame_count = 0
         coordinated_frame_count = 0
         timing_completed_batch = False
@@ -1111,8 +1305,10 @@ class CoordinatedTrainingSession:
                 state.status.display_message = "Applying gradient descent"
                 state.status.battle_view = None
 
+        _synchronize_cuda_for_timing(timing_seconds)
         optimization_started_at = _timing_started_at(timing_seconds)
         optimization_losses = self._optimize_records()
+        _synchronize_cuda_for_timing(timing_seconds)
         _add_timing_seconds(
             timing_seconds,
             "optimization",
@@ -1142,6 +1338,19 @@ class CoordinatedTrainingSession:
         inference_mode_summary = _format_inference_mode_counts(
             batch_inference_mode_counts
         )
+        if timing_seconds is not None:
+            timing_seconds["batch_wall_seconds"] = max(
+                0.0,
+                time.perf_counter() - measurement_started_at,
+            )
+            accounted_coordinator = sum(
+                max(0.0, float(timing_seconds.get(bucket, 0.0)))
+                for bucket in _TIMING_TOTAL_BUCKETS
+            )
+            timing_seconds["coordinator_unattributed_seconds"] = max(
+                0.0,
+                timing_seconds["batch_wall_seconds"] - accounted_coordinator,
+            )
         for instance_id, state in self._states.items():
             if instance_id not in completed_batch_numbers:
                 continue
@@ -1174,6 +1383,8 @@ class CoordinatedTrainingSession:
         )
 
         timing_seconds = _new_timing_seconds()
+        measurement_started_at = _timing_started_at(timing_seconds)
+        worker_timings: dict[int, dict[str, float]] = {}
         timing_frame_count = 0
         coordinated_frame_count = 0
         batch_action_requests = 0
@@ -1191,8 +1402,14 @@ class CoordinatedTrainingSession:
         try:
             if not workers:
                 try:
+                    worker_startup_started_at = _timing_started_at(timing_seconds)
                     workers = self._start_cpu_workers()
                     self._cpu_workers = workers
+                    _add_timing_seconds(
+                        timing_seconds,
+                        "worker_startup_seconds",
+                        worker_startup_started_at,
+                    )
                 except TrainingBatchAborted:
                     raise
                 except Exception as exc:
@@ -1436,6 +1653,31 @@ class CoordinatedTrainingSession:
                     )
                 for window in active_windows:
                     finish_result = self._recv_worker_result(window.client)
+                    if timing_seconds is not None:
+                        record_id = window.state.record.instance_id
+                        worker_timing = worker_timings.setdefault(record_id, {})
+                        _accumulate_timing_mapping(
+                            worker_timing,
+                            finish_result.timing_seconds,
+                        )
+                        request_timing = getattr(
+                            window.client,
+                            "request_worker_timing",
+                            None,
+                        )
+                        worker_transport = (
+                            request_timing() if callable(request_timing) else {}
+                        )
+                        drain_timing = getattr(
+                            window.client,
+                            "drain_timing_metrics",
+                            None,
+                        )
+                        if callable(drain_timing):
+                            _accumulate_transport_timing(
+                                timing_seconds,
+                                drain_timing(worker_transport),
+                            )
                     components = window.state.components
                     if components is None:
                         raise RuntimeError("coordinated components were not loaded")
@@ -1463,13 +1705,14 @@ class CoordinatedTrainingSession:
             self._shutdown_persistent_cpu_workers()
             raise
         finally:
-            ipc_seconds = 0.0
-            for client in workers.values():
-                drain_ipc = getattr(client, "drain_ipc_seconds", None)
-                if callable(drain_ipc):
-                    ipc_seconds += max(0.0, float(drain_ipc()))
             if timing_seconds is not None:
-                timing_seconds["ipc"] = timing_seconds.get("ipc", 0.0) + ipc_seconds
+                for client in workers.values():
+                    drain_timing = getattr(client, "drain_timing_metrics", None)
+                    if callable(drain_timing):
+                        _accumulate_transport_timing(
+                            timing_seconds,
+                            drain_timing(),
+                        )
             self._release_display_buffer()
             with self._lock:
                 self._current_batch_started_at = None
@@ -1479,8 +1722,10 @@ class CoordinatedTrainingSession:
                 state.status.display_message = "Applying gradient descent"
                 state.status.battle_view = None
 
+        _synchronize_cuda_for_timing(timing_seconds)
         optimization_started_at = _timing_started_at(timing_seconds)
         optimization_losses = self._optimize_records()
+        _synchronize_cuda_for_timing(timing_seconds)
         _add_timing_seconds(
             timing_seconds,
             "optimization",
@@ -1510,6 +1755,33 @@ class CoordinatedTrainingSession:
         inference_mode_summary = _format_inference_mode_counts(
             batch_inference_mode_counts
         )
+        if timing_seconds is not None:
+            _merge_worker_timing_into_batch(timing_seconds, worker_timings)
+            timing_seconds["batch_wall_seconds"] = max(
+                0.0,
+                time.perf_counter() - measurement_started_at,
+            )
+            accounted_coordinator = sum(
+                max(0.0, float(timing_seconds.get(bucket, 0.0)))
+                for bucket in _TIMING_TOTAL_BUCKETS
+            ) + max(0.0, float(timing_seconds.get("worker_wait_seconds", 0.0)))
+            accounted_coordinator += sum(
+                max(0.0, float(timing_seconds.get(bucket, 0.0)))
+                for bucket in (
+                    "parent_send_serialize_seconds",
+                    "parent_send_transfer_seconds",
+                    "parent_recv_transfer_seconds",
+                    "parent_recv_deserialize_seconds",
+                )
+            )
+            accounted_coordinator += max(
+                0.0,
+                float(timing_seconds.get("worker_startup_seconds", 0.0)),
+            )
+            timing_seconds["coordinator_unattributed_seconds"] = max(
+                0.0,
+                timing_seconds["batch_wall_seconds"] - accounted_coordinator,
+            )
         for instance_id, state in self._states.items():
             if instance_id not in completed_batch_numbers:
                 continue
@@ -1757,7 +2029,7 @@ class CoordinatedTrainingSession:
             if len(state.history) > limit:
                 del state.history[: len(state.history) - limit]
         if (
-            TRAINING_CSV_OUTPUT_ENABLED
+            const.TRAINING_TIMING_ENABLED
             and batch_number % state.record.batch_grouping == 0
         ):
             append_grouped_metrics_csv(self._csv_path(state), metrics, rolling)
@@ -1941,7 +2213,7 @@ class CoordinatedTrainingSession:
         inference_mode: str,
         timing_seconds: Mapping[str, float],
     ) -> None:
-        if not TRAINING_CSV_OUTPUT_ENABLED:
+        if not const.TRAINING_TIMING_ENABLED:
             return
         with self._lock:
             metrics = state.history[-1] if state.history else None
@@ -2478,13 +2750,23 @@ def _add_timing_seconds(
 
 
 def _new_timing_seconds() -> dict[str, float] | None:
-    if not COORDINATED_TIMING_METRICS_ENABLED:
+    if not const.TRAINING_TIMING_ENABLED:
         return None
     return {bucket: 0.0 for bucket in _TIMING_BUCKETS}
 
 
 def _timing_started_at(timing_seconds: Mapping[str, float] | None) -> float:
     return time.perf_counter() if timing_seconds is not None else 0.0
+
+
+def _synchronize_cuda_for_timing(
+    timing_seconds: Mapping[str, float] | None,
+) -> None:
+    if timing_seconds is None:
+        return
+    torch = torch_backend.get_torch()
+    if torch is not None and torch.cuda.is_available():
+        torch.cuda.synchronize()
 
 
 def _format_inference_mode_counts(mode_counts: Mapping[str, int]) -> str:
@@ -2518,15 +2800,18 @@ def append_coordinated_batch_timing_csv(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_header = True
+    file_mode = "w"
     if path.exists() and path.stat().st_size > 0:
         with path.open(newline="", encoding="utf-8") as existing_file:
             existing_header = next(csv.reader(existing_file), ())
-        write_header = tuple(existing_header) != _COORDINATED_TIMING_CSV_HEADER
+        if tuple(existing_header) == _COORDINATED_TIMING_CSV_HEADER:
+            write_header = False
+            file_mode = "a"
     timing_total = sum(
         max(0.0, float(timing_seconds.get(bucket, 0.0)))
         for bucket in _TIMING_TOTAL_BUCKETS
     )
-    with path.open("a", newline="", encoding="utf-8") as file:
+    with path.open(file_mode, newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         if write_header:
             writer.writerow(_COORDINATED_TIMING_CSV_HEADER)
@@ -2587,6 +2872,12 @@ def append_coordinated_batch_timing_csv(
                 str(int(timing_seconds.get("collision_area_full_scan_fallbacks", 0))),
                 str(int(timing_seconds.get("collision_spatial_queries", 0))),
                 str(int(timing_seconds.get("collision_spatial_returned_candidates", 0))),
+            )
+            + tuple(
+                str(int(timing_seconds.get(bucket, 0)))
+                if integer
+                else f"{float(timing_seconds.get(bucket, 0.0)):.6f}"
+                for _label, bucket, integer in _ADDITIONAL_TIMING_CSV_FIELDS
             )
         )
 
@@ -2878,6 +3169,78 @@ def _retain_worker_decision_state(
         )
 
 
+def _accumulate_timing_mapping(
+    target: dict[str, float],
+    values: Mapping[str, float] | None,
+) -> None:
+    for key, value in (values or {}).items():
+        target[str(key)] = target.get(str(key), 0.0) + max(0.0, float(value))
+
+
+def _accumulate_transport_timing(
+    timing_seconds: dict[str, float] | None,
+    values: Mapping[str, float] | None,
+) -> None:
+    if timing_seconds is None:
+        return
+    for bucket in _TRANSPORT_TIMING_BUCKETS:
+        timing_seconds[bucket] = timing_seconds.get(bucket, 0.0) + max(
+            0.0,
+            float((values or {}).get(bucket, 0.0)),
+        )
+    endpoint_seconds = sum(
+        max(0.0, float((values or {}).get(bucket, 0.0)))
+        for bucket in _TRANSPORT_TIMING_BUCKETS
+        if bucket.endswith("_seconds") and bucket != "worker_wait_seconds"
+    )
+    timing_seconds["ipc"] = timing_seconds.get("ipc", 0.0) + endpoint_seconds
+
+
+def _merge_worker_timing_into_batch(
+    timing_seconds: dict[str, float] | None,
+    worker_timings: Mapping[int, Mapping[str, float]],
+) -> None:
+    if timing_seconds is None:
+        return
+    worker_active = []
+    worker_unattributed = []
+    for values in worker_timings.values():
+        active = sum(
+            max(0.0, float(values.get(bucket, 0.0)))
+            for bucket in ("window_start", "worker_step", "worker_finish")
+        )
+        attributed = sum(
+            max(0.0, float(values.get(bucket, 0.0)))
+            for bucket in (
+                "simulation",
+                "reward_decision",
+                "reward",
+                "observation_encode",
+                "audio",
+            )
+        )
+        worker_active.append(active)
+        worker_unattributed.append(max(0.0, active - attributed))
+    timing_seconds["worker_sum_active_seconds"] = sum(worker_active)
+    timing_seconds["worker_max_active_seconds"] = max(worker_active, default=0.0)
+    timing_seconds["worker_sum_unattributed_seconds"] = sum(worker_unattributed)
+    timing_seconds["worker_max_unattributed_seconds"] = max(
+        worker_unattributed,
+        default=0.0,
+    )
+    for bucket in (*_WORKER_TIMING_BUCKETS, *_WORKER_COUNTER_BUCKETS):
+        timing_seconds[f"worker_sum_{bucket}"] = sum(
+            max(0.0, float(values.get(bucket, 0.0)))
+            for values in worker_timings.values()
+        )
+    for bucket in _WORKER_MAX_TIMING_BUCKETS:
+        timing_seconds[f"worker_max_{bucket}"] = max(
+            (
+                max(0.0, float(values.get(bucket, 0.0)))
+                for values in worker_timings.values()
+            ),
+            default=0.0,
+        )
 def _clear_worker_decision_state(window: _WorkerWindowRuntime) -> None:
     window.trainee_observation = None
     window.opponent_observation = None

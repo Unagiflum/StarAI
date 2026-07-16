@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import src.const as const
@@ -18,6 +18,7 @@ COMMAND_START_WINDOW = "START_WINDOW"
 COMMAND_REQUEST_OBSERVATION = "REQUEST_OBSERVATION"
 COMMAND_STEP_FRAME = "STEP_FRAME"
 COMMAND_FINISH_WINDOW = "FINISH_WINDOW"
+COMMAND_REQUEST_TIMING = "REQUEST_TIMING"
 COMMAND_SHUTDOWN = "SHUTDOWN"
 
 RESULT_WORKER_READY = "WORKER_READY"
@@ -25,6 +26,7 @@ RESULT_WINDOW_STARTED = "WINDOW_STARTED"
 RESULT_WINDOW_OBSERVATION = "WINDOW_OBSERVATION"
 RESULT_FRAME_STEPPED = "FRAME_STEPPED"
 RESULT_WINDOW_FINISHED = "WINDOW_FINISHED"
+RESULT_WORKER_TIMING = "WORKER_TIMING"
 RESULT_WORKER_ERROR = "WORKER_ERROR"
 RESULT_WORKER_STOPPED = "WORKER_STOPPED"
 
@@ -37,6 +39,7 @@ class StartRunCommand:
     record_id: int
     base_seed: int
     video_fps_multiplier: int = const.VIDEO_FPS_MULTIPLIER
+    timing_enabled: bool = False
     name: str = COMMAND_START_RUN
 
 
@@ -92,6 +95,11 @@ class FinishWindowCommand:
 
 
 @dataclass(frozen=True)
+class RequestTimingCommand:
+    name: str = COMMAND_REQUEST_TIMING
+
+
+@dataclass(frozen=True)
 class ShutdownCommand:
     name: str = COMMAND_SHUTDOWN
 
@@ -136,7 +144,6 @@ class FrameSteppedResult:
     complete: bool
     progress_payload: Mapping[str, Any] | None = None
     mature_samples: tuple[ReplayTransferSample, ...] = ()
-    timing_seconds: Mapping[str, float] = field(default_factory=dict)
     terminal_episode: Any | None = None
     next_trainee_observation: PackedObservation | None = None
     next_opponent_observation: PackedObservation | None = None
@@ -154,8 +161,16 @@ class WindowFinishedResult:
     result: CoordinatedFixedFrameWindowResult
     mature_samples: tuple[ReplayTransferSample, ...] = ()
     mature_sample_chunks: tuple[tuple[ReplayTransferSample, ...], ...] = ()
-    timing_seconds: Mapping[str, float] = field(default_factory=dict)
+    timing_seconds: Mapping[str, float] | None = None
     name: str = RESULT_WINDOW_FINISHED
+
+
+@dataclass(frozen=True)
+class WorkerTimingResult:
+    worker_id: int | None
+    record_id: int | None
+    transport_metrics: Mapping[str, float | int]
+    name: str = RESULT_WORKER_TIMING
 
 
 @dataclass(frozen=True)
