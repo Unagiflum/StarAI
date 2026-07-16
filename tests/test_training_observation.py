@@ -78,7 +78,7 @@ def _obj(name, **overrides):
 
 
 class TrainingObservationTests(unittest.TestCase):
-    def test_encoder_produces_533_finite_values_with_zero_filled_objects(self):
+    def test_encoder_produces_finite_values_with_zero_filled_objects(self):
         trainee = _ship("Earthling")
         enemy = _ship("Mycon")
 
@@ -278,19 +278,37 @@ class TrainingObservationTests(unittest.TestCase):
             )
         )
 
-    def test_special_object_classification_excludes_satellite_and_keeps_laser(self):
-        trainee = _ship("Earthling", player=1, position=[100.0, 100.0])
+    def test_special_object_classification_tracks_satellites_and_laser(self):
+        trainee = _ship(
+            "Earthling",
+            player=1,
+            position=[100.0, 100.0],
+            velocity=[0.0, 0.0],
+        )
         enemy = _ship("Chmmr", player=2, position=[500.0, 500.0])
-        satellite = _obj(
+        enemy_satellite = _obj(
             "ChmmrSatellite",
             parent=enemy,
             player=2,
             type="special_object",
             position=[110.0, 100.0],
+            previous_position=[107.0, 96.0],
+            velocity=[99.0, 99.0],
+            current_hp=7,
+        )
+        friendly_satellite = _obj(
+            "ChmmrSatellite",
+            parent=trainee,
+            player=1,
+            type="special_object",
+            position=[100.0, 90.0],
+            previous_position=[103.0, 86.0],
+            velocity=[99.0, 99.0],
+            current_hp=4,
         )
         satellite_laser = _obj(
             "ChmmrSatelliteLaser",
-            parent=satellite,
+            parent=enemy_satellite,
             player=2,
             type="laser",
             position=[120.0, 100.0],
@@ -307,14 +325,81 @@ class TrainingObservationTests(unittest.TestCase):
         observation = encode_observation(
             trainee,
             enemy,
-            game_objects=[trainee, enemy, satellite, satellite_laser, syreen_crew],
+            game_objects=[
+                trainee,
+                enemy,
+                enemy_satellite,
+                friendly_satellite,
+                satellite_laser,
+                syreen_crew,
+            ],
         )
 
         self.assertEqual(observation[_object_field("enemy_non_a1", 0, "present")], 1.0)
-        self.assertEqual(observation[_object_field("enemy_non_a1", 0, "expected_crew_effect")], -0.2)
-        self.assertEqual(observation[_object_field("enemy_non_a1", 1, "present")], 0.0)
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_non_a1", 0, "relative_velocity_sine")],
+            0.6,
+        )
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_non_a1", 0, "relative_velocity_cosine")],
+            -0.8,
+        )
+        self.assertEqual(observation[_object_field("enemy_non_a1", 0, "relative_speed")], 0.05)
+        self.assertEqual(observation[_object_field("enemy_non_a1", 0, "current_hit_points")], 0.14)
+        self.assertEqual(observation[_object_field("enemy_non_a1", 1, "present")], 1.0)
+        self.assertEqual(observation[_object_field("enemy_non_a1", 1, "expected_crew_effect")], -0.2)
+        self.assertEqual(observation[_object_field("enemy_non_a1", 2, "present")], 0.0)
+        self.assertEqual(observation[_object_field("friendly_non_a1", 0, "present")], 1.0)
+        self.assertAlmostEqual(
+            observation[_object_field("friendly_non_a1", 0, "relative_velocity_sine")],
+            -0.6,
+        )
+        self.assertAlmostEqual(
+            observation[_object_field("friendly_non_a1", 0, "relative_velocity_cosine")],
+            -0.8,
+        )
+        self.assertEqual(observation[_object_field("friendly_non_a1", 0, "relative_speed")], 0.05)
+        self.assertEqual(observation[_object_field("friendly_non_a1", 0, "current_hit_points")], 0.08)
         self.assertEqual(observation[_object_field("syreen_crew", 0, "present")], 1.0)
         self.assertEqual(observation[_object_field("syreen_crew", 0, "expected_crew_effect")], 0.1)
+
+    def test_satellite_frame_velocity_uses_wrapped_displacement(self):
+        trainee = _ship(
+            "Earthling",
+            player=1,
+            position=[0.0, 100.0],
+            velocity=[0.0, 0.0],
+        )
+        enemy = _ship("Chmmr", player=2, position=[500.0, 500.0])
+        satellite = _obj(
+            "ChmmrSatellite",
+            parent=enemy,
+            player=2,
+            type="special_object",
+            position=[3.0, 100.0],
+            previous_position=[const.ARENA_SIZE - 2.0, 100.0],
+            velocity=[-99.0, 0.0],
+        )
+
+        observation = encode_observation(
+            trainee,
+            enemy,
+            game_objects=[trainee, enemy, satellite],
+        )
+
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_non_a1", 0, "relative_velocity_sine")],
+            1.0,
+        )
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_non_a1", 0, "relative_velocity_cosine")],
+            0.0,
+            places=12,
+        )
+        self.assertEqual(
+            observation[_object_field("enemy_non_a1", 0, "relative_speed")],
+            0.05,
+        )
 
     def test_ship_specific_live_counts_use_world_objects(self):
         trainee = _ship(

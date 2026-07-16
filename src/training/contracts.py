@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS
 
 
-OBSERVATION_SCHEMA_VERSION = 2
+OBSERVATION_SCHEMA_VERSION = 3
 OBSERVATION_INPUT_SIZE = 571
 
 ACTION_SCHEMA_VERSION = 1

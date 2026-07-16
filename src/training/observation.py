@@ -33,9 +33,6 @@ _CONTROL_REPEAT_FIELDS = (
     "action2",
 )
 
-_NON_POSITIONAL_ABILITY_NAMES = frozenset({"ChmmrSatellite"})
-
-
 def encode_observation(
     self_ship,
     enemy_ship,
@@ -43,7 +40,7 @@ def encode_observation(
     frame_id: int | None = None,
     game_objects=None,
 ) -> list[float]:
-    """Return the canonical 533-value observation for ``self_ship``.
+    """Return the canonical observation for ``self_ship``.
 
     The function only reads ship/object attributes and never calls gameplay
     methods that can update timers, RNG, physics, controls, or collisions.
@@ -224,9 +221,11 @@ def _encode_object_slot(self_ship, enemy_ship, obj) -> list[float]:
     relative_bearing = math.radians(
         (_vector_angle(dx, dy) - _rotation_degrees(self_ship)) % 360.0
     )
+    object_velocity = _observed_velocity(obj)
+    self_velocity = _vector(self_ship, "velocity")
     relative_velocity = (
-        _vector(obj, "velocity")[0] - _vector(self_ship, "velocity")[0],
-        _vector(obj, "velocity")[1] - _vector(self_ship, "velocity")[1],
+        object_velocity[0] - self_velocity[0],
+        object_velocity[1] - self_velocity[1],
     )
     relative_speed = math.hypot(relative_velocity[0], relative_velocity[1])
     if relative_speed > 0:
@@ -281,15 +280,37 @@ def _is_syreen_crew(obj) -> bool:
 
 
 def _is_positional_ability(obj) -> bool:
-    name = getattr(obj, "name", None)
-    if name in _NON_POSITIONAL_ABILITY_NAMES:
-        return False
     return getattr(obj, "parent", None) is not None or getattr(obj, "type", None) in {
         "projectile",
         "special_object",
         "laser",
         "area",
     }
+
+
+def _observed_velocity(obj) -> tuple[float, float]:
+    """Return frame displacement for satellites and runtime velocity otherwise."""
+    if getattr(obj, "name", None) != "ChmmrSatellite":
+        return _vector(obj, "velocity")
+
+    position = getattr(obj, "position", None)
+    previous_position = getattr(obj, "previous_position", None)
+    if not (
+        isinstance(position, Sequence)
+        and len(position) >= 2
+        and isinstance(previous_position, Sequence)
+        and len(previous_position) >= 2
+    ):
+        return 0.0, 0.0
+
+    displacement = wrapped_delta(
+        (_finite_float(previous_position[0]), _finite_float(previous_position[1])),
+        (_finite_float(position[0]), _finite_float(position[1])),
+    )
+    speed_scale = _finite_float(const.SPEED_SCALE)
+    if speed_scale == 0.0:
+        return 0.0, 0.0
+    return displacement[0] / speed_scale, displacement[1] / speed_scale
 
 
 def _is_a1_object(obj) -> bool:
