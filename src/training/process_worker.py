@@ -313,12 +313,19 @@ class CoordinatedSimulationWorker:
 
         def record_progress(payload):
             nonlocal display_frames_ready
-            progress_payloads.append(payload)
+            if command.include_progress:
+                progress_payloads.append(payload)
             if command.display_buffer is not None:
                 display_frames_ready = self._capture_display_frames(
                     runtime,
                     command.display_buffer,
                 )
+
+        progress_callback = (
+            record_progress
+            if command.include_progress or command.display_buffer is not None
+            else None
+        )
 
         advance_coordinated_window_frame(
             runtime,
@@ -329,7 +336,7 @@ class CoordinatedSimulationWorker:
             observation=observation,
             selection=selection,
             opponent_controls=dict(opponent_controls),
-            progress_callback=record_progress,
+            progress_callback=progress_callback,
             ship_factory=self._ship_factory,
         )
         terminal_episode = (
@@ -351,7 +358,6 @@ class CoordinatedSimulationWorker:
             terminal_episode=terminal_episode,
             next_trainee_observation=self._packed_trainee_observation,
             next_opponent_observation=self._packed_opponent_observation,
-            next_simple_opponent_controls=self._simple_opponent_controls,
             audio_events=audio_events,
             display_frames_ready=display_frames_ready,
             torch_imported="torch" in sys.modules,

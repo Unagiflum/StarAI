@@ -2703,7 +2703,7 @@ class RegimenSliderTests(unittest.TestCase):
         self.assertEqual(EPSILON_FRAME_SPAN_VALUES, tuple(range(1, 49)))
         self.assertEqual(
             GAMMA_VALUES,
-            tuple(round(0.950 + i * 0.001, 3) for i in range(51)),
+            tuple(round(0.950 + i * 0.001, 3) for i in range(50)),
         )
 
 

@@ -333,22 +333,23 @@ def advance_coordinated_window_frame(
     accumulate_weighted_components(runtime.component_sums, mature_samples)
     accumulate_weighted_components(runtime.episode_component_sums, mature_samples)
     add_timing_seconds(timing_seconds, "reward_accumulate", accumulate_started_at)
-    progress_started_at = timing_started_at(timing_seconds)
-    emit_window_progress(
-        progress_callback,
-        frame=runtime.frames_consumed,
-        opponent=runtime.opponent,
-        action_index=selection.action_index,
-        exploratory=selection.exploratory,
-        replay_size=len(components.replay_buffer),
-        weighted_total_return=average_value(
-            runtime.return_sum, runtime.total_mature_count
-        ),
-        component_totals=average_components(
-            runtime.component_sums, runtime.total_mature_count
-        ),
-    )
-    add_timing_seconds(timing_seconds, "reward_progress", progress_started_at)
+    if progress_callback is not None:
+        progress_started_at = timing_started_at(timing_seconds)
+        emit_window_progress(
+            progress_callback,
+            frame=runtime.frames_consumed,
+            opponent=runtime.opponent,
+            action_index=selection.action_index,
+            exploratory=selection.exploratory,
+            replay_size=len(components.replay_buffer),
+            weighted_total_return=average_value(
+                runtime.return_sum, runtime.total_mature_count
+            ),
+            component_totals=average_components(
+                runtime.component_sums, runtime.total_mature_count
+            ),
+        )
+        add_timing_seconds(timing_seconds, "reward_progress", progress_started_at)
     add_timing_seconds(timing_seconds, "reward", reward_started_at)
     raise_if_stop_requested(stop_requested)
     if terminal:

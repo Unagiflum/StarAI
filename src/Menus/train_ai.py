@@ -91,7 +91,7 @@ EPSILON_VALUES = tuple(round(i * 0.025, 3) for i in range(41))
 EPSILON_FLOOR_VALUES = tuple(round(i * 0.005, 3) for i in range(31))
 EPSILON_DECAY_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
 EPSILON_FRAME_SPAN_VALUES = tuple(range(1, 49))
-GAMMA_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
+GAMMA_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(50))
 HIDDEN_LAYER_SIZE_VALUES = (16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
 HIDDEN_LAYER_COUNT_VALUES = tuple(range(1, 9, 1))
 REGIMEN_REPLAY_BUFFER_INDEX = 0
@@ -2894,7 +2894,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Starting Epsilon: 1.000",
             "Epsilon decay: 1.000",
             "Epsilon frame span: 48",
-            "Gamma: 1.000",
+            "Gamma: 0.999",
             "Hidden layer size: 4096",
             "Hidden layer count: 8",
         ),

@@ -46,6 +46,7 @@ from src.training.process_worker import (
     _start_process_with_single_threaded_openblas,
     _set_worker_process_below_normal_priority,
     COMMAND_REQUEST_OBSERVATION,
+    COMMAND_STEP_FRAME,
     CoordinatedSimulationWorker,
     DisplayBufferSpec,
     FinishWindowCommand,
@@ -910,18 +911,34 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
             )
             # The compatibility/debug request returns the cache and does not encode.
             worker.handle(RequestObservationCommand(9, 1))
-            first = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
-            second = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
-            third = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+            first = worker.handle(StepFrameCommand(9, 1, 0, False))
+            second = worker.handle(StepFrameCommand(9, 1, 0, False))
+            third = worker.handle(StepFrameCommand(9, 1, 0, False))
 
         self.assertEqual(encode.call_count, 3)
         self.assertEqual(simple_controls.call_count, 3)
         self.assertFalse(first.complete)
         self.assertFalse(second.complete)
         self.assertTrue(third.complete)
+        self.assertIsNone(first.next_simple_opponent_controls)
+        self.assertIsNone(second.next_simple_opponent_controls)
         self.assertIsNone(third.next_trainee_observation)
         self.assertIsNone(third.next_opponent_observation)
         self.assertIsNone(third.next_simple_opponent_controls)
+
+    def test_step_frame_omits_unrequested_progress(self):
+        worker = self._worker()
+        self._start_window(worker)
+
+        without_progress = worker.handle(
+            StepFrameCommand(9, 1, 0, False, include_progress=False)
+        )
+        with_progress = worker.handle(
+            StepFrameCommand(9, 1, 0, False, include_progress=True)
+        )
+
+        self.assertIsNone(without_progress.progress_payload)
+        self.assertIsNotNone(with_progress.progress_payload)
 
     def test_model_opponent_observations_are_encoded_once_per_decision_state(self):
         worker = self._worker()
@@ -1584,23 +1601,22 @@ class FakeWorkerClient:
                     round_index=self.round_index,
                     frame_count=self.frame,
                     complete=self.frame >= self.frame_limit,
-                    progress_payload={
-                        "event": "frame",
-                        "frame": self.frame,
-                        "opponent": self.opponent,
-                        "action_index": int(command.trainee_action_index),
-                        "exploratory": bool(command.trainee_exploratory),
-                        "weighted_total_return": 1.0,
-                        "component_totals": {},
-                    },
+                    progress_payload=(
+                        {
+                            "event": "frame",
+                            "frame": self.frame,
+                            "opponent": self.opponent,
+                            "action_index": int(command.trainee_action_index),
+                            "exploratory": bool(command.trainee_exploratory),
+                            "weighted_total_return": 1.0,
+                            "component_totals": {},
+                        }
+                        if command.include_progress
+                        else None
+                    ),
                     mature_samples=(sample,),
                     next_trainee_observation=(
                         pack_observation((0.0,) * OBSERVATION_INPUT_SIZE)
-                        if self.frame < self.frame_limit
-                        else None
-                    ),
-                    next_simple_opponent_controls=(
-                        {"forward": False}
                         if self.frame < self.frame_limit
                         else None
                     ),
@@ -1854,6 +1870,19 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
                 for client in clients
                 for command in client.sent_commands
             )
+        )
+        step_commands = [
+            command
+            for client in clients
+            for command in client.sent_commands
+            if command.name == COMMAND_STEP_FRAME
+        ]
+        self.assertTrue(step_commands)
+        self.assertTrue(
+            all(command.opponent_controls is None for command in step_commands)
+        )
+        self.assertTrue(
+            all(not command.include_progress for command in step_commands)
         )
 
         session._shutdown_persistent_cpu_workers()

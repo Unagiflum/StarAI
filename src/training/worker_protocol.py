@@ -72,6 +72,7 @@ class StepFrameCommand:
     sequence_number: int = 0
     capture_audio: bool = False
     display_buffer: "DisplayBufferSpec | None" = None
+    include_progress: bool = True
     name: str = COMMAND_STEP_FRAME
 
 

@@ -358,9 +358,9 @@ class _WorkerWindowRuntime:
     policy: Any
     round_index: int
     complete: bool = False
+    frame_count: int = 0
     trainee_observation: Any | None = None
     opponent_observation: Any | None = None
-    simple_opponent_controls: Mapping[str, bool] | None = None
 
 
 class _WorkerRuntimeError(RuntimeError):
@@ -1269,7 +1269,6 @@ class CoordinatedTrainingSession:
                         window,
                         trainee_observation=start_result.trainee_observation,
                         opponent_observation=start_result.opponent_observation,
-                        simple_opponent_controls=start_result.simple_opponent_controls,
                     )
                     active_windows.append(window)
 
@@ -1336,23 +1335,29 @@ class CoordinatedTrainingSession:
                         opponent_started_at,
                     )
 
-                    for window, observation in frame_requests:
+                    for window, _observation in frame_requests:
                         record_id = window.state.record.instance_id
                         selection = action_result.selections[record_id]
                         direct_controls = opponent_controls.get(record_id)
-                        if direct_controls is None:
-                            direct_controls = observation.simple_opponent_controls
+                        display_enabled = self._display_enabled_for(record_id)
+                        include_progress = should_update_live_frame_status(
+                            window.frame_count + 1,
+                            display_on=display_enabled,
+                        )
                         window.client.send(
                             StepFrameCommand(
                                 record_id=record_id,
                                 round_index=window.round_index,
                                 trainee_action_index=selection.action_index,
                                 trainee_exploratory=selection.exploratory,
-                                opponent_controls=_worker_controls_mapping(
-                                    direct_controls,
+                                opponent_controls=(
+                                    _worker_controls_mapping(direct_controls)
+                                    if direct_controls is not None
+                                    else None
                                 ),
                                 sequence_number=timing_frame_count + 1,
-                                capture_audio=self._display_enabled_for(record_id),
+                                include_progress=include_progress,
+                                capture_audio=display_enabled,
                                 display_buffer=self._display_buffer_spec(
                                     record_id,
                                     DisplayBufferSpec,
@@ -1367,6 +1372,7 @@ class CoordinatedTrainingSession:
                             raise RuntimeError("coordinated components were not loaded")
                         components.replay_buffer.extend(frame_result.mature_samples)
                         timing_frame_count += 1
+                        window.frame_count = int(frame_result.frame_count)
                         window.complete = bool(frame_result.complete)
                         observed_at = _timing_started_at(timing_seconds)
                         if window.complete:
@@ -1391,9 +1397,6 @@ class CoordinatedTrainingSession:
                                 ),
                                 opponent_observation=(
                                     frame_result.next_opponent_observation
-                                ),
-                                simple_opponent_controls=(
-                                    frame_result.next_simple_opponent_controls
                                 ),
                             )
                         _add_timing_seconds(
@@ -2852,7 +2855,6 @@ def _retain_worker_decision_state(
     *,
     trainee_observation: Any,
     opponent_observation: Any | None,
-    simple_opponent_controls: Mapping[str, bool] | None,
 ) -> None:
     if trainee_observation is None:
         raise _WorkerRuntimeError(
@@ -2867,10 +2869,9 @@ def _retain_worker_decision_state(
         if opponent_observation is not None
         else None
     )
-    window.simple_opponent_controls = simple_opponent_controls
     if (
         window.opponent_observation is None
-        and window.simple_opponent_controls is None
+        and _worker_opponent_requires_parent_controls(window.opponent)
     ):
         raise _WorkerRuntimeError(
             f"worker {window.state.record.instance_id} omitted opponent decision state"
@@ -2880,7 +2881,10 @@ def _retain_worker_decision_state(
 def _clear_worker_decision_state(window: _WorkerWindowRuntime) -> None:
     window.trainee_observation = None
     window.opponent_observation = None
-    window.simple_opponent_controls = None
+
+
+def _worker_opponent_requires_parent_controls(opponent: OpponentSpec) -> bool:
+    return opponent.mode == OPPONENT_MODE_EXISTING_AI or opponent.slot is not None
 
 
 def _raise_for_worker_error(result: Any) -> None:
