@@ -37,7 +37,7 @@ REWARD_A2_RANGE = "In A2 range"
 REWARD_SPAWN_A2 = "Use A2"
 REWARD_DESTROY_OWN_OBJECT = "Destroy own object"
 REWARD_HIGH_SPEED = "Be at high speed"
-REWARD_ENEMY_LOSES_CREW = "Enemy loses crew"
+REWARD_ENEMY_LOSES_CREW = "Reduce enemy crew"
 REWARD_DEBUFF_ENEMY = "Debuff enemy"
 REWARD_KILL_ENEMY_OBJECT = "Kill enemy object"
 REWARD_KILL_ENEMY = "Kill enemy"
@@ -76,6 +76,7 @@ _REWARD_COMPONENT_INDEX = {
 _REWARD_COMPONENT_COUNT = len(REWARD_COMPONENTS)
 
 LEGACY_REWARD_ALIASES = {
+    REWARD_ENEMY_LOSES_CREW: "Enemy loses crew",
     REWARD_SPAWN_A1: "Spawn A1 object",
     REWARD_SPAWN_A2: "Spawn A2 object",
     REWARD_A1_RANGE: "Get in A1 weapon range",

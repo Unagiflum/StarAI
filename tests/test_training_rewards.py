@@ -121,15 +121,18 @@ class TrainingRewardComponentTests(unittest.TestCase):
         self.assertEqual(REWARD_SPAWN_A1, "Use A1")
         self.assertEqual(REWARD_SPAWN_A2, "Use A2")
         self.assertEqual(REWARD_DESTROY_OWN_OBJECT, "Destroy own object")
+        self.assertEqual(REWARD_ENEMY_LOSES_CREW, "Reduce enemy crew")
 
         weights = normalize_reward_weights(
             {
+                "Enemy loses crew": 2.5,
                 "Get in A1 weapon range": 1.5,
                 "Get in A2 weapon range": -2.0,
                 "Spawn A1 object": 3.0,
                 "Spawn A2 object": 4.0,
             }
         )
+        self.assertEqual(weights[REWARD_ENEMY_LOSES_CREW], 2.5)
         self.assertEqual(weights[REWARD_A1_RANGE], 1.5)
         self.assertEqual(weights[REWARD_A2_RANGE], -2.0)
         self.assertEqual(weights[REWARD_SPAWN_A1], 3.0)

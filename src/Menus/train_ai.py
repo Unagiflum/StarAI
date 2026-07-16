@@ -212,7 +212,7 @@ class TrainingUIState:
         default_factory=lambda: {
             label: {
                 "Kill enemy": 40.96,
-                "Enemy loses crew": 5.12,
+                "Reduce enemy crew": 5.12,
                 "Get debuffed": -1.28,
                 "Lose crew": -2.56,
                 "Die": -20.48,
