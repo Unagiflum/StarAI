@@ -113,7 +113,7 @@ START_ALL_GREEN = tuple(max(0, channel - 50) for channel in ui.OK_GREEN[:3]) + (
 )
 START_ALL_GREEN_HI = (*START_ALL_GREEN[:3], ui.OK_GREEN_HI[3])
 START_ALL_DISABLED_TOOLTIP = (
-    "Setup tab settings much match to start a coordinated run."
+    "Complete matching setups are required to start a coordinated run."
 )
 BATCH_CONTROLLED_FIELDS = (
     "match_time_limit",
@@ -283,6 +283,7 @@ class TrainingBatchSchedulingState:
 @dataclass(frozen=True)
 class CoordinatedBatchValidation:
     included_instances: tuple[TrainingInstance, ...] = ()
+    reset_required_instances: tuple[TrainingInstance, ...] = ()
     blocking_reason: str = ""
     blocking_code: str = ""
 
@@ -344,6 +345,23 @@ def architecture_for_slot_or_state(
     return architecture if isinstance(architecture, dict) else architecture_for_state(state)
 
 
+def model_checkpoint_reset_reasons(
+    slot: TrainingModelSlot,
+    architecture,
+) -> tuple[str, ...]:
+    """Return persisted-model incompatibilities recoverable by resetting it."""
+
+    if not slot.is_user:
+        return ()
+    metadata = slot.metadata if isinstance(slot.metadata, dict) else None
+    if not metadata:
+        return ("model metadata is missing",)
+    return validate_model_metadata(
+        metadata,
+        architecture=architecture,
+    ).errors
+
+
 def validate_coordinated_batch_start(
     manager,
     slot_resolver,
@@ -379,15 +397,10 @@ def validate_coordinated_batch_start(
                 blocking_reason=f"{slot.ship}-{slot.slot:02d} is read-only",
                 blocking_code="read_only_slot",
             )
-        if slot.source == SLOT_EMPTY and not state.slot_labels[state.selected_slot - 1].strip():
+        if not state.slot_labels[state.selected_slot - 1].strip():
             return CoordinatedBatchValidation(
-                blocking_reason="Every new AI slot needs a model description",
+                blocking_reason="Every open instance needs a model description",
                 blocking_code="description",
-            )
-        if slot.source == SLOT_USER and not isinstance(slot.metadata, dict):
-            return CoordinatedBatchValidation(
-                blocking_reason=f"{slot.ship}-{slot.slot:02d} is missing metadata",
-                blocking_code="metadata",
             )
         writer_key = (str(slot.ship), int(slot.slot))
         if writer_key in seen_writer_keys:
@@ -413,25 +426,12 @@ def validate_coordinated_batch_start(
         )
 
     signatures = []
+    reset_required_instances = []
     for instance, slot in resolved_slots:
         state = instance.state
         architecture = architecture_for_state(state)
-        metadata = slot.metadata if isinstance(slot.metadata, dict) else {}
-        saved_architecture = metadata.get("architecture") if metadata else None
-        if isinstance(saved_architecture, dict) and saved_architecture:
-            if normalize_architecture_metadata(saved_architecture) != normalize_architecture_metadata(
-                architecture
-            ):
-                return CoordinatedBatchValidation(
-                    blocking_reason="Model architecture differs from the selected settings",
-                    blocking_code="architecture",
-                )
-        report = validate_model_metadata(metadata)
-        if report.errors:
-            return CoordinatedBatchValidation(
-                blocking_reason=report.errors[0],
-                blocking_code="metadata",
-            )
+        if model_checkpoint_reset_reasons(slot, architecture):
+            reset_required_instances.append(instance)
         signatures.append(coordinated_architecture_signature(architecture))
     if len(set(signatures)) > 1:
         return CoordinatedBatchValidation(
@@ -469,7 +469,8 @@ def validate_coordinated_batch_start(
         )
 
     return CoordinatedBatchValidation(
-        included_instances=tuple(instance for instance, _slot in resolved_slots)
+        included_instances=tuple(instance for instance, _slot in resolved_slots),
+        reset_required_instances=tuple(reset_required_instances),
     )
 
 
@@ -523,8 +524,11 @@ class TrainingInstanceManager:
         self.active_instance.session = session
 
     def clear_active_session_continuity(self):
-        instance = self.active_instance
-        self.release_writer(instance)
+        self.clear_session_continuity(self.active_instance)
+
+    def clear_session_continuity(self, instance, *, release_writer=True):
+        if release_writer:
+            self.release_writer(instance)
         instance.session = None
         instance.last_running = False
 
@@ -657,10 +661,8 @@ class TrainingInstanceManager:
         ]
 
     def back_action(self):
-        if self.non_active_running_instances():
-            return "stop_all"
-        if self.is_running_or_stopping(self.active_instance):
-            return "active_running"
+        if self.any_instance_running():
+            return "blocked"
         return "exit"
 
     def background_instances_running(self):
@@ -1098,6 +1100,64 @@ def _instance_model_text(instance):
     if state.selected_ship is None or state.selected_slot is None:
         return "-------------"
     return f"{state.selected_ship}-{state.selected_slot:02d}"
+
+
+def _format_position_ranges(positions) -> str:
+    values = sorted(set(int(position) for position in positions))
+    if not values:
+        return ""
+    ranges = []
+    start = previous = values[0]
+    for value in values[1:]:
+        if value == previous + 1:
+            previous = value
+            continue
+        ranges.append((start, previous))
+        start = previous = value
+    ranges.append((start, previous))
+    return ", ".join(
+        f"{first:02d}" if first == last else f"{first:02d}-{last:02d}"
+        for first, last in ranges
+    )
+
+
+def coordinated_reset_confirmation_text(manager, affected_instances) -> str:
+    affected = tuple(affected_instances)
+    positions_by_id = {
+        instance.instance_id: position
+        for position, instance in enumerate(manager.instances, start=1)
+    }
+    positions = [positions_by_id[instance.instance_id] for instance in affected]
+    count = len(affected)
+    if count == 1:
+        instance = affected[0]
+        subject = (
+            f"{positions_by_id[instance.instance_id]:02d} "
+            f"({_instance_model_text(instance)})"
+        )
+        return (
+            f"The saved model for {subject} is incompatible with the current "
+            "observation encoding or architecture. Starting will reset its "
+            "checkpoint, replay data, and progress. Continue?"
+        )
+    if count == len(manager.instances):
+        subject = f"all {count} open instances"
+    elif count <= 4:
+        subject = ", ".join(
+            f"{positions_by_id[instance.instance_id]:02d} ({_instance_model_text(instance)})"
+            for instance in affected
+        )
+    else:
+        return (
+            f"The {count} saved models in instances {_format_position_ranges(positions)} "
+            "are incompatible with the current observation encoding or architecture. "
+            "Starting will reset their checkpoints, replay data, and progress. Continue?"
+        )
+    return (
+        f"Saved models for {subject} are incompatible with the current observation "
+        "encoding or architecture. Starting will reset their checkpoints, replay "
+        "data, and progress. Continue?"
+    )
 
 
 def _instance_row_parts(position, instance):
@@ -3241,7 +3301,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     display_checkbox = None  # Instantiated later with other action buttons
     exited = [False]
     application_close_requested = [False]
-    stopping_background_instances = [False]
+    stopping_all_instances = [False]
     last_starting_epsilon_slider_value = [state.starting_epsilon]
     batch_log_box = TrainingBatchLogBox()
 
@@ -3987,23 +4047,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         save_training_ui_session(instance_manager)
 
     def request_back():
-        def stop_all_running_instances():
-            instance_manager.request_stop_all_running()
-            stopping_background_instances[0] = True
-            display_checkbox.is_checked = False
-            show_notice("Stopping background instances")
-
         def leave_training_screen():
             save_current_session()
             exited[0] = True
 
         action = instance_manager.back_action()
-        if action == "stop_all":
-            confirmation_prompt[0] = ConfirmationPrompt(
-                "Do you want to stop all running training instances?",
-                stop_all_running_instances,
-            )
-        elif action == "exit":
+        if action == "exit":
             confirmation_prompt[0] = ConfirmationPrompt(
                 "Do you want to leave AI training?",
                 leave_training_screen,
@@ -4080,36 +4129,41 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             return
 
         model_slot = selected_model_slot()
-        if state.selected_ship is None or model_slot is None or model_slot.is_bundled:
+        if state.selected_ship is None or model_slot is None:
+            return
+        if model_slot.is_bundled:
+            show_notice("Default models are read-only; select a user slot")
             return
 
         new_architecture = architecture_metadata()
         new_training = training_metadata()
         current_description = slot_fields[state.selected_slot - 1].text.strip()
 
+        if not current_description:
+            show_notice("Enter a model description before starting training")
+            return
+
         if model_slot.source == SLOT_EMPTY:
-            if not current_description:
-                show_notice("Enter a model description before creating a new AI")
-                return
             persist_selected_model()
             refresh_slot_controls()
             begin_training()
             return
 
         metadata = model_slot.metadata if isinstance(model_slot.metadata, dict) else {}
-        old_architecture = metadata.get("architecture", {})
         old_training = metadata.get("training", {})
         old_description = metadata.get("description", model_slot.description)
 
-        if (
-            old_architecture
-            and normalize_architecture_metadata(old_architecture)
-            != normalize_architecture_metadata(new_architecture)
-        ):
+        reset_reasons = model_checkpoint_reset_reasons(
+            model_slot,
+            new_architecture,
+        )
+        if reset_reasons:
             confirmation_prompt[0] = ConfirmationPrompt(
                 (
-                    f"The hidden layer shape has changed. Starting will overwrite "
-                    f"{describe_model(model_slot)} and reset its saved checkpoint. Continue?"
+                    f"{describe_model(model_slot)} is incompatible with the current "
+                    f"observation encoding or architecture ({reset_reasons[0]}). "
+                    "Starting will reset its checkpoint, replay data, and progress. "
+                    "Continue?"
                 ),
                 lambda: (
                     persist_selected_model(reset_checkpoint=True),
@@ -4147,7 +4201,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             lambda ship, slot: model_repository.slot_for(ship, slot),
         )
 
-    def metadata_for_coordinated_instance(instance, model_slot):
+    def metadata_for_coordinated_instance(
+        instance,
+        model_slot,
+        *,
+        reset_checkpoint=False,
+    ):
         instance_state = instance.state
         existing_metadata = (
             model_slot.metadata if isinstance(model_slot.metadata, dict) else {}
@@ -4157,15 +4216,25 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slot=instance_state.selected_slot,
             description=instance_state.slot_labels[instance_state.selected_slot - 1].strip(),
             architecture=architecture_metadata_for(instance_state),
-            training=training_metadata_for(instance_state),
-            progress=_progress_for_model_update(existing_metadata),
+            training=training_metadata_for(
+                instance_state,
+                reset_checkpoint=reset_checkpoint,
+            ),
+            progress=_progress_for_model_update(
+                existing_metadata,
+                reset_checkpoint=reset_checkpoint,
+            ),
         )
 
-    def start_coordinated_run():
-        validation = validate_start_all()
+    def start_coordinated_run(validation=None):
+        validation = validation or validate_start_all()
         if not validation.can_start_all:
             show_notice(validation.blocking_reason)
             return
+        reset_instance_ids = {
+            instance.instance_id
+            for instance in validation.reset_required_instances
+        }
         instance_slots = [
             (
                 instance,
@@ -4182,8 +4251,24 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         records = []
         try:
             for instance, model_slot in instance_slots:
-                metadata = metadata_for_coordinated_instance(instance, model_slot)
+                reset_checkpoint = instance.instance_id in reset_instance_ids
+                metadata = metadata_for_coordinated_instance(
+                    instance,
+                    model_slot,
+                    reset_checkpoint=reset_checkpoint,
+                )
                 updated_slot = model_repository.create_or_update_user_model(metadata)
+                if reset_checkpoint:
+                    _clear_reset_model_artifacts(updated_slot)
+                    instance.state.current_epsilon = _epsilon_for_model_update(
+                        instance.state.starting_epsilon,
+                        instance.state.current_epsilon,
+                        reset_checkpoint=True,
+                    )
+                    instance_manager.clear_session_continuity(
+                        instance,
+                        release_writer=False,
+                    )
                 initial_history, initial_log_lines = session_continuity_for_instance(
                     instance,
                     updated_slot,
@@ -4223,14 +4308,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             show_notice(str(exc))
 
     def start_all_models():
-        if instance_manager.coordinated_run_active():
-            def stop_coordinated_training():
+        if instance_manager.any_instance_running():
+            def stop_all_training():
                 instance_manager.request_stop_all_running()
-                show_notice("Stopping coordinated training")
+                stopping_all_instances[0] = True
+                display_checkbox.is_checked = False
+                show_notice("Stopping all training instances")
 
             confirmation_prompt[0] = ConfirmationPrompt(
                 "Do you want to stop all running training instances?",
-                stop_coordinated_training,
+                stop_all_training,
             )
             return
         sync_state_from_ui()
@@ -4238,10 +4325,25 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if not validation.can_start_all:
             show_notice(validation.blocking_reason)
             return
-        start_coordinated_run()
+        if validation.reset_required_instances:
+            confirmation_prompt[0] = ConfirmationPrompt(
+                coordinated_reset_confirmation_text(
+                    instance_manager,
+                    validation.reset_required_instances,
+                ),
+                lambda: start_coordinated_run(validation),
+            )
+            return
+        start_coordinated_run(validation)
 
     action_gap = 10
     action_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 3 * action_gap) // 4
+    stopping_all_font = largest_fitting_font(
+        ("Stopping All",),
+        action_width - 12,
+        max_height=FOOTER_CONTROL_HEIGHT - 6,
+        maximum=32,
+    )
     display_checkbox = ui_button.Checkbox(
         TAB_MARGIN,
         ACTION_TOP,
@@ -4604,9 +4706,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         active_instance = instance_manager.active_instance
         active_session = active_instance.session
         session_status = active_session.status if active_session is not None else None
-        background_running = instance_manager.background_instances_running()
         active_running = instance_manager.is_running_or_stopping(active_instance)
         any_running = instance_manager.any_instance_running()
+        if stopping_all_instances[0] and not any_running:
+            stopping_all_instances[0] = False
         coordinated_active = instance_manager.coordinated_run_active()
         coordinated_stopping = coordinated_active and any(
             bool(getattr(instance_manager.status_for(instance), "stopping", False))
@@ -4618,16 +4721,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             instance_manager.batch_scheduling.apply_to_all_open_instances
         )
         apply_all_checkbox.enabled = not any_running
-        if coordinated_stopping:
-            batch_start_all_button.text = "Stopping"
+        if stopping_all_instances[0] or coordinated_stopping:
+            batch_start_all_button.text = "Stopping All"
             batch_start_all_button.enabled = False
-        elif coordinated_active:
+        elif any_running:
             batch_start_all_button.text = "Stop All"
             batch_start_all_button.enabled = True
         else:
             batch_start_all_button.text = "Start All"
             batch_start_all_button.enabled = batch_validation.can_start_all
-        if coordinated_active:
+        if any_running:
             batch_start_all_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
             batch_start_all_button.hover_color = ui.CAN_RED_HI
         else:
@@ -4643,36 +4746,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             device_selector.selected = state.training_device
         device_selector.enabled = not active_running and not coordinated_active
 
-        if stopping_background_instances[0]:
-            if background_running:
-                if notice[0] is None or notice[0].text == "Stopping background instances":
-                    show_notice("Stopping background instances")
-            elif not any_running:
-                stopping_background_instances[0] = False
-
         update_field_colors()
         selected_slot = selected_model_slot()
-        if coordinated_active:
-            back_button.text = "Back"
-            back_button.enabled = False
-        elif stopping_background_instances[0]:
-            back_button.text = "Stopping"
-            back_button.enabled = False
-        elif background_running:
-            back_button.text = "Stop All"
-            back_button.enabled = True
-        else:
-            back_button.text = "Back"
-            back_button.enabled = not active_running
-        if background_running and not coordinated_active:
-            back_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
-            back_button.hover_color = ui.CAN_RED_HI
-        else:
-            back_button.bg_color = ui.CAN_RED
-            back_button.hover_color = ui.CAN_RED_HI
-        close_instance_button.enabled = not coordinated_active and (
-            len(instance_manager.instances) > 1
-            or instance_manager.is_running_or_stopping(active_instance)
+        back_button.text = "Back"
+        back_button.enabled = not any_running
+        back_button.bg_color = ui.CAN_RED
+        back_button.hover_color = ui.CAN_RED_HI
+        close_instance_button.enabled = (
+            not coordinated_active
+            and not active_running
+            and len(instance_manager.instances) > 1
         )
         add_instance_button.enabled = (
             not coordinated_active and instance_manager.can_add_instance()
@@ -4680,16 +4763,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         start_stop_button.enabled = (
             not coordinated_active
             and not active_stopping
-            and
-            state.selected_ship is not None
-            and selected_slot is not None
-            and not selected_slot.is_bundled
             and (
                 (
                     session_status is not None
                     and (session_status.running or session_status.stopping)
                 )
-                or bool(slot_fields[state.selected_slot - 1].text.strip())
+                or (
+                    state.selected_ship is not None
+                    and selected_slot is not None
+                )
             )
         )
 
@@ -4733,9 +4815,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         display_checkbox.enabled = True
 
         if coordinated_active:
-            start_stop_button.text = "Start"
-            start_stop_button.bg_color = ui.OK_GREEN
-            start_stop_button.hover_color = ui.OK_GREEN_HI
+            start_stop_button.text = "Stop"
+            start_stop_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
+            start_stop_button.hover_color = ui.CAN_RED_HI
 
             display_checkbox.bg_color = ui.MENU_BUTTON_COLOR
             display_checkbox.hover_color = ui.MENU_BUTTON_COLOR_HI
@@ -5002,7 +5084,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         display_checkbox.draw(screen, body_font)
         start_stop_button.draw(screen, body_font)
-        batch_start_all_button.draw(screen, body_font)
+        batch_start_all_button.draw(
+            screen,
+            stopping_all_font
+            if batch_start_all_button.text == "Stopping All"
+            else body_font,
+        )
         back_button.draw(screen, body_font)
         if state.display_on and session_status is not None:
             _draw_training_huds(
@@ -5068,7 +5155,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             ui.draw_ship_tooltip(
                 screen,
                 small_font,
-                START_ALL_DISABLED_TOOLTIP,
+                batch_validation.blocking_reason or START_ALL_DISABLED_TOOLTIP,
                 pygame.mouse.get_pos(),
                 batch_start_all_button.rect,
             )

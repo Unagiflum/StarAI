@@ -560,17 +560,17 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(first.session.display_events, [True])
         self.assertEqual(second.session.display_events, [False])
 
-    def test_back_action_stops_all_when_non_active_instance_is_running(self):
+    def test_back_action_is_blocked_when_any_instance_is_running(self):
         manager = TrainingInstanceManager()
         manager.active_instance.session = self.FakeSession(running=True)
 
-        self.assertEqual(manager.back_action(), "active_running")
+        self.assertEqual(manager.back_action(), "blocked")
 
         second = manager.add_instance()
         second.session = self.FakeSession(running=True)
         manager.select_instance(manager.instances[0].instance_id)
 
-        self.assertEqual(manager.back_action(), "stop_all")
+        self.assertEqual(manager.back_action(), "blocked")
         self.assertTrue(manager.background_instances_running())
 
     def test_stop_all_running_requests_stop_without_touching_stopped_instances(self):
@@ -895,6 +895,103 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
         self.assertTrue(validation.can_start_all)
         self.assertEqual(validation.included_instances, (first, second))
+
+    def test_start_all_validation_requires_reset_instead_of_blocking_old_schema(self):
+        manager, first, second = self._coordinated_manager_with_two_user_slots()
+        first_metadata = metadata_from_state(
+            ship="Earthling",
+            slot=1,
+            description="one",
+            architecture=architecture_for_state(first.state),
+            training={},
+        )
+        first_metadata["observation_schema_version"] -= 1
+        second_metadata = metadata_from_state(
+            ship="Androsynth",
+            slot=1,
+            description="two",
+            architecture=architecture_for_state(second.state),
+            training={},
+        )
+        slots = {
+            ("Earthling", 1): TrainingModelSlot(
+                "Earthling", 1, SLOT_USER, "one", metadata=first_metadata
+            ),
+            ("Androsynth", 1): TrainingModelSlot(
+                "Androsynth", 1, SLOT_USER, "two", metadata=second_metadata
+            ),
+        }
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: slots[(ship, slot)],
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "gpu",
+        )
+
+        self.assertTrue(validation.can_start_all)
+        self.assertEqual(validation.reset_required_instances, (first,))
+
+    def test_start_all_validation_requires_reset_for_saved_architecture_mismatch(self):
+        manager, first, second = self._coordinated_manager_with_two_user_slots()
+        first_metadata = metadata_from_state(
+            ship="Earthling",
+            slot=1,
+            description="one",
+            architecture=model_architecture_metadata(
+                first.state.hidden_layer_size * 2,
+                first.state.hidden_layer_count,
+            ),
+            training={},
+        )
+        second_metadata = metadata_from_state(
+            ship="Androsynth",
+            slot=1,
+            description="two",
+            architecture=architecture_for_state(second.state),
+            training={},
+        )
+        slots = {
+            ("Earthling", 1): TrainingModelSlot(
+                "Earthling", 1, SLOT_USER, "one", metadata=first_metadata
+            ),
+            ("Androsynth", 1): TrainingModelSlot(
+                "Androsynth", 1, SLOT_USER, "two", metadata=second_metadata
+            ),
+        }
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: slots[(ship, slot)],
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "gpu",
+        )
+
+        self.assertTrue(validation.can_start_all)
+        self.assertEqual(validation.reset_required_instances, (first,))
+
+    def test_long_reset_confirmation_uses_compact_instance_positions(self):
+        manager = TrainingInstanceManager()
+        while len(manager.instances) < 25:
+            manager.add_instance()
+        for instance in manager.instances:
+            instance.state.selected_ship = "Earthling"
+            instance.state.selected_slot = 1
+
+        text = train_ai.coordinated_reset_confirmation_text(
+            manager,
+            manager.instances[:6],
+        )
+        all_text = train_ai.coordinated_reset_confirmation_text(
+            manager,
+            manager.instances,
+        )
+
+        self.assertIn("6 saved models in instances 01-06", text)
+        self.assertNotIn("Earthling-01", text)
+        self.assertIn("all 25 open instances", all_text)
 
     def test_start_all_validation_blocks_running_instances_and_retains_preference(self):
         manager, _first, _second = self._coordinated_manager_with_two_user_slots()
@@ -1311,10 +1408,13 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             {"button": 1, "pos": start_pos},
         )
         footer_states = []
+        close_states = []
 
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
+            elif button.text == "Close":
+                close_states.append((button.text, button.enabled))
 
         sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
 
@@ -1372,8 +1472,179 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertIs(cache._save_coordinator, coordinator)
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Stop", True), ("Start All", False), ("Back", False)],
+            [("Display", True), ("Stop", True), ("Stop All", True), ("Back", False)],
         )
+        self.assertEqual(close_states, [("Close", False)])
+
+    def test_idle_start_is_enabled_for_selected_empty_slot_without_description(self):
+        class EmptyRepository:
+            def __init__(self, *_args):
+                self.user_dir = Path("unused")
+
+            def slot_for(self, ship, slot):
+                return TrainingModelSlot(str(ship), int(slot), SLOT_EMPTY)
+
+            def slots_for_ship(self, ship):
+                return [self.slot_for(ship, slot) for slot in range(1, 5)]
+
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        manager.active_state.selected_ship = "Earthling"
+        manager.active_state.selected_slot = 1
+        footer_states = []
+
+        def capture_footer(button, *_args, **_kwargs):
+            if button.rect.y == train_ai.ACTION_TOP:
+                footer_states.append((button.text, button.enabled))
+
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+        with (
+            mock.patch(
+                "src.Menus.train_ai.TrainingInstanceManager",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                EmptyRepository,
+            ),
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[]),
+            mock.patch(
+                "src.Menus.train_ai.ui_button.Button.draw",
+                new=capture_footer,
+            ),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+        self.assertEqual(
+            footer_states,
+            [("Display", True), ("Start", True), ("Start All", False), ("Back", True)],
+        )
+
+    def test_individual_start_confirms_and_resets_incompatible_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+            pth_path = Path(directory) / "Earthling-01.pth"
+            pth_path.write_bytes(b"old checkpoint")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Ready",
+                architecture=model_architecture_metadata(256, 2),
+                training={},
+                progress={"completed_batches": 42},
+            )
+            current_schema_version = metadata["observation_schema_version"]
+            metadata["observation_schema_version"] -= 1
+
+            class ResettableRepository:
+                def __init__(self):
+                    self.user_dir = Path(directory)
+                    self.slot = TrainingModelSlot(
+                        "Earthling",
+                        1,
+                        SLOT_USER,
+                        description="Ready",
+                        pth_path=pth_path,
+                        metadata=metadata,
+                    )
+
+                def slot_for(self, ship, slot):
+                    if ship == "Earthling" and int(slot) == 1:
+                        return self.slot
+                    return TrainingModelSlot(str(ship), int(slot), SLOT_EMPTY)
+
+                def slots_for_ship(self, ship):
+                    return [self.slot_for(ship, slot) for slot in range(1, 5)]
+
+                def create_or_update_user_model(self, updated_metadata):
+                    self.slot = TrainingModelSlot(
+                        "Earthling",
+                        1,
+                        SLOT_USER,
+                        description=updated_metadata.get("description", ""),
+                        pth_path=pth_path,
+                        metadata=dict(updated_metadata),
+                    )
+                    return self.slot
+
+            repository = ResettableRepository()
+            manager = TrainingInstanceManager()
+            manager.active_state.selected_ship = "Earthling"
+            manager.active_state.selected_slot = 1
+            self.FakeSession.created = []
+            action_gap = 10
+            action_width = (
+                train_ai.CONTROL_WIDTH - 2 * train_ai.TAB_MARGIN - 3 * action_gap
+            ) // 4
+            start_event = pygame.event.Event(
+                pygame.MOUSEBUTTONDOWN,
+                {
+                    "button": 1,
+                    "pos": (
+                        train_ai.TAB_MARGIN + action_width + action_gap + 1,
+                        ACTION_TOP + 1,
+                    ),
+                },
+            )
+            sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+
+            with (
+                mock.patch(
+                    "src.Menus.train_ai.TrainingInstanceManager",
+                    return_value=manager,
+                ),
+                mock.patch(
+                    "src.Menus.train_ai.load_training_ui_session",
+                    return_value=manager,
+                ),
+                mock.patch(
+                    "src.Menus.train_ai.TrainingModelRepository",
+                    return_value=repository,
+                ),
+                mock.patch("src.Menus.train_ai.TrainingSession", self.FakeSession),
+                mock.patch("src.Menus.train_ai.ConfirmationPrompt") as prompt_class,
+                mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+                mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+                mock.patch(
+                    "src.Menus.train_ai.fit_ship_sprites",
+                    return_value={"Earthling": sprite},
+                ),
+                mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+                mock.patch("pygame.event.get", return_value=[start_event]),
+                mock.patch("pygame.display.flip", side_effect=self.StopRun),
+            ):
+                with self.assertRaises(self.StopRun):
+                    train_ai.run(screen)
+
+                prompt_text, on_confirm = prompt_class.call_args.args
+                self.assertIn("incompatible", prompt_text)
+                self.assertEqual(self.FakeSession.created, [])
+                on_confirm()
+
+            self.assertEqual(pth_path.read_bytes(), b"")
+            self.assertEqual(
+                repository.slot.metadata["observation_schema_version"],
+                current_schema_version,
+            )
+            self.assertEqual(
+                repository.slot.metadata["progress"]["completed_batches"],
+                0,
+            )
+            self.assertEqual(len(self.FakeSession.created), 1)
+            self.assertTrue(self.FakeSession.created[0].started)
 
     def test_apply_all_loads_eligible_instances_and_warns_for_empty_ship(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
@@ -1520,6 +1791,108 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 record.metadata["training"],
             )
 
+    def test_start_all_confirms_and_resets_only_incompatible_checkpoints(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.selected_ship = "Earthling"
+        first.state.selected_slot = 1
+        first.state.slot_labels[0] = "Earthling Ready"
+        first.state.training_device = torch_backend.DEVICE_GPU
+        second = manager.add_instance()
+        second.state.selected_ship = "Androsynth"
+        second.state.selected_slot = 1
+        second.state.slot_labels[0] = "Androsynth Ready"
+        second.state.training_device = torch_backend.DEVICE_GPU
+        manager.select_instance(first.instance_id)
+
+        repository = self.FakeCoordinatedRepository()
+        for key, slot in tuple(repository.slots.items()):
+            metadata = dict(slot.metadata)
+            metadata["progress"] = {"completed_batches": 42}
+            if key == ("Earthling", 1):
+                metadata["observation_schema_version"] -= 1
+            repository.slots[key] = TrainingModelSlot(
+                slot.ship,
+                slot.slot,
+                SLOT_USER,
+                description=slot.description,
+                metadata=metadata,
+            )
+
+        action_gap = 10
+        action_width = (
+            train_ai.CONTROL_WIDTH - 2 * train_ai.TAB_MARGIN - 3 * action_gap
+        ) // 4
+        start_all_event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {
+                "button": 1,
+                "pos": (
+                    train_ai.TAB_MARGIN
+                    + 2 * (action_width + action_gap)
+                    + action_width // 2,
+                    train_ai.ACTION_TOP + train_ai.FOOTER_CONTROL_HEIGHT // 2,
+                ),
+            },
+        )
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+        self.FakeCoordinatedSession.created = []
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.TrainingInstanceManager",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                return_value=repository,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.CoordinatedTrainingSession",
+                self.FakeCoordinatedSession,
+            ),
+            mock.patch("src.Menus.train_ai.ConfirmationPrompt") as prompt_class,
+            mock.patch("src.Menus.train_ai.torch_backend.get_torch", return_value=object()),
+            mock.patch("src.Menus.train_ai.torch_backend.cuda_available", return_value=True),
+            mock.patch(
+                "src.Menus.train_ai.torch_backend.training_device_key",
+                return_value=torch_backend.DEVICE_GPU,
+            ),
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite, "Androsynth": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[start_all_event]),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+            prompt_text, on_confirm = prompt_class.call_args.args
+            self.assertIn("01 (Earthling-01)", prompt_text)
+            self.assertEqual(self.FakeCoordinatedSession.created, [])
+            on_confirm()
+
+        self.assertEqual(len(self.FakeCoordinatedSession.created), 1)
+        created = self.FakeCoordinatedSession.created[0]
+        records = {record.slot.ship: record for record in created.records}
+        self.assertEqual(
+            records["Earthling"].metadata["progress"]["completed_batches"],
+            0,
+        )
+        self.assertEqual(
+            records["Androsynth"].metadata["progress"]["completed_batches"],
+            42,
+        )
+
     def test_coordinated_stop_all_confirms_before_showing_stopping(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         manager = TrainingInstanceManager()
@@ -1616,16 +1989,83 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states[:4],
-            [("Display", True), ("Start", False), ("Stop All", True), ("Back", False)],
+            [("Display", True), ("Stop", False), ("Stop All", True), ("Back", False)],
         )
         self.assertEqual(
             footer_states[4:8],
-            [("Display", True), ("Start", False), ("Stop All", True), ("Back", False)],
+            [("Display", True), ("Stop", False), ("Stop All", True), ("Back", False)],
         )
         self.assertEqual(
             footer_states[-4:],
-            [("Display", True), ("Start", False), ("Stopping", False), ("Back", False)],
+            [("Display", True), ("Stop", False), ("Stopping All", False), ("Back", False)],
         )
+
+    def test_background_individual_run_keeps_start_and_stop_all_available(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        selected = manager.active_instance
+        selected.state.selected_ship = "Earthling"
+        selected.state.selected_slot = 1
+        selected.state.slot_labels[0] = "Ready"
+        background = manager.add_instance()
+        background.state.selected_ship = "Androsynth"
+        background.state.selected_slot = 1
+        background.state.slot_labels[0] = "Running"
+        background.session = SimpleNamespace(
+            status=TrainingSessionStatus(
+                ship="Androsynth",
+                running=True,
+            ),
+            history=(),
+            log_lines=(),
+            set_display_on=lambda _enabled: None,
+        )
+        manager.select_instance(selected.instance_id)
+        footer_states = []
+        close_states = []
+
+        def capture_footer(button, *_args, **_kwargs):
+            if button.rect.y == train_ai.ACTION_TOP:
+                footer_states.append((button.text, button.enabled))
+            elif button.text == "Close":
+                close_states.append((button.text, button.enabled))
+
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+        with (
+            mock.patch(
+                "src.Menus.train_ai.TrainingInstanceManager",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeRepository,
+            ),
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite, "Androsynth": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[]),
+            mock.patch(
+                "src.Menus.train_ai.ui_button.Button.draw",
+                new=capture_footer,
+            ),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+        self.assertEqual(
+            footer_states,
+            [("Display", True), ("Start", True), ("Stop All", True), ("Back", False)],
+        )
+        self.assertEqual(close_states, [("Close", True)])
 
     def test_individual_stopping_disables_stop_button(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
@@ -1688,7 +2128,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Stopping", False), ("Start All", False), ("Back", False)],
+            [("Display", True), ("Stopping", False), ("Stop All", True), ("Back", False)],
         )
 
     def test_disabled_start_all_shows_setup_settings_tooltip(self):
@@ -1738,7 +2178,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         draw_tooltip.assert_called_once()
         self.assertEqual(
             draw_tooltip.call_args.args[2],
-            "Setup tab settings much match to start a coordinated run.",
+            "At least two training instances are required",
         )
         self.assertLess(draw_order.index("hud"), draw_order.index("tooltip"))
 
