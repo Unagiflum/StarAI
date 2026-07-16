@@ -22,6 +22,7 @@ from src.training.contracts import (
     action_for_index,
 )
 from src.training.coordinated_contracts import TrainingEpisodeResult
+from src.training.causal_credit import CausalRewardDiagnostics, REWARD_MODE_LEGACY
 from src.training.cpu_contracts import (
     DEFAULT_MINIBATCH_SIZE,
     DEFAULT_REPLAY_UPDATES_PER_BATCH,
@@ -37,6 +38,10 @@ from src.training.model_registry import (
     TrainingModelRepository,
     TrainingModelSlot,
 )
+from src.training.episode_metrics import (
+    PendingCombatEpisode,
+    finalize_pending_episodes,
+)
 from src.training.opponent_cache import load_opponent_model
 from src.training.observation import encode_observation
 from src.training.replay import (
@@ -48,7 +53,7 @@ from src.training.replay import (
 from src.training.rewards import (
     MatureTrainingSample,
     REWARD_COMPONENTS,
-    RollingReturnPipeline,
+    StagedTrajectoryPipeline,
     decision_frame_from_battle_state,
     frame_outcome_from_battle_state,
 )
@@ -78,6 +83,7 @@ class TrainingRoundResult:
     draw: bool
     component_totals: Mapping[str, float] = field(default_factory=dict)
     episode_results: tuple[TrainingEpisodeResult, ...] = ()
+    reward_diagnostics: CausalRewardDiagnostics | None = None
 
 
 @dataclass(frozen=True)
@@ -405,16 +411,29 @@ def run_training_round(
             battle_view=_battle_view_from_simulation(simulation),
         )
 
-    pipeline = RollingReturnPipeline(
+    pipeline = StagedTrajectoryPipeline(
         gamma=config.gamma,
         reward_weights=config.reward_weights,
+        mode=config.reward_mode,
     )
+
+    def abort_if_requested() -> None:
+        if stop_requested is None or not stop_requested():
+            return
+        if pipeline.pending_count:
+            replay_buffer.extend(
+                pipeline.flush_pending(end_frame_id=simulation.frame_id)
+            )
+        raise TrainingBatchAborted("training batch stopped")
+
     return_sum = 0.0
     component_sums = {component: 0.0 for component in REWARD_COMPONENTS}
     mature_count = 0
     terminal_reason = "timeout"
     terminal_seen = False
     episode_results: list[TrainingEpisodeResult] = []
+    pending_episodes: list[PendingCombatEpisode] = []
+    causal_lifecycle = config.reward_mode != REWARD_MODE_LEGACY
     episode_start_frame = 0
     episode_mature_count = 0
     episode_return_sum = 0.0
@@ -425,7 +444,7 @@ def run_training_round(
     simple_opponent_controller = SimpleOpponentController(config, rng=rng)
 
     for _ in range(config.match_time_limit):
-        _raise_if_stop_requested(stop_requested)
+        abort_if_requested()
         self_ship = simulation.player1
         enemy_ship = simulation.player2
         observation = encode_observation(
@@ -443,6 +462,16 @@ def run_training_round(
             enemy_ship=enemy_ship,
             world=simulation.world,
         )
+        ledger.begin_decision(
+            self_ship,
+            decision.frame_id,
+            selection.action_index,
+            reward_mode=config.reward_mode,
+        )
+        pipeline.stage_decision(
+            decision,
+            trajectory_id=ledger.active_trajectory_id,
+        )
         event_start = len(ledger.events)
         actions = {
             1: direct_controls_for_action_index(selection.action_index),
@@ -459,14 +488,19 @@ def run_training_round(
             elapsed_frames=state["frame_id"],
             frame_limit=config.match_time_limit,
         )
+        training_deaths = set(getattr(simulation, "training_episode_deaths", ()))
+        can_continue = bool(training_deaths) and state["frame_id"] < config.match_time_limit
+        reward_terminal = terminal and (
+            not causal_lifecycle or 1 in training_deaths or not can_continue
+        )
         events = tuple(ledger.events[event_start:])
         outcome = frame_outcome_from_battle_state(
             frame_id=state["frame_id"],
             self_ship=self_ship,
             events=events,
-            terminal=terminal,
+            terminal=reward_terminal,
         )
-        mature_samples = pipeline.add_frame(decision, outcome)
+        mature_samples = pipeline.add_frame(decision, outcome, ledger=ledger)
         replay_buffer.extend(mature_samples)
         mature_count += len(mature_samples)
         episode_mature_count += len(mature_samples)
@@ -490,7 +524,7 @@ def run_training_round(
         if view_enabled:
             progress_payload["battle_view"] = _battle_view_from_simulation(simulation)
         _emit_progress(progress_callback, **progress_payload)
-        _raise_if_stop_requested(stop_requested)
+        abort_if_requested()
         if config.display_on and view_enabled:
             next_display_frame_time += 1.0 / const.FPS
             sleep_seconds = next_display_frame_time - time.perf_counter()
@@ -498,14 +532,33 @@ def run_training_round(
                 time.sleep(sleep_seconds)
             else:
                 next_display_frame_time = time.perf_counter()
-            _raise_if_stop_requested(stop_requested)
+            abort_if_requested()
         if terminal:
             win, loss, draw = _classify_round_outcome(
                 simulation, terminal_reason
             )
             kills, deaths = _classify_kills_deaths(simulation)
-            episode_results.append(
-                TrainingEpisodeResult(
+            if causal_lifecycle:
+                pending_episodes.append(
+                    PendingCombatEpisode(
+                        opponent=opponent,
+                        start_frame_id=episode_start_frame,
+                        end_frame_id=state["frame_id"],
+                        terminal_reason=terminal_reason,
+                        win=win,
+                        loss=loss,
+                        draw=draw,
+                        kills=kills,
+                        deaths=deaths,
+                    )
+                )
+                if reward_terminal:
+                    episode_results.extend(
+                        finalize_pending_episodes(pending_episodes, mature_samples)
+                    )
+                    pending_episodes.clear()
+            else:
+                episode_results.append(TrainingEpisodeResult(
                     opponent=opponent,
                     frames=state["frame_id"] - episode_start_frame,
                     terminal_reason=terminal_reason,
@@ -521,21 +574,25 @@ def run_training_round(
                     component_totals=_average_components(
                         episode_component_sums, episode_mature_count
                     ),
-                )
-            )
+                ))
             reset_span = getattr(trainee_policy, "reset_exploration_span", None)
             if callable(reset_span):
                 reset_span()
-            if not getattr(simulation, "training_episode_deaths", ()):
+            if not training_deaths:
                 terminal_seen = True
+                ledger.close_reward_trajectory()
                 break
             if state["frame_id"] >= config.match_time_limit:
                 terminal_seen = True
+                ledger.close_reward_trajectory()
                 break
-            pipeline = RollingReturnPipeline(
-                gamma=config.gamma,
-                reward_weights=config.reward_weights,
-            )
+            if reward_terminal:
+                ledger.close_reward_trajectory()
+                pipeline = StagedTrajectoryPipeline(
+                    gamma=config.gamma,
+                    reward_weights=config.reward_weights,
+                    mode=config.reward_mode,
+                )
             simple_opponent_controller = SimpleOpponentController(config, rng=rng)
             episode_start_frame = state["frame_id"]
             episode_mature_count = 0
@@ -560,8 +617,27 @@ def run_training_round(
         _accumulate_weighted_components(episode_component_sums, mature_samples)
         win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
         kills, deaths = _classify_kills_deaths(simulation)
-        episode_results.append(
-            TrainingEpisodeResult(
+        if causal_lifecycle:
+            pending_episodes.append(
+                PendingCombatEpisode(
+                    opponent=opponent,
+                    start_frame_id=episode_start_frame,
+                    end_frame_id=simulation.frame_id,
+                    terminal_reason=terminal_reason,
+                    win=win,
+                    loss=loss,
+                    draw=draw,
+                    kills=kills,
+                    deaths=deaths,
+                )
+            )
+            episode_results.extend(
+                finalize_pending_episodes(pending_episodes, mature_samples)
+            )
+            pending_episodes.clear()
+            ledger.close_reward_trajectory()
+        else:
+            episode_results.append(TrainingEpisodeResult(
                 opponent=opponent,
                 frames=simulation.frame_id - episode_start_frame,
                 terminal_reason=terminal_reason,
@@ -577,8 +653,7 @@ def run_training_round(
                 component_totals=_average_components(
                     episode_component_sums, episode_mature_count
                 ),
-            )
-        )
+            ))
 
     win = any(episode.win for episode in episode_results)
     loss = any(episode.loss for episode in episode_results)
@@ -594,6 +669,7 @@ def run_training_round(
         draw=draw,
         component_totals=_average_components(component_sums, mature_count),
         episode_results=tuple(episode_results),
+        reward_diagnostics=ledger.diagnostics,
     )
 
 
@@ -806,7 +882,7 @@ def _round_terminal_state(simulation, *, elapsed_frames: int, frame_limit: int):
 
 
 def _flush_timeout_frame(
-    pipeline: RollingReturnPipeline,
+    pipeline: StagedTrajectoryPipeline,
     simulation,
     replay_buffer: TrainingReplayBuffer,
 ) -> tuple[MatureTrainingSample, ...]:

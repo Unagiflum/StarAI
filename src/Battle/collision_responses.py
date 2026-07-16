@@ -1441,6 +1441,8 @@ def set_projectile_hp(projectile, hp, *, source=None):
             projectile.current_hp = hp
     damage = previous_hp - max(0, getattr(projectile, "current_hp", 0))
     if damage > 0:
+        if max(0, getattr(projectile, "current_hp", 0)) <= 0 and source is not None:
+            projectile._training_destroying_source = source
         event_ledger.record_object_hp_changed(
             projectile,
             damage,

@@ -2,6 +2,7 @@ import csv
 import multiprocessing
 from multiprocessing import shared_memory
 import pickle
+import random
 import tempfile
 import time
 import unittest
@@ -356,6 +357,7 @@ class ScriptedSimulation:
         player2,
         *,
         terminal_after=None,
+        enemy_replacement_frames=(),
         pending_rebirth=False,
         audio_service=None,
         resources=None,
@@ -369,10 +371,20 @@ class ScriptedSimulation:
         self.world = []
         self.aftermath = None
         self.terminal_after = terminal_after
+        self.enemy_replacement_frames = set(enemy_replacement_frames)
         self.pending_rebirth = bool(pending_rebirth)
+        self.training_episode_deaths = ()
+        self.training_episode_kills = ()
 
     def step(self, actions=None):
         self.frame_id += 1
+        self.training_episode_deaths = ()
+        self.training_episode_kills = ()
+        if self.frame_id in self.enemy_replacement_frames:
+            self.training_episode_deaths = (2,)
+            self.training_episode_kills = (1,)
+            self.player2 = fake_ship("Androsynth", 2)
+            return {"frame_id": self.frame_id}
         if self.pending_rebirth:
             self.player1.current_hp = 0
             self.player1.currently_alive = False
@@ -512,6 +524,34 @@ class CoordinatedFixedFrameWindowTests(unittest.TestCase):
         self.assertEqual(result.episode_results[0].terminal_reason, "timeout")
         self.assertEqual(result.episode_results[0].frames, 3)
 
+    def test_seeded_causal_window_targets_are_deterministic(self):
+        signatures = []
+        for _ in range(2):
+            result, replay, _events, _policy, _factory = self.run_window(
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    match_time_limit=5,
+                ),
+                simulation_factory=ScriptedSimulationFactory([{}]),
+                rng=random.Random(731),
+            )
+            signatures.append(
+                (
+                    result.frames,
+                    tuple(result.component_totals.items()),
+                    tuple(
+                        (
+                            replay[index].observation,
+                            replay[index].action_index,
+                            replay[index].return_value,
+                        )
+                        for index in range(len(replay))
+                    ),
+                )
+            )
+
+        self.assertEqual(signatures[0], signatures[1])
+
     def test_terminal_reset_continues_inside_same_fixed_window(self):
         config = TrainingOrchestrationConfig(
             trainee_ship="Earthling",
@@ -542,6 +582,32 @@ class CoordinatedFixedFrameWindowTests(unittest.TestCase):
             [episode.frames for episode in result.episode_results],
             [2, 3],
         )
+
+    def test_causal_trajectory_spans_enemy_replacement_and_delays_metrics(self):
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=3,
+            gamma=0.0,
+            reward_mode="causal",
+        )
+        factory = ScriptedSimulationFactory(
+            ({"enemy_replacement_frames": (1,)},)
+        )
+
+        result, replay, _events, _policy, factory = self.run_window(
+            config=config,
+            simulation_factory=factory,
+        )
+
+        self.assertEqual(len(factory.created), 1)
+        self.assertEqual(len(replay), 3)
+        self.assertEqual(len(result.episode_results), 2)
+        self.assertEqual(
+            [episode.mature_samples for episode in result.episode_results],
+            [1, 2],
+        )
+        self.assertTrue(result.episode_results[0].win)
+        self.assertEqual(sum(e.mature_samples for e in result.episode_results), 3)
 
     def test_pending_rebirth_consumes_budget_without_reset(self):
         config = TrainingOrchestrationConfig(
@@ -914,7 +980,37 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
             (1.0,) * OBSERVATION_INPUT_SIZE,
         )
 
-    def test_step_frame_returns_mature_samples_for_parent_replay_insertion(self):
+    def test_causal_worker_holds_enemy_death_metrics_until_trajectory_finishes(self):
+        factory = ScriptedSimulationFactory(
+            ({"enemy_replacement_frames": (1,)},)
+        )
+        worker = self._worker(simulation_factory=factory)
+        self._start_window(
+            worker,
+            config=TrainingOrchestrationConfig(
+                trainee_ship="Earthling",
+                match_time_limit=2,
+                gamma=0.0,
+                reward_mode="causal",
+            ),
+        )
+        first = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+        second = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+        finished = worker.handle(FinishWindowCommand(9, 1))
+
+        self.assertIsNone(first.terminal_episode)
+        self.assertEqual(first.mature_samples, ())
+        self.assertEqual(second.mature_samples, ())
+        self.assertEqual(
+            [episode.mature_samples for episode in finished.result.episode_results],
+            [1, 1],
+        )
+        self.assertEqual(
+            sum(len(chunk) for chunk in finished.mature_sample_chunks),
+            2,
+        )
+
+    def test_worker_stages_samples_until_window_finalization(self):
         parent_replay = TrainingReplayBuffer(16)
         worker = self._worker()
         with (
@@ -945,14 +1041,21 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
                     opponent_controls={"forward": False},
                 )
             )
+            finished = worker.handle(FinishWindowCommand(9, 1))
 
         self.assertIsInstance(step, FrameSteppedResult)
         self.assertEqual(step.frame_count, 1)
-        self.assertEqual(len(step.mature_samples), 1)
+        self.assertEqual(len(step.mature_samples), 0)
         self.assertEqual(len(parent_replay), 0)
-        parent_replay.extend(step.mature_samples)
+        for chunk in finished.mature_sample_chunks:
+            parent_replay.extend(chunk)
         self.assertEqual(len(parent_replay), 1)
         self.assertEqual(parent_replay[0].action_index, 3)
+        self.assertIsNotNone(finished.result.reward_diagnostics)
+        self.assertEqual(
+            finished.result.reward_diagnostics.finalized_trajectory_lengths,
+            [1],
+        )
 
     def test_step_frame_captures_interpolated_frames_when_requested(self):
         worker = self._worker()
@@ -1054,7 +1157,11 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
             ["resolved", "timeout"],
         )
         self.assertEqual(len(first.mature_samples), 1)
-        self.assertEqual(len(second.mature_samples), 1)
+        self.assertEqual(len(second.mature_samples), 0)
+        self.assertEqual(
+            sum(len(chunk) for chunk in finished.mature_sample_chunks),
+            1,
+        )
         self.assertIsNone(worker._runtime)
         self.assertIsNone(worker._collector)
         self.assertIsNone(worker._round_index)
@@ -1378,6 +1485,7 @@ class CoordinatedTimingCsvTests(unittest.TestCase):
                     "simulation_collision": 1.25,
                     "reward": 5.0,
                     "reward_pipeline": 0.75,
+                    "ipc": 0.5,
                     "optimization": 6.0,
                     "save": 7.0,
                     "collision_candidate_pairs": 123,
@@ -1405,6 +1513,7 @@ class CoordinatedTimingCsvTests(unittest.TestCase):
         self.assertEqual(row["Average Score"], "4.000000")
         self.assertEqual(row["Loss"], "0.125000")
         self.assertEqual(row["Average Loss"], "0.100000")
+        self.assertEqual(row["IPC Seconds"], "0.500000")
         self.assertEqual(row["Timed Total Seconds"], "28.000000")
         self.assertEqual(row["Simulation Collision Seconds"], "1.250000")
         self.assertEqual(row["Reward Pipeline Seconds"], "0.750000")
@@ -1536,6 +1645,20 @@ class FakeWorkerClient:
 
 
 class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
+    def test_process_worker_client_measures_and_drains_ipc_time(self):
+        connection = mock.Mock()
+        connection.poll.return_value = True
+        connection.recv.return_value = SimpleNamespace(name="OK")
+        client = _ProcessWorkerClient(worker_id=1, record_id=7)
+        client.connection = connection
+
+        client.send(SimpleNamespace(name="COMMAND"))
+        self.assertEqual(client.recv(), connection.recv.return_value)
+        measured = client.drain_ipc_seconds()
+
+        self.assertGreater(measured, 0.0)
+        self.assertEqual(client.ipc_seconds, 0.0)
+
     def test_process_worker_startup_wait_observes_stop_requests(self):
         process = mock.Mock()
         connection = mock.Mock()

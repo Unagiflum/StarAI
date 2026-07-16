@@ -14,6 +14,7 @@ from src.Battle.battle import BattleSimulation
 from src.Objects.Ships.registry import create_ship
 from src.toroidal import wrapped_delta
 from src.training import event_ledger
+from src.training.causal_credit import REWARD_MODE_LEGACY
 from src.training.contracts import TrainingAction, action_for_index
 from src.training.coordinated_contracts import (
     CoordinatedFixedFrameWindowResult,
@@ -24,11 +25,12 @@ from src.training.cpu_contracts import (
     TrainingBatchAborted,
     TrainingOrchestrationConfig,
 )
+from src.training.episode_metrics import PendingCombatEpisode, finalize_pending_episodes
 from src.training.replay_contracts import ActionSelection
 from src.training.rewards import (
     MatureTrainingSample,
     REWARD_COMPONENTS,
-    RollingReturnPipeline,
+    StagedTrajectoryPipeline,
     decision_frame_from_battle_state,
     frame_outcome_from_battle_state,
 )
@@ -41,13 +43,14 @@ class CoordinatedWindowRuntime:
     policy: Any
     simulation: Any
     ledger: Any
-    pipeline: RollingReturnPipeline
+    pipeline: StagedTrajectoryPipeline
     simple_controller: "SimpleOpponentController"
     frames_consumed: int = 0
     total_mature_count: int = 0
     return_sum: float = 0.0
     component_sums: dict[str, float] = field(default_factory=dict)
     episode_results: list[TrainingEpisodeResult] = field(default_factory=list)
+    pending_episodes: list[PendingCombatEpisode] = field(default_factory=list)
     episode_start_frame: int = 0
     episode_mature_count: int = 0
     episode_return_sum: float = 0.0
@@ -194,7 +197,11 @@ def new_coordinated_battle(
     return (
         simulation,
         ledger,
-        RollingReturnPipeline(gamma=config.gamma, reward_weights=config.reward_weights),
+        StagedTrajectoryPipeline(
+            gamma=config.gamma,
+            reward_weights=config.reward_weights,
+            mode=config.reward_mode,
+        ),
         SimpleOpponentController(config, rng=rng),
     )
 
@@ -264,6 +271,16 @@ def advance_coordinated_window_frame(
         enemy_ship=enemy_ship,
         world=simulation.world,
     )
+    runtime.ledger.begin_decision(
+        self_ship,
+        decision.frame_id,
+        selection.action_index,
+        reward_mode=config.reward_mode,
+    )
+    runtime.pipeline.stage_decision(
+        decision,
+        trajectory_id=runtime.ledger.active_trajectory_id,
+    )
     add_timing_seconds(timing_seconds, "reward_decision", reward_decision_started_at)
     event_start = len(runtime.ledger.events)
     simulation_started_at = timing_started_at(timing_seconds)
@@ -280,6 +297,12 @@ def advance_coordinated_window_frame(
     reward_started_at = timing_started_at(timing_seconds)
     terminal_started_at = timing_started_at(timing_seconds)
     terminal, terminal_reason = permanent_terminal_state(simulation)
+    training_deaths = set(getattr(simulation, "training_episode_deaths", ()))
+    causal_lifecycle = config.reward_mode != REWARD_MODE_LEGACY
+    can_continue = bool(training_deaths) and runtime.frames_consumed < runtime.frame_limit
+    reward_terminal = terminal and (
+        not causal_lifecycle or 1 in training_deaths or not can_continue
+    )
     events = tuple(runtime.ledger.events[event_start:])
     add_timing_seconds(timing_seconds, "reward_terminal", terminal_started_at)
     outcome_started_at = timing_started_at(timing_seconds)
@@ -287,11 +310,15 @@ def advance_coordinated_window_frame(
         frame_id=step_state["frame_id"],
         self_ship=self_ship,
         events=events,
-        terminal=terminal,
+        terminal=reward_terminal,
     )
     add_timing_seconds(timing_seconds, "reward_outcome", outcome_started_at)
     pipeline_started_at = timing_started_at(timing_seconds)
-    mature_samples = runtime.pipeline.add_frame(decision, outcome)
+    mature_samples = runtime.pipeline.add_frame(
+        decision,
+        outcome,
+        ledger=runtime.ledger,
+    )
     add_timing_seconds(timing_seconds, "reward_pipeline", pipeline_started_at)
     replay_started_at = timing_started_at(timing_seconds)
     components.replay_buffer.extend(mature_samples)
@@ -325,10 +352,16 @@ def advance_coordinated_window_frame(
     add_timing_seconds(timing_seconds, "reward", reward_started_at)
     raise_if_stop_requested(stop_requested)
     if terminal:
-        record_coordinated_terminal_episode(runtime, terminal_reason=terminal_reason)
+        record_coordinated_terminal_episode(
+            runtime,
+            terminal_reason=terminal_reason,
+            mature_samples=mature_samples,
+            reward_terminal=reward_terminal,
+        )
         if runtime.frames_consumed < runtime.frame_limit:
             reset_coordinated_window_battle(
                 runtime,
+                reward_terminal=reward_terminal,
                 rng=rng,
                 simulation_factory=simulation_factory,
                 audio_service=audio_service,
@@ -354,12 +387,37 @@ def step_simulation_with_optional_timing(
 
 
 def record_coordinated_terminal_episode(
-    runtime: CoordinatedWindowRuntime, *, terminal_reason: str
+    runtime: CoordinatedWindowRuntime,
+    *,
+    terminal_reason: str,
+    mature_samples: Sequence[MatureTrainingSample],
+    reward_terminal: bool,
 ) -> None:
     win, loss, draw = classify_round_outcome(runtime.simulation, terminal_reason)
     kills, deaths = classify_kills_deaths(runtime.simulation)
-    runtime.episode_results.append(
-        TrainingEpisodeResult(
+    config = runtime.state.record.config
+    if config.reward_mode != REWARD_MODE_LEGACY:
+        runtime.pending_episodes.append(
+            PendingCombatEpisode(
+                opponent=runtime.opponent,
+                start_frame_id=runtime.episode_start_frame,
+                end_frame_id=runtime.simulation.frame_id,
+                terminal_reason=terminal_reason,
+                win=win,
+                loss=loss,
+                draw=draw,
+                kills=kills,
+                deaths=deaths,
+            )
+        )
+        if reward_terminal:
+            runtime.episode_results.extend(
+                finalize_pending_episodes(runtime.pending_episodes, mature_samples)
+            )
+            runtime.pending_episodes.clear()
+            runtime.ledger.close_reward_trajectory()
+    else:
+        runtime.episode_results.append(TrainingEpisodeResult(
             opponent=runtime.opponent,
             frames=runtime.frames_consumed - runtime.episode_start_frame,
             terminal_reason=terminal_reason,
@@ -375,8 +433,7 @@ def record_coordinated_terminal_episode(
             component_totals=average_components(
                 runtime.episode_component_sums, runtime.episode_mature_count
             ),
-        )
-    )
+        ))
     runtime.episode_needs_timeout = False
     reset_span = getattr(runtime.policy, "reset_exploration_span", None)
     if callable(reset_span):
@@ -386,6 +443,7 @@ def record_coordinated_terminal_episode(
 def reset_coordinated_window_battle(
     runtime: CoordinatedWindowRuntime,
     *,
+    reward_terminal: bool,
     rng: Any,
     simulation_factory: Callable[..., BattleSimulation],
     audio_service: Any,
@@ -394,9 +452,12 @@ def reset_coordinated_window_battle(
 ) -> None:
     config = runtime.state.record.config
     if getattr(runtime.simulation, "training_episode_deaths", ()):
-        runtime.pipeline = RollingReturnPipeline(
-            gamma=config.gamma, reward_weights=config.reward_weights
-        )
+        if reward_terminal:
+            runtime.pipeline = StagedTrajectoryPipeline(
+                gamma=config.gamma,
+                reward_weights=config.reward_weights,
+                mode=config.reward_mode,
+            )
         runtime.simple_controller = SimpleOpponentController(config, rng=rng)
     else:
         (
@@ -413,7 +474,7 @@ def reset_coordinated_window_battle(
             resources=resources,
             ship_factory=ship_factory,
         )
-    runtime.episode_start_frame = runtime.frames_consumed
+    runtime.episode_start_frame = runtime.simulation.frame_id
     runtime.episode_mature_count = 0
     runtime.episode_return_sum = 0.0
     runtime.episode_component_sums = {
@@ -453,8 +514,27 @@ def finish_coordinated_window(
         win, loss, draw = classify_round_outcome(runtime.simulation, "timeout")
         kills, deaths = classify_kills_deaths(runtime.simulation)
         add_timing_seconds(timing_seconds, "reward_terminal", terminal_started_at)
-        runtime.episode_results.append(
-            TrainingEpisodeResult(
+        if runtime.state.record.config.reward_mode != REWARD_MODE_LEGACY:
+            runtime.pending_episodes.append(
+                PendingCombatEpisode(
+                    opponent=runtime.opponent,
+                    start_frame_id=runtime.episode_start_frame,
+                    end_frame_id=runtime.simulation.frame_id,
+                    terminal_reason="timeout",
+                    win=win,
+                    loss=loss,
+                    draw=draw,
+                    kills=kills,
+                    deaths=deaths,
+                )
+            )
+            runtime.episode_results.extend(
+                finalize_pending_episodes(runtime.pending_episodes, mature_samples)
+            )
+            runtime.pending_episodes.clear()
+            runtime.ledger.close_reward_trajectory()
+        else:
+            runtime.episode_results.append(TrainingEpisodeResult(
                 opponent=runtime.opponent,
                 frames=runtime.frames_consumed - runtime.episode_start_frame,
                 terminal_reason="timeout",
@@ -470,8 +550,7 @@ def finish_coordinated_window(
                 component_totals=average_components(
                     runtime.episode_component_sums, runtime.episode_mature_count
                 ),
-            )
-        )
+            ))
         reset_span = getattr(runtime.policy, "reset_exploration_span", None)
         if callable(reset_span):
             reset_span()
@@ -488,6 +567,7 @@ def finish_coordinated_window(
         component_totals=average_components(
             runtime.component_sums, runtime.total_mature_count
         ),
+        reward_diagnostics=runtime.ledger.diagnostics,
     )
 
 

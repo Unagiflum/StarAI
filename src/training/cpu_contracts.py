@@ -11,6 +11,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.training.causal_credit import REWARD_MODE_CAUSAL, REWARD_MODES
+
 
 OPPONENT_MODE_SIMPLE = "simple"
 OPPONENT_MODE_EXISTING_AI = "all"
@@ -50,6 +52,7 @@ class TrainingOrchestrationConfig:
     replay_updates_per_batch: int = DEFAULT_REPLAY_UPDATES_PER_BATCH
     training_device: str = DEVICE_AUTO
     display_on: bool = False
+    reward_mode: str = REWARD_MODE_CAUSAL
 
     def __post_init__(self) -> None:
         if self.opponent_mode not in {OPPONENT_MODE_SIMPLE, OPPONENT_MODE_EXISTING_AI}:
@@ -80,6 +83,8 @@ class TrainingOrchestrationConfig:
             raise ValueError("epsilon_frame_span must be positive")
         if self.training_device not in DEVICE_CHOICES:
             raise ValueError("unsupported training device")
+        if self.reward_mode not in REWARD_MODES:
+            raise ValueError("unsupported reward mode")
         for label, value in (
             ("forward_activity", self.forward_activity),
             ("a1_activity", self.a1_activity),
@@ -101,4 +106,3 @@ class OpponentSpec:
 
 class TrainingBatchAborted(RuntimeError):
     """Raised when a requested stop abandons the active training batch."""
-

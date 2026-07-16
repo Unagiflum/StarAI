@@ -154,7 +154,7 @@ class SpaceShip(PlayerObject):
         self.in_battle = True
         self.battles_fought += 1
 
-    def attach_limpet(self):
+    def attach_limpet(self, *, source=None):
         ship_definition = self._intrinsic_movement_definition()
         start_thrust_inc = ship_definition.thrust_increment
         start_max_thrust = ship_definition.max_thrust
@@ -165,6 +165,8 @@ class SpaceShip(PlayerObject):
         event_ledger.record_debuff_applied(
             self,
             event_ledger.DEBUFF_LIMPET,
+            actor=event_ledger.damage_source_owner(source),
+            source=source,
         )
 
         # Calculate new stats based on number of limpets
@@ -366,7 +368,8 @@ class SpaceShip(PlayerObject):
                 new_objects.extend(result.spawned_objects)
 
         if "action1" in self.released_controls:
-            self.perform_action1_release()
+            affected_objects = tuple(self.perform_action1_release() or ())
+            event_ledger.record_action_released(self, affected_objects)
 
         self.newly_pressed_controls.clear()
         self.released_controls.clear()
@@ -567,7 +570,7 @@ class SpaceShip(PlayerObject):
     def is_confused(self):
         return getattr(self, "confused_timer", 0) > 0
 
-    def apply_confused(self, frames, duration, *, turn_direction=1):
+    def apply_confused(self, frames, duration, *, turn_direction=1, source=None):
         self.confused_frames = tuple(frames)
         self.confused_timer = max(0, int(duration))
         self.confused_frame = 0
@@ -575,6 +578,8 @@ class SpaceShip(PlayerObject):
         event_ledger.record_debuff_applied(
             self,
             event_ledger.DEBUFF_CONFUSION,
+            actor=event_ledger.damage_source_owner(source),
+            source=source,
         )
 
     def clear_confused(self):
@@ -706,6 +711,11 @@ class SpaceShip(PlayerObject):
             setattr(self, f"action{plan.action_number}_timer", plan.cooldown_frames)
 
         event_ledger.record_action_used(self, plan.action_number)
+        event_ledger.bind_committed_action(
+            self,
+            plan.action_number,
+            plan.spawned_objects,
+        )
 
         for effect in plan.side_effects:
             effect()

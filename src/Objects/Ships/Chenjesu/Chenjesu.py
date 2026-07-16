@@ -35,10 +35,14 @@ class Chenjesu(SpaceShip):
         )
 
     def perform_action1_release(self):
+        was_latched = self.a1_latched
         self.a1_latched = False
         projectile = self.active_a1
-        if projectile is not None:
+        if was_latched and projectile is not None:
             projectile.request_fragment()
+            if projectile.fragment_pending:
+                return (projectile,)
+        return ()
 
     def plan_action2(self):
         if not self.can_action2():

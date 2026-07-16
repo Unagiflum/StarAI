@@ -493,6 +493,38 @@ class TrainingRoundTests(unittest.TestCase):
         self.assertEqual(result.terminal_reason, "timeout")
         self.assertEqual(len(replay), 2)
 
+    def test_seeded_causal_round_targets_are_deterministic(self):
+        signatures = []
+        for _ in range(2):
+            replay = TrainingReplayBuffer(capacity=16)
+            result = run_training_round(
+                opponent=OpponentSpec("Earthling"),
+                trainee_policy=FixedPolicy(6),
+                replay_buffer=replay,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    match_time_limit=8,
+                ),
+                rng=random.Random(731),
+            )
+            signatures.append(
+                (
+                    result.frames,
+                    result.terminal_reason,
+                    tuple(result.component_totals.items()),
+                    tuple(
+                        (
+                            replay[index].observation,
+                            replay[index].action_index,
+                            replay[index].return_value,
+                        )
+                        for index in range(len(replay))
+                    ),
+                )
+            )
+
+        self.assertEqual(signatures[0], signatures[1])
+
     def test_display_toggle_does_not_change_headless_training_semantics(self):
         results = []
         replay_lengths = []

@@ -305,10 +305,11 @@ class KzerZaA2(Ability):
         if self._crew_loss_recorded or self._crew_recovered:
             return
         self._crew_loss_recorded = True
+        destroying_source = source or getattr(self, "_training_destroying_source", None)
         event_ledger.record_launched_crew_lost(
             self,
             actor=actor,
-            source=source if source is not None else self,
+            source=destroying_source if destroying_source is not None else self,
         )
 
     def _load_fighter_sounds(self, file_path):

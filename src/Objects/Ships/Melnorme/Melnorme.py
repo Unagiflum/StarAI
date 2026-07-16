@@ -19,9 +19,16 @@ class Melnorme(SpaceShip):
         return self.prepare_action_plan(1, projectile)
 
     def perform_action1_release(self):
-        if self.held_a1 is not None:
-            self.held_a1.release()
+        projectile = self.held_a1
+        affected = bool(
+            projectile is not None
+            and projectile.is_alive()
+            and getattr(projectile, "held", False)
+        )
+        if affected:
+            projectile.release()
         self.held_a1 = None
+        return (projectile,) if affected else ()
 
     def plan_action2(self):
         return self.validate_action(2, MelnormeA2)

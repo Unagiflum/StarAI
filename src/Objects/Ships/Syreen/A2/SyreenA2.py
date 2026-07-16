@@ -10,6 +10,7 @@ from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.launch_geometry import direction_vector, mask_projection_bounds
 from src.Objects.Ships.Syreen.A2.SyreenCrew import SyreenCrew
+from src.training import event_ledger
 
 
 class SyreenSongEffect(BattleEffect):
@@ -263,6 +264,7 @@ class SyreenA2(Ability):
             crew = SyreenCrew(
                 self.parent, list(target.position), origin_ship=target
             )
+            event_ledger.inherit_credit(crew, self)
             crew_mask = get_collision_mask(crew)
             if target_mask is not None and crew_mask is not None:
                 target_front = mask_projection_bounds(target_mask, direction)[1]

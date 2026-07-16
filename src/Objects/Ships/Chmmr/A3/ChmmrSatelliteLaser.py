@@ -4,11 +4,14 @@ import src.const as const
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.toroidal import wrapped_delta
+from src.training import event_ledger
 
 
 class ChmmrSatelliteLaser(Ability):
     def __init__(self, parent, target=None):
         super().__init__("ChmmrSatelliteLaser", parent)
+        if getattr(parent, "name", None) == "ChmmrSatellite":
+            event_ledger.bind_autonomous_fire(self, parent.parent)
         definition = ABILITY_DEFINITIONS["ChmmrSatelliteLaser"]
         self.target = target
         self.current_damage = definition.damage[0]

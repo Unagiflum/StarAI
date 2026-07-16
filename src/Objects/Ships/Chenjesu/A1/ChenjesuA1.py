@@ -5,6 +5,7 @@ import pygame
 import src.const as const
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.training import event_ledger
 
 
 class _ChenjesuCrystal:
@@ -75,6 +76,7 @@ class ChenjesuA1(_ChenjesuCrystal, Ability):
 class ChenjesuA1Shard(_ChenjesuCrystal, Ability):
     def __init__(self, source, direction):
         super().__init__("ChenjesuA1", source.parent)
+        event_ledger.inherit_credit(self, source)
         definition = ABILITY_DEFINITIONS["ChenjesuA1"]
         self.name = "ChenjesuA1Shard"
         self.projectile_name = self.name

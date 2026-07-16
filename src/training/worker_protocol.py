@@ -28,6 +28,8 @@ RESULT_WINDOW_FINISHED = "WINDOW_FINISHED"
 RESULT_WORKER_ERROR = "WORKER_ERROR"
 RESULT_WORKER_STOPPED = "WORKER_STOPPED"
 
+REPLAY_TRANSFER_CHUNK_SIZE = 256
+
 
 @dataclass(frozen=True)
 class StartRunCommand:
@@ -150,6 +152,7 @@ class WindowFinishedResult:
     round_index: int
     result: CoordinatedFixedFrameWindowResult
     mature_samples: tuple[ReplayTransferSample, ...] = ()
+    mature_sample_chunks: tuple[tuple[ReplayTransferSample, ...], ...] = ()
     timing_seconds: Mapping[str, float] = field(default_factory=dict)
     name: str = RESULT_WINDOW_FINISHED
 

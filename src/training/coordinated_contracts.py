@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from src.training.causal_credit import CausalRewardDiagnostics
 from src.training.cpu_contracts import OpponentSpec
 
 
@@ -34,3 +35,4 @@ class CoordinatedFixedFrameWindowResult:
     loss: bool
     draw: bool
     component_totals: Mapping[str, float] = field(default_factory=dict)
+    reward_diagnostics: CausalRewardDiagnostics | None = None

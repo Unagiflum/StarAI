@@ -6,12 +6,28 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import src.const as const
+from src.training.causal_credit import (
+    AbilityRewardCredit,
+    CausalRewardDiagnostics,
+    ORIGIN_KIND_AUTONOMOUS_FIRE,
+    ORIGIN_KIND_LAUNCH,
+    ORIGIN_KIND_PRESS,
+    REWARD_MODE_LEGACY,
+    REWARD_MODES,
+    bind_reward_credit,
+    full_weight_credit,
+    inherit_reward_credit,
+    new_trajectory_id,
+    reward_credit_for,
+    replace_release_half,
+)
 
 
 EVENT_OBJECT_SPAWNED = "object_spawned"
 EVENT_OBJECT_REMOVED = "object_removed"
 EVENT_OBJECT_HP_CHANGED = "object_hp_changed"
 EVENT_ACTION_USED = "action_used"
+EVENT_ACTION_RELEASED = "action_released"
 EVENT_CREW_CHANGED = "crew_changed"
 EVENT_BATTERY_CHANGED = "battery_changed"
 EVENT_DEBUFF_APPLIED = "debuff_applied"
@@ -50,6 +66,120 @@ class BattleEventLedger:
         self._removed_object_ids: set[int] = set()
         self._crew_loss_totals: dict[int, float] = {}
         self._enemy_death_credited_crew_loss_totals: dict[int, float] = {}
+        self.trainee_ship = None
+        self.active_trajectory_id: str | None = None
+        self.current_decision_frame: int | None = None
+        self.current_action_index: int | None = None
+        self.enemy_death_count = 0
+        self.diagnostics = CausalRewardDiagnostics()
+        self.reward_mode = REWARD_MODE_LEGACY
+
+    def start_reward_trajectory(
+        self,
+        trainee_ship,
+        *,
+        trajectory_id: str | None = None,
+    ) -> str:
+        """Open a unique trainee-life reward trajectory."""
+
+        self.trainee_ship = trainee_ship
+        self.active_trajectory_id = str(trajectory_id or new_trajectory_id())
+        self.current_decision_frame = None
+        self.current_action_index = None
+        self.enemy_death_count = 0
+        return self.active_trajectory_id
+
+    def close_reward_trajectory(self) -> str | None:
+        trajectory_id = self.active_trajectory_id
+        self.active_trajectory_id = None
+        self.current_decision_frame = None
+        self.current_action_index = None
+        return trajectory_id
+
+    def begin_decision(
+        self,
+        trainee_ship,
+        frame_index: int,
+        action_index: int,
+        *,
+        reward_mode: str | None = None,
+    ) -> None:
+        """Expose the staged parent decision before simulation updates run."""
+
+        if self.active_trajectory_id is None or self.trainee_ship is not trainee_ship:
+            self.start_reward_trajectory(trainee_ship)
+        self.current_decision_frame = int(frame_index)
+        self.current_action_index = int(action_index)
+        if reward_mode is not None:
+            if reward_mode not in REWARD_MODES:
+                raise ValueError("unsupported reward mode")
+            self.reward_mode = str(reward_mode)
+
+    def credit_is_open(self, credit: AbilityRewardCredit | None) -> bool:
+        return bool(
+            credit is not None
+            and self.active_trajectory_id is not None
+            and credit.trajectory_id == self.active_trajectory_id
+        )
+
+    def bind_committed_action(self, ship, action_number: int, spawned_objects) -> None:
+        if (
+            ship is not self.trainee_ship
+            or self.active_trajectory_id is None
+            or self.current_decision_frame is None
+        ):
+            return
+        kind = ORIGIN_KIND_PRESS if int(action_number) == 1 else ORIGIN_KIND_LAUNCH
+        credit = full_weight_credit(
+            self.active_trajectory_id,
+            self.current_decision_frame,
+            kind=kind,
+        )
+        for obj in tuple(spawned_objects):
+            bind_reward_credit(obj, credit)
+            obj._training_origin_enemy_death_count = self.enemy_death_count
+
+    def bind_autonomous_fire(self, obj, root_parent) -> AbilityRewardCredit | None:
+        if (
+            root_parent is not self.trainee_ship
+            or self.active_trajectory_id is None
+            or self.current_decision_frame is None
+        ):
+            return None
+        credit = full_weight_credit(
+            self.active_trajectory_id,
+            self.current_decision_frame,
+            kind=ORIGIN_KIND_AUTONOMOUS_FIRE,
+        )
+        bound = bind_reward_credit(obj, credit)
+        if bound is not None:
+            obj._training_origin_enemy_death_count = self.enemy_death_count
+        return bound
+
+    def resolve_event_credit(
+        self,
+        event: TrainingBattleEvent,
+        *,
+        component: str,
+        expected: bool = False,
+    ) -> AbilityRewardCredit | None:
+        """Resolve an immutable event-time credit and update shadow diagnostics."""
+
+        ability = event.metadata.get("source_ability_name") or event.ability_name or "unknown"
+        credit = causal_credit_for_event(event)
+        if credit is None:
+            if expected:
+                self.diagnostics.missing_provenance[str(ability)] += 1
+            return None
+        if not self.credit_is_open(credit):
+            self.diagnostics.closed_trajectory_rejections[str(ability)] += 1
+            return None
+        self.diagnostics.routed_events[(str(component), str(ability))] += 1
+        origin_deaths = int(event.metadata.get("source_origin_enemy_death_count", 0))
+        effect_deaths = int(event.metadata.get("effect_enemy_death_count", 0))
+        if effect_deaths > origin_deaths:
+            self.diagnostics.cross_enemy_death_effects[str(ability)] += 1
+        return credit
 
     def append(self, event_type: str, **fields) -> TrainingBattleEvent:
         event = TrainingBattleEvent(
@@ -94,7 +224,7 @@ class BattleEventLedger:
             action=_action_for_object(obj),
             removal_reason=reason,
             destroyed=bool(destroyed),
-            metadata=_removal_source_metadata(source, source_owner),
+            metadata=self._source_metadata(source, source_owner),
         )
 
     def record_object_hp_changed(self, obj, damage: float, *, source=None):
@@ -111,7 +241,7 @@ class BattleEventLedger:
             magnitude=-damage,
             ability_name=_ability_name(source),
             action=_action_for_object(source),
-            metadata=_removal_source_metadata(source, source_owner),
+            metadata=self._source_metadata(source, source_owner),
         )
 
     def record_action_used(self, ship, action_number: int) -> TrainingBattleEvent:
@@ -121,6 +251,42 @@ class BattleEventLedger:
             owner=ship,
             target=ship,
             action=f"A{int(action_number)}",
+        )
+
+    def record_action_released(
+        self,
+        ship,
+        affected_objects,
+    ) -> TrainingBattleEvent | None:
+        affected = tuple(obj for obj in affected_objects if obj is not None)
+        if not affected:
+            return None
+        if (
+            self.reward_mode != REWARD_MODE_LEGACY
+            and ship is self.trainee_ship
+            and self.current_decision_frame is not None
+        ):
+            for obj in affected:
+                credit = reward_credit_for(obj)
+                if self.credit_is_open(credit):
+                    bind_reward_credit(
+                        obj,
+                        replace_release_half(
+                            credit,
+                            release_frame=self.current_decision_frame,
+                        ),
+                    )
+        return self.append(
+            EVENT_ACTION_RELEASED,
+            actor=ship,
+            owner=ship,
+            target=ship,
+            action="A1",
+            metadata={
+                "affected_objects": affected,
+                "action_index": self.current_action_index,
+                "trajectory_id": self.active_trajectory_id,
+            },
         )
 
     def record_crew_changed(self, ship, delta: float, *, actor=None, source=None):
@@ -136,7 +302,10 @@ class BattleEventLedger:
             magnitude=float(delta),
             ability_name=_ability_name(source),
             action=_action_for_object(source),
-            metadata={"source_credit": source_credit},
+            metadata={
+                **self._source_metadata(source, _root_owner(source)),
+                "source_credit": source_credit,
+            },
         )
         if delta < 0:
             self._record_enemy_death_reward_credit(
@@ -154,11 +323,14 @@ class BattleEventLedger:
                 ability_name=_ability_name(source),
                 action=_action_for_object(source),
                 metadata={
+                    **self._source_metadata(source, _root_owner(source)),
                     "enemy_death_reward_credit": (
                         self._enemy_death_reward_credit_for_ship(ship)
                     )
                 },
             )
+            if ship is not self.trainee_ship:
+                self.enemy_death_count += 1
         return event
 
     def _record_enemy_death_reward_credit(
@@ -220,8 +392,22 @@ class BattleEventLedger:
             magnitude=float(magnitude),
             ability_name=_ability_name(source),
             action=_action_for_object(source),
-            metadata={"debuff_type": debuff_type},
+            metadata={
+                **self._source_metadata(source, _root_owner(source)),
+                "debuff_type": debuff_type,
+            },
         )
+
+    def _source_metadata(self, source, source_owner) -> dict[str, Any]:
+        metadata = _removal_source_metadata(source, source_owner)
+        credit = reward_credit_for(source)
+        if credit is not None:
+            metadata["reward_credit"] = credit
+            metadata["source_origin_enemy_death_count"] = int(
+                getattr(source, "_training_origin_enemy_death_count", 0)
+            )
+            metadata["effect_enemy_death_count"] = self.enemy_death_count
+        return metadata
 
 
 def ledger_for(obj) -> BattleEventLedger | None:
@@ -241,6 +427,31 @@ def bind_ledger(obj, ledger: BattleEventLedger | None) -> None:
         setattr(obj, "_training_event_ledger", ledger)
     except Exception:
         return
+
+
+def bind_committed_action(ship, action_number: int, spawned_objects) -> None:
+    ledger = ledger_for(ship)
+    if ledger is not None:
+        ledger.bind_committed_action(ship, action_number, spawned_objects)
+
+
+def inherit_credit(child, source) -> AbilityRewardCredit | None:
+    credit = inherit_reward_credit(child, source)
+    if credit is not None:
+        try:
+            child._training_origin_enemy_death_count = int(
+                getattr(source, "_training_origin_enemy_death_count", 0)
+            )
+        except Exception:
+            pass
+    return credit
+
+
+def bind_autonomous_fire(obj, root_parent) -> AbilityRewardCredit | None:
+    ledger = ledger_for(root_parent)
+    if ledger is None:
+        return None
+    return ledger.bind_autonomous_fire(obj, root_parent)
 
 
 def record_spawned(obj) -> None:
@@ -278,6 +489,21 @@ def record_action_used(ship, action_number: int) -> None:
     ledger = ledger_for(ship)
     if ledger is not None:
         ledger.record_action_used(ship, action_number)
+
+
+def record_action_released(ship, affected_objects) -> None:
+    ledger = ledger_for(ship)
+    if ledger is not None:
+        ledger.record_action_released(ship, affected_objects)
+
+
+def causal_credit_for_event(event: TrainingBattleEvent) -> AbilityRewardCredit | None:
+    credit = event.metadata.get("reward_credit")
+    if isinstance(credit, AbilityRewardCredit):
+        return credit
+    if event.event_type == EVENT_OBJECT_REMOVED:
+        return reward_credit_for(event.metadata.get("source"))
+    return reward_credit_for(event.obj)
 
 
 def record_crew_changed(ship, delta: float, *, actor=None, source=None) -> None:

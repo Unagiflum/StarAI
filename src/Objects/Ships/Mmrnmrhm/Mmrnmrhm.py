@@ -103,8 +103,8 @@ class Mmrnmrhm(SpaceShip):
     def _intrinsic_movement_definition(self):
         return SHIP_DEFINITIONS[self.name].forms[self.form]
 
-    def attach_limpet(self):
-        super().attach_limpet()
+    def attach_limpet(self, *, source=None):
+        super().attach_limpet(source=source)
         status = self._form_status[self.form]
         status.limpet_count = self.limpets_attached
         status.limpet_sprites = self.sprites

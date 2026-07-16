@@ -23,6 +23,7 @@ from src.Objects.Ships.registry import create_ship
 from src.audio import DisplayGatedAudioService, NullAudioService
 from src.training import torch_backend
 from src.training import event_ledger
+from src.training.causal_credit import REWARD_MODE_LEGACY
 from src.training.batched_value_network import (
     BatchedValueNetworkParameterCache,
     build_batched_value_network_parameters,
@@ -43,6 +44,7 @@ from src.training.coordinated_simulation import (
     new_coordinated_battle as _new_coordinated_battle,
 )
 from src.training.observation_transfer import unpack_observation_array
+from src.training.episode_metrics import PendingCombatEpisode, finalize_pending_episodes
 from src.training.model_registry import (
     TrainingModelRepository,
     TrainingModelSlot,
@@ -88,7 +90,7 @@ from src.training.replay import (
 from src.training.replay import ActionSelection
 from src.training.rewards import (
     REWARD_COMPONENTS,
-    RollingReturnPipeline,
+    StagedTrajectoryPipeline,
     decision_frame_from_battle_state,
     frame_outcome_from_battle_state,
 )
@@ -212,6 +214,7 @@ class CoordinatedTimingStats:
     reward_accumulate_seconds: float = 0.0
     reward_progress_seconds: float = 0.0
     reward_flush_seconds: float = 0.0
+    ipc_seconds: float = 0.0
     optimization_seconds: float = 0.0
     save_seconds: float = 0.0
     collision_possible_physical_pairs: int = 0
@@ -253,6 +256,7 @@ _TIMING_DETAIL_BUCKETS = (
     "reward_accumulate",
     "reward_progress",
     "reward_flush",
+    "ipc",
 )
 
 _TIMING_COUNTER_BUCKETS = (
@@ -318,6 +322,7 @@ _COORDINATED_TIMING_CSV_HEADER = (
     "Reward Accumulate Seconds",
     "Reward Progress Seconds",
     "Reward Flush Seconds",
+    "IPC Seconds",
     "Optimization Seconds",
     "Save Seconds",
     "Timed Total Seconds",
@@ -384,6 +389,16 @@ class _ProcessWorkerClient:
         self._process_starter = process_starter
         self.process = None
         self.connection = None
+        self._ipc_seconds = 0.0
+
+    @property
+    def ipc_seconds(self) -> float:
+        return self._ipc_seconds
+
+    def drain_ipc_seconds(self) -> float:
+        elapsed = self._ipc_seconds
+        self._ipc_seconds = 0.0
+        return elapsed
 
     def start(
         self,
@@ -414,7 +429,9 @@ class _ProcessWorkerClient:
     def send(self, command: Any) -> None:
         if self.connection is None:
             raise _WorkerRuntimeError(f"worker {self.worker_id} is not started")
+        started_at = time.perf_counter()
         self.connection.send(command)
+        self._ipc_seconds += time.perf_counter() - started_at
 
     def recv(
         self,
@@ -427,7 +444,9 @@ class _ProcessWorkerClient:
         started_at = time.perf_counter()
         while True:
             if self.connection.poll(0.05):
+                ipc_started_at = time.perf_counter()
                 result = self.connection.recv()
+                self._ipc_seconds += time.perf_counter() - ipc_started_at
                 _raise_for_worker_error(result)
                 return result
             if stop_requested is not None and stop_requested():
@@ -687,6 +706,7 @@ class CoordinatedTrainingSession:
                 reward_accumulate_seconds=timing.get("reward_accumulate", 0.0),
                 reward_progress_seconds=timing.get("reward_progress", 0.0),
                 reward_flush_seconds=timing.get("reward_flush", 0.0),
+                ipc_seconds=timing.get("ipc", 0.0),
                 optimization_seconds=timing.get("optimization", 0.0),
                 save_seconds=timing.get("save", 0.0),
                 collision_possible_physical_pairs=int(
@@ -1177,6 +1197,10 @@ class CoordinatedTrainingSession:
                     raise
                 except Exception as exc:
                     raise _CpuWorkerStartupUnavailable(str(exc)) from exc
+            for client in workers.values():
+                drain_ipc = getattr(client, "drain_ipc_seconds", None)
+                if callable(drain_ipc):
+                    drain_ipc()
             schedules = {
                 instance_id: self._opponents_for_batch(state)
                 for instance_id, state in self._states.items()
@@ -1413,6 +1437,8 @@ class CoordinatedTrainingSession:
                     if components is None:
                         raise RuntimeError("coordinated components were not loaded")
                     components.replay_buffer.extend(finish_result.mature_samples)
+                    for sample_chunk in finish_result.mature_sample_chunks:
+                        components.replay_buffer.extend(sample_chunk)
                     window.policy.reset_exploration_span()
                     result = finish_result.result
                     results[window.state.record.instance_id].append(result)
@@ -1434,6 +1460,13 @@ class CoordinatedTrainingSession:
             self._shutdown_persistent_cpu_workers()
             raise
         finally:
+            ipc_seconds = 0.0
+            for client in workers.values():
+                drain_ipc = getattr(client, "drain_ipc_seconds", None)
+                if callable(drain_ipc):
+                    ipc_seconds += max(0.0, float(drain_ipc()))
+            if timing_seconds is not None:
+                timing_seconds["ipc"] = timing_seconds.get("ipc", 0.0) + ipc_seconds
             self._release_display_buffer()
             with self._lock:
                 self._current_batch_started_at = None
@@ -2156,6 +2189,8 @@ def run_coordinated_fixed_frame_window(
     return_sum = 0.0
     component_sums = {component: 0.0 for component in REWARD_COMPONENTS}
     episode_results: list[TrainingEpisodeResult] = []
+    pending_episodes: list[PendingCombatEpisode] = []
+    causal_lifecycle = config.reward_mode != REWARD_MODE_LEGACY
 
     def new_battle():
         trainee = ship_factory(config.trainee_ship, 1, audio_service=audio)
@@ -2171,20 +2206,27 @@ def run_coordinated_fixed_frame_window(
             training_event_ledger=ledger,
         )
         _initialize_training_simulation_ships(simulation, rng)
-        return simulation, ledger, RollingReturnPipeline(
+        return simulation, ledger, StagedTrajectoryPipeline(
             gamma=config.gamma,
             reward_weights=config.reward_weights,
+            mode=config.reward_mode,
         ), SimpleOpponentController(config, rng=rng)
 
     simulation, ledger, pipeline, simple_controller = new_battle()
     episode_start_window_frame = window_frames_consumed
+    episode_start_frame_id = simulation.frame_id
     episode_mature_count = 0
     episode_return_sum = 0.0
     episode_component_sums = {component: 0.0 for component in REWARD_COMPONENTS}
     episode_needs_timeout = True
 
     while window_frames_consumed < window_frame_limit:
-        _raise_if_stop_requested(stop_requested)
+        if stop_requested is not None and stop_requested():
+            if pipeline.pending_count:
+                replay_buffer.extend(
+                    pipeline.flush_pending(end_frame_id=simulation.frame_id)
+                )
+            raise TrainingBatchAborted("training batch stopped")
         self_ship = simulation.player1
         enemy_ship = simulation.player2
         observation = encode_observation(
@@ -2202,6 +2244,16 @@ def run_coordinated_fixed_frame_window(
             enemy_ship=enemy_ship,
             world=simulation.world,
         )
+        ledger.begin_decision(
+            self_ship,
+            decision.frame_id,
+            selection.action_index,
+            reward_mode=config.reward_mode,
+        )
+        pipeline.stage_decision(
+            decision,
+            trajectory_id=ledger.active_trajectory_id,
+        )
         event_start = len(ledger.events)
         state = simulation.step(
             actions={
@@ -2216,14 +2268,19 @@ def run_coordinated_fixed_frame_window(
         )
         window_frames_consumed += 1
         terminal, terminal_reason = _permanent_terminal_state(simulation)
+        training_deaths = set(getattr(simulation, "training_episode_deaths", ()))
+        can_continue = bool(training_deaths) and window_frames_consumed < window_frame_limit
+        reward_terminal = terminal and (
+            not causal_lifecycle or 1 in training_deaths or not can_continue
+        )
         events = tuple(ledger.events[event_start:])
         outcome = frame_outcome_from_battle_state(
             frame_id=state["frame_id"],
             self_ship=self_ship,
             events=events,
-            terminal=terminal,
+            terminal=reward_terminal,
         )
-        mature_samples = pipeline.add_frame(decision, outcome)
+        mature_samples = pipeline.add_frame(decision, outcome, ledger=ledger)
         replay_buffer.extend(mature_samples)
         mature_count = len(mature_samples)
         total_mature_count += mature_count
@@ -2249,8 +2306,28 @@ def run_coordinated_fixed_frame_window(
         if terminal:
             win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
             kills, deaths = _classify_kills_deaths(simulation)
-            episode_results.append(
-                TrainingEpisodeResult(
+            if causal_lifecycle:
+                pending_episodes.append(
+                    PendingCombatEpisode(
+                        opponent=opponent,
+                        start_frame_id=episode_start_frame_id,
+                        end_frame_id=simulation.frame_id,
+                        terminal_reason=terminal_reason,
+                        win=win,
+                        loss=loss,
+                        draw=draw,
+                        kills=kills,
+                        deaths=deaths,
+                    )
+                )
+                if reward_terminal:
+                    episode_results.extend(
+                        finalize_pending_episodes(pending_episodes, mature_samples)
+                    )
+                    pending_episodes.clear()
+                    ledger.close_reward_trajectory()
+            else:
+                episode_results.append(TrainingEpisodeResult(
                     opponent=opponent,
                     frames=window_frames_consumed - episode_start_window_frame,
                     terminal_reason=terminal_reason,
@@ -2268,22 +2345,24 @@ def run_coordinated_fixed_frame_window(
                         episode_component_sums,
                         episode_mature_count,
                     ),
-                )
-            )
+                ))
             episode_needs_timeout = False
             reset_span = getattr(trainee_policy, "reset_exploration_span", None)
             if callable(reset_span):
                 reset_span()
             if window_frames_consumed < window_frame_limit:
-                if getattr(simulation, "training_episode_deaths", ()):
-                    pipeline = RollingReturnPipeline(
-                        gamma=config.gamma,
-                        reward_weights=config.reward_weights,
-                    )
+                if training_deaths:
+                    if reward_terminal:
+                        pipeline = StagedTrajectoryPipeline(
+                            gamma=config.gamma,
+                            reward_weights=config.reward_weights,
+                            mode=config.reward_mode,
+                        )
                     simple_controller = SimpleOpponentController(config, rng=rng)
                 else:
                     simulation, ledger, pipeline, simple_controller = new_battle()
                 episode_start_window_frame = window_frames_consumed
+                episode_start_frame_id = simulation.frame_id
                 episode_mature_count = 0
                 episode_return_sum = 0.0
                 episode_component_sums = {
@@ -2306,8 +2385,27 @@ def run_coordinated_fixed_frame_window(
         _accumulate_weighted_components(episode_component_sums, mature_samples)
         win, loss, draw = _classify_round_outcome(simulation, "timeout")
         kills, deaths = _classify_kills_deaths(simulation)
-        episode_results.append(
-            TrainingEpisodeResult(
+        if causal_lifecycle:
+            pending_episodes.append(
+                PendingCombatEpisode(
+                    opponent=opponent,
+                    start_frame_id=episode_start_frame_id,
+                    end_frame_id=simulation.frame_id,
+                    terminal_reason="timeout",
+                    win=win,
+                    loss=loss,
+                    draw=draw,
+                    kills=kills,
+                    deaths=deaths,
+                )
+            )
+            episode_results.extend(
+                finalize_pending_episodes(pending_episodes, mature_samples)
+            )
+            pending_episodes.clear()
+            ledger.close_reward_trajectory()
+        else:
+            episode_results.append(TrainingEpisodeResult(
                 opponent=opponent,
                 frames=window_frames_consumed - episode_start_window_frame,
                 terminal_reason="timeout",
@@ -2322,8 +2420,7 @@ def run_coordinated_fixed_frame_window(
                     episode_component_sums,
                     episode_mature_count,
                 ),
-            )
-        )
+            ))
         reset_span = getattr(trainee_policy, "reset_exploration_span", None)
         if callable(reset_span):
             reset_span()
@@ -2338,6 +2435,7 @@ def run_coordinated_fixed_frame_window(
         loss=any(result.loss for result in episode_results),
         draw=any(result.draw for result in episode_results),
         component_totals=_average_components(component_sums, total_mature_count),
+        reward_diagnostics=ledger.diagnostics,
     )
 
 
@@ -2472,6 +2570,7 @@ def append_coordinated_batch_timing_csv(
                 f"{float(timing_seconds.get('reward_accumulate', 0.0)):.6f}",
                 f"{float(timing_seconds.get('reward_progress', 0.0)):.6f}",
                 f"{float(timing_seconds.get('reward_flush', 0.0)):.6f}",
+                f"{float(timing_seconds.get('ipc', 0.0)):.6f}",
                 f"{float(timing_seconds.get('optimization', 0.0)):.6f}",
                 f"{float(timing_seconds.get('save', 0.0)):.6f}",
                 f"{timing_total:.6f}",
@@ -3016,9 +3115,10 @@ def _new_coordinated_battle(
     return (
         simulation,
         ledger,
-        RollingReturnPipeline(
+        StagedTrajectoryPipeline(
             gamma=config.gamma,
             reward_weights=config.reward_weights,
+            mode=config.reward_mode,
         ),
         SimpleOpponentController(config, rng=rng),
     )
@@ -3077,6 +3177,16 @@ def _advance_coordinated_window_frame(
         enemy_ship=enemy_ship,
         world=simulation.world,
     )
+    runtime.ledger.begin_decision(
+        self_ship,
+        decision.frame_id,
+        selection.action_index,
+        reward_mode=config.reward_mode,
+    )
+    runtime.pipeline.stage_decision(
+        decision,
+        trajectory_id=runtime.ledger.active_trajectory_id,
+    )
     _add_timing_seconds(
         timing_seconds,
         "reward_decision",
@@ -3110,6 +3220,12 @@ def _advance_coordinated_window_frame(
     reward_started_at = _timing_started_at(timing_seconds)
     reward_terminal_started_at = _timing_started_at(timing_seconds)
     terminal, terminal_reason = _permanent_terminal_state(simulation)
+    training_deaths = set(getattr(simulation, "training_episode_deaths", ()))
+    causal_lifecycle = config.reward_mode != REWARD_MODE_LEGACY
+    can_continue = bool(training_deaths) and runtime.frames_consumed < runtime.frame_limit
+    reward_terminal = terminal and (
+        not causal_lifecycle or 1 in training_deaths or not can_continue
+    )
     events = tuple(runtime.ledger.events[event_start:])
     _add_timing_seconds(
         timing_seconds,
@@ -3121,11 +3237,15 @@ def _advance_coordinated_window_frame(
         frame_id=step_state["frame_id"],
         self_ship=self_ship,
         events=events,
-        terminal=terminal,
+        terminal=reward_terminal,
     )
     _add_timing_seconds(timing_seconds, "reward_outcome", reward_outcome_started_at)
     reward_pipeline_started_at = _timing_started_at(timing_seconds)
-    mature_samples = runtime.pipeline.add_frame(decision, outcome)
+    mature_samples = runtime.pipeline.add_frame(
+        decision,
+        outcome,
+        ledger=runtime.ledger,
+    )
     _add_timing_seconds(
         timing_seconds,
         "reward_pipeline",
@@ -3180,10 +3300,13 @@ def _advance_coordinated_window_frame(
         _record_coordinated_terminal_episode(
             runtime,
             terminal_reason=terminal_reason,
+            mature_samples=mature_samples,
+            reward_terminal=reward_terminal,
         )
         if runtime.frames_consumed < runtime.frame_limit:
             _reset_coordinated_window_battle(
                 runtime,
+                reward_terminal=reward_terminal,
                 rng=rng,
                 simulation_factory=simulation_factory,
                 audio_service=audio_service,
@@ -3212,11 +3335,33 @@ def _record_coordinated_terminal_episode(
     runtime: _CoordinatedWindowRuntime,
     *,
     terminal_reason: str,
+    mature_samples: Sequence,
+    reward_terminal: bool,
 ) -> None:
     win, loss, draw = _classify_round_outcome(runtime.simulation, terminal_reason)
     kills, deaths = _classify_kills_deaths(runtime.simulation)
-    runtime.episode_results.append(
-        TrainingEpisodeResult(
+    if runtime.state.record.config.reward_mode != REWARD_MODE_LEGACY:
+        runtime.pending_episodes.append(
+            PendingCombatEpisode(
+                opponent=runtime.opponent,
+                start_frame_id=runtime.episode_start_frame,
+                end_frame_id=runtime.simulation.frame_id,
+                terminal_reason=terminal_reason,
+                win=win,
+                loss=loss,
+                draw=draw,
+                kills=kills,
+                deaths=deaths,
+            )
+        )
+        if reward_terminal:
+            runtime.episode_results.extend(
+                finalize_pending_episodes(runtime.pending_episodes, mature_samples)
+            )
+            runtime.pending_episodes.clear()
+            runtime.ledger.close_reward_trajectory()
+    else:
+        runtime.episode_results.append(TrainingEpisodeResult(
             opponent=runtime.opponent,
             frames=runtime.frames_consumed - runtime.episode_start_frame,
             terminal_reason=terminal_reason,
@@ -3234,8 +3379,7 @@ def _record_coordinated_terminal_episode(
                 runtime.episode_component_sums,
                 runtime.episode_mature_count,
             ),
-        )
-    )
+        ))
     runtime.episode_needs_timeout = False
     reset_span = getattr(runtime.policy, "reset_exploration_span", None)
     if callable(reset_span):
@@ -3245,6 +3389,7 @@ def _record_coordinated_terminal_episode(
 def _reset_coordinated_window_battle(
     runtime: _CoordinatedWindowRuntime,
     *,
+    reward_terminal: bool,
     rng: Any,
     simulation_factory: Callable[..., BattleSimulation],
     audio_service: Any,
@@ -3253,10 +3398,12 @@ def _reset_coordinated_window_battle(
 ) -> None:
     config = runtime.state.record.config
     if getattr(runtime.simulation, "training_episode_deaths", ()):
-        runtime.pipeline = RollingReturnPipeline(
-            gamma=config.gamma,
-            reward_weights=config.reward_weights,
-        )
+        if reward_terminal:
+            runtime.pipeline = StagedTrajectoryPipeline(
+                gamma=config.gamma,
+                reward_weights=config.reward_weights,
+                mode=config.reward_mode,
+            )
         runtime.simple_controller = SimpleOpponentController(config, rng=rng)
     else:
         (
@@ -3273,7 +3420,7 @@ def _reset_coordinated_window_battle(
             resources=resources,
             ship_factory=ship_factory,
         )
-    runtime.episode_start_frame = runtime.frames_consumed
+    runtime.episode_start_frame = runtime.simulation.frame_id
     runtime.episode_mature_count = 0
     runtime.episode_return_sum = 0.0
     runtime.episode_component_sums = {
@@ -3331,8 +3478,27 @@ def _finish_coordinated_window(
             "reward_terminal",
             reward_terminal_started_at,
         )
-        runtime.episode_results.append(
-            TrainingEpisodeResult(
+        if runtime.state.record.config.reward_mode != REWARD_MODE_LEGACY:
+            runtime.pending_episodes.append(
+                PendingCombatEpisode(
+                    opponent=runtime.opponent,
+                    start_frame_id=runtime.episode_start_frame,
+                    end_frame_id=runtime.simulation.frame_id,
+                    terminal_reason="timeout",
+                    win=win,
+                    loss=loss,
+                    draw=draw,
+                    kills=kills,
+                    deaths=deaths,
+                )
+            )
+            runtime.episode_results.extend(
+                finalize_pending_episodes(runtime.pending_episodes, mature_samples)
+            )
+            runtime.pending_episodes.clear()
+            runtime.ledger.close_reward_trajectory()
+        else:
+            runtime.episode_results.append(TrainingEpisodeResult(
                 opponent=runtime.opponent,
                 frames=runtime.frames_consumed - runtime.episode_start_frame,
                 terminal_reason="timeout",
@@ -3350,8 +3516,7 @@ def _finish_coordinated_window(
                     runtime.episode_component_sums,
                     runtime.episode_mature_count,
                 ),
-            )
-        )
+            ))
         reset_span = getattr(runtime.policy, "reset_exploration_span", None)
         if callable(reset_span):
             reset_span()
@@ -3373,6 +3538,7 @@ def _finish_coordinated_window(
             runtime.component_sums,
             runtime.total_mature_count,
         ),
+        reward_diagnostics=runtime.ledger.diagnostics,
     )
 
 

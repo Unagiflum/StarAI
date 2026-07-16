@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import math
+import time
+from array import array
 from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 import src.const as const
 from src.training import combat_adapters
+from src.training.causal_credit import (
+    REWARD_MODE_CAUSAL,
+    REWARD_MODE_LEGACY,
+    REWARD_MODE_SHADOW,
+    REWARD_MODES,
+)
 from src.training.event_ledger import (
     EVENT_ACTION_USED,
     EVENT_CREW_CHANGED,
@@ -129,6 +137,38 @@ class MatureTrainingSample:
     end_frame_id: int
     actual_frame_count: int
     terminal_truncated: bool = False
+
+
+@dataclass(frozen=True)
+class ReturnDistributionSummary:
+    """Compact exact distribution statistics for one finalized trajectory."""
+
+    count: int
+    mean: float
+    p50: float
+    p95: float
+    p99: float
+    minimum: float
+    maximum: float
+    maximum_absolute: float
+
+
+@dataclass(frozen=True)
+class ReturnComparisonSummary:
+    baseline: ReturnDistributionSummary
+    proposed: ReturnDistributionSummary
+    delta: ReturnDistributionSummary
+
+
+@dataclass(frozen=True)
+class ShadowReturnComparison:
+    """Legacy-versus-causal finalized target diagnostics for shadow mode."""
+
+    sample_count: int
+    overall: ReturnComparisonSummary
+    by_component: dict[str, ReturnComparisonSummary]
+    by_action: dict[int, ReturnComparisonSummary]
+    by_component_and_action: dict[tuple[str, int], ReturnComparisonSummary]
 
 
 @dataclass
@@ -337,6 +377,427 @@ class RollingReturnPipeline:
         return matured
 
 
+class StagedTrajectoryPipeline:
+    """Packed mutable trajectory storage finalized before replay insertion.
+
+    In legacy mode a trajectory still closes at the historical combat terminal;
+    later rollout phases can keep the same storage open across enemy deaths.
+    """
+
+    def __init__(
+        self,
+        *,
+        gamma: float,
+        reward_weights: Mapping[str, float] | None = None,
+        mode: str = REWARD_MODE_LEGACY,
+    ):
+        self.gamma = _validate_gamma(gamma)
+        self.discount_cutoff_frames = discount_cutoff_frames(self.gamma)
+        self.reward_weights = normalize_reward_weights(reward_weights or {})
+        if mode not in REWARD_MODES:
+            raise ValueError("unsupported reward mode")
+        self.mode = str(mode)
+        self._cutoff_discount = self.gamma ** self.discount_cutoff_frames
+        self.trajectory_id: str | None = None
+        self._observation_size: int | None = None
+        self._observations = array("f")
+        self._actions = array("i")
+        self._frame_ids = array("q")
+        self._components = array("d")
+        self._shadow_components = (
+            array("d") if self.mode == REWARD_MODE_SHADOW else None
+        )
+        self._frame_to_index: dict[int, int] = {}
+        self._outcome_count = 0
+        self._closed = False
+        self.peak_staged_frames = 0
+        self.peak_staged_bytes = 0
+        self.finalization_seconds = 0.0
+        self.last_shadow_samples: tuple[MatureTrainingSample, ...] = ()
+        self.last_shadow_comparison: ShadowReturnComparison | None = None
+        self._diagnostics = None
+
+    @property
+    def pending_count(self) -> int:
+        return len(self._frame_ids)
+
+    @property
+    def is_open(self) -> bool:
+        return bool(self._frame_ids) and not self._closed
+
+    @property
+    def staged_storage_bytes(self) -> int:
+        return (
+            len(self._observations) * self._observations.itemsize
+            + len(self._actions) * self._actions.itemsize
+            + len(self._frame_ids) * self._frame_ids.itemsize
+            + len(self._components) * self._components.itemsize
+            + (
+                len(self._shadow_components) * self._shadow_components.itemsize
+                if self._shadow_components is not None
+                else 0
+            )
+        )
+
+    def reset(self) -> None:
+        self.trajectory_id = None
+        self._observation_size = None
+        self._observations = array("f")
+        self._actions = array("i")
+        self._frame_ids = array("q")
+        self._components = array("d")
+        self._shadow_components = (
+            array("d") if self.mode == REWARD_MODE_SHADOW else None
+        )
+        self._frame_to_index.clear()
+        self._outcome_count = 0
+        self._closed = False
+        self._diagnostics = None
+
+    def stage_decision(
+        self,
+        decision: RewardDecisionFrame,
+        *,
+        trajectory_id: str | None = None,
+    ) -> int:
+        if self._closed:
+            raise RuntimeError("cannot stage a decision after trajectory closure")
+        frame_id = int(decision.frame_id)
+        existing = self._frame_to_index.get(frame_id)
+        if existing is not None:
+            return existing
+        if self._frame_ids and frame_id <= self._frame_ids[-1]:
+            raise ValueError("staged decision frame IDs must increase")
+        if self.trajectory_id is None:
+            self.trajectory_id = str(trajectory_id) if trajectory_id is not None else None
+        elif trajectory_id is not None and str(trajectory_id) != self.trajectory_id:
+            raise ValueError("cannot mix reward trajectories in staged storage")
+
+        observation = tuple(float(value) for value in decision.observation)
+        if self._observation_size is None:
+            self._observation_size = len(observation)
+        elif len(observation) != self._observation_size:
+            raise ValueError("staged observations must have a stable width")
+
+        index = len(self._frame_ids)
+        self._frame_to_index[frame_id] = index
+        self._observations.extend(observation)
+        self._actions.append(int(decision.action_index))
+        self._frame_ids.append(frame_id)
+        self._components.extend((0.0,) * _REWARD_COMPONENT_COUNT)
+        if self._shadow_components is not None:
+            self._shadow_components.extend((0.0,) * _REWARD_COMPONENT_COUNT)
+        self.peak_staged_frames = max(self.peak_staged_frames, self.pending_count)
+        self.peak_staged_bytes = max(self.peak_staged_bytes, self.staged_storage_bytes)
+        return index
+
+    def add_frame(
+        self,
+        decision: RewardDecisionFrame,
+        outcome: RewardFrameOutcome,
+        *,
+        ledger=None,
+    ) -> list[MatureTrainingSample]:
+        if decision.frame_id != outcome.frame_id:
+            raise ValueError("decision and outcome frame IDs must match")
+        index = self.stage_decision(decision)
+        if index != self._outcome_count:
+            raise ValueError("outcomes must be added once in staged decision order")
+        components = _calculate_immediate_reward_component_vector(decision, outcome)
+        offset = index * _REWARD_COMPONENT_COUNT
+        self._components[offset : offset + _REWARD_COMPONENT_COUNT] = array(
+            "d", components
+        )
+        if self._shadow_components is not None:
+            self._shadow_components[
+                offset : offset + _REWARD_COMPONENT_COUNT
+            ] = array("d", components)
+        if ledger is not None:
+            self._diagnostics = ledger.diagnostics
+            ledger.diagnostics.peak_staged_frames = max(
+                ledger.diagnostics.peak_staged_frames,
+                self.peak_staged_frames,
+            )
+            ledger.diagnostics.peak_staged_bytes = max(
+                ledger.diagnostics.peak_staged_bytes,
+                self.peak_staged_bytes,
+            )
+            if self.mode in {REWARD_MODE_CAUSAL, REWARD_MODE_SHADOW}:
+                _route_causal_event_components(
+                    self,
+                    decision,
+                    outcome,
+                    ledger,
+                )
+        self._outcome_count += 1
+        if outcome.terminal:
+            return self._finalize(end_frame_id=outcome.frame_id, terminal=True)
+        return []
+
+    def add_component_at_frame(
+        self,
+        frame_id: int,
+        component: str,
+        amount: float,
+    ) -> None:
+        index = self._frame_to_index.get(int(frame_id))
+        if index is None:
+            raise KeyError(f"origin frame {frame_id} is not staged")
+        component_index = _REWARD_COMPONENT_INDEX[component]
+        offset = index * _REWARD_COMPONENT_COUNT + component_index
+        self._components[offset] += float(amount)
+
+    def _add_shadow_component_at_frame(
+        self,
+        frame_id: int,
+        component: str,
+        amount: float,
+    ) -> None:
+        if self._shadow_components is None:
+            raise RuntimeError("shadow components require shadow reward mode")
+        index = self._frame_to_index.get(int(frame_id))
+        if index is None:
+            raise KeyError(f"origin frame {frame_id} is not staged")
+        component_index = _REWARD_COMPONENT_INDEX[component]
+        offset = index * _REWARD_COMPONENT_COUNT + component_index
+        self._shadow_components[offset] += float(amount)
+
+    def immediate_components_for_frame(self, frame_id: int) -> dict[str, float]:
+        index = self._frame_to_index[int(frame_id)]
+        offset = index * _REWARD_COMPONENT_COUNT
+        return _component_dict_from_vector(
+            self._components[offset : offset + _REWARD_COMPONENT_COUNT]
+        )
+
+    def shadow_immediate_components_for_frame(
+        self, frame_id: int
+    ) -> dict[str, float]:
+        if self._shadow_components is None:
+            raise RuntimeError("shadow components require shadow reward mode")
+        index = self._frame_to_index[int(frame_id)]
+        offset = index * _REWARD_COMPONENT_COUNT
+        return _component_dict_from_vector(
+            self._shadow_components[offset : offset + _REWARD_COMPONENT_COUNT]
+        )
+
+    def flush_pending(self, *, end_frame_id: int) -> list[MatureTrainingSample]:
+        if self._closed:
+            raise RuntimeError("cannot flush after trajectory closure")
+        return self._finalize(end_frame_id=end_frame_id, terminal=True)
+
+    def _finalize(
+        self,
+        *,
+        end_frame_id: int,
+        terminal: bool,
+    ) -> list[MatureTrainingSample]:
+        started_at = time.perf_counter()
+        if self._outcome_count != self.pending_count:
+            raise RuntimeError("cannot finalize a trajectory with an open decision frame")
+        frame_count = self.pending_count
+        if frame_count == 0:
+            self._closed = True
+            return []
+
+        totals = self._discounted_totals(self._components, frame_count)
+        samples = self._samples_from_totals(
+            totals,
+            frame_count=frame_count,
+            end_frame_id=end_frame_id,
+            terminal=terminal,
+        )
+        shadow_samples: list[MatureTrainingSample] = []
+        shadow_comparison = None
+        if self.mode == REWARD_MODE_SHADOW:
+            if self._shadow_components is None:
+                raise RuntimeError("shadow component storage is not initialized")
+            shadow_totals = self._discounted_totals(
+                self._shadow_components,
+                frame_count,
+            )
+            shadow_samples = self._samples_from_totals(
+                shadow_totals,
+                frame_count=frame_count,
+                end_frame_id=end_frame_id,
+                terminal=terminal,
+            )
+            shadow_comparison = summarize_shadow_returns(samples, shadow_samples)
+
+        elapsed = time.perf_counter() - started_at
+        self.finalization_seconds += elapsed
+        diagnostics = self._diagnostics
+        if diagnostics is not None:
+            diagnostics.finalized_trajectory_lengths.append(frame_count)
+            diagnostics.finalization_seconds.append(elapsed)
+            if shadow_comparison is not None:
+                diagnostics.shadow_comparison_count += 1
+                diagnostics.shadow_comparisons.append(shadow_comparison)
+                diagnostics.last_shadow_comparison = shadow_comparison
+        self.reset()
+        self.last_shadow_samples = tuple(shadow_samples)
+        self.last_shadow_comparison = shadow_comparison
+        self._closed = True
+        return samples
+
+    def _discounted_totals(
+        self,
+        component_buffer: array,
+        frame_count: int,
+    ) -> list[list[float]]:
+        totals: list[list[float]] = [
+            [0.0] * _REWARD_COMPONENT_COUNT for _ in range(frame_count)
+        ]
+        running = [0.0] * _REWARD_COMPONENT_COUNT
+        horizon = self.discount_cutoff_frames
+        for frame_index in range(frame_count - 1, -1, -1):
+            offset = frame_index * _REWARD_COMPONENT_COUNT
+            expired_index = frame_index + horizon
+            expired_offset = expired_index * _REWARD_COMPONENT_COUNT
+            for component_index in range(_REWARD_COMPONENT_COUNT):
+                value = component_buffer[offset + component_index]
+                total = value + self.gamma * running[component_index]
+                if expired_index < frame_count:
+                    total -= (
+                        self._cutoff_discount
+                        * component_buffer[expired_offset + component_index]
+                    )
+                running[component_index] = total
+                totals[frame_index][component_index] = total
+        return totals
+
+    def _samples_from_totals(
+        self,
+        totals: Sequence[Sequence[float]],
+        *,
+        frame_count: int,
+        end_frame_id: int,
+        terminal: bool,
+    ) -> list[MatureTrainingSample]:
+        observation_size = int(self._observation_size or 0)
+        samples: list[MatureTrainingSample] = []
+        horizon = self.discount_cutoff_frames
+        for index in range(frame_count):
+            actual_frame_count = min(horizon, frame_count - index)
+            sample_end_index = index + actual_frame_count - 1
+            observation_offset = index * observation_size
+            decision = RewardDecisionFrame(
+                frame_id=int(self._frame_ids[index]),
+                observation=tuple(
+                    self._observations[
+                        observation_offset : observation_offset + observation_size
+                    ]
+                ),
+                action_index=int(self._actions[index]),
+            )
+            samples.append(
+                _sample_from_component_vector(
+                    decision,
+                    totals[index],
+                    self.reward_weights,
+                    end_frame_id=int(self._frame_ids[sample_end_index]),
+                    actual_frame_count=actual_frame_count,
+                    terminal_truncated=terminal and actual_frame_count < horizon,
+                )
+            )
+        return samples
+
+
+def summarize_shadow_returns(
+    baseline_samples: Sequence[MatureTrainingSample],
+    proposed_samples: Sequence[MatureTrainingSample],
+) -> ShadowReturnComparison:
+    """Summarize aligned legacy and causal targets without retaining rollouts."""
+
+    baseline = tuple(baseline_samples)
+    proposed = tuple(proposed_samples)
+    if len(baseline) != len(proposed):
+        raise ValueError("shadow sample sets must have equal lengths")
+    for old, new in zip(baseline, proposed):
+        if (
+            old.start_frame_id != new.start_frame_id
+            or old.action_index != new.action_index
+        ):
+            raise ValueError("shadow sample sets must be frame/action aligned")
+
+    def comparison(old_values, new_values):
+        old_values = tuple(float(value) for value in old_values)
+        new_values = tuple(float(value) for value in new_values)
+        return ReturnComparisonSummary(
+            baseline=_distribution_summary(old_values),
+            proposed=_distribution_summary(new_values),
+            delta=_distribution_summary(
+                tuple(new - old for old, new in zip(old_values, new_values))
+            ),
+        )
+
+    overall = comparison(
+        (sample.return_value for sample in baseline),
+        (sample.return_value for sample in proposed),
+    )
+    by_component = {
+        component: comparison(
+            (sample.component_values[component] for sample in baseline),
+            (sample.component_values[component] for sample in proposed),
+        )
+        for component in REWARD_COMPONENTS
+    }
+    actions = sorted({sample.action_index for sample in baseline})
+    by_action = {}
+    by_component_and_action = {}
+    for action in actions:
+        old_action = tuple(
+            sample for sample in baseline if sample.action_index == action
+        )
+        new_action = tuple(
+            sample for sample in proposed if sample.action_index == action
+        )
+        by_action[action] = comparison(
+            (sample.return_value for sample in old_action),
+            (sample.return_value for sample in new_action),
+        )
+        for component in REWARD_COMPONENTS:
+            by_component_and_action[(component, action)] = comparison(
+                (sample.component_values[component] for sample in old_action),
+                (sample.component_values[component] for sample in new_action),
+            )
+    return ShadowReturnComparison(
+        sample_count=len(baseline),
+        overall=overall,
+        by_component=by_component,
+        by_action=by_action,
+        by_component_and_action=by_component_and_action,
+    )
+
+
+def _distribution_summary(values: Sequence[float]) -> ReturnDistributionSummary:
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return ReturnDistributionSummary(0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    return ReturnDistributionSummary(
+        count=len(ordered),
+        mean=sum(ordered) / len(ordered),
+        p50=_linear_percentile(ordered, 0.50),
+        p95=_linear_percentile(ordered, 0.95),
+        p99=_linear_percentile(ordered, 0.99),
+        minimum=ordered[0],
+        maximum=ordered[-1],
+        maximum_absolute=max(abs(value) for value in ordered),
+    )
+
+
+def _linear_percentile(ordered: Sequence[float], quantile: float) -> float:
+    if len(ordered) == 1:
+        return float(ordered[0])
+    position = (len(ordered) - 1) * float(quantile)
+    lower = int(math.floor(position))
+    upper = int(math.ceil(position))
+    if lower == upper:
+        return float(ordered[lower])
+    fraction = position - lower
+    return float(ordered[lower]) + (
+        float(ordered[upper]) - float(ordered[lower])
+    ) * fraction
+
 def normalize_reward_weights(weights: Mapping[str, float]) -> dict[str, float]:
     normalized = {}
     for component in REWARD_COMPONENTS:
@@ -490,6 +951,115 @@ def _calculate_immediate_reward_component_vector(
                 components[_REWARD_COMPONENT_INDEX[REWARD_DIE]] += 1.0
 
     return tuple(components)
+
+
+def _route_causal_event_components(
+    pipeline: StagedTrajectoryPipeline,
+    decision: RewardDecisionFrame,
+    outcome: RewardFrameOutcome,
+    ledger,
+) -> None:
+    """Relocate covered positive effects after their legacy amount is known."""
+
+    for event in outcome.events:
+        source_ability = str(
+            event.metadata.get("source_ability_name")
+            or event.ability_name
+            or ""
+        )
+        source_owner = event.metadata.get("source_owner") or event.actor
+        source_type = event.metadata.get("source_type") or getattr(
+            event.obj, "type", None
+        )
+        expected_ability = (
+            source_type in {"projectile", "special_object", "laser", "area"}
+            and source_ability != "ChmmrSatellite"
+        )
+        has_credit = event.metadata.get("reward_credit") is not None
+        if not has_credit and (
+            not expected_ability
+            or not _same_entity(source_owner, decision.self_ship)
+        ):
+            continue
+        contributions = _routeable_positive_event_components(decision, event)
+        for component, amount in contributions.items():
+            if amount <= 0.0:
+                continue
+            credit = ledger.resolve_event_credit(
+                event,
+                component=component,
+                expected=expected_ability,
+            )
+            if credit is None:
+                continue
+            if any(
+                int(origin.frame_index) not in pipeline._frame_to_index
+                for origin in credit.origins
+            ):
+                ledger.diagnostics.missing_provenance[source_ability] += 1
+                continue
+
+            effect_index = pipeline._frame_to_index[int(decision.frame_id)]
+            component_index = _REWARD_COMPONENT_INDEX[component]
+            effect_offset = effect_index * _REWARD_COMPONENT_COUNT + component_index
+            if pipeline.mode == REWARD_MODE_SHADOW:
+                if pipeline._shadow_components is None:
+                    raise RuntimeError("shadow component storage is not initialized")
+                pipeline._shadow_components[effect_offset] -= float(amount)
+                for origin in credit.origins:
+                    pipeline._add_shadow_component_at_frame(
+                        origin.frame_index,
+                        component,
+                        float(amount) * float(origin.weight),
+                    )
+            if pipeline.mode == REWARD_MODE_CAUSAL:
+                pipeline._components[effect_offset] -= float(amount)
+                for origin in credit.origins:
+                    pipeline.add_component_at_frame(
+                        origin.frame_index,
+                        component,
+                        float(amount) * float(origin.weight),
+                    )
+
+
+def _routeable_positive_event_components(
+    decision: RewardDecisionFrame,
+    event: TrainingBattleEvent,
+) -> dict[str, float]:
+    self_ship = decision.self_ship
+    enemy_ship = decision.enemy_ship
+    contributions: dict[str, float] = {}
+    if event.event_type == EVENT_CREW_CHANGED:
+        if _same_entity(event.target, enemy_ship) and event.magnitude < 0:
+            contributions[REWARD_ENEMY_LOSES_CREW] = (
+                -float(event.magnitude) * _source_reward_credit(event)
+            )
+    elif event.event_type == EVENT_DEBUFF_APPLIED:
+        if _same_entity(event.target, enemy_ship) and event.magnitude > 0:
+            contributions[REWARD_DEBUFF_ENEMY] = float(event.magnitude)
+    elif event.event_type == EVENT_OBJECT_REMOVED:
+        if _is_chmmr_satellite_event(event):
+            if (
+                event.destroyed
+                and _same_entity(event.owner, enemy_ship)
+                and _same_entity(_removal_source_owner(event), self_ship)
+            ):
+                contributions[REWARD_KILL_ENEMY] = 0.5
+        elif _object_removed_by_owner_weapon(event, enemy_ship, self_ship):
+            contributions[REWARD_KILL_ENEMY_OBJECT] = 1.0
+    elif event.event_type == EVENT_OBJECT_HP_CHANGED:
+        if (
+            _is_chmmr_satellite_event(event)
+            and _same_entity(event.owner, enemy_ship)
+            and _same_entity(event.actor, self_ship)
+        ):
+            contributions[REWARD_ENEMY_LOSES_CREW] = (
+                max(0.0, -float(event.magnitude)) * 0.5
+            )
+    elif event.event_type == EVENT_SHIP_DIED:
+        if _same_entity(event.target, enemy_ship):
+            contributions[REWARD_KILL_ENEMY] = _enemy_death_reward_credit(event)
+    return contributions
 
 
 def calculate_reward_components(

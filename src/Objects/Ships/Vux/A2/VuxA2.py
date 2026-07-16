@@ -65,7 +65,7 @@ class VuxA2(Ability):
 
     def handle_ship_contact(self, ship, normal=None):
         if hasattr(ship, "attach_limpet"):
-            ship.attach_limpet()
+            ship.attach_limpet(source=self)
         if getattr(self, "bite_sound", None):
             self.bite_sound.play()
 

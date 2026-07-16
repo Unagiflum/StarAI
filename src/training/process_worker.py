@@ -49,6 +49,7 @@ from src.training.worker_protocol import (
     COMMAND_START_RUN,
     COMMAND_START_WINDOW,
     COMMAND_STEP_FRAME,
+    REPLAY_TRANSFER_CHUNK_SIZE,
     RESULT_WORKER_STOPPED,
     DisplayBufferSpec,
     FinishWindowCommand,
@@ -131,10 +132,23 @@ class _ReplaySampleCollector:
             self._samples.append(replay_sample)
             self._pending.append(replay_sample)
 
-    def drain_pending(self) -> tuple[ReplayTransferSample, ...]:
-        samples = tuple(self._pending)
-        self._pending.clear()
+    def drain_pending(
+        self,
+        limit: int = REPLAY_TRANSFER_CHUNK_SIZE,
+    ) -> tuple[ReplayTransferSample, ...]:
+        count = min(len(self._pending), max(1, int(limit)))
+        samples = tuple(self._pending[:count])
+        del self._pending[:count]
         return samples
+
+    def drain_pending_chunks(
+        self,
+        chunk_size: int = REPLAY_TRANSFER_CHUNK_SIZE,
+    ) -> tuple[tuple[ReplayTransferSample, ...], ...]:
+        chunks = []
+        while self._pending:
+            chunks.append(self.drain_pending(chunk_size))
+        return tuple(chunks)
 
 
 class CoordinatedSimulationWorker:
@@ -444,7 +458,7 @@ class CoordinatedSimulationWorker:
         if collector is None:
             raise RuntimeError("worker replay collector is not initialized")
         result = finish_coordinated_window(runtime)
-        mature_samples = collector.drain_pending()
+        mature_sample_chunks = collector.drain_pending_chunks()
         self._runtime = None
         self._collector = None
         self._round_index = None
@@ -455,7 +469,7 @@ class CoordinatedSimulationWorker:
             record_id=int(command.record_id),
             round_index=int(command.round_index),
             result=result,
-            mature_samples=mature_samples,
+            mature_sample_chunks=mature_sample_chunks,
         )
 
     def _ensure_record(self, record_id: int) -> None:

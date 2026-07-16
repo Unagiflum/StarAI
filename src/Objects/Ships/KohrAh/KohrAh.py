@@ -56,7 +56,7 @@ class KohrAh(SpaceShip):
         ]
         for proj in self.active_projectiles:
             proj.stop_and_track()
-        return None
+        return tuple(self.active_projectiles)
 
     def plan_action2(self):
         return self.validate_action(

@@ -22,6 +22,7 @@ from src.turn_credits import (
 from src.audio import compatibility_audio_service
 from src.toroidal import nearest_position, wrapped_delta
 from src.Objects.Ships.launch_geometry import gun_world_position, place_projectile_at_gun
+from src.training import event_ledger
 
 
 SPECIAL_OBJECT_AREA_IMMUNITIES = frozenset({"SlylandroA2", "SyreenA2"})
@@ -85,6 +86,7 @@ class Ability(PlayerObject):
 
         # Rest of initialization code
         self.parent = parent
+        event_ledger.inherit_credit(self, parent)
         self.opponent = self.parent.opponent
         self.planet = self.parent.planet
         self.projectile_name = ability_name

@@ -57,6 +57,7 @@ class MelnormeA2(Ability):
             self.effect_frames,
             self.effect_duration,
             turn_direction=direction,
+            source=self,
         )
         self.current_hp = 0
         self.currently_alive = False
