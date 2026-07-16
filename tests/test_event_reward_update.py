@@ -36,6 +36,7 @@ from src.training.rewards import (
     REWARD_ENEMY_LOSES_CREW,
     REWARD_KILL_ENEMY,
     REWARD_KILL_ENEMY_OBJECT,
+    REWARD_LOSE_CREW,
     REWARD_POINT_A1,
     REWARD_SPAWN_A1,
     RewardDecisionFrame,
@@ -96,6 +97,26 @@ class CausalCreditContractTests(unittest.TestCase):
         event_ledger.inherit_credit(child, source)
         child.parent = None
         self.assertIs(reward_credit_for(child), credit)
+
+    def test_credited_derived_object_gets_its_own_later_spawn_stamp(self):
+        trainee = SimpleNamespace()
+        fighter = SimpleNamespace(parent=trainee)
+        child = SimpleNamespace(
+            name="KzerZaA2Laser",
+            type="laser",
+            parent=fighter,
+        )
+        ledger = event_ledger.BattleEventLedger()
+        ledger.start_reward_trajectory(trainee, trajectory_id="trajectory")
+        ledger.begin_decision(trainee, 1, 0)
+        ledger.bind_committed_action(trainee, 2, (fighter,))
+        event_ledger.inherit_credit(child, fighter)
+
+        ledger.current_frame = 2
+        ledger.record_object_spawned(child)
+
+        self.assertEqual(event_ledger.spawn_stamp_for(fighter), (1, 1))
+        self.assertEqual(event_ledger.spawn_stamp_for(child), (2, 2))
 
     def test_closed_origin_is_rejected_and_diagnosed(self):
         trainee = SimpleNamespace()
@@ -594,6 +615,285 @@ class LongLivedAbilityRoutingTests(unittest.TestCase):
         self.assertEqual(
             self.ledger.diagnostics.cross_enemy_death_effects["ChenjesuA2"],
             1,
+        )
+
+
+class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
+    def setUp(self):
+        self.trainee = SimpleNamespace(name="KzerZa", current_hp=10)
+        self.enemy = SimpleNamespace(name="Earthling", current_hp=10)
+        self.ledger = event_ledger.BattleEventLedger()
+        event_ledger.bind_ledger(self.trainee, self.ledger)
+        self.ledger.start_reward_trajectory(
+            self.trainee,
+            trajectory_id="trajectory",
+        )
+
+    def decision(self, frame_id):
+        return RewardDecisionFrame(
+            frame_id,
+            (float(frame_id),),
+            frame_id % 16,
+            self_ship=self.trainee,
+            enemy_ship=self.enemy,
+        )
+
+    def launch(self, pipeline, obj, frame_id, action_number):
+        decision = self.decision(frame_id)
+        self.ledger.current_frame = frame_id
+        self.ledger.begin_decision(
+            self.trainee,
+            frame_id,
+            decision.action_index,
+            reward_mode=pipeline.mode,
+        )
+        pipeline.stage_decision(decision, trajectory_id="trajectory")
+        self.ledger.bind_committed_action(
+            self.trainee,
+            action_number,
+            (obj,),
+        )
+        pipeline.add_frame(
+            decision,
+            RewardFrameOutcome(frame_id),
+            ledger=self.ledger,
+        )
+
+    def add_loss(self, pipeline, unit, frame_id, *, source=None):
+        decision = self.decision(frame_id)
+        self.ledger.current_frame = frame_id
+        self.ledger.begin_decision(
+            self.trainee,
+            frame_id,
+            decision.action_index,
+            reward_mode=pipeline.mode,
+        )
+        event_ledger.record_launched_crew_lost(
+            unit,
+            source=unit if source is None else source,
+        )
+        event = self.ledger.events[-1]
+        pipeline.stage_decision(decision, trajectory_id="trajectory")
+        pipeline.add_frame(
+            decision,
+            RewardFrameOutcome(frame_id, events=(event,)),
+            ledger=self.ledger,
+        )
+        return event
+
+    def test_natural_loss_moves_to_fighter_launch_in_live_causal_mode(self):
+        fighter = SimpleNamespace(
+            name="KzerZaA2",
+            type="special_object",
+            parent=self.trainee,
+        )
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
+        self.launch(pipeline, fighter, 1, 2)
+        self.add_loss(pipeline, fighter, 2)
+
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            1.0,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
+            0.0,
+        )
+        self.assertEqual(
+            self.ledger.diagnostics.launched_crew_loss_routes["natural"],
+            1,
+        )
+
+    def test_external_loss_moves_to_fighter_launch(self):
+        fighter = SimpleNamespace(
+            name="OrzA3",
+            type="special_object",
+            parent=self.trainee,
+        )
+        enemy_shot = SimpleNamespace(
+            name="EarthlingA2",
+            type="laser",
+            parent=self.enemy,
+        )
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
+        self.launch(pipeline, fighter, 1, 3)
+        self.add_loss(pipeline, fighter, 2, source=enemy_shot)
+
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            1.0,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
+            0.0,
+        )
+        self.assertEqual(
+            self.ledger.diagnostics.launched_crew_loss_routes["external"],
+            1,
+        )
+
+    def test_later_friendly_projectile_launch_receives_loss(self):
+        fighter = SimpleNamespace(
+            name="KzerZaA2",
+            type="special_object",
+            parent=self.trainee,
+        )
+        projectile = SimpleNamespace(
+            name="KzerZaA1",
+            type="projectile",
+            parent=self.trainee,
+        )
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
+        self.launch(pipeline, fighter, 1, 2)
+        self.launch(pipeline, projectile, 2, 1)
+        self.add_loss(pipeline, fighter, 3, source=projectile)
+
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            0.0,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
+            1.0,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(3)[REWARD_LOSE_CREW],
+            0.0,
+        )
+
+    def test_later_fighter_launch_receives_friendly_fire_loss(self):
+        projectile = SimpleNamespace(
+            name="KzerZaA1",
+            type="projectile",
+            parent=self.trainee,
+        )
+        fighter = SimpleNamespace(
+            name="KzerZaA2",
+            type="special_object",
+            parent=self.trainee,
+        )
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
+        self.launch(pipeline, projectile, 1, 1)
+        self.launch(pipeline, fighter, 2, 2)
+        self.add_loss(pipeline, fighter, 3, source=projectile)
+
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            0.0,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
+            1.0,
+        )
+
+    def test_same_spawn_stamp_splits_friendly_fire_loss(self):
+        fighter = SimpleNamespace(
+            name="KzerZaA2",
+            type="special_object",
+            parent=self.trainee,
+            _training_spawn_stamp=(2, 1),
+        )
+        projectile = SimpleNamespace(
+            name="KzerZaA1",
+            type="projectile",
+            parent=self.trainee,
+            _training_spawn_stamp=(2, 1),
+        )
+        event_ledger.bind_reward_credit(
+            fighter,
+            full_weight_credit("trajectory", 1),
+        )
+        event_ledger.bind_reward_credit(
+            projectile,
+            full_weight_credit("trajectory", 2),
+        )
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
+        for frame_id in (1, 2):
+            decision = self.decision(frame_id)
+            self.ledger.begin_decision(self.trainee, frame_id, 0)
+            pipeline.stage_decision(decision, trajectory_id="trajectory")
+            pipeline.add_frame(
+                decision,
+                RewardFrameOutcome(frame_id),
+                ledger=self.ledger,
+            )
+        self.add_loss(pipeline, fighter, 3, source=projectile)
+
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            0.5,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
+            0.5,
+        )
+
+    def test_closed_launch_provenance_omits_loss(self):
+        fighter = SimpleNamespace(
+            name="KzerZaA2",
+            type="special_object",
+            parent=self.trainee,
+            _training_spawn_stamp=(1, 1),
+        )
+        event_ledger.bind_reward_credit(
+            fighter,
+            full_weight_credit("closed-trajectory", 1),
+        )
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
+        self.add_loss(pipeline, fighter, 1)
+
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            0.0,
+        )
+        self.assertEqual(
+            self.ledger.diagnostics.launched_crew_loss_routes["closed"],
+            1,
+        )
+
+    def test_missing_launch_provenance_keeps_loss_on_death_frame(self):
+        fighter = SimpleNamespace(
+            name="KzerZaA2",
+            type="special_object",
+            parent=self.trainee,
+        )
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
+        self.add_loss(pipeline, fighter, 1)
+
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            1.0,
+        )
+        self.assertEqual(
+            self.ledger.diagnostics.launched_crew_loss_routes["missing_unit"],
+            1,
+        )
+
+    def test_shadow_mode_keeps_loss_on_death_frame(self):
+        fighter = SimpleNamespace(
+            name="KzerZaA2",
+            type="special_object",
+            parent=self.trainee,
+        )
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="shadow")
+        self.launch(pipeline, fighter, 1, 2)
+        self.add_loss(pipeline, fighter, 2)
+
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            0.0,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
+            1.0,
+        )
+        self.assertEqual(
+            pipeline.shadow_immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            0.0,
+        )
+        self.assertEqual(
+            pipeline.shadow_immediate_components_for_frame(2)[REWARD_LOSE_CREW],
+            1.0,
         )
 
 

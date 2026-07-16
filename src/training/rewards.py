@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import src.const as const
 from src.training import combat_adapters
 from src.training.causal_credit import (
+    AbilityRewardCredit,
     REWARD_MODE_CAUSAL,
     REWARD_MODE_LEGACY,
     REWARD_MODE_SHADOW,
@@ -963,6 +964,17 @@ def _route_causal_event_components(
     """Relocate covered positive effects after their legacy amount is known."""
 
     for event in outcome.events:
+        if (
+            pipeline.mode == REWARD_MODE_CAUSAL
+            and _is_own_launched_crew_loss(decision, event)
+        ):
+            _route_own_launched_crew_loss(
+                pipeline,
+                decision,
+                event,
+                ledger,
+            )
+            continue
         source_ability = str(
             event.metadata.get("source_ability_name")
             or event.ability_name
@@ -1021,6 +1033,162 @@ def _route_causal_event_components(
                         component,
                         float(amount) * float(origin.weight),
                     )
+
+
+def _is_own_launched_crew_loss(
+    decision: RewardDecisionFrame,
+    event: TrainingBattleEvent,
+) -> bool:
+    metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
+    return bool(
+        event.event_type == EVENT_CREW_CHANGED
+        and event.magnitude < 0
+        and _same_entity(event.target, decision.self_ship)
+        and metadata.get("launched_crew_loss")
+    )
+
+
+def _route_own_launched_crew_loss(
+    pipeline: StagedTrajectoryPipeline,
+    decision: RewardDecisionFrame,
+    event: TrainingBattleEvent,
+    ledger,
+) -> None:
+    """Move a permanent launched-unit loss to its selected causal launch."""
+
+    amount = -float(event.magnitude)
+    status, destinations = _own_launched_crew_loss_destinations(
+        decision,
+        event,
+        ledger,
+    )
+    if status == "closed":
+        _adjust_effect_component(
+            pipeline,
+            decision.frame_id,
+            REWARD_LOSE_CREW,
+            -amount,
+        )
+        return
+    if status != "open":
+        return
+
+    if any(
+        int(origin.frame_index) not in pipeline._frame_to_index
+        for credit, _ in destinations
+        for origin in credit.origins
+    ):
+        ability = str(
+            event.metadata.get("launched_unit_ability_name") or "unknown"
+        )
+        ledger.diagnostics.missing_provenance[ability] += 1
+        ledger.diagnostics.launched_crew_loss_routes["missing_origin_frame"] += 1
+        return
+
+    _adjust_effect_component(
+        pipeline,
+        decision.frame_id,
+        REWARD_LOSE_CREW,
+        -amount,
+    )
+    for credit, destination_weight in destinations:
+        for origin in credit.origins:
+            pipeline.add_component_at_frame(
+                origin.frame_index,
+                REWARD_LOSE_CREW,
+                amount * float(destination_weight) * float(origin.weight),
+            )
+
+
+def _own_launched_crew_loss_destinations(
+    decision: RewardDecisionFrame,
+    event: TrainingBattleEvent,
+    ledger,
+) -> tuple[str, tuple[tuple[AbilityRewardCredit, float], ...]]:
+    metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
+    unit = metadata.get("launched_unit")
+    unit_credit = metadata.get("launched_unit_credit")
+    unit_ability = str(metadata.get("launched_unit_ability_name") or "unknown")
+    if not isinstance(unit_credit, AbilityRewardCredit):
+        ledger.diagnostics.missing_provenance[unit_ability] += 1
+        ledger.diagnostics.launched_crew_loss_routes["missing_unit"] += 1
+        return "missing", ()
+
+    source = metadata.get("source")
+    source_credit = metadata.get("reward_credit")
+    source_owner = metadata.get("source_owner")
+    source_type = metadata.get("source_type")
+    friendly_weapon = bool(
+        source is not None
+        and source is not unit
+        and _same_entity(source_owner, decision.self_ship)
+        and source_type in {"projectile", "special_object", "laser", "area"}
+    )
+
+    route_key = "natural" if source is unit else "external"
+    destinations: tuple[tuple[AbilityRewardCredit, float], ...] = (
+        (unit_credit, 1.0),
+    )
+    if friendly_weapon:
+        if not isinstance(source_credit, AbilityRewardCredit):
+            source_ability = str(
+                metadata.get("source_ability_name") or "unknown"
+            )
+            ledger.diagnostics.missing_provenance[source_ability] += 1
+            ledger.diagnostics.launched_crew_loss_routes[
+                "missing_friendly_source"
+            ] += 1
+            return "missing", ()
+        unit_stamp = _spawn_stamp_from_metadata(
+            metadata.get("launched_unit_spawn_stamp")
+        )
+        source_stamp = _spawn_stamp_from_metadata(
+            metadata.get("source_spawn_stamp")
+        )
+        if unit_stamp is None or source_stamp is None:
+            ledger.diagnostics.missing_provenance[unit_ability] += 1
+            ledger.diagnostics.launched_crew_loss_routes[
+                "missing_spawn_stamp"
+            ] += 1
+            return "missing", ()
+        if unit_stamp > source_stamp:
+            route_key = "friendly_fire_fighter"
+        elif source_stamp > unit_stamp:
+            route_key = "friendly_fire_source"
+            destinations = ((source_credit, 1.0),)
+        else:
+            route_key = "friendly_fire_tie"
+            destinations = ((unit_credit, 0.5), (source_credit, 0.5))
+
+    if any(not ledger.credit_is_open(credit) for credit, _ in destinations):
+        ledger.diagnostics.closed_trajectory_rejections[unit_ability] += 1
+        ledger.diagnostics.launched_crew_loss_routes["closed"] += 1
+        return "closed", ()
+
+    ledger.diagnostics.routed_events[(REWARD_LOSE_CREW, unit_ability)] += 1
+    ledger.diagnostics.launched_crew_loss_routes[route_key] += 1
+    return "open", destinations
+
+
+def _spawn_stamp_from_metadata(value) -> tuple[int, int] | None:
+    if (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and all(isinstance(item, int) for item in value)
+    ):
+        return value
+    return None
+
+
+def _adjust_effect_component(
+    pipeline: StagedTrajectoryPipeline,
+    frame_id: int,
+    component: str,
+    amount: float,
+) -> None:
+    index = pipeline._frame_to_index[int(frame_id)]
+    offset = index * _REWARD_COMPONENT_COUNT + _REWARD_COMPONENT_INDEX[component]
+    pipeline._components[offset] += float(amount)
 
 
 def _routeable_positive_event_components(

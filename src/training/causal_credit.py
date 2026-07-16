@@ -74,6 +74,7 @@ class CausalRewardDiagnostics:
     missing_provenance: Counter[str] = field(default_factory=Counter)
     cross_enemy_death_effects: Counter[str] = field(default_factory=Counter)
     closed_trajectory_rejections: Counter[str] = field(default_factory=Counter)
+    launched_crew_loss_routes: Counter[str] = field(default_factory=Counter)
     peak_staged_frames: int = 0
     peak_staged_bytes: int = 0
     finalized_trajectory_lengths: list[int] = field(default_factory=list)

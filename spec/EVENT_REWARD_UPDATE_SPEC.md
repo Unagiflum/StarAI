@@ -194,9 +194,10 @@ owned by the open trainee reward trajectory.
 
 ### Components That Remain At Their Existing Frames
 
-These components retain their current timing:
+These components retain their current timing unless explicitly excepted below:
 
-- `Lose crew`
+- `Lose crew`, except permanent loss of trainee Kzer-Za A2 fighters and Orz A3
+  marines
 - `Get debuffed`
 - `Die`
 - `Gain crew`
@@ -209,8 +210,32 @@ These components retain their current timing:
 - `Lose crew` and `Die` components caused by damage to or destruction of the
   trainee's own Chmmr satellites
 
-Incoming negative events remain effect-timed so earlier trainee movement and
-avoidance decisions receive ordinary backward credit or penalty.
+Other incoming negative events remain effect-timed so earlier trainee movement
+and avoidance decisions receive ordinary backward credit or penalty.
+
+### Permanent Loss Of Trainee Launched Crew
+
+In live `causal` mode, permanent loss of a trainee Kzer-Za A2 fighter or Orz A3
+marine is an exception to ordinary effect-timed incoming penalties:
+
+- Natural expiration, environmental loss, opponent damage, boarded RNG, host
+  destruction, and other non-trainee causes place `Lose crew` at the lost
+  unit's launch origin.
+- When a trainee-owned projectile, special object, laser, or area effect causes
+  friendly fire, compare the damaging object's spawn stamp with the launched
+  crew unit's spawn stamp. The later spawn owns the loss.
+- A spawn stamp contains both frame and ledger sequence. Equal stamps split the
+  component 50/50 between the two causal credits.
+- The launched unit credit, damaging-source credit, and both spawn stamps are
+  snapshotted on the crew-loss event. Reward origins are not used as a proxy
+  for spawn ordering because an ability may have weighted press/release
+  origins.
+- Missing provenance retains the existing effect-frame component and records a
+  diagnostic. If the selected provenance is closed, omit the component rather
+  than assigning it to the effect frame or another trajectory.
+- `legacy` and `shadow` retain the existing effect-frame `Lose crew` behavior.
+
+Safe return remains a crew transfer and produces no `Lose crew` component.
 
 ### Ownership Requirement
 
@@ -292,7 +317,8 @@ Trainee death, including simultaneous death:
 
 - processes all events from the death frame first;
 - places any outgoing causal rewards generated on that frame;
-- places incoming crew-loss and death penalties on the death frame;
+- places incoming crew-loss and death penalties on the death frame, except for
+  the permanent trainee launched-crew rule above;
 - closes and finalizes the reward trajectory;
 - invalidates every causal origin owned by that trajectory; and
 - starts a fresh trajectory for the replacement trainee on the next decision.
@@ -905,7 +931,7 @@ Work:
 - Route enemy debuff, enemy crew-loss, and enemy-object-kill rewards to launch
   origins.
 - Route lethal kill reward to the final causal source origin.
-- Keep incoming penalties effect-timed.
+- Keep other incoming penalties effect-timed.
 - Remove effect-frame copies of relocated components.
 - Enable diagnostics in production mode.
 - Make the routing available to causal and shadow evaluation; do not make it
@@ -919,6 +945,11 @@ Acceptance:
   both `Kill enemy object` and `Enemy loses crew` at the destroying source's
   origin.
 - Natural loss of a crew-bearing fighter does not fabricate trainee credit.
+- Natural or externally caused permanent loss of trainee launched crew uses
+  the launched unit's origin in live causal mode.
+- Parent friendly fire assigns trainee launched-crew loss to the later spawn,
+  with equal stamps split evenly.
+- Closed selected launched-crew provenance omits the loss component.
 - Frames between launch and effect receive no relocated component.
 - Frames before launch receive correct gamma propagation.
 - Effects across enemy replacement retain the original launch.

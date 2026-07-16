@@ -259,3 +259,29 @@ Status: Implemented and verified.
 - Focused reward/provenance gate: 22 tests passed.
 - Full post-enablement regression gate: `runalltests.cmd` — 1,057 tests passed
   in 12.352 seconds.
+
+## Post-Enablement: Trainee Launched-Crew Loss Attribution
+
+Status: Implemented and verified.
+
+- Added immutable event-time snapshots of the lost unit's credit and spawn
+  stamp alongside the existing destroying-source provenance.
+- Added frame-and-sequence spawn stamps for committed trainee actions,
+  autonomous fire, and credited derived objects entering the world. Objects
+  spawned by one committed action share a stamp.
+- Live causal mode now places natural, environmental, opponent-caused,
+  boarded-RNG, timeout, and other non-trainee Kzer-Za A2/Orz A3 permanent crew
+  losses at the launched unit's origin.
+- Parent friendly fire selects the later fighter or damaging-object spawn;
+  equal stamps split the component evenly between their causal credits.
+- Missing provenance retains effect-frame behavior and is diagnosed. Closed
+  selected provenance removes the component entirely so it cannot leak into a
+  death frame or replacement trajectory.
+- Legacy and shadow component vectors retain effect-frame behavior.
+- Added route diagnostics for natural, external, both friendly-fire orderings,
+  ties, missing provenance, and closed provenance.
+- Focused event-reward gate: 58 tests and 55 subtests passed.
+- Kzer-Za/Orz lifecycle, collision, and ledger regression gate: 109 tests and
+  162 subtests passed.
+- Full regression gate: `runalltests.cmd` - 1,067 tests passed in 12.294
+  seconds.

@@ -71,6 +71,7 @@ class BattleEventLedger:
         self.current_decision_frame: int | None = None
         self.current_action_index: int | None = None
         self.enemy_death_count = 0
+        self._spawn_sequence = 0
         self.diagnostics = CausalRewardDiagnostics()
         self.reward_mode = REWARD_MODE_LEGACY
 
@@ -135,8 +136,10 @@ class BattleEventLedger:
             self.current_decision_frame,
             kind=kind,
         )
+        stamp = self._next_spawn_stamp(self.current_decision_frame)
         for obj in tuple(spawned_objects):
             bind_reward_credit(obj, credit)
+            _bind_spawn_stamp(obj, stamp)
             obj._training_origin_enemy_death_count = self.enemy_death_count
 
     def bind_autonomous_fire(self, obj, root_parent) -> AbilityRewardCredit | None:
@@ -153,8 +156,17 @@ class BattleEventLedger:
         )
         bound = bind_reward_credit(obj, credit)
         if bound is not None:
+            _bind_spawn_stamp(
+                obj,
+                self._next_spawn_stamp(self.current_decision_frame),
+            )
             obj._training_origin_enemy_death_count = self.enemy_death_count
         return bound
+
+    def _next_spawn_stamp(self, frame_index: int | None = None) -> tuple[int, int]:
+        self._spawn_sequence += 1
+        frame = self.current_frame if frame_index is None else frame_index
+        return int(frame), self._spawn_sequence
 
     def resolve_event_credit(
         self,
@@ -193,6 +205,12 @@ class BattleEventLedger:
     def record_object_spawned(self, obj) -> TrainingBattleEvent | None:
         if not _is_reward_relevant_object(obj):
             return None
+        if (
+            reward_credit_for(obj) is not None
+            and _root_owner(obj) is self.trainee_ship
+            and spawn_stamp_for(obj) is None
+        ):
+            _bind_spawn_stamp(obj, self._next_spawn_stamp())
         return self.append(
             EVENT_OBJECT_SPAWNED,
             actor=_root_owner(obj),
@@ -289,7 +307,15 @@ class BattleEventLedger:
             },
         )
 
-    def record_crew_changed(self, ship, delta: float, *, actor=None, source=None):
+    def record_crew_changed(
+        self,
+        ship,
+        delta: float,
+        *,
+        actor=None,
+        source=None,
+        metadata: dict[str, Any] | None = None,
+    ):
         if delta == 0:
             return None
         source_credit = _source_reward_credit(source)
@@ -305,6 +331,7 @@ class BattleEventLedger:
             metadata={
                 **self._source_metadata(source, _root_owner(source)),
                 "source_credit": source_credit,
+                **(metadata or {}),
             },
         )
         if delta < 0:
@@ -407,6 +434,9 @@ class BattleEventLedger:
                 getattr(source, "_training_origin_enemy_death_count", 0)
             )
             metadata["effect_enemy_death_count"] = self.enemy_death_count
+        stamp = spawn_stamp_for(source)
+        if stamp is not None:
+            metadata["source_spawn_stamp"] = stamp
         return metadata
 
 
@@ -427,6 +457,30 @@ def bind_ledger(obj, ledger: BattleEventLedger | None) -> None:
         setattr(obj, "_training_event_ledger", ledger)
     except Exception:
         return
+
+
+_SPAWN_STAMP_ATTRIBUTE = "_training_spawn_stamp"
+
+
+def spawn_stamp_for(obj) -> tuple[int, int] | None:
+    stamp = getattr(obj, _SPAWN_STAMP_ATTRIBUTE, None)
+    if (
+        isinstance(stamp, tuple)
+        and len(stamp) == 2
+        and all(isinstance(value, int) for value in stamp)
+    ):
+        return stamp
+    return None
+
+
+def _bind_spawn_stamp(obj, stamp: tuple[int, int]) -> tuple[int, int] | None:
+    if obj is None:
+        return None
+    try:
+        setattr(obj, _SPAWN_STAMP_ATTRIBUTE, stamp)
+    except Exception:
+        return None
+    return stamp
 
 
 def bind_committed_action(ship, action_number: int, spawned_objects) -> None:
@@ -522,11 +576,21 @@ def record_launched_crew_lost(
     parent = getattr(unit, "parent", None)
     if parent is None:
         return
-    record_crew_changed(
+    ledger = ledger_for(unit) or ledger_for(parent)
+    if ledger is None:
+        return
+    ledger.record_crew_changed(
         parent,
         -abs(float(magnitude)),
         actor=actor,
         source=source if source is not None else unit,
+        metadata={
+            "launched_crew_loss": True,
+            "launched_unit": unit,
+            "launched_unit_ability_name": _ability_name(unit),
+            "launched_unit_credit": reward_credit_for(unit),
+            "launched_unit_spawn_stamp": spawn_stamp_for(unit),
+        },
     )
 
 
