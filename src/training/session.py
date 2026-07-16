@@ -748,7 +748,7 @@ class TrainingSession:
             self._status.recent_loss = metrics.average_loss
             self._status.replay_size = result.replay_size
 
-        if const.TRAINING_TIMING_ENABLED and batch_number % self.batch_grouping == 0:
+        if batch_number % self.batch_grouping == 0:
             append_grouped_metrics_csv(self._csv_path(), metrics, rolling)
         self._trim_history()
         return batch_number

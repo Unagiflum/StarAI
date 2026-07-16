@@ -6,7 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import src.const as const
 from src.training import torch_backend
 from src.audio import RecordingAudioService
 from src.training.contracts import OBSERVATION_SCHEMA_VERSION
@@ -731,8 +730,7 @@ class TrainingSessionTests(unittest.TestCase):
                 batch_grouping=1,
                 batch_runner=batch_runner,
             )
-            with mock.patch.object(const, "TRAINING_TIMING_ENABLED", True):
-                session.run_synchronously(max_batches=1)
+            session.run_synchronously(max_batches=1)
 
             saved_slot = repository.slot_for("Earthling", 1)
             self.assertEqual(saved_slot.metadata["progress"]["completed_batches"], 1)
@@ -1355,8 +1353,7 @@ class TrainingSessionTests(unittest.TestCase):
                 batch_grouping=3,
                 batch_runner=first_runner,
             )
-            with mock.patch.object(const, "TRAINING_TIMING_ENABLED", True):
-                first_session.run_synchronously(max_batches=2)
+            first_session.run_synchronously(max_batches=2)
 
             resumed_slot = repository.slot_for("Earthling", 1)
             resumed_session = TrainingSession(
@@ -1377,8 +1374,7 @@ class TrainingSessionTests(unittest.TestCase):
                     round_results=(_round_result(30.0),),
                 ),
             )
-            with mock.patch.object(const, "TRAINING_TIMING_ENABLED", True):
-                resumed_session.run_synchronously(max_batches=1)
+            resumed_session.run_synchronously(max_batches=1)
 
             with (root / "user" / "Earthling-01.csv").open(
                 newline="",

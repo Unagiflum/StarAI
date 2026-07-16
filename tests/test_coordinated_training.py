@@ -2398,7 +2398,9 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
     def test_grouped_save_writes_metadata_and_notifies_cache(self):
         with self.subTest("grouped save"):
             with mock.patch("src.training.coordinated.save_training_checkpoint") as save:
-                with mock.patch("src.training.coordinated.append_grouped_metrics_csv"):
+                with mock.patch(
+                    "src.training.coordinated.append_grouped_metrics_csv"
+                ) as metrics_csv:
                     with tempfile.TemporaryDirectory() as directory:
                         root = Path(directory)
                         repository = TrainingModelRepository(
@@ -2466,6 +2468,7 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
         self.assertEqual(saved_slot.metadata["progress"]["completed_batches"], 1)
         self.assertEqual(state.last_saved_completed_batches, 1)
         save.assert_called_once()
+        metrics_csv.assert_called_once()
         session.opponent_model_cache.notify_model_saved.assert_called_once_with(
             repository,
             "Earthling",

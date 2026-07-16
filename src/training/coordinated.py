@@ -2028,10 +2028,7 @@ class CoordinatedTrainingSession:
             limit = max(1, int(state.record.batch_grouping))
             if len(state.history) > limit:
                 del state.history[: len(state.history) - limit]
-        if (
-            const.TRAINING_TIMING_ENABLED
-            and batch_number % state.record.batch_grouping == 0
-        ):
+        if batch_number % state.record.batch_grouping == 0:
             append_grouped_metrics_csv(self._csv_path(state), metrics, rolling)
         return batch_number
 
