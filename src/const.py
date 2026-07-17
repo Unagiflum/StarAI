@@ -72,7 +72,7 @@ COORDINATED_TRAINING_YIELD_INTERVAL_FRAMES = 4
 COORDINATED_TRAINING_YIELD_SECONDS = 0.00025
 # Enables detailed training timing in the coordinator and CPU workers and
 # writes the associated CSV output. Keep disabled for normal training runs.
-TRAINING_TIMING_ENABLED = False
+TRAINING_TIMING_ENABLED = True
 
 # Pre-battle countdown. COUNT_DOWN_TIME is the wall-clock duration, in seconds,
 # for which each number is displayed.
