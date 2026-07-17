@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest import mock
 from collision_test_support import CollisionTestCase
 from src.Battle import collisions
+from src.Battle.effects import BattleEffect
 from src.Battle.world import World
 from src.collision_capabilities import (
     ImpactCapabilities,
@@ -307,6 +308,32 @@ class CollisionPipelineTests(CollisionTestCase):
         self.assertEqual(ship.current_hp, 6)
         self.assertFalse(projectile.currently_alive)
         self.assertNotIn(projectile, game_objects)
+
+    def test_headless_collision_drops_visual_effects_only(self):
+        projectile = self.make_projectile(self.make_ship())
+        projectile.position = [100, 100]
+        projectile.previous_position = projectile.position.copy()
+        ship = self.make_ship()
+        ship.position = [100, 100]
+        ship.previous_position = ship.position.copy()
+        effect = BattleEffect([100, 100], ())
+        game_objects = [projectile, ship]
+
+        with (
+            mock.patch.object(
+                collisions.BattleEffect, "from_blast", return_value=effect
+            ),
+            mock.patch.object(collisions.BattleEffect, "play_boom"),
+        ):
+            collisions.handle_collisions(
+                game_objects,
+                visual_effects_enabled=False,
+            )
+
+        self.assertEqual(ship.current_hp, 6)
+        self.assertFalse(projectile.currently_alive)
+        self.assertNotIn(projectile, game_objects)
+        self.assertNotIn(effect, game_objects)
 
     def test_enemy_projectiles_consume_each_other(self):
         first, second = self.make_projectile_pair()

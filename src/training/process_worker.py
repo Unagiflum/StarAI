@@ -35,13 +35,16 @@ from src.training.coordinated_simulation import (
     finish_coordinated_window,
     new_coordinated_battle,
 )
-from src.training.observation import encode_observation
+from src.training.observation import build_observation_context, encode_observation
 from src.training.cpu_contracts import (
     OPPONENT_MODE_EXISTING_AI,
     OpponentSpec,
 )
 from src.training.observation_transfer import PackedObservation, pack_observation
-from src.training.replay_contracts import ActionSelection, ReplayTransferSample
+from src.training.replay_contracts import (
+    ActionSelection,
+    ReplayTransferChunk,
+)
 from src.training.rewards import MatureTrainingSample, REWARD_COMPONENTS
 from src.training.worker_protocol import (
     COMMAND_FINISH_WINDOW,
@@ -177,31 +180,31 @@ class _NoModelPolicy:
 
 class _ReplaySampleCollector:
     def __init__(self) -> None:
-        self._samples: list[ReplayTransferSample] = []
-        self._pending: list[ReplayTransferSample] = []
+        self._sample_count = 0
+        self._pending: list[MatureTrainingSample] = []
 
     def __len__(self) -> int:
-        return len(self._samples)
+        return self._sample_count
 
     def extend(self, samples: Sequence[MatureTrainingSample]) -> None:
-        for sample in samples:
-            replay_sample = ReplayTransferSample.from_mature_sample(sample)
-            self._samples.append(replay_sample)
-            self._pending.append(replay_sample)
+        self._sample_count += len(samples)
+        self._pending.extend(samples)
 
     def drain_pending(
         self,
         limit: int = REPLAY_TRANSFER_CHUNK_SIZE,
-    ) -> tuple[ReplayTransferSample, ...]:
+    ) -> ReplayTransferChunk | tuple[()]:
         count = min(len(self._pending), max(1, int(limit)))
-        samples = tuple(self._pending[:count])
+        if count == 0:
+            return ()
+        samples = self._pending[:count]
         del self._pending[:count]
-        return samples
+        return ReplayTransferChunk.from_mature_samples(samples)
 
     def drain_pending_chunks(
         self,
         chunk_size: int = REPLAY_TRANSFER_CHUNK_SIZE,
-    ) -> tuple[tuple[ReplayTransferSample, ...], ...]:
+    ) -> tuple[ReplayTransferChunk, ...]:
         chunks = []
         while self._pending:
             chunks.append(self.drain_pending(chunk_size))
@@ -361,6 +364,11 @@ class CoordinatedSimulationWorker:
 
     def _handle_step_frame(self, command: StepFrameCommand) -> FrameSteppedResult:
         runtime = self._runtime_for(command.record_id, command.round_index)
+        set_visual_effects = getattr(
+            runtime.simulation, "set_visual_effects_enabled", None
+        )
+        if callable(set_visual_effects):
+            set_visual_effects(command.display_buffer is not None)
         timing_seconds = self._window_timing_seconds
         step_started_at = time.perf_counter() if timing_seconds is not None else 0.0
         sequence_number = int(command.sequence_number)
@@ -635,22 +643,35 @@ class CoordinatedSimulationWorker:
             self._clear_decision_state()
             return
         simulation = runtime.simulation
+        context = build_observation_context(
+            simulation.player1,
+            simulation.player2,
+            simulation.world,
+        )
         observation = encode_observation(
             simulation.player1,
             simulation.player2,
             frame_id=simulation.frame_id,
             game_objects=simulation.world,
+            context=context,
         )
         self._trainee_observation = observation
-        self._packed_trainee_observation = pack_observation(observation)
+        self._packed_trainee_observation = pack_observation(
+            observation,
+            finite_validated=True,
+        )
         if _opponent_requires_parent_controls(runtime.opponent):
             opponent_observation = encode_observation(
                 simulation.player2,
                 simulation.player1,
                 frame_id=simulation.frame_id,
                 game_objects=simulation.world,
+                context=context,
             )
-            self._packed_opponent_observation = pack_observation(opponent_observation)
+            self._packed_opponent_observation = pack_observation(
+                opponent_observation,
+                finite_validated=True,
+            )
             self._simple_opponent_controls = None
         else:
             controls = runtime.simple_controller.direct_controls_for_frame(simulation)

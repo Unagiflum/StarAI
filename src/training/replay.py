@@ -17,7 +17,11 @@ from src.training import torch_backend
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
 from src.training.model_registry import replay_checkpoint_path
 from src.training.observation_transfer import unpack_observation_array
-from src.training.replay_contracts import ActionSelection, ReplayTransferSample
+from src.training.replay_contracts import (
+    ActionSelection,
+    ReplayTransferChunk,
+    ReplayTransferSample,
+)
 from src.training.rewards import MatureTrainingSample
 from src.training.value_network import (
     predict_action_values,
@@ -173,10 +177,64 @@ class TrainingReplayBuffer:
         self,
         samples: Sequence[
             ReplaySample | MatureTrainingSample | ReplayTransferSample
-        ],
+        ] | ReplayTransferChunk,
     ) -> None:
+        if isinstance(samples, ReplayTransferChunk):
+            self._extend_transfer_chunk(samples)
+            return
         for sample in samples:
             self.add(sample)
+
+    def _extend_transfer_chunk(self, chunk: ReplayTransferChunk) -> None:
+        count = len(chunk)
+        if count == 0:
+            return
+        observations = np.frombuffer(chunk.observations, dtype="<f4").reshape(
+            count,
+            OBSERVATION_INPUT_SIZE,
+        )
+        actions = np.frombuffer(chunk.actions, dtype=np.uint8)
+        returns = np.frombuffer(chunk.returns, dtype="<f4")
+        if not bool(np.all(np.isfinite(observations))) or not bool(
+            np.all(np.isfinite(returns))
+        ):
+            raise ValueError("sample values must be representable as float32")
+
+        if count >= self.capacity:
+            observations = observations[-self.capacity :]
+            actions = actions[-self.capacity :]
+            returns = returns[-self.capacity :]
+            count = self.capacity
+            while self._allocated_capacity < self.capacity:
+                self._grow_storage()
+            self._observations[:count] = observations
+            self._action_indices[:count] = actions
+            self._returns[:count] = returns
+            self._size = count
+            self._start = 0
+            self._next = 0
+            return
+
+        required_size = min(self.capacity, self._size + count)
+        while self._allocated_capacity < required_size:
+            self._grow_storage()
+
+        first_count = min(count, self._allocated_capacity - self._next)
+        first_end = self._next + first_count
+        self._observations[self._next : first_end] = observations[:first_count]
+        self._action_indices[self._next : first_end] = actions[:first_count]
+        self._returns[self._next : first_end] = returns[:first_count]
+        remaining = count - first_count
+        if remaining:
+            self._observations[:remaining] = observations[first_count:]
+            self._action_indices[:remaining] = actions[first_count:]
+            self._returns[:remaining] = returns[first_count:]
+
+        overflow = max(0, self._size + count - self.capacity)
+        if overflow:
+            self._start = (self._start + overflow) % self._allocated_capacity
+        self._size = required_size
+        self._next = (self._next + count) % self._allocated_capacity
 
     def sample_minibatch(self, batch_size: int, rng: Any | None = None) -> tuple[ReplaySample, ...]:
         indices = self._sample_indices(batch_size, rng=rng)

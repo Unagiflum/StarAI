@@ -190,6 +190,11 @@ def decision_frame_from_battle_state(
     """Create a read-only reward snapshot from live battle objects."""
 
     velocity = _vector(self_ship, "velocity")
+    combat_flags = combat_adapters.reward_combat_flags(
+        self_ship,
+        enemy_ship,
+        world,
+    )
     return RewardDecisionFrame(
         frame_id=int(frame_id),
         observation=tuple(float(value) for value in observation),
@@ -199,18 +204,10 @@ def decision_frame_from_battle_state(
         self_battery=_number(self_ship, "current_energy"),
         self_speed=math.hypot(velocity[0], velocity[1]),
         self_max_thrust=_number(self_ship, "max_thrust"),
-        a1_pointing=combat_adapters.is_a1_pointing_at_enemy(
-            self_ship, enemy_ship, world
-        ),
-        a1_in_range=combat_adapters.is_enemy_in_a1_effective_range(
-            self_ship, enemy_ship, world
-        ),
-        a2_pointing=combat_adapters.is_a2_pointing_at_enemy(
-            self_ship, enemy_ship, world
-        ),
-        a2_in_range=combat_adapters.is_enemy_in_a2_effective_range(
-            self_ship, enemy_ship, world
-        ),
+        a1_pointing=combat_flags.a1_pointing,
+        a1_in_range=combat_flags.a1_in_range,
+        a2_pointing=combat_flags.a2_pointing,
+        a2_in_range=combat_flags.a2_in_range,
     )
 
 
@@ -475,7 +472,7 @@ class StagedTrajectoryPipeline:
         elif trajectory_id is not None and str(trajectory_id) != self.trajectory_id:
             raise ValueError("cannot mix reward trajectories in staged storage")
 
-        observation = tuple(float(value) for value in decision.observation)
+        observation = decision.observation
         if self._observation_size is None:
             self._observation_size = len(observation)
         elif len(observation) != self._observation_size:
@@ -499,10 +496,20 @@ class StagedTrajectoryPipeline:
         outcome: RewardFrameOutcome,
         *,
         ledger=None,
+        staged_index: int | None = None,
     ) -> list[MatureTrainingSample]:
         if decision.frame_id != outcome.frame_id:
             raise ValueError("decision and outcome frame IDs must match")
-        index = self.stage_decision(decision)
+        if staged_index is None:
+            index = self.stage_decision(decision)
+        else:
+            index = int(staged_index)
+            if (
+                index < 0
+                or index >= len(self._frame_ids)
+                or self._frame_ids[index] != int(decision.frame_id)
+            ):
+                raise ValueError("staged index does not match the decision frame")
         if index != self._outcome_count:
             raise ValueError("outcomes must be added once in staged decision order")
         components = _calculate_immediate_reward_component_vector(decision, outcome)
@@ -699,6 +706,7 @@ class StagedTrajectoryPipeline:
                     end_frame_id=int(self._frame_ids[sample_end_index]),
                     actual_frame_count=actual_frame_count,
                     terminal_truncated=terminal and actual_frame_count < horizon,
+                    observation_normalized=True,
                 )
             )
         return samples
@@ -1339,6 +1347,7 @@ def _sample_from_component_vector(
     end_frame_id: int,
     actual_frame_count: int,
     terminal_truncated: bool = False,
+    observation_normalized: bool = False,
 ) -> MatureTrainingSample:
     component_values = _component_dict_from_vector(components)
     weighted = {
@@ -1346,7 +1355,12 @@ def _sample_from_component_vector(
         for component in REWARD_COMPONENTS
     }
     return MatureTrainingSample(
-        observation=tuple(float(value) for value in start_decision.observation),
+        observation=(
+            start_decision.observation
+            if observation_normalized
+            and isinstance(start_decision.observation, tuple)
+            else tuple(float(value) for value in start_decision.observation)
+        ),
         action_index=int(start_decision.action_index),
         return_value=sum(weighted.values()),
         component_values=component_values,

@@ -523,6 +523,18 @@ class ShipActionCharacterizationTests(unittest.TestCase):
             (3, 2, 4, 1, 0),
         )
 
+    def test_headless_thrust_keeps_physics_without_spawning_marker(self):
+        ship = create_ship("Earthling", 1)
+        ship.visual_effects_enabled = False
+        ship.set_control_state("thrust", True, frame_id=1)
+
+        spawned = ship.process_controls(frame_id=1)
+
+        self.assertEqual(spawned, [])
+        self.assertNotEqual(ship.accumulated_impulses, [0.0, 0.0])
+        ship.update()
+        self.assertNotEqual(ship.velocity, [0.0, 0.0])
+
     def test_arilou_teleport_excludes_ship_from_collision_pipeline(self):
         ship = create_ship("Arilou", 1)
         enemy = create_ship("Earthling", 2)

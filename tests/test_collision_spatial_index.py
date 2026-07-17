@@ -34,6 +34,27 @@ def index_for(objects, *, category="objects", cell_size=128):
 
 
 class ToroidalSpatialIndexTests(unittest.TestCase):
+    def test_cross_category_candidate_cache_is_invalidated_by_updates(self):
+        first = body((100, 100))
+        category_a = body((110, 100))
+        category_b = body((120, 100))
+        index = ToroidalSpatialIndex(
+            [first, category_a, category_b],
+            categories={
+                id(first): ("first",),
+                id(category_a): ("a",),
+                id(category_b): ("b",),
+            },
+            cell_size=64,
+        )
+
+        self.assertEqual(index.candidates_for(first, categories=("a",)), [category_a])
+        self.assertEqual(index.candidates_for(first, categories=("b",)), [category_b])
+        category_b.position = [1000, 1000]
+        category_b.previous_position = category_b.position.copy()
+        self.assertTrue(index.update(category_b))
+        self.assertEqual(index.candidates_for(first, categories=("b",)), [])
+
     def test_same_and_adjacent_cell_candidates(self):
         first = body((100, 100))
         same_cell = body((115, 100))

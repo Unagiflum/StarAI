@@ -193,6 +193,9 @@ def new_coordinated_battle(
         include_stars=False,
         training_event_ledger=ledger,
     )
+    set_visual_effects = getattr(simulation, "set_visual_effects_enabled", None)
+    if callable(set_visual_effects):
+        set_visual_effects(bool(config.display_on))
     initialize_training_simulation_ships(simulation, rng)
     return (
         simulation,
@@ -277,7 +280,7 @@ def advance_coordinated_window_frame(
         selection.action_index,
         reward_mode=config.reward_mode,
     )
-    runtime.pipeline.stage_decision(
+    staged_index = runtime.pipeline.stage_decision(
         decision,
         trajectory_id=runtime.ledger.active_trajectory_id,
     )
@@ -318,6 +321,7 @@ def advance_coordinated_window_frame(
         decision,
         outcome,
         ledger=runtime.ledger,
+        staged_index=staged_index,
     )
     add_timing_seconds(timing_seconds, "reward_pipeline", pipeline_started_at)
     replay_started_at = timing_started_at(timing_seconds)
@@ -330,8 +334,11 @@ def advance_coordinated_window_frame(
     sample_return = sum(sample.return_value for sample in mature_samples)
     runtime.return_sum += sample_return
     runtime.episode_return_sum += sample_return
-    accumulate_weighted_components(runtime.component_sums, mature_samples)
-    accumulate_weighted_components(runtime.episode_component_sums, mature_samples)
+    accumulate_weighted_components(
+        runtime.component_sums,
+        mature_samples,
+        runtime.episode_component_sums,
+    )
     add_timing_seconds(timing_seconds, "reward_accumulate", accumulate_started_at)
     if progress_callback is not None:
         progress_started_at = timing_started_at(timing_seconds)
@@ -508,8 +515,11 @@ def finish_coordinated_window(
         sample_return = sum(sample.return_value for sample in mature_samples)
         runtime.return_sum += sample_return
         runtime.episode_return_sum += sample_return
-        accumulate_weighted_components(runtime.component_sums, mature_samples)
-        accumulate_weighted_components(runtime.episode_component_sums, mature_samples)
+        accumulate_weighted_components(
+            runtime.component_sums,
+            mature_samples,
+            runtime.episode_component_sums,
+        )
         add_timing_seconds(timing_seconds, "reward_accumulate", accumulate_started_at)
         terminal_started_at = timing_started_at(timing_seconds)
         win, loss, draw = classify_round_outcome(runtime.simulation, "timeout")
@@ -621,11 +631,18 @@ def classify_kills_deaths(simulation) -> tuple[int, int]:
 
 
 def accumulate_weighted_components(
-    totals: dict[str, float], samples: Sequence[MatureTrainingSample]
+    totals: dict[str, float],
+    samples: Sequence[MatureTrainingSample],
+    *additional_totals: dict[str, float],
 ) -> None:
+    destinations = (totals, *additional_totals)
     for sample in samples:
         for component, value in sample.weighted_components.items():
-            totals[component] = totals.get(component, 0.0) + float(value)
+            numeric_value = float(value)
+            for destination in destinations:
+                destination[component] = (
+                    destination.get(component, 0.0) + numeric_value
+                )
 
 
 def average_value(total: float, count: int) -> float:

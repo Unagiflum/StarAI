@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
+from dataclasses import dataclass
+from functools import lru_cache
 
 import src.const as const
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
@@ -19,6 +21,112 @@ _INDEFINITE_RANGE_ABILITIES = frozenset(
         "OrzA3",
     }
 )
+
+
+@dataclass(frozen=True, slots=True)
+class RewardCombatFlags:
+    """All read-only weapon geometry needed by one reward decision."""
+
+    a1_pointing: bool
+    a1_in_range: bool
+    a2_pointing: bool
+    a2_in_range: bool
+
+
+def reward_combat_flags(ship, enemy, world=None) -> RewardCombatFlags:
+    """Compute both actions' reward predicates from one geometry snapshot."""
+
+    if not _target_is_live(enemy):
+        return RewardCombatFlags(False, False, False, False)
+
+    distance = None
+    action_flags = []
+    for action_number in (1, 2):
+        primary, specifications = _reward_action_specifications(
+            str(getattr(ship, "name", "")),
+            getattr(ship, "form", None) == "YWing",
+            action_number,
+        )
+        pointing = False
+        primary_mounts = None
+        if primary is not None:
+            _, definition = primary
+            if _is_omnidirectional_effect(definition):
+                pointing = _automatic_target_is_valid(definition, enemy)
+            else:
+                primary_mounts = _weapon_mounts(
+                    ship,
+                    definition,
+                    action_number,
+                )
+                fallback_angle = _rotation(ship)
+                pointing = any(
+                    abs(
+                        _signed_angle(
+                            _angle_to_target(
+                                origin,
+                                enemy,
+                                fallback_angle=fallback_angle,
+                            )
+                            - weapon_angle
+                        )
+                    )
+                    <= _pointing_tolerance(definition)
+                    for origin, weapon_angle in primary_mounts
+                )
+
+        in_range = False
+        if specifications:
+            if distance is None:
+                distance = wrapped_distance(_position(ship), _position(enemy))
+            for ability_name, definition in specifications:
+                mounts = None
+                if definition.ability_type in {"projectile", "special_object"}:
+                    mounts = (
+                        primary_mounts
+                        if primary is not None and definition is primary[1]
+                        else _weapon_mounts(ship, definition, action_number)
+                    )
+                if _is_enemy_in_definition_range(
+                    ship,
+                    enemy,
+                    ability_name,
+                    definition,
+                    action_number,
+                    distance=distance,
+                    mounts=mounts,
+                ):
+                    in_range = True
+                    break
+        action_flags.extend((pointing, in_range))
+
+    return RewardCombatFlags(*action_flags)
+
+
+@lru_cache(maxsize=None)
+def _reward_action_specifications(ship_name, alternate_form, action_number):
+    base_names = []
+    if ship_name == "Mmrnmrhm" and action_number == 1:
+        base_names.append(
+            "MmrnmrhmYWingA1" if alternate_form else "MmrnmrhmXFormA1"
+        )
+    base_names.append(f"{ship_name}A{action_number}")
+    linked_names = (
+        ("OrzA3",) if ship_name == "Orz" and action_number == 2 else ()
+    )
+    yielded = set()
+    base = []
+    linked = []
+    for destination, names in ((base, base_names), (linked, linked_names)):
+        for ability_name in names:
+            if ability_name in yielded:
+                continue
+            definition = ABILITY_DEFINITIONS.get(ability_name)
+            if definition is not None:
+                yielded.add(ability_name)
+                destination.append((ability_name, definition))
+    specifications = tuple((*base, *linked))
+    return (base[0] if base else None), specifications
 
 
 def is_pointing_at_enemy(ship, enemy, world=None, action_number: int = 1) -> bool:
@@ -54,8 +162,12 @@ def _is_enemy_in_definition_range(
     ability_name: str,
     definition,
     action_number: int,
+    *,
+    distance: float | None = None,
+    mounts=None,
 ) -> bool:
-    distance = wrapped_distance(_position(ship), _position(enemy))
+    if distance is None:
+        distance = wrapped_distance(_position(ship), _position(enemy))
 
     effective_range = _fixed_effective_range(ship, definition)
     if effective_range is not None:
@@ -65,11 +177,21 @@ def _is_enemy_in_definition_range(
     if definition.ability_type in {"projectile", "special_object"}:
         return any(
             _projectile_can_reach_perfectly_aimed(ship, enemy, definition, origin)
-            for origin, _ in _weapon_mounts(ship, definition, action_number)
+            for origin, _ in (
+                mounts
+                if mounts is not None
+                else _weapon_mounts(ship, definition, action_number)
+            )
         )
     if definition.ability_type in {"area", "laser"}:
         return False
-    return _special_effective_range(ship, enemy, definition, action_number)
+    return _special_effective_range(
+        ship,
+        enemy,
+        definition,
+        action_number,
+        distance=distance,
+    )
 
 
 def is_a1_pointing_at_enemy(ship, enemy, world=None) -> bool:
@@ -158,9 +280,17 @@ def _target_is_live(enemy) -> bool:
     )
 
 
-def _special_effective_range(ship, enemy, definition, action_number: int) -> bool:
+def _special_effective_range(
+    ship,
+    enemy,
+    definition,
+    action_number: int,
+    *,
+    distance: float | None = None,
+) -> bool:
     name = definition.ship_name
-    distance = wrapped_distance(_position(ship), _position(enemy))
+    if distance is None:
+        distance = wrapped_distance(_position(ship), _position(enemy))
     if name == "Chmmr" and action_number == 2:
         base_speed = definition.base_speed or 0.0
         return base_speed > 0 and distance <= base_speed * max(1.0, definition.life_time)

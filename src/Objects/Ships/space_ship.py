@@ -340,7 +340,8 @@ class SpaceShip(PlayerObject):
                     self.max_thrust,
                     self.thrust_increment,
                     thrust_angle,
-                    not self.cloaked,
+                    not self.cloaked
+                    and getattr(self, "visual_effects_enabled", True),
                 )
                 if marker:
                     new_objects.append(marker)

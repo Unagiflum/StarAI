@@ -1254,6 +1254,15 @@ class CoordinatedTrainingSession:
                         opponent_started_at,
                     )
                     for window, request in frame_requests:
+                        set_visual_effects = getattr(
+                            window.simulation,
+                            "set_visual_effects_enabled",
+                            None,
+                        )
+                        if callable(set_visual_effects):
+                            set_visual_effects(
+                                self._display_enabled_for(request.record_id)
+                            )
                         _advance_coordinated_window_frame(
                             window,
                             rng=self._rng,
@@ -2477,6 +2486,9 @@ def run_coordinated_fixed_frame_window(
             include_stars=False,
             training_event_ledger=ledger,
         )
+        set_visual_effects = getattr(simulation, "set_visual_effects_enabled", None)
+        if callable(set_visual_effects):
+            set_visual_effects(bool(config.display_on))
         _initialize_training_simulation_ships(simulation, rng)
         return simulation, ledger, StagedTrajectoryPipeline(
             gamma=config.gamma,
@@ -2522,7 +2534,7 @@ def run_coordinated_fixed_frame_window(
             selection.action_index,
             reward_mode=config.reward_mode,
         )
-        pipeline.stage_decision(
+        staged_index = pipeline.stage_decision(
             decision,
             trajectory_id=ledger.active_trajectory_id,
         )
@@ -2552,7 +2564,12 @@ def run_coordinated_fixed_frame_window(
             events=events,
             terminal=reward_terminal,
         )
-        mature_samples = pipeline.add_frame(decision, outcome, ledger=ledger)
+        mature_samples = pipeline.add_frame(
+            decision,
+            outcome,
+            ledger=ledger,
+            staged_index=staged_index,
+        )
         replay_buffer.extend(mature_samples)
         mature_count = len(mature_samples)
         total_mature_count += mature_count
@@ -2560,8 +2577,11 @@ def run_coordinated_fixed_frame_window(
         sample_return = sum(sample.return_value for sample in mature_samples)
         return_sum += sample_return
         episode_return_sum += sample_return
-        _accumulate_weighted_components(component_sums, mature_samples)
-        _accumulate_weighted_components(episode_component_sums, mature_samples)
+        _accumulate_weighted_components(
+            component_sums,
+            mature_samples,
+            episode_component_sums,
+        )
         normalized_return = _average_value(return_sum, total_mature_count)
         _emit_window_progress(
             progress_callback,
@@ -2653,8 +2673,11 @@ def run_coordinated_fixed_frame_window(
         sample_return = sum(sample.return_value for sample in mature_samples)
         return_sum += sample_return
         episode_return_sum += sample_return
-        _accumulate_weighted_components(component_sums, mature_samples)
-        _accumulate_weighted_components(episode_component_sums, mature_samples)
+        _accumulate_weighted_components(
+            component_sums,
+            mature_samples,
+            episode_component_sums,
+        )
         win, loss, draw = _classify_round_outcome(simulation, "timeout")
         kills, deaths = _classify_kills_deaths(simulation)
         if causal_lifecycle:
@@ -3475,6 +3498,9 @@ def _new_coordinated_battle(
         include_stars=False,
         training_event_ledger=ledger,
     )
+    set_visual_effects = getattr(simulation, "set_visual_effects_enabled", None)
+    if callable(set_visual_effects):
+        set_visual_effects(bool(config.display_on))
     _initialize_training_simulation_ships(simulation, rng)
     return (
         simulation,
@@ -3547,7 +3573,7 @@ def _advance_coordinated_window_frame(
         selection.action_index,
         reward_mode=config.reward_mode,
     )
-    runtime.pipeline.stage_decision(
+    staged_index = runtime.pipeline.stage_decision(
         decision,
         trajectory_id=runtime.ledger.active_trajectory_id,
     )
@@ -3609,6 +3635,7 @@ def _advance_coordinated_window_frame(
         decision,
         outcome,
         ledger=runtime.ledger,
+        staged_index=staged_index,
     )
     _add_timing_seconds(
         timing_seconds,
@@ -3629,8 +3656,11 @@ def _advance_coordinated_window_frame(
     sample_return = sum(sample.return_value for sample in mature_samples)
     runtime.return_sum += sample_return
     runtime.episode_return_sum += sample_return
-    _accumulate_weighted_components(runtime.component_sums, mature_samples)
-    _accumulate_weighted_components(runtime.episode_component_sums, mature_samples)
+    _accumulate_weighted_components(
+        runtime.component_sums,
+        mature_samples,
+        runtime.episode_component_sums,
+    )
     _add_timing_seconds(
         timing_seconds,
         "reward_accumulate",
@@ -3824,10 +3854,10 @@ def _finish_coordinated_window(
         sample_return = sum(sample.return_value for sample in mature_samples)
         runtime.return_sum += sample_return
         runtime.episode_return_sum += sample_return
-        _accumulate_weighted_components(runtime.component_sums, mature_samples)
         _accumulate_weighted_components(
-            runtime.episode_component_sums,
+            runtime.component_sums,
             mature_samples,
+            runtime.episode_component_sums,
         )
         _add_timing_seconds(
             timing_seconds,

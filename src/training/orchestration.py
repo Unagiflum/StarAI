@@ -468,7 +468,7 @@ def run_training_round(
             selection.action_index,
             reward_mode=config.reward_mode,
         )
-        pipeline.stage_decision(
+        staged_index = pipeline.stage_decision(
             decision,
             trajectory_id=ledger.active_trajectory_id,
         )
@@ -500,15 +500,23 @@ def run_training_round(
             events=events,
             terminal=reward_terminal,
         )
-        mature_samples = pipeline.add_frame(decision, outcome, ledger=ledger)
+        mature_samples = pipeline.add_frame(
+            decision,
+            outcome,
+            ledger=ledger,
+            staged_index=staged_index,
+        )
         replay_buffer.extend(mature_samples)
         mature_count += len(mature_samples)
         episode_mature_count += len(mature_samples)
         sample_return = sum(sample.return_value for sample in mature_samples)
         return_sum += sample_return
         episode_return_sum += sample_return
-        _accumulate_weighted_components(component_sums, mature_samples)
-        _accumulate_weighted_components(episode_component_sums, mature_samples)
+        _accumulate_weighted_components(
+            component_sums,
+            mature_samples,
+            episode_component_sums,
+        )
         normalized_return = _average_value(return_sum, mature_count)
         progress_payload = {
             "event": "frame",
@@ -613,8 +621,11 @@ def run_training_round(
         sample_return = sum(sample.return_value for sample in mature_samples)
         return_sum += sample_return
         episode_return_sum += sample_return
-        _accumulate_weighted_components(component_sums, mature_samples)
-        _accumulate_weighted_components(episode_component_sums, mature_samples)
+        _accumulate_weighted_components(
+            component_sums,
+            mature_samples,
+            episode_component_sums,
+        )
         win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
         kills, deaths = _classify_kills_deaths(simulation)
         if causal_lifecycle:
@@ -948,10 +959,16 @@ def _randomize_training_start_hp(ship, rng) -> None:
 def _accumulate_weighted_components(
     totals: dict[str, float],
     samples: Sequence[MatureTrainingSample],
+    *additional_totals: dict[str, float],
 ) -> None:
+    destinations = (totals, *additional_totals)
     for sample in samples:
         for component, value in sample.weighted_components.items():
-            totals[component] = totals.get(component, 0.0) + float(value)
+            numeric_value = float(value)
+            for destination in destinations:
+                destination[component] = (
+                    destination.get(component, 0.0) + numeric_value
+                )
 
 
 def _average_value(total: float, count: int) -> float:

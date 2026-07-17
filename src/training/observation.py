@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import src.const as const
 from src.toroidal import wrapped_delta
@@ -33,12 +34,91 @@ _CONTROL_REPEAT_FIELDS = (
     "action2",
 )
 
+_SHIP_TYPE_INDEX = {
+    ship_name: index for index, ship_name in enumerate(SHIP_TYPE_CATALOG_ORDER)
+}
+_FLOAT32_MAX = 3.4028234663852886e38
+
+
+@dataclass(frozen=True, slots=True)
+class _ObservedObject:
+    obj: object
+    name: str
+    position: tuple[float, float]
+    velocity: tuple[float, float]
+    has_position: bool
+    alive: bool
+    is_planet: bool
+    is_asteroid: bool
+    is_syreen_crew: bool
+    is_positional_ability: bool
+    owner: object | None
+    player_sort: float
+    action_group: str
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationFrameContext:
+    """Immutable derived values shared by both observation perspectives."""
+
+    objects: tuple
+    observed_objects: tuple[_ObservedObject, ...]
+    owned_live_counts: dict[tuple[int, str], int]
+    floating_orz_counts: dict[int, int]
+
+    def owned_live_count(self, ship, name: str, *, floating_orz: bool = False) -> float:
+        counts = self.floating_orz_counts if floating_orz else self.owned_live_counts
+        key = id(ship) if floating_orz else (id(ship), name)
+        return float(counts.get(key, 0))
+
+
+def build_observation_context(self_ship, enemy_ship, game_objects=None) -> ObservationFrameContext:
+    objects = _object_snapshot(self_ship, enemy_ship, game_objects)
+    observed = []
+    owned_live_counts: dict[tuple[int, str], int] = {}
+    floating_orz_counts: dict[int, int] = {}
+    for obj in objects:
+        name = str(getattr(obj, "name", ""))
+        has_position = _has_position(obj)
+        alive = _object_alive(obj)
+        owner = _root_owner(obj)
+        if alive and owner is not None:
+            count_key = (id(owner), name)
+            owned_live_counts[count_key] = owned_live_counts.get(count_key, 0) + 1
+            if name == "OrzA3" and getattr(obj, "mode", None) != "boarded":
+                owner_id = id(owner)
+                floating_orz_counts[owner_id] = floating_orz_counts.get(owner_id, 0) + 1
+        observed.append(
+            _ObservedObject(
+                obj=obj,
+                name=name,
+                position=_vector(obj, "position") if has_position else (0.0, 0.0),
+                velocity=_observed_velocity(obj) if has_position else (0.0, 0.0),
+                has_position=has_position,
+                alive=alive,
+                is_planet=_is_planet(obj),
+                is_asteroid=_is_asteroid(obj),
+                is_syreen_crew=_is_syreen_crew(obj),
+                is_positional_ability=_is_positional_ability(obj),
+                owner=owner,
+                player_sort=_number(obj, "player", 0.0),
+                action_group="a1" if _is_a1_object(obj) else "non_a1",
+            )
+        )
+    return ObservationFrameContext(
+        objects=objects,
+        observed_objects=tuple(observed),
+        owned_live_counts=owned_live_counts,
+        floating_orz_counts=floating_orz_counts,
+    )
+
 def encode_observation(
     self_ship,
     enemy_ship,
     *,
     frame_id: int | None = None,
     game_objects=None,
+    context: ObservationFrameContext | None = None,
 ) -> list[float]:
     """Return the canonical observation for ``self_ship``.
 
@@ -46,25 +126,32 @@ def encode_observation(
     methods that can update timers, RNG, physics, controls, or collisions.
     """
     values = [0.0] * OBSERVATION_INPUT_SIZE
-    objects = _object_snapshot(self_ship, enemy_ship, game_objects)
-    try:
-        enemy_type_index = SHIP_TYPE_CATALOG_ORDER.index(enemy_ship.name)
-    except ValueError:
-        enemy_type_index = None
+    context = context or build_observation_context(
+        self_ship,
+        enemy_ship,
+        game_objects,
+    )
+    enemy_type_index = _SHIP_TYPE_INDEX.get(getattr(enemy_ship, "name", None))
     if enemy_type_index is not None:
         values[enemy_type_index] = 1.0
 
     values[len(SHIP_TYPE_CATALOG_ORDER):OBJECT_SLOT_OFFSET] = (
-        _ship_block(self_ship, enemy_ship, objects=objects, frame_id=frame_id)
-        + _ship_block(enemy_ship, self_ship, objects=objects, frame_id=frame_id)
+        _ship_block(self_ship, enemy_ship, context=context, frame_id=frame_id)
+        + _ship_block(enemy_ship, self_ship, context=context, frame_id=frame_id)
     )
-    values[OBJECT_SLOT_OFFSET:] = _object_slots(self_ship, enemy_ship, objects)
+    values[OBJECT_SLOT_OFFSET:] = _object_slots(self_ship, enemy_ship, context)
 
     _validate_observation(values)
     return values
 
 
-def _ship_block(ship, opponent, *, objects: tuple, frame_id: int | None) -> list[float]:
+def _ship_block(
+    ship,
+    opponent,
+    *,
+    context: ObservationFrameContext,
+    frame_id: int | None,
+) -> list[float]:
     velocity = _vector(ship, "velocity")
     speed = math.hypot(velocity[0], velocity[1])
     rotation = _rotation_degrees(ship)
@@ -72,6 +159,7 @@ def _ship_block(ship, opponent, *, objects: tuple, frame_id: int | None) -> list
         _repeat_countdown(ship, control_name, frame_id=frame_id)
         for control_name in _CONTROL_REPEAT_FIELDS
     ]
+    cloak_transition_direction = _cloak_transition_direction(ship)
 
     block = [
         _number(ship, "max_hp") / 50.0,
@@ -101,20 +189,15 @@ def _ship_block(ship, opponent, *, objects: tuple, frame_id: int | None) -> list
         _flag(_is_mmrnmrhm_alternate_form(ship)),
         _number(ship, "limpets_attached") / 64.0,
         _flag(_damage_shield_active(ship)),
-        _flag(_cloak_transition_direction(ship) != 0),
-        float(_cloak_transition_direction(ship)),
+        _flag(cloak_transition_direction != 0),
+        float(cloak_transition_direction),
         *_orz_turret_relative_angle(ship),
-        _owned_live_count(
-            objects,
-            ship,
-            "OrzA3",
-            predicate=lambda obj: getattr(obj, "mode", None) != "boarded",
-        ) / 8.0,
+        context.owned_live_count(ship, "OrzA3", floating_orz=True) / 8.0,
         _boarded_marines_on_opponent(ship, opponent) / 8.0,
-        _owned_live_count(objects, ship, "KzerZaA2") / 25.0,
-        _owned_live_count(objects, ship, "ChmmrSatellite") / 3.0,
-        _owned_live_count(objects, ship, "ChenjesuA2") / 4.0,
-        _owned_live_count(objects, ship, "KohrAhA1") / 8.0,
+        context.owned_live_count(ship, "KzerZaA2") / 25.0,
+        context.owned_live_count(ship, "ChmmrSatellite") / 3.0,
+        context.owned_live_count(ship, "ChenjesuA2") / 4.0,
+        context.owned_live_count(ship, "KohrAhA1") / 8.0,
     ]
     if len(block) != SHIP_BLOCK_SIZE:
         raise RuntimeError(f"ship block must contain {SHIP_BLOCK_SIZE} values")
@@ -159,70 +242,102 @@ def _optional_iterable(value) -> tuple:
         return (value,)
 
 
-def _object_slots(self_ship, enemy_ship, objects: tuple) -> list[float]:
-    groups = _classify_object_slots(self_ship, enemy_ship, objects)
+def _object_slots(
+    self_ship,
+    enemy_ship,
+    context: ObservationFrameContext,
+) -> list[float]:
+    groups = _classify_object_slots(self_ship, enemy_ship, context.observed_objects)
     slots: list[float] = []
+    self_position = _vector(self_ship, "position")
+    self_velocity = _vector(self_ship, "velocity")
+    self_rotation = _rotation_degrees(self_ship)
     for group_name, count in OBJECT_SLOT_GROUPS:
-        selected = _nearest_objects(self_ship, groups[group_name], count)
-        for obj in selected:
-            slots.extend(_encode_object_slot(self_ship, enemy_ship, obj))
+        selected = _nearest_objects(self_position, groups[group_name], count)
+        for observed in selected:
+            slots.extend(
+                _encode_object_slot(
+                    self_ship,
+                    enemy_ship,
+                    observed,
+                    self_position=self_position,
+                    self_velocity=self_velocity,
+                    self_rotation=self_rotation,
+                )
+            )
         for _ in range(count - len(selected)):
             slots.extend([0.0] * OBJECT_SLOT_SIZE)
     return slots
 
 
-def _classify_object_slots(self_ship, enemy_ship, objects: tuple) -> dict[str, list]:
+def _classify_object_slots(
+    self_ship,
+    enemy_ship,
+    objects: tuple[_ObservedObject, ...],
+) -> dict[str, list]:
     groups = {group_name: [] for group_name, _ in OBJECT_SLOT_GROUPS}
-    if _has_position(enemy_ship):
-        groups["enemy_ship"].append(enemy_ship)
+    enemy_fact = next((item for item in objects if item.obj is enemy_ship), None)
+    if enemy_fact is not None and enemy_fact.has_position:
+        groups["enemy_ship"].append(enemy_fact)
 
-    for obj in objects:
+    for observed in objects:
+        obj = observed.obj
         if obj is self_ship or obj is enemy_ship:
             continue
-        if not _has_position(obj) or not _object_alive(obj):
+        if not observed.has_position or not observed.alive:
             continue
-        if _is_planet(obj):
-            groups["planet"].append(obj)
-        elif _is_asteroid(obj):
-            groups["asteroid"].append(obj)
-        elif _is_syreen_crew(obj):
-            groups["syreen_crew"].append(obj)
-        elif _is_positional_ability(obj):
-            owner = _root_owner(obj)
-            if _same_owner(owner, self_ship):
+        if observed.is_planet:
+            groups["planet"].append(observed)
+        elif observed.is_asteroid:
+            groups["asteroid"].append(observed)
+        elif observed.is_syreen_crew:
+            groups["syreen_crew"].append(observed)
+        elif observed.is_positional_ability:
+            if _same_owner(observed.owner, self_ship):
                 group_prefix = "friendly"
-            elif _same_owner(owner, enemy_ship):
+            elif _same_owner(observed.owner, enemy_ship):
                 group_prefix = "enemy"
             else:
                 group_prefix = "friendly" if _same_player(obj, self_ship) else "enemy"
-            action_group = "a1" if _is_a1_object(obj) else "non_a1"
-            groups[f"{group_prefix}_{action_group}"].append(obj)
+            groups[f"{group_prefix}_{observed.action_group}"].append(observed)
     return groups
 
 
-def _nearest_objects(self_ship, objects: list, count: int) -> list:
+def _nearest_objects(
+    self_position: tuple[float, float],
+    objects: list[_ObservedObject],
+    count: int,
+) -> list[_ObservedObject]:
     indexed = list(enumerate(objects))
     indexed.sort(
         key=lambda item: (
-            _distance_squared(self_ship, item[1]),
-            str(getattr(item[1], "name", type(item[1]).__name__)),
-            _number(item[1], "player", 0.0),
-            _vector(item[1], "position")[0],
-            _vector(item[1], "position")[1],
+            _distance_squared_positions(self_position, item[1].position),
+            item[1].name or type(item[1].obj).__name__,
+            item[1].player_sort,
+            item[1].position[0],
+            item[1].position[1],
             item[0],
         )
     )
-    return [obj for _, obj in indexed[:count]]
+    return [observed for _, observed in indexed[:count]]
 
 
-def _encode_object_slot(self_ship, enemy_ship, obj) -> list[float]:
-    dx, dy = wrapped_delta(_vector(self_ship, "position"), _vector(obj, "position"))
+def _encode_object_slot(
+    self_ship,
+    enemy_ship,
+    observed: _ObservedObject,
+    *,
+    self_position: tuple[float, float],
+    self_velocity: tuple[float, float],
+    self_rotation: float,
+) -> list[float]:
+    obj = observed.obj
+    dx, dy = wrapped_delta(self_position, observed.position)
     distance = math.hypot(dx, dy)
     relative_bearing = math.radians(
-        (_vector_angle(dx, dy) - _rotation_degrees(self_ship)) % 360.0
+        (_vector_angle(dx, dy) - self_rotation) % 360.0
     )
-    object_velocity = _observed_velocity(obj)
-    self_velocity = _vector(self_ship, "velocity")
+    object_velocity = observed.velocity
     relative_velocity = (
         object_velocity[0] - self_velocity[0],
         object_velocity[1] - self_velocity[1],
@@ -345,6 +460,14 @@ def _same_player(obj, ship) -> bool:
 
 def _distance_squared(from_obj, to_obj) -> float:
     dx, dy = wrapped_delta(_vector(from_obj, "position"), _vector(to_obj, "position"))
+    return dx * dx + dy * dy
+
+
+def _distance_squared_positions(
+    from_position: tuple[float, float],
+    to_position: tuple[float, float],
+) -> float:
+    dx, dy = wrapped_delta(from_position, to_position)
     return dx * dx + dy * dy
 
 
@@ -503,6 +626,6 @@ def _boarded_marines_on_opponent(ship, opponent) -> float:
 def _validate_observation(values: list[float]) -> None:
     if len(values) != OBSERVATION_INPUT_SIZE:
         raise RuntimeError(f"observation must contain {OBSERVATION_INPUT_SIZE} values")
-    non_finite = [value for value in values if not math.isfinite(value)]
-    if non_finite:
-        raise RuntimeError("observation contains non-finite values")
+    for value in values:
+        if not math.isfinite(value) or value < -_FLOAT32_MAX or value > _FLOAT32_MAX:
+            raise RuntimeError("observation contains values not representable as float32")

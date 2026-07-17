@@ -168,6 +168,7 @@ class CollisionSpatialPipelineTests(CollisionTestCase):
         self.run_without_effect_assets(
             [bounded, near, far],
             metrics=bounded_metrics,
+            shadow_validate=True,
         )
         self.assertEqual(near.current_hp, 7)
         self.assertEqual(far.current_hp, 10)

@@ -15,6 +15,7 @@ from src.training.replay import (
     save_training_checkpoint,
     select_action_epsilon_greedy,
 )
+from src.training.replay_contracts import ReplayTransferChunk
 from src.training.value_network import (
     ValueNetworkConfig,
     build_optimizer,
@@ -36,6 +37,36 @@ def sample(identifier, *, action_index=0, return_value=0.0):
 
 
 class TrainingReplayBufferTests(unittest.TestCase):
+    def test_contiguous_transfer_chunk_matches_scalar_insertion_across_wrap(self):
+        expected = TrainingReplayBuffer(capacity=5)
+        actual = TrainingReplayBuffer(capacity=5)
+        initial = [sample(index, action_index=index, return_value=index / 10) for index in range(3)]
+        incoming = [
+            sample(index, action_index=index, return_value=index / 10)
+            for index in range(3, 8)
+        ]
+        expected.extend(initial)
+        actual.extend(initial)
+        expected.extend(incoming)
+        actual.extend(ReplayTransferChunk.from_mature_samples(incoming))
+
+        self.assertEqual(actual.samples, expected.samples)
+
+    def test_contiguous_transfer_chunk_larger_than_capacity_keeps_suffix(self):
+        replay = TrainingReplayBuffer(capacity=3)
+        replay.add(sample(99))
+        incoming = [
+            sample(index, action_index=index, return_value=index)
+            for index in range(6)
+        ]
+
+        replay.extend(ReplayTransferChunk.from_samples(incoming))
+
+        self.assertEqual(
+            [(entry.observation[0], entry.action_index, entry.return_value) for entry in replay],
+            [(3.0, 3, 3.0), (4.0, 4, 4.0), (5.0, 5, 5.0)],
+        )
+
     def test_replay_eviction_is_fifo_and_capacity_bound(self):
         replay = TrainingReplayBuffer(capacity=3)
 

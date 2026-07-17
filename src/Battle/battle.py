@@ -189,6 +189,9 @@ class BattleSimulation:
             else (random.Random(seed) if seed is not None else random)
         )
         self.resources = resources or getattr(ship1, "resources", None)
+        # Preserve ordinary battle semantics by default. Coordinated training
+        # explicitly disables visual-only objects when no display is requested.
+        self.visual_effects_enabled = True
         self.audio = (
             audio_service
             if audio_service is not None
@@ -257,6 +260,12 @@ class BattleSimulation:
                 if ship is not None:
                     ship.audio_service = self.audio
                     ship.rng = self.rng
+                    ship.visual_effects_enabled = self.visual_effects_enabled
+
+    def set_visual_effects_enabled(self, enabled):
+        self.visual_effects_enabled = bool(enabled)
+        for ship in (self.player1, self.player2):
+            ship.visual_effects_enabled = self.visual_effects_enabled
 
     def _notify_round_started(self):
         for ship in (self.player1, self.player2):
@@ -338,6 +347,11 @@ class BattleSimulation:
                 resources=getattr(self, "resources", None),
                 excluded_objects=excluded_ships,
                 metrics=collision_metrics,
+                visual_effects_enabled=getattr(
+                    self,
+                    "visual_effects_enabled",
+                    True,
+                ),
             )
             _add_battle_timing_seconds(
                 timing_seconds,
@@ -550,13 +564,13 @@ class BattleSimulation:
         for ship in dead_ships:
             with use_audio_service(self.audio):
                 BattleEffect.play_ship_death()
-            self._training_pending_explosions.extend(
-                battle_aftermath.create_ship_explosion_schedule(
-                    ship,
-                    self.frame_id,
-                    self.rng,
-                )
+            schedule = battle_aftermath.create_ship_explosion_schedule(
+                ship,
+                self.frame_id,
+                self.rng,
             )
+            if self.visual_effects_enabled:
+                self._training_pending_explosions.extend(schedule)
 
     def _update_training_death_effects(self):
         ready = [

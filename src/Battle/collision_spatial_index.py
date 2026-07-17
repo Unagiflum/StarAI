@@ -84,6 +84,8 @@ class ToroidalSpatialIndex:
         self._cells: dict[tuple[int, int], list[_Entry]] = {}
         self._entries: dict[int, _Entry] = {}
         self._membership_count = 0
+        self._generation = 0
+        self._candidate_cache: dict[int, tuple[int, tuple[_Entry, ...]]] = {}
 
         category_map = categories or {}
         for order, obj in enumerate(objects):
@@ -112,6 +114,8 @@ class ToroidalSpatialIndex:
         self._membership_count += len(entry.cells)
         for cell in entry.cells:
             self._cells.setdefault(cell, []).append(entry)
+        self._generation += 1
+        self._candidate_cache.clear()
         self._refresh_metrics()
 
     def update(self, obj: Any) -> bool:
@@ -142,6 +146,8 @@ class ToroidalSpatialIndex:
             while insertion_index and members[insertion_index - 1].order > entry.order:
                 insertion_index -= 1
             members.insert(insertion_index, entry)
+        self._generation += 1
+        self._candidate_cache.clear()
         self._refresh_metrics()
         return True
 
@@ -159,11 +165,30 @@ class ToroidalSpatialIndex:
         entry = self._entries.get(id(obj))
         if entry is None:
             return []
-        return self._objects_in_cells(
-            entry.cells,
-            categories=categories,
-            excluded_identity=None if include_self else id(obj),
-        )
+        if self._metrics_enabled:
+            self.metrics.queries += 1
+        cached = self._candidate_cache.get(id(obj))
+        if cached is None or cached[0] != self._generation:
+            ordered = tuple(self._entries_in_cells(entry.cells))
+            self._candidate_cache[id(obj)] = (self._generation, ordered)
+        else:
+            ordered = cached[1]
+        category_filter = frozenset(categories or ())
+        excluded_identity = None if include_self else id(obj)
+        selected = [
+            candidate.obj
+            for candidate in ordered
+            if (
+                id(candidate.obj) != excluded_identity
+                and (
+                    not category_filter
+                    or not candidate.categories.isdisjoint(category_filter)
+                )
+            )
+        ]
+        if self._metrics_enabled:
+            self.metrics.returned_candidates += len(selected)
+        return selected
 
     def query_radius(
         self,
@@ -339,20 +364,27 @@ class ToroidalSpatialIndex:
         if self._metrics_enabled:
             self.metrics.queries += 1
         category_filter = frozenset(categories or ())
-        found: dict[int, _Entry] = {}
-        for cell in cells:
-            for entry in self._cells.get(cell, ()):
-                identity = id(entry.obj)
-                if identity == excluded_identity:
-                    continue
-                if category_filter and entry.categories.isdisjoint(category_filter):
-                    continue
-                found[identity] = entry
-
-        ordered = sorted(found.values(), key=lambda entry: entry.order)
+        ordered = [
+            entry
+            for entry in self._entries_in_cells(cells)
+            if (
+                id(entry.obj) != excluded_identity
+                and (
+                    not category_filter
+                    or not entry.categories.isdisjoint(category_filter)
+                )
+            )
+        ]
         if self._metrics_enabled:
             self.metrics.returned_candidates += len(ordered)
         return [entry.obj for entry in ordered]
+
+    def _entries_in_cells(self, cells) -> list[_Entry]:
+        found: dict[int, _Entry] = {}
+        for cell in cells:
+            for entry in self._cells.get(cell, ()):
+                found[id(entry.obj)] = entry
+        return sorted(found.values(), key=lambda entry: entry.order)
 
     def _refresh_metrics(self) -> None:
         if not self._metrics_enabled:

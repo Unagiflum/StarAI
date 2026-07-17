@@ -41,6 +41,11 @@ from src.toroidal import (
 BROAD_PHASE_SPATIAL = "spatial"
 BROAD_PHASE_BRUTE_FORCE = "brute_force"
 
+# Exact scans beat grid query setup for the small laser/area target sets seen in
+# ordinary battles.  Physical pair handling still uses the grid at all sizes.
+_LASER_SPATIAL_QUERY_MIN_TARGETS = 32
+_AREA_SPATIAL_QUERY_MIN_TARGETS = 256
+
 
 @dataclass
 class CollisionMetrics:
@@ -607,6 +612,7 @@ def handle_collisions(
     shadow_validate=False,
     cell_size=DEFAULT_CELL_SIZE,
     metrics=None,
+    visual_effects_enabled=True,
 ):
     """Handle one collision frame with a shared, invalidatable geometry cache."""
     with pair_geometry_cache():
@@ -619,6 +625,7 @@ def handle_collisions(
             shadow_validate=shadow_validate,
             cell_size=cell_size,
             metrics=metrics,
+            visual_effects_enabled=visual_effects_enabled,
         )
 
 
@@ -632,6 +639,7 @@ def _handle_collision_frame(
     shadow_validate=False,
     cell_size=DEFAULT_CELL_SIZE,
     metrics=None,
+    visual_effects_enabled=True,
 ):
     if broad_phase not in (BROAD_PHASE_SPATIAL, BROAD_PHASE_BRUTE_FORCE):
         raise ValueError(f"unknown collision broad phase: {broad_phase!r}")
@@ -659,6 +667,10 @@ def _handle_collision_frame(
         spatial_index=spatial_index,
         shadow_validate=shadow_validate,
         metrics=metrics,
+        use_spatial_queries=(
+            shadow_validate
+            or len(frame.objects) >= _AREA_SPATIAL_QUERY_MIN_TARGETS
+        ),
     )
 
     ships = [
@@ -704,6 +716,21 @@ def _handle_collision_frame(
         spatial_index=spatial_index,
         shadow_validate=shadow_validate,
         metrics=metrics,
+        use_spatial_queries=(
+            shadow_validate
+            or sum(
+                len(group)
+                for group in (
+                    ships,
+                    projectiles,
+                    special_objects,
+                    area_abilities,
+                    asteroids,
+                    planets,
+                )
+            )
+            >= _LASER_SPATIAL_QUERY_MIN_TARGETS
+        ),
     )
     _run_collision_phases(
         {
@@ -727,7 +754,12 @@ def _handle_collision_frame(
         resources=resources,
     )
 
-    world.add_all(effects)
+    if visual_effects_enabled:
+        world.add_all(effects)
+    else:
+        world.add_all(
+            effect for effect in effects if not isinstance(effect, BattleEffect)
+        )
     world.finalize_collision_frame()
 
 
@@ -740,6 +772,7 @@ def _handle_area_damage(
     spatial_index=None,
     shadow_validate=False,
     metrics=None,
+    use_spatial_queries=True,
 ):
     world = World.coerce(game_objects)
     frame = frame or world.collision_snapshot()
@@ -753,10 +786,13 @@ def _handle_area_damage(
 
         maximum_radius = _maximum_area_damage_radius(ability)
         bounded_spatial_query = (
-            spatial_index is not None and maximum_radius is not None
+            use_spatial_queries
+            and spatial_index is not None
+            and maximum_radius is not None
         )
         if (
             spatial_index is not None
+            and maximum_radius is None
             and not bounded_spatial_query
             and metrics is not None
         ):
@@ -1015,6 +1051,7 @@ def _handle_laser_collisions(
     spatial_index=None,
     shadow_validate=False,
     metrics=None,
+    use_spatial_queries=True,
 ):
     target_groups = (
         ships,
@@ -1042,7 +1079,7 @@ def _handle_laser_collisions(
 
         segments = _laser_collision_segments(laser)
         spatial_candidates = None
-        if spatial_index is not None:
+        if spatial_index is not None and use_spatial_queries:
             spatial_candidates = spatial_index.query_segments(
                 segments,
                 width=getattr(laser, "LASER_WIDTH", 1),
@@ -1074,7 +1111,7 @@ def _handle_laser_collisions(
         if metrics is not None:
             metrics.laser_candidates += len(targets)
 
-        if shadow_validate and spatial_index is not None:
+        if shadow_validate and spatial_candidates is not None:
             brute_targets = _laser_targets(
                 laser,
                 ships,

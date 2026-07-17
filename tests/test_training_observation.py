@@ -14,7 +14,7 @@ from src.training.contracts import (
     SHIP_BLOCK_FIELDS,
     SHIP_TYPE_CATALOG_ORDER,
 )
-from src.training.observation import encode_observation
+from src.training.observation import build_observation_context, encode_observation
 
 
 def _field(prefix, name):
@@ -78,6 +78,42 @@ def _obj(name, **overrides):
 
 
 class TrainingObservationTests(unittest.TestCase):
+    def test_shared_frame_context_matches_independent_perspective_encoding(self):
+        trainee = _ship("Earthling", player=1, position=[100.0, 150.0])
+        enemy = _ship("Mycon", player=2, position=[450.0, 500.0])
+        objects = [
+            trainee,
+            enemy,
+            _obj("EarthlingA1", parent=trainee, player=1, position=[120.0, 150.0]),
+            _obj("MyconA1", parent=enemy, player=2, position=[430.0, 500.0]),
+            _obj("Asteroid", type="space", position=[300.0, 300.0]),
+        ]
+        context = build_observation_context(trainee, enemy, objects)
+
+        trainee_shared = encode_observation(
+            trainee,
+            enemy,
+            frame_id=7,
+            game_objects=objects,
+            context=context,
+        )
+        enemy_shared = encode_observation(
+            enemy,
+            trainee,
+            frame_id=7,
+            game_objects=objects,
+            context=context,
+        )
+
+        self.assertEqual(
+            trainee_shared,
+            encode_observation(trainee, enemy, frame_id=7, game_objects=objects),
+        )
+        self.assertEqual(
+            enemy_shared,
+            encode_observation(enemy, trainee, frame_id=7, game_objects=objects),
+        )
+
     def test_encoder_produces_finite_values_with_zero_filled_objects(self):
         trainee = _ship("Earthling")
         enemy = _ship("Mycon")

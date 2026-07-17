@@ -5,13 +5,14 @@ from types import SimpleNamespace
 import src.const as const
 from src.Battle.world import World
 from src.Objects.Ships.action_transaction import ActionPlan
-from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 from src.Objects.Ships.launch_geometry import gun_world_position
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Pkunk.Pkunk import Pkunk
 from src.training.combat_adapters import (
     is_enemy_in_effective_range,
     is_pointing_at_enemy,
+    reward_combat_flags,
 )
 from src.training.event_ledger import (
     BattleEventLedger,
@@ -51,6 +52,47 @@ def position_at_angle(origin, angle_degrees, distance):
 
 
 class TrainingCombatAdapterTests(unittest.TestCase):
+    def test_combined_reward_geometry_matches_individual_predicates(self):
+        enemy = ship(
+            "Chenjesu",
+            position=(1789, 2468),
+            rotation=225,
+            velocity=(-7, 13),
+        )
+        for index, ship_name in enumerate(sorted(SHIP_DEFINITIONS)):
+            with self.subTest(ship=ship_name):
+                trainee = ship(
+                    ship_name,
+                    position=(1000 + index * 17, 900 + index * 11),
+                    rotation=(index * 37) % 360,
+                    velocity=(index % 9 - 4, index % 7 - 3),
+                )
+                if ship_name == "Mmrnmrhm":
+                    trainee.form = "YWing"
+                if ship_name == "Orz":
+                    trainee.turret_heading = 9
+
+                flags = reward_combat_flags(trainee, enemy)
+
+                self.assertEqual(
+                    (
+                        flags.a1_pointing,
+                        flags.a1_in_range,
+                        flags.a2_pointing,
+                        flags.a2_in_range,
+                    ),
+                    (
+                        is_pointing_at_enemy(trainee, enemy, action_number=1),
+                        is_enemy_in_effective_range(
+                            trainee, enemy, action_number=1
+                        ),
+                        is_pointing_at_enemy(trainee, enemy, action_number=2),
+                        is_enemy_in_effective_range(
+                            trainee, enemy, action_number=2
+                        ),
+                    ),
+                )
+
     def test_conventional_projectile_pointing_uses_quantized_toroidal_bearing(self):
         trainee = ship("Chenjesu", position=(const.ARENA_SIZE - 20, 100), rotation=90)
         enemy = ship("Chenjesu", position=(20, 100))

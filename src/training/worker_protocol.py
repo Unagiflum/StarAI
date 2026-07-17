@@ -10,7 +10,7 @@ import src.const as const
 from src.training.coordinated_contracts import CoordinatedFixedFrameWindowResult
 from src.training.cpu_contracts import OpponentSpec, TrainingOrchestrationConfig
 from src.training.observation_transfer import PackedObservation
-from src.training.replay_contracts import ReplayTransferSample
+from src.training.replay_contracts import ReplayTransferChunk, ReplayTransferSample
 
 
 COMMAND_START_RUN = "START_RUN"
@@ -143,7 +143,7 @@ class FrameSteppedResult:
     frame_count: int
     complete: bool
     progress_payload: Mapping[str, Any] | None = None
-    mature_samples: tuple[ReplayTransferSample, ...] = ()
+    mature_samples: tuple[ReplayTransferSample, ...] | ReplayTransferChunk = ()
     terminal_episode: Any | None = None
     next_trainee_observation: PackedObservation | None = None
     next_opponent_observation: PackedObservation | None = None
@@ -160,7 +160,7 @@ class WindowFinishedResult:
     round_index: int
     result: CoordinatedFixedFrameWindowResult
     mature_samples: tuple[ReplayTransferSample, ...] = ()
-    mature_sample_chunks: tuple[tuple[ReplayTransferSample, ...], ...] = ()
+    mature_sample_chunks: tuple[ReplayTransferChunk, ...] = ()
     timing_seconds: Mapping[str, float] | None = None
     name: str = RESULT_WINDOW_FINISHED
 
