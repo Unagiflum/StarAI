@@ -75,6 +75,32 @@ _REWARD_COMPONENT_INDEX = {
     component: index for index, component in enumerate(REWARD_COMPONENTS)
 }
 _REWARD_COMPONENT_COUNT = len(REWARD_COMPONENTS)
+_ALL_REWARD_COMPONENTS = frozenset(REWARD_COMPONENTS)
+
+_EVENT_REWARD_COMPONENTS = frozenset(
+    {
+        REWARD_KILL_ENEMY,
+        REWARD_ENEMY_LOSES_CREW,
+        REWARD_DEBUFF_ENEMY,
+        REWARD_KILL_ENEMY_OBJECT,
+        REWARD_GAIN_CREW,
+        REWARD_SPAWN_A1,
+        REWARD_SPAWN_A2,
+        REWARD_DESTROY_OWN_OBJECT,
+        REWARD_GET_DEBUFFED,
+        REWARD_LOSE_CREW,
+        REWARD_DIE,
+    }
+)
+_CAUSAL_REWARD_COMPONENTS = frozenset(
+    {
+        REWARD_KILL_ENEMY,
+        REWARD_ENEMY_LOSES_CREW,
+        REWARD_DEBUFF_ENEMY,
+        REWARD_KILL_ENEMY_OBJECT,
+        REWARD_LOSE_CREW,
+    }
+)
 
 LEGACY_REWARD_ALIASES = {
     REWARD_ENEMY_LOSES_CREW: "Enemy loses crew",
@@ -186,24 +212,56 @@ def decision_frame_from_battle_state(
     self_ship,
     enemy_ship,
     world=None,
+    enabled_components: Iterable[str] | None = None,
 ) -> RewardDecisionFrame:
     """Create a read-only reward snapshot from live battle objects."""
 
-    velocity = _vector(self_ship, "velocity")
-    combat_flags = combat_adapters.reward_combat_flags(
-        self_ship,
-        enemy_ship,
-        world,
+    enabled = (
+        _ALL_REWARD_COMPONENTS
+        if enabled_components is None
+        else frozenset(enabled_components)
     )
+    needs_speed = REWARD_HIGH_SPEED in enabled
+    needs_battery = bool(
+        enabled.intersection(
+            {
+                REWARD_GAIN_BATTERY,
+                REWARD_LOSE_BATTERY,
+                REWARD_BATTERY_AT_ZERO,
+            }
+        )
+    )
+    combat_flag_components = enabled.intersection(
+        {
+            REWARD_POINT_A1,
+            REWARD_A1_RANGE,
+            REWARD_POINT_A2,
+            REWARD_A2_RANGE,
+        }
+    )
+    combat_flags = (
+        combat_adapters.reward_combat_flags(
+            self_ship,
+            enemy_ship,
+            world,
+            a1_pointing=REWARD_POINT_A1 in enabled,
+            a1_in_range=REWARD_A1_RANGE in enabled,
+            a2_pointing=REWARD_POINT_A2 in enabled,
+            a2_in_range=REWARD_A2_RANGE in enabled,
+        )
+        if combat_flag_components
+        else combat_adapters.RewardCombatFlags(False, False, False, False)
+    )
+    velocity = _vector(self_ship, "velocity") if needs_speed else (0.0, 0.0)
     return RewardDecisionFrame(
         frame_id=int(frame_id),
         observation=tuple(float(value) for value in observation),
         action_index=int(action_index),
         self_ship=self_ship,
         enemy_ship=enemy_ship,
-        self_battery=_number(self_ship, "current_energy"),
-        self_speed=math.hypot(velocity[0], velocity[1]),
-        self_max_thrust=_number(self_ship, "max_thrust"),
+        self_battery=_number(self_ship, "current_energy") if needs_battery else 0.0,
+        self_speed=math.hypot(velocity[0], velocity[1]) if needs_speed else 0.0,
+        self_max_thrust=_number(self_ship, "max_thrust") if needs_speed else 0.0,
         a1_pointing=combat_flags.a1_pointing,
         a1_in_range=combat_flags.a1_in_range,
         a2_pointing=combat_flags.a2_pointing,
@@ -217,14 +275,34 @@ def frame_outcome_from_battle_state(
     self_ship,
     events: Iterable[TrainingBattleEvent] = (),
     terminal: bool = False,
+    enabled_components: Iterable[str] | None = None,
 ) -> RewardFrameOutcome:
-    velocity = _vector(self_ship, "velocity")
+    enabled = (
+        _ALL_REWARD_COMPONENTS
+        if enabled_components is None
+        else frozenset(enabled_components)
+    )
+    needs_speed = REWARD_HIGH_SPEED in enabled
+    needs_battery = bool(
+        enabled.intersection(
+            {
+                REWARD_GAIN_BATTERY,
+                REWARD_LOSE_BATTERY,
+                REWARD_BATTERY_AT_ZERO,
+            }
+        )
+    )
+    velocity = _vector(self_ship, "velocity") if needs_speed else (0.0, 0.0)
     return RewardFrameOutcome(
         frame_id=int(frame_id),
-        self_battery=_number(self_ship, "current_energy"),
-        self_speed=math.hypot(velocity[0], velocity[1]),
-        self_max_thrust=_number(self_ship, "max_thrust"),
-        self_sustained_a2_active=_sustained_a2_active(self_ship),
+        self_battery=_number(self_ship, "current_energy") if needs_battery else 0.0,
+        self_speed=math.hypot(velocity[0], velocity[1]) if needs_speed else 0.0,
+        self_max_thrust=_number(self_ship, "max_thrust") if needs_speed else 0.0,
+        self_sustained_a2_active=(
+            _sustained_a2_active(self_ship)
+            if REWARD_SPAWN_A2 in enabled
+            else False
+        ),
         events=tuple(events),
         terminal=bool(terminal),
     )
@@ -242,6 +320,12 @@ class RollingReturnPipeline:
         self.gamma = _validate_gamma(gamma)
         self.discount_cutoff_frames = discount_cutoff_frames(self.gamma)
         self.reward_weights = normalize_reward_weights(reward_weights or {})
+        self.enabled_reward_components = _enabled_reward_components(reward_weights)
+        self._enabled_component_indices = tuple(
+            _REWARD_COMPONENT_INDEX[component]
+            for component in REWARD_COMPONENTS
+            if component in self.enabled_reward_components
+        )
         self._discount_powers = _discount_powers(
             self.gamma,
             self.discount_cutoff_frames,
@@ -272,7 +356,11 @@ class RollingReturnPipeline:
             raise ValueError("decision and outcome frame IDs must match")
 
         self._pending.append(_PendingSample(decision=decision))
-        components = _calculate_immediate_reward_component_vector(decision, outcome)
+        components = _calculate_immediate_reward_component_vector(
+            decision,
+            outcome,
+            enabled_components=self.enabled_reward_components,
+        )
         self._append_component_vector(components)
 
         if outcome.terminal:
@@ -295,6 +383,7 @@ class RollingReturnPipeline:
                 end_frame_id=outcome.frame_id,
                 actual_frame_count=self.discount_cutoff_frames,
                 terminal_truncated=False,
+                enabled_components=self.enabled_reward_components,
             )
         ]
         self._drop_oldest_component_vector()
@@ -314,10 +403,10 @@ class RollingReturnPipeline:
         offset = len(self._component_window)
         self._component_window.append(components)
         discount = self._discount_powers[offset]
-        self._window_totals = tuple(
-            total + float(value) * discount
-            for total, value in zip(self._window_totals, components)
-        )
+        totals = list(self._window_totals)
+        for index in self._enabled_component_indices:
+            totals[index] += float(components[index]) * discount
+        self._window_totals = tuple(totals)
 
     def _drop_oldest_component_vector(self) -> None:
         oldest = self._component_window.popleft()
@@ -329,10 +418,12 @@ class RollingReturnPipeline:
                 float(value) for value in self._component_window[0]
             )
             return
-        self._window_totals = tuple(
-            (total - float(value)) / self.gamma
-            for total, value in zip(self._window_totals, oldest)
-        )
+        totals = [0.0] * _REWARD_COMPONENT_COUNT
+        for index in self._enabled_component_indices:
+            totals[index] = (
+                self._window_totals[index] - float(oldest[index])
+            ) / self.gamma
+        self._window_totals = tuple(totals)
 
     def _mature_all_pending(
         self,
@@ -348,10 +439,12 @@ class RollingReturnPipeline:
         ]
         for offset in range(len(components) - 1, -1, -1):
             current = components[offset]
-            suffix_totals = tuple(
-                float(value) + self.gamma * total
-                for value, total in zip(current, suffix_totals)
-            )
+            next_totals = [0.0] * _REWARD_COMPONENT_COUNT
+            for index in self._enabled_component_indices:
+                next_totals[index] = (
+                    float(current[index]) + self.gamma * suffix_totals[index]
+                )
+            suffix_totals = tuple(next_totals)
             samples_by_offset[offset] = suffix_totals
 
         matured = []
@@ -368,6 +461,7 @@ class RollingReturnPipeline:
                     actual_frame_count=actual_frame_count,
                     terminal_truncated=terminal
                     and actual_frame_count < self.discount_cutoff_frames,
+                    enabled_components=self.enabled_reward_components,
                 )
             )
         self._pending.clear()
@@ -396,6 +490,16 @@ class StagedTrajectoryPipeline:
         if mode not in REWARD_MODES:
             raise ValueError("unsupported reward mode")
         self.mode = str(mode)
+        self.enabled_reward_components = (
+            _ALL_REWARD_COMPONENTS
+            if self.mode == REWARD_MODE_SHADOW
+            else _enabled_reward_components(reward_weights)
+        )
+        self._enabled_component_indices = tuple(
+            _REWARD_COMPONENT_INDEX[component]
+            for component in REWARD_COMPONENTS
+            if component in self.enabled_reward_components
+        )
         self._cutoff_discount = self.gamma ** self.discount_cutoff_frames
         self.trajectory_id: str | None = None
         self._observation_size: int | None = None
@@ -512,7 +616,11 @@ class StagedTrajectoryPipeline:
                 raise ValueError("staged index does not match the decision frame")
         if index != self._outcome_count:
             raise ValueError("outcomes must be added once in staged decision order")
-        components = _calculate_immediate_reward_component_vector(decision, outcome)
+        components = _calculate_immediate_reward_component_vector(
+            decision,
+            outcome,
+            enabled_components=self.enabled_reward_components,
+        )
         offset = index * _REWARD_COMPONENT_COUNT
         self._components[offset : offset + _REWARD_COMPONENT_COUNT] = array(
             "d", components
@@ -531,7 +639,12 @@ class StagedTrajectoryPipeline:
                 ledger.diagnostics.peak_staged_bytes,
                 self.peak_staged_bytes,
             )
-            if self.mode in {REWARD_MODE_CAUSAL, REWARD_MODE_SHADOW}:
+            if (
+                self.mode in {REWARD_MODE_CAUSAL, REWARD_MODE_SHADOW}
+                and self.enabled_reward_components.intersection(
+                    _CAUSAL_REWARD_COMPONENTS
+                )
+            ):
                 _route_causal_event_components(
                     self,
                     decision,
@@ -662,7 +775,7 @@ class StagedTrajectoryPipeline:
             offset = frame_index * _REWARD_COMPONENT_COUNT
             expired_index = frame_index + horizon
             expired_offset = expired_index * _REWARD_COMPONENT_COUNT
-            for component_index in range(_REWARD_COMPONENT_COUNT):
+            for component_index in self._enabled_component_indices:
                 value = component_buffer[offset + component_index]
                 total = value + self.gamma * running[component_index]
                 if expired_index < frame_count:
@@ -707,6 +820,7 @@ class StagedTrajectoryPipeline:
                     actual_frame_count=actual_frame_count,
                     terminal_truncated=terminal and actual_frame_count < horizon,
                     observation_normalized=True,
+                    enabled_components=self.enabled_reward_components,
                 )
             )
         return samples
@@ -820,6 +934,21 @@ def normalize_reward_weights(weights: Mapping[str, float]) -> dict[str, float]:
     return normalized
 
 
+def _enabled_reward_components(
+    reward_weights: Mapping[str, float] | None,
+) -> frozenset[str]:
+    """Return configured nonzero rewards; ``None`` retains raw-analysis behavior."""
+
+    if reward_weights is None:
+        return _ALL_REWARD_COMPONENTS
+    normalized = normalize_reward_weights(reward_weights)
+    return frozenset(
+        component
+        for component in REWARD_COMPONENTS
+        if float(normalized[component]) != 0.0
+    )
+
+
 def discount_cutoff_frames(
     gamma: float,
     cutoff_weight: float = DISCOUNT_CUTOFF_WEIGHT,
@@ -865,99 +994,152 @@ def calculate_immediate_reward_components(
 def _calculate_immediate_reward_component_vector(
     decision: RewardDecisionFrame,
     outcome: RewardFrameOutcome,
+    *,
+    enabled_components: Iterable[str] | None = None,
 ) -> tuple[float, ...]:
     if decision.frame_id != outcome.frame_id:
         raise ValueError("decision and outcome frame IDs must match")
+    enabled = (
+        _ALL_REWARD_COMPONENTS
+        if enabled_components is None
+        else frozenset(enabled_components)
+    )
     components = [0.0] * _REWARD_COMPONENT_COUNT
+    if not enabled:
+        return tuple(components)
 
     frame_seconds = 1.0 / float(const.FPS)
-    components[_REWARD_COMPONENT_INDEX[REWARD_POINT_A1]] = (
-        frame_seconds if decision.a1_pointing else 0.0
-    )
-    components[_REWARD_COMPONENT_INDEX[REWARD_A1_RANGE]] = (
-        frame_seconds if decision.a1_in_range else 0.0
-    )
-    components[_REWARD_COMPONENT_INDEX[REWARD_POINT_A2]] = (
-        frame_seconds if decision.a2_pointing else 0.0
-    )
-    components[_REWARD_COMPONENT_INDEX[REWARD_A2_RANGE]] = (
-        frame_seconds if decision.a2_in_range else 0.0
-    )
+    if REWARD_POINT_A1 in enabled and decision.a1_pointing:
+        components[_REWARD_COMPONENT_INDEX[REWARD_POINT_A1]] = frame_seconds
+    if REWARD_A1_RANGE in enabled and decision.a1_in_range:
+        components[_REWARD_COMPONENT_INDEX[REWARD_A1_RANGE]] = frame_seconds
+    if REWARD_POINT_A2 in enabled and decision.a2_pointing:
+        components[_REWARD_COMPONENT_INDEX[REWARD_POINT_A2]] = frame_seconds
+    if REWARD_A2_RANGE in enabled and decision.a2_in_range:
+        components[_REWARD_COMPONENT_INDEX[REWARD_A2_RANGE]] = frame_seconds
 
-    if outcome.self_max_thrust > 0.0 and outcome.self_speed > outcome.self_max_thrust:
+    if (
+        REWARD_HIGH_SPEED in enabled
+        and outcome.self_max_thrust > 0.0
+        and outcome.self_speed > outcome.self_max_thrust
+    ):
         components[_REWARD_COMPONENT_INDEX[REWARD_HIGH_SPEED]] = (
             outcome.self_speed - outcome.self_max_thrust
         ) / outcome.self_max_thrust * frame_seconds
 
-    battery_delta = outcome.self_battery - decision.self_battery
-    if battery_delta > 0:
-        components[_REWARD_COMPONENT_INDEX[REWARD_GAIN_BATTERY]] = battery_delta
-    elif battery_delta < 0:
-        components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_BATTERY]] = -battery_delta
-    if outcome.self_battery <= 0:
+    if REWARD_GAIN_BATTERY in enabled or REWARD_LOSE_BATTERY in enabled:
+        battery_delta = outcome.self_battery - decision.self_battery
+        if battery_delta > 0 and REWARD_GAIN_BATTERY in enabled:
+            components[_REWARD_COMPONENT_INDEX[REWARD_GAIN_BATTERY]] = battery_delta
+        elif battery_delta < 0 and REWARD_LOSE_BATTERY in enabled:
+            components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_BATTERY]] = -battery_delta
+    if REWARD_BATTERY_AT_ZERO in enabled and outcome.self_battery <= 0:
         components[_REWARD_COMPONENT_INDEX[REWARD_BATTERY_AT_ZERO]] = frame_seconds
 
     self_ship = decision.self_ship
     enemy_ship = decision.enemy_ship
-    if _uses_sustained_a2_reward(self_ship) and outcome.self_sustained_a2_active:
+    if (
+        REWARD_SPAWN_A2 in enabled
+        and _uses_sustained_a2_reward(self_ship)
+        and outcome.self_sustained_a2_active
+    ):
         components[_REWARD_COMPONENT_INDEX[REWARD_SPAWN_A2]] = frame_seconds
+    if not enabled.intersection(_EVENT_REWARD_COMPONENTS):
+        return tuple(components)
+
     for event in outcome.events:
-        if _is_self_action_use_event(event, self_ship):
-            if _is_a1_use_event(event):
+        if (
+            REWARD_SPAWN_A1 in enabled or REWARD_SPAWN_A2 in enabled
+        ) and _is_self_action_use_event(event, self_ship):
+            if REWARD_SPAWN_A1 in enabled and _is_a1_use_event(event):
                 components[_REWARD_COMPONENT_INDEX[REWARD_SPAWN_A1]] = 1.0
             elif (
-                not _uses_sustained_a2_reward(self_ship)
+                REWARD_SPAWN_A2 in enabled
+                and not _uses_sustained_a2_reward(self_ship)
                 and _is_a2_use_event(event)
             ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_SPAWN_A2]] = 1.0
         elif event.event_type == EVENT_CREW_CHANGED:
-            if _same_entity(event.target, enemy_ship) and event.magnitude < 0:
+            if (
+                REWARD_ENEMY_LOSES_CREW in enabled
+                and _same_entity(event.target, enemy_ship)
+                and event.magnitude < 0
+            ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_ENEMY_LOSES_CREW]] += (
                     -event.magnitude * _source_reward_credit(event)
                 )
-            elif _same_entity(event.target, self_ship) and event.magnitude < 0:
+            elif (
+                REWARD_LOSE_CREW in enabled
+                and _same_entity(event.target, self_ship)
+                and event.magnitude < 0
+            ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_CREW]] += -event.magnitude
-            elif _same_entity(event.target, self_ship) and event.magnitude > 0:
+            elif (
+                REWARD_GAIN_CREW in enabled
+                and _same_entity(event.target, self_ship)
+                and event.magnitude > 0
+            ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_GAIN_CREW]] += event.magnitude
         elif event.event_type == EVENT_DEBUFF_APPLIED:
-            if _same_entity(event.target, enemy_ship):
+            if REWARD_DEBUFF_ENEMY in enabled and _same_entity(
+                event.target, enemy_ship
+            ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_DEBUFF_ENEMY]] += (
                     event.magnitude
                 )
-            elif _same_entity(event.target, self_ship):
+            elif REWARD_GET_DEBUFFED in enabled and _same_entity(
+                event.target, self_ship
+            ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_GET_DEBUFFED]] += (
                     event.magnitude
                 )
         elif event.event_type == EVENT_OBJECT_REMOVED:
             if _is_chmmr_satellite_event(event):
-                if event.destroyed and _same_entity(event.owner, enemy_ship):
+                if (
+                    REWARD_KILL_ENEMY in enabled
+                    and event.destroyed
+                    and _same_entity(event.owner, enemy_ship)
+                ):
                     if _same_entity(_removal_source_owner(event), self_ship):
                         components[_REWARD_COMPONENT_INDEX[REWARD_KILL_ENEMY]] += 0.5
-                elif event.destroyed and _same_entity(event.owner, self_ship):
+                elif (
+                    REWARD_DIE in enabled
+                    and event.destroyed
+                    and _same_entity(event.owner, self_ship)
+                ):
                     components[_REWARD_COMPONENT_INDEX[REWARD_DIE]] += (
                         1.0 / _configured_satellite_count(event.owner)
                     )
-            elif _object_removed_by_owner_weapon(event, enemy_ship, self_ship):
+            elif (
+                REWARD_KILL_ENEMY_OBJECT in enabled
+                and _object_removed_by_owner_weapon(event, enemy_ship, self_ship)
+            ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_KILL_ENEMY_OBJECT]] += 1.0
-            elif _object_removed_by_owner_weapon(event, self_ship, self_ship):
+            elif (
+                REWARD_DESTROY_OWN_OBJECT in enabled
+                and _object_removed_by_owner_weapon(event, self_ship, self_ship)
+            ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_DESTROY_OWN_OBJECT]] += 1.0
         elif event.event_type == EVENT_OBJECT_HP_CHANGED:
             if not _is_chmmr_satellite_event(event):
                 continue
             damage = max(0.0, -float(event.magnitude)) * 0.5
-            if _same_entity(event.owner, self_ship):
+            if REWARD_LOSE_CREW in enabled and _same_entity(event.owner, self_ship):
                 components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_CREW]] += damage
             elif (
-                _same_entity(event.owner, enemy_ship)
+                REWARD_ENEMY_LOSES_CREW in enabled
+                and _same_entity(event.owner, enemy_ship)
                 and _same_entity(event.actor, self_ship)
             ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_ENEMY_LOSES_CREW]] += damage
         elif event.event_type == EVENT_SHIP_DIED:
-            if _same_entity(event.target, enemy_ship):
+            if REWARD_KILL_ENEMY in enabled and _same_entity(
+                event.target, enemy_ship
+            ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_KILL_ENEMY]] += (
                     _enemy_death_reward_credit(event)
                 )
-            elif _same_entity(event.target, self_ship):
+            elif REWARD_DIE in enabled and _same_entity(event.target, self_ship):
                 components[_REWARD_COMPONENT_INDEX[REWARD_DIE]] += 1.0
 
     return tuple(components)
@@ -974,6 +1156,7 @@ def _route_causal_event_components(
     for event in outcome.events:
         if (
             pipeline.mode == REWARD_MODE_CAUSAL
+            and REWARD_LOSE_CREW in pipeline.enabled_reward_components
             and _is_own_launched_crew_loss(decision, event)
         ):
             _route_own_launched_crew_loss(
@@ -1004,7 +1187,10 @@ def _route_causal_event_components(
             continue
         contributions = _routeable_positive_event_components(decision, event)
         for component, amount in contributions.items():
-            if amount <= 0.0:
+            if (
+                component not in pipeline.enabled_reward_components
+                or amount <= 0.0
+            ):
                 continue
             credit = ledger.resolve_event_credit(
                 event,
@@ -1322,15 +1508,21 @@ def _sample_from_components(
     terminal_truncated: bool = False,
 ) -> MatureTrainingSample:
     weights = normalize_reward_weights(reward_weights)
-    weighted = {
-        component: components[component] * weights[component]
+    enabled = _enabled_reward_components(reward_weights)
+    component_values = {
+        component: float(components.get(component, 0.0))
         for component in REWARD_COMPONENTS
+        if component in enabled
+    }
+    weighted = {
+        component: component_values[component] * weights[component]
+        for component in component_values
     }
     return MatureTrainingSample(
         observation=tuple(float(value) for value in start_decision.observation),
         action_index=int(start_decision.action_index),
         return_value=sum(weighted.values()),
-        component_values=components,
+        component_values=component_values,
         weighted_components=weighted,
         start_frame_id=start_decision.frame_id,
         end_frame_id=int(end_frame_id),
@@ -1348,11 +1540,21 @@ def _sample_from_component_vector(
     actual_frame_count: int,
     terminal_truncated: bool = False,
     observation_normalized: bool = False,
+    enabled_components: Iterable[str] | None = None,
 ) -> MatureTrainingSample:
-    component_values = _component_dict_from_vector(components)
+    enabled = (
+        _ALL_REWARD_COMPONENTS
+        if enabled_components is None
+        else frozenset(enabled_components)
+    )
+    component_values = {
+        component: float(components[index])
+        for index, component in enumerate(REWARD_COMPONENTS)
+        if component in enabled
+    }
     weighted = {
         component: component_values[component] * float(reward_weights[component])
-        for component in REWARD_COMPONENTS
+        for component in component_values
     }
     return MatureTrainingSample(
         observation=(

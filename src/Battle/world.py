@@ -24,24 +24,35 @@ _COLLISION_GROUP_BY_ROLE = {
 
 
 @dataclass
-class CollisionFrameSnapshot:
-    """One stable-order classification pass for collision handling.
+class WorldFrameSnapshot:
+    """One stable-order classification pass for frame consumers.
 
     This object is frame-local.  ``World`` remains the sole authoritative
-    store, while collision code avoids repeatedly deriving the same typed
-    lists from it.
+    store, while tracking and collision code avoid repeatedly deriving the
+    same typed lists from it.
     """
 
     objects: list[Any] = field(default_factory=list)
     ships: list[SpaceShip] = field(default_factory=list)
+    tracked_objects: list[Any] = field(default_factory=list)
+    tracked_projectiles: list[Ability] = field(default_factory=list)
     projectiles: list[Ability] = field(default_factory=list)
     special_objects: list[Ability] = field(default_factory=list)
     lasers: list[Ability] = field(default_factory=list)
     area_abilities: list[Ability] = field(default_factory=list)
     asteroids: list[Asteroid] = field(default_factory=list)
     planets: list[Planet] = field(default_factory=list)
+    live_ships: list[SpaceShip] = field(default_factory=list)
+    colliding_projectiles: list[Ability] = field(default_factory=list)
+    colliding_special_objects: list[Ability] = field(default_factory=list)
+    colliding_lasers: list[Ability] = field(default_factory=list)
+    live_asteroids: list[Asteroid] = field(default_factory=list)
     pending_area_damage: list[Any] = field(default_factory=list)
     spatial_categories: dict[int, frozenset[str]] = field(default_factory=dict)
+
+
+# Compatibility name retained for collision-focused callers and tests.
+CollisionFrameSnapshot = WorldFrameSnapshot
 
 
 class World:
@@ -84,28 +95,59 @@ class World:
     def snapshot(self) -> list[Any]:
         return self._objects[:]
 
-    def collision_snapshot(self) -> CollisionFrameSnapshot:
-        """Classify collision-relevant objects in one authoritative pass."""
-        snapshot = CollisionFrameSnapshot(objects=self.snapshot())
+    def frame_snapshot(
+        self,
+        *,
+        include_tracking=True,
+        include_collision=True,
+    ) -> WorldFrameSnapshot:
+        """Classify one stable object snapshot for frame-local consumers."""
+        snapshot = WorldFrameSnapshot(objects=self.snapshot())
         for obj in snapshot.objects:
-            categories = set()
-
             if isinstance(obj, SpaceShip):
                 snapshot.ships.append(obj)
+                if include_tracking:
+                    snapshot.tracked_objects.append(obj)
+                if include_collision and self.is_alive(obj):
+                    snapshot.live_ships.append(obj)
             elif isinstance(obj, Asteroid):
                 snapshot.asteroids.append(obj)
+                if include_collision and obj.currently_alive:
+                    snapshot.live_asteroids.append(obj)
             elif isinstance(obj, Planet):
                 snapshot.planets.append(obj)
             elif isinstance(obj, Ability):
+                if include_tracking:
+                    snapshot.tracked_objects.append(obj)
                 if obj.type == "projectile":
                     snapshot.projectiles.append(obj)
+                    if include_tracking:
+                        snapshot.tracked_projectiles.append(obj)
+                    if include_collision and self.is_colliding_ability_kind(
+                        obj, "projectile"
+                    ):
+                        snapshot.colliding_projectiles.append(obj)
                 elif obj.type == "special_object":
                     snapshot.special_objects.append(obj)
+                    if include_tracking:
+                        snapshot.tracked_projectiles.append(obj)
+                    if include_collision and self.is_colliding_ability_kind(
+                        obj, "special_object"
+                    ):
+                        snapshot.colliding_special_objects.append(obj)
                 elif obj.type == "laser":
                     snapshot.lasers.append(obj)
+                    if include_collision and self.is_colliding_ability_kind(
+                        obj, "laser"
+                    ):
+                        snapshot.colliding_lasers.append(obj)
                 elif obj.type == "area":
                     snapshot.area_abilities.append(obj)
 
+            if not include_collision:
+                continue
+
+            categories = set()
             collision_capabilities = getattr(obj, "collision_capabilities", None)
             role = getattr(collision_capabilities, "role", CollisionRole.NONE)
             role_category = _COLLISION_GROUP_BY_ROLE.get(role)
@@ -128,6 +170,10 @@ class World:
             if categories:
                 snapshot.spatial_categories[id(obj)] = frozenset(categories)
         return snapshot
+
+    def collision_snapshot(self) -> CollisionFrameSnapshot:
+        """Return the post-update classification used by collision handling."""
+        return self.frame_snapshot(include_tracking=False, include_collision=True)
 
     def add(self, obj: Any) -> None:
         if hasattr(obj, "position") and hasattr(obj, "previous_position"):
@@ -307,11 +353,21 @@ class World:
                 avoid_bodies.append(obj)
         return avoid_bodies
 
-    def update_objects(self, excluded_objects=()) -> None:
+    def update_objects(
+        self,
+        excluded_objects=(),
+        *,
+        frame_snapshot: WorldFrameSnapshot | None = None,
+    ) -> None:
         """Update one stable snapshot and append drained spawns afterward."""
         excluded_ids = {id(obj) for obj in excluded_objects}
         spawned_objects = []
-        for obj in self.snapshot():
+        stable_objects = (
+            frame_snapshot.objects
+            if frame_snapshot is not None
+            else self.snapshot()
+        )
+        for obj in stable_objects:
             if id(obj) in excluded_ids:
                 continue
             if isinstance(obj, SpaceShip) and obj.current_hp <= 0:

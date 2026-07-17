@@ -322,14 +322,17 @@ class BattleSimulation:
                 stage_started_at,
             )
             stage_started_at = _battle_timing_started_at(timing_seconds)
-            self._update_tracking_lists()
+            frame_snapshot = self._update_tracking_lists()
             _add_battle_timing_seconds(
                 timing_seconds,
                 "simulation_tracking",
                 stage_started_at,
             )
             stage_started_at = _battle_timing_started_at(timing_seconds)
-            self._update_objects(excluded_ships)
+            self._update_objects(
+                excluded_ships,
+                frame_snapshot=frame_snapshot,
+            )
             _add_battle_timing_seconds(
                 timing_seconds,
                 "simulation_update_objects",
@@ -464,10 +467,11 @@ class BattleSimulation:
                 self.world.add_all(ship.process_controls(self.frame_id))
 
     def _update_tracking_lists(self):
-        projectiles = self.world.abilities_of_kind("projectile", "special_object")
-        asteroids = self.world.asteroids
-        ships = self.world.ships
-        tracked_objects = self.world.objects_of_types(SpaceShip, Ability)
+        frame_snapshot = self.world.frame_snapshot(include_collision=False)
+        projectiles = frame_snapshot.tracked_projectiles
+        asteroids = frame_snapshot.asteroids
+        ships = frame_snapshot.ships
+        tracked_objects = frame_snapshot.tracked_objects
         players = {obj.player for obj in tracked_objects}
         projectiles_by_player = {
             player: [obj for obj in projectiles if obj.player == player]
@@ -484,9 +488,13 @@ class BattleSimulation:
         for asteroid in asteroids:
             asteroid.ships = ships
             asteroid.asteroids = asteroids
+        return frame_snapshot
 
-    def _update_objects(self, excluded_objects=()):
-        self.world.update_objects(excluded_objects)
+    def _update_objects(self, excluded_objects=(), *, frame_snapshot=None):
+        self.world.update_objects(
+            excluded_objects,
+            frame_snapshot=frame_snapshot,
+        )
 
     def _update_aftermath(self):
         audio = getattr(self, "audio", None)

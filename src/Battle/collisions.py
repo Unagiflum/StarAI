@@ -675,32 +675,14 @@ def _handle_collision_frame(
 
     ships = [
         ship
-        for ship in frame.ships
-        if (
-            world.is_alive(ship)
-            and id(ship) not in excluded_ids
-            and not _is_intangible(ship)
-        )
+        for ship in frame.live_ships
+        if id(ship) not in excluded_ids and not _is_intangible(ship)
     ]
-    projectiles = [
-        ability
-        for ability in frame.projectiles
-        if world.is_colliding_ability_kind(ability, "projectile")
-    ]
-    special_objects = [
-        ability
-        for ability in frame.special_objects
-        if world.is_colliding_ability_kind(ability, "special_object")
-    ]
-    lasers = [
-        ability
-        for ability in frame.lasers
-        if world.is_colliding_ability_kind(ability, "laser")
-    ]
+    projectiles = frame.colliding_projectiles
+    special_objects = frame.colliding_special_objects
+    lasers = frame.colliding_lasers
     area_abilities = frame.area_abilities
-    asteroids = [
-        asteroid for asteroid in frame.asteroids if asteroid.currently_alive
-    ]
+    asteroids = frame.live_asteroids
     planets = frame.planets
 
     _handle_laser_collisions(

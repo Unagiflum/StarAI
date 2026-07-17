@@ -33,15 +33,32 @@ class RewardCombatFlags:
     a2_in_range: bool
 
 
-def reward_combat_flags(ship, enemy, world=None) -> RewardCombatFlags:
-    """Compute both actions' reward predicates from one geometry snapshot."""
+def reward_combat_flags(
+    ship,
+    enemy,
+    world=None,
+    *,
+    a1_pointing=True,
+    a1_in_range=True,
+    a2_pointing=True,
+    a2_in_range=True,
+) -> RewardCombatFlags:
+    """Compute only the requested action reward predicates."""
 
     if not _target_is_live(enemy):
         return RewardCombatFlags(False, False, False, False)
 
     distance = None
+    requested_flags = (
+        (bool(a1_pointing), bool(a1_in_range)),
+        (bool(a2_pointing), bool(a2_in_range)),
+    )
     action_flags = []
     for action_number in (1, 2):
+        needs_pointing, needs_range = requested_flags[action_number - 1]
+        if not needs_pointing and not needs_range:
+            action_flags.extend((False, False))
+            continue
         primary, specifications = _reward_action_specifications(
             str(getattr(ship, "name", "")),
             getattr(ship, "form", None) == "YWing",
@@ -49,7 +66,7 @@ def reward_combat_flags(ship, enemy, world=None) -> RewardCombatFlags:
         )
         pointing = False
         primary_mounts = None
-        if primary is not None:
+        if needs_pointing and primary is not None:
             _, definition = primary
             if _is_omnidirectional_effect(definition):
                 pointing = _automatic_target_is_valid(definition, enemy)
@@ -76,7 +93,7 @@ def reward_combat_flags(ship, enemy, world=None) -> RewardCombatFlags:
                 )
 
         in_range = False
-        if specifications:
+        if needs_range and specifications:
             if distance is None:
                 distance = wrapped_distance(_position(ship), _position(enemy))
             for ability_name, definition in specifications:

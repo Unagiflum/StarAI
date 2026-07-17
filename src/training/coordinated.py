@@ -2527,6 +2527,7 @@ def run_coordinated_fixed_frame_window(
             self_ship=self_ship,
             enemy_ship=enemy_ship,
             world=simulation.world,
+            enabled_components=pipeline.enabled_reward_components,
         )
         ledger.begin_decision(
             self_ship,
@@ -2563,6 +2564,7 @@ def run_coordinated_fixed_frame_window(
             self_ship=self_ship,
             events=events,
             terminal=reward_terminal,
+            enabled_components=pipeline.enabled_reward_components,
         )
         mature_samples = pipeline.add_frame(
             decision,
@@ -3566,6 +3568,7 @@ def _advance_coordinated_window_frame(
         self_ship=self_ship,
         enemy_ship=enemy_ship,
         world=simulation.world,
+        enabled_components=runtime.pipeline.enabled_reward_components,
     )
     runtime.ledger.begin_decision(
         self_ship,
@@ -3628,6 +3631,7 @@ def _advance_coordinated_window_frame(
         self_ship=self_ship,
         events=events,
         terminal=reward_terminal,
+        enabled_components=runtime.pipeline.enabled_reward_components,
     )
     _add_timing_seconds(timing_seconds, "reward_outcome", reward_outcome_started_at)
     reward_pipeline_started_at = _timing_started_at(timing_seconds)

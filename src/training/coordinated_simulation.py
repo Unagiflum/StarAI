@@ -273,6 +273,7 @@ def advance_coordinated_window_frame(
         self_ship=self_ship,
         enemy_ship=enemy_ship,
         world=simulation.world,
+        enabled_components=runtime.pipeline.enabled_reward_components,
     )
     runtime.ledger.begin_decision(
         self_ship,
@@ -314,6 +315,7 @@ def advance_coordinated_window_frame(
         self_ship=self_ship,
         events=events,
         terminal=reward_terminal,
+        enabled_components=runtime.pipeline.enabled_reward_components,
     )
     add_timing_seconds(timing_seconds, "reward_outcome", outcome_started_at)
     pipeline_started_at = timing_started_at(timing_seconds)

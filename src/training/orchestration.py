@@ -461,6 +461,7 @@ def run_training_round(
             self_ship=self_ship,
             enemy_ship=enemy_ship,
             world=simulation.world,
+            enabled_components=pipeline.enabled_reward_components,
         )
         ledger.begin_decision(
             self_ship,
@@ -499,6 +500,7 @@ def run_training_round(
             self_ship=self_ship,
             events=events,
             terminal=reward_terminal,
+            enabled_components=pipeline.enabled_reward_components,
         )
         mature_samples = pipeline.add_frame(
             decision,

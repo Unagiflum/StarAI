@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 from types import SimpleNamespace
 
 import src.const as const
@@ -37,7 +38,9 @@ from src.training.rewards import (
     RewardDecisionFrame,
     RewardFrameOutcome,
     RollingReturnPipeline,
+    StagedTrajectoryPipeline,
     calculate_reward_components,
+    decision_frame_from_battle_state,
     discount_cutoff_frames,
     frame_outcome_from_battle_state,
     normalize_reward_weights,
@@ -753,6 +756,98 @@ class TrainingRewardComponentTests(unittest.TestCase):
             components[REWARD_KILL_ENEMY],
             (2 * 0.0 + 2 * 0.0 + 2 * 0.0 + 4 * 1.0) / 10,
         )
+
+
+class WeightAwareRewardTests(unittest.TestCase):
+    def setUp(self):
+        self.trainee = SimpleNamespace(
+            name="Earthling",
+            velocity=(0.0, 0.0),
+            current_energy=10.0,
+            max_thrust=12.0,
+        )
+        self.enemy = SimpleNamespace(
+            name="Chenjesu",
+            current_hp=10.0,
+            currently_alive=True,
+        )
+
+    @mock.patch("src.training.rewards.combat_adapters.reward_combat_flags")
+    def test_disabled_combat_rewards_skip_geometry_extraction(self, flags):
+        decision_frame_from_battle_state(
+            frame_id=1,
+            observation=(0.0,),
+            action_index=0,
+            self_ship=self.trainee,
+            enemy_ship=self.enemy,
+            enabled_components={REWARD_KILL_ENEMY},
+        )
+
+        flags.assert_not_called()
+
+    @mock.patch("src.training.rewards.combat_adapters.reward_combat_flags")
+    def test_enabled_combat_reward_requests_only_its_predicate(self, flags):
+        flags.return_value = SimpleNamespace(
+            a1_pointing=True,
+            a1_in_range=False,
+            a2_pointing=False,
+            a2_in_range=False,
+        )
+
+        decision = decision_frame_from_battle_state(
+            frame_id=1,
+            observation=(0.0,),
+            action_index=0,
+            self_ship=self.trainee,
+            enemy_ship=self.enemy,
+            enabled_components={REWARD_POINT_A1},
+        )
+
+        self.assertTrue(decision.a1_pointing)
+        flags.assert_called_once_with(
+            self.trainee,
+            self.enemy,
+            None,
+            a1_pointing=True,
+            a1_in_range=False,
+            a2_pointing=False,
+            a2_in_range=False,
+        )
+
+    def test_staged_samples_omit_zero_weight_components(self):
+        pipeline = StagedTrajectoryPipeline(
+            gamma=0.0,
+            reward_weights={REWARD_KILL_ENEMY: 2.0, REWARD_POINT_A1: 0.0},
+        )
+        ship_death = TrainingBattleEvent(
+            frame_id=1,
+            event_type=EVENT_SHIP_DIED,
+            target=self.enemy,
+        )
+        sample = pipeline.add_frame(
+            decision(
+                1,
+                self.trainee,
+                self.enemy,
+                a1_pointing=True,
+            ),
+            outcome(1, events=(ship_death,), terminal=True),
+        )[0]
+
+        self.assertEqual(sample.component_values, {REWARD_KILL_ENEMY: 1.0})
+        self.assertEqual(sample.weighted_components, {REWARD_KILL_ENEMY: 2.0})
+        self.assertEqual(sample.return_value, 2.0)
+
+    def test_all_zero_weight_components_produce_empty_reward_samples(self):
+        pipeline = StagedTrajectoryPipeline(gamma=0.0, reward_weights={})
+        sample = pipeline.add_frame(
+            decision(1, self.trainee, self.enemy, a1_pointing=True),
+            outcome(1, terminal=True),
+        )[0]
+
+        self.assertEqual(sample.component_values, {})
+        self.assertEqual(sample.weighted_components, {})
+        self.assertEqual(sample.return_value, 0.0)
 
 
 class RollingReturnPipelineTests(unittest.TestCase):

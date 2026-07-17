@@ -13,7 +13,11 @@ pygame.init()
 from src.Battle.effects import BattleEffect
 from src.Battle.world import World
 from src.Battle import battle_init
-from src.Battle.battle import stop_tracking_projectiles, update_preserved_abilities
+from src.Battle.battle import (
+    BattleSimulation,
+    stop_tracking_projectiles,
+    update_preserved_abilities,
+)
 from src.Objects.object import Object, ThrustMarker
 from src.Objects.Space.space_obj import Asteroid, Planet, Star
 from src.Objects.Ships.ability import Ability
@@ -146,6 +150,68 @@ class WorldCharacterizationTests(unittest.TestCase):
         world.remove(projectile)
         self.assertEqual(world.abilities, [special_object, laser])
 
+    def test_frame_snapshot_consolidates_tracking_groups_in_world_order(self):
+        first_ship = SpaceShip.__new__(SpaceShip)
+        first_ship.player = 1
+        second_ship = SpaceShip.__new__(SpaceShip)
+        second_ship.player = 2
+        projectile = self.ability("projectile")
+        projectile.player = 1
+        special_object = self.ability("special_object")
+        special_object.player = 2
+        asteroid = Asteroid.__new__(Asteroid)
+        world = World(
+            [projectile, asteroid, first_ship, special_object, second_ship]
+        )
+
+        snapshot = world.frame_snapshot(include_collision=False)
+
+        self.assertEqual(snapshot.objects, world.objects)
+        self.assertIsNot(snapshot.objects, world.objects)
+        self.assertEqual(snapshot.ships, [first_ship, second_ship])
+        self.assertEqual(snapshot.asteroids, [asteroid])
+        self.assertEqual(
+            snapshot.tracked_objects,
+            [projectile, first_ship, special_object, second_ship],
+        )
+        self.assertEqual(
+            snapshot.tracked_projectiles,
+            [projectile, special_object],
+        )
+        self.assertEqual(snapshot.spatial_categories, {})
+
+    def test_battle_tracking_reuses_classified_snapshot_for_object_updates(self):
+        ship = SpaceShip.__new__(SpaceShip)
+        ship.player = 1
+        ship.current_hp = 1
+        ship.currently_alive = True
+        ship.update = mock.Mock(return_value=True)
+        ship.drain_spawned_objects = mock.Mock(return_value=())
+        projectile = self.ability("projectile")
+        projectile.player = 1
+        projectile.update = mock.Mock(return_value=True)
+        projectile.drain_spawned_objects = mock.Mock(return_value=())
+        world = World([projectile, ship])
+        simulation = BattleSimulation.__new__(BattleSimulation)
+        simulation.world = world
+
+        with mock.patch.object(
+            world,
+            "frame_snapshot",
+            wraps=world.frame_snapshot,
+        ) as classify:
+            snapshot = simulation._update_tracking_lists()
+        with mock.patch.object(
+            world,
+            "snapshot",
+            side_effect=AssertionError("object updates rebuilt the snapshot"),
+        ):
+            simulation._update_objects(frame_snapshot=snapshot)
+
+        classify.assert_called_once_with(include_collision=False)
+        ship.update.assert_called_once_with()
+        projectile.update.assert_called_once_with()
+
     def test_live_and_collision_queries_preserve_order_and_rules(self):
         live_ship = SpaceShip.__new__(SpaceShip)
         live_ship.currently_alive = True
@@ -177,6 +243,13 @@ class WorldCharacterizationTests(unittest.TestCase):
         self.assertEqual(world.colliding_special_objects, [])
         self.assertEqual(world.colliding_lasers, [live_laser])
         self.assertEqual(world.live_asteroids, [live_asteroid])
+
+        snapshot = world.collision_snapshot()
+        self.assertEqual(snapshot.live_ships, [live_ship])
+        self.assertEqual(snapshot.colliding_projectiles, [live_projectile])
+        self.assertEqual(snapshot.colliding_special_objects, [])
+        self.assertEqual(snapshot.colliding_lasers, [live_laser])
+        self.assertEqual(snapshot.live_asteroids, [live_asteroid])
 
     def test_stars_are_not_spatial_collision_candidates(self):
         star = Star.__new__(Star)
