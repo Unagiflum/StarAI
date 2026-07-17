@@ -993,6 +993,79 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertNotIn("Earthling-01", text)
         self.assertIn("all 25 open instances", all_text)
 
+    def test_bulk_delete_targets_are_eligible_and_deduplicated(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.selected_ship = "Earthling"
+        second = manager.add_instance()
+        second.state.selected_ship = "Earthling"
+        third = manager.add_instance()
+        third.state.selected_ship = "Androsynth"
+        manager.add_instance().state.selected_ship = "Mycon"
+
+        class Repository:
+            def slot_for(self, ship, slot):
+                source = SLOT_USER if ship in ("Earthling", "Androsynth") else SLOT_EMPTY
+                return TrainingModelSlot(ship, int(slot), source)
+
+        targets, affected = train_ai.eligible_user_model_deletion_targets(
+            manager,
+            Repository(),
+            3,
+        )
+
+        self.assertEqual(
+            [(target.ship, target.slot) for target in targets],
+            [("Earthling", 3), ("Androsynth", 3)],
+        )
+        self.assertEqual(affected, (first, second, third))
+
+    def test_bulk_delete_confirmation_compacts_twenty_five_instances(self):
+        manager = TrainingInstanceManager()
+        while len(manager.instances) < 25:
+            manager.add_instance()
+
+        text = train_ai.bulk_delete_confirmation_text(
+            manager,
+            manager.instances,
+            target_count=25,
+            slot=4,
+        )
+
+        self.assertIn("ALL 25 user models", text)
+        self.assertIn("eligible instances 01-25", text)
+        self.assertNotIn("01, 02", text)
+
+    def test_deleted_model_references_are_cleared_across_open_instances(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.selected_ship = "Earthling"
+        first.state.slot_labels[1] = "First"
+        first.state.loaded_ship = "Earthling"
+        first.state.loaded_slot = 2
+        first.state.loaded_architecture = {"hidden": 256}
+        first.state.loaded_training = {"gamma": 0.99}
+        target = TrainingModelSlot("Earthling", 2, SLOT_USER)
+
+        second = manager.add_instance()
+        second.state.selected_ship = "Earthling"
+        second.state.slot_labels[1] = "Second"
+        unaffected = manager.add_instance()
+        unaffected.state.selected_ship = "Androsynth"
+        unaffected.state.slot_labels[1] = "Keep"
+        first.session = SimpleNamespace(slot=target)
+
+        train_ai.clear_deleted_model_references(manager, (target,))
+
+        self.assertEqual(first.state.slot_labels[1], "")
+        self.assertEqual(second.state.slot_labels[1], "")
+        self.assertEqual(unaffected.state.slot_labels[1], "Keep")
+        self.assertIsNone(first.state.loaded_ship)
+        self.assertIsNone(first.state.loaded_slot)
+        self.assertIsNone(first.state.loaded_architecture)
+        self.assertIsNone(first.state.loaded_training)
+        self.assertIsNone(first.session)
+
     def test_start_all_validation_blocks_running_instances_and_retains_preference(self):
         manager, _first, _second = self._coordinated_manager_with_two_user_slots()
         manager.batch_scheduling.apply_to_all_open_instances = True
@@ -1702,6 +1775,101 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             "Not all slots had eligible models to load"
         )
 
+    def test_apply_all_delete_uses_typed_prompt_and_deletes_eligible_models(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.selected_ship = "Earthling"
+        first.state.selected_slot = 1
+        first.state.slot_labels[0] = "Earthling Ready"
+        first.state.loaded_ship = "Earthling"
+        first.state.loaded_slot = 1
+        second = manager.add_instance()
+        second.state.selected_ship = "Androsynth"
+        second.state.selected_slot = 1
+        second.state.slot_labels[0] = "Androsynth Ready"
+        manager.select_instance(first.instance_id)
+        manager.set_apply_future_changes_to_all(True)
+
+        class DeletableRepository:
+            def __init__(self):
+                self.deleted = []
+                self.slots = {
+                    (ship, 1): TrainingModelSlot(
+                        ship,
+                        1,
+                        SLOT_USER,
+                        description=f"{ship} Ready",
+                    )
+                    for ship in ("Earthling", "Androsynth")
+                }
+
+            def slot_for(self, ship, slot):
+                return self.slots.get(
+                    (str(ship), int(slot)),
+                    TrainingModelSlot(str(ship), int(slot), SLOT_EMPTY),
+                )
+
+            def slots_for_ship(self, ship):
+                return [self.slot_for(ship, slot) for slot in range(1, 5)]
+
+            def delete_user_model(self, ship, slot):
+                key = (str(ship), int(slot))
+                self.deleted.append(key)
+                self.slots.pop(key, None)
+
+        repository = DeletableRepository()
+        layout = training_layout()
+        delete_event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {
+                "button": 1,
+                "pos": (
+                    layout.content_rect.x + train_ai.CONTROL_WIDTH - 34,
+                    layout.content_rect.y + 310,
+                ),
+            },
+        )
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                return_value=repository,
+            ),
+            mock.patch("src.Menus.train_ai.TypedDeleteConfirmationPrompt") as prompt_class,
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite, "Androsynth": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[delete_event]),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+            prompt_text, on_confirm = prompt_class.call_args.args
+            self.assertIn("ALL 2 user models", prompt_text)
+            self.assertIn("instances 01-02", prompt_text)
+            self.assertEqual(repository.deleted, [])
+            on_confirm()
+
+        self.assertEqual(
+            repository.deleted,
+            [("Earthling", 1), ("Androsynth", 1)],
+        )
+        self.assertEqual(first.state.slot_labels[0], "")
+        self.assertEqual(second.state.slot_labels[0], "")
+        self.assertIsNone(first.state.loaded_ship)
+        self.assertIsNone(first.state.loaded_slot)
+
     def test_start_all_automatically_enables_coordinated_cpu_workers(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         manager = TrainingInstanceManager()
@@ -2221,6 +2389,56 @@ class TrainingStartAllStyleTests(unittest.TestCase):
 
 
 class TrainingLayoutTests(unittest.TestCase):
+    def test_typed_delete_prompt_has_three_character_field_and_cursor(self):
+        confirmed = []
+        prompt = train_ai.TypedDeleteConfirmationPrompt(
+            "Delete models? Type yes to confirm.",
+            lambda: confirmed.append(True),
+        )
+
+        self.assertEqual(prompt.confirmation_field.max_length, 3)
+        self.assertTrue(prompt.confirmation_field.active)
+        self.assertFalse(prompt.delete_button.enabled)
+
+        surface = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        font = pygame.font.SysFont(None, 32)
+        button_font = pygame.font.SysFont(None, 28)
+        with (
+            mock.patch("pygame.time.get_ticks", return_value=100),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+        ):
+            prompt.draw(surface, font, button_font)
+        cursor_pos = (
+            prompt.confirmation_field.rect.left + 8,
+            prompt.confirmation_field.rect.centery,
+        )
+        self.assertEqual(surface.get_at(cursor_pos)[:3], ui.WHITE)
+
+        for key, character in (
+            (pygame.K_y, "Y"),
+            (pygame.K_e, "e"),
+            (pygame.K_s, "S"),
+            (pygame.K_x, "x"),
+        ):
+            prompt.handle_event(
+                pygame.event.Event(
+                    pygame.KEYDOWN,
+                    {"key": key, "unicode": character},
+                )
+            )
+
+        self.assertEqual(prompt.confirmation_field.text, "YeS")
+        self.assertTrue(prompt.confirmation_ready)
+        self.assertTrue(prompt.delete_button.enabled)
+        prompt.handle_event(
+            pygame.event.Event(
+                pygame.KEYDOWN,
+                {"key": pygame.K_RETURN, "unicode": "\r"},
+            )
+        )
+        self.assertEqual(confirmed, [True])
+        self.assertTrue(prompt.done)
+
     def test_idle_display_on_leaves_arena_black(self):
         surface = pygame.Surface((320, 240))
         surface.fill(ui.WHITE)

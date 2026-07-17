@@ -1121,6 +1121,75 @@ def _format_position_ranges(positions) -> str:
     )
 
 
+def eligible_user_model_deletion_targets(manager, repository, slot):
+    """Return unique user models and open instances eligible for a slot deletion."""
+
+    slot = int(slot)
+    targets = []
+    affected_instances = []
+    seen_targets = set()
+    for instance in manager.instances:
+        ship = instance.state.selected_ship
+        if ship is None:
+            continue
+        candidate = repository.slot_for(ship, slot)
+        if not candidate.is_user:
+            continue
+        affected_instances.append(instance)
+        key = (str(candidate.ship), int(candidate.slot))
+        if key not in seen_targets:
+            seen_targets.add(key)
+            targets.append(candidate)
+    return tuple(targets), tuple(affected_instances)
+
+
+def bulk_delete_confirmation_text(
+    manager,
+    affected_instances,
+    *,
+    target_count,
+    slot,
+) -> str:
+    positions_by_id = {
+        instance.instance_id: position
+        for position, instance in enumerate(manager.instances, start=1)
+    }
+    positions = (
+        positions_by_id[instance.instance_id]
+        for instance in affected_instances
+    )
+    model_word = "model" if int(target_count) == 1 else "models"
+    return (
+        f"Delete ALL {int(target_count)} user {model_word} in list slot {int(slot):02d} "
+        f"for eligible instances {_format_position_ranges(positions)}? This permanently "
+        "deletes their checkpoints, metadata, and replay data. Type yes to confirm."
+    )
+
+
+def clear_deleted_model_references(manager, targets) -> None:
+    """Clear UI and stopped-session references to deleted model files."""
+
+    deleted_keys = {(str(target.ship), int(target.slot)) for target in targets}
+    for instance in manager.instances:
+        state = instance.state
+        for ship, slot in deleted_keys:
+            if state.selected_ship == ship and 1 <= slot <= len(state.slot_labels):
+                state.slot_labels[slot - 1] = ""
+        if (state.loaded_ship, state.loaded_slot) in deleted_keys:
+            state.loaded_ship = None
+            state.loaded_slot = None
+            state.loaded_architecture = None
+            state.loaded_training = None
+        session_slot = getattr(instance.session, "slot", None)
+        session_key = (
+            (str(session_slot.ship), int(session_slot.slot))
+            if session_slot is not None
+            else None
+        )
+        if session_key in deleted_keys:
+            manager.clear_session_continuity(instance)
+
+
 def coordinated_reset_confirmation_text(manager, affected_instances) -> str:
     affected = tuple(affected_instances)
     positions_by_id = {
@@ -2376,6 +2445,100 @@ class ConfirmationPrompt:
             y += font.get_linesize()
         self.yes_button.draw(screen, button_font)
         self.no_button.draw(screen, button_font)
+
+
+class TypedDeleteConfirmationPrompt:
+    """Destructive confirmation requiring a three-character ``yes`` entry."""
+
+    def __init__(self, text, on_confirm):
+        self.text = text
+        self.on_confirm = on_confirm
+        width = min(680, const.SCREEN_WIDTH - 120)
+        height = 290
+        self.rect = pygame.Rect(0, 0, width, height)
+        self.rect.center = (const.SCREEN_WIDTH // 2, const.SCREEN_HEIGHT // 2)
+        button_width = 170
+        button_height = 48
+        gap = 18
+        button_top = self.rect.bottom - 68
+        field_width = 72
+        self.confirmation_field = TextField(
+            (
+                self.rect.centerx - field_width // 2,
+                button_top - 54,
+                field_width,
+                36,
+            ),
+            max_length=3,
+        )
+        self.confirmation_field.active = True
+        self.delete_button = ui_button.Button(
+            self.rect.centerx - button_width - gap // 2,
+            button_top,
+            button_width,
+            button_height,
+            "Delete",
+            self.confirm,
+            ui.CAN_RED,
+            ui.CAN_RED_HI,
+        )
+        self.cancel_button = ui_button.Button(
+            self.rect.centerx + gap // 2,
+            button_top,
+            button_width,
+            button_height,
+            "Cancel",
+            self.cancel,
+            ui.MENU_BUTTON_COLOR,
+            ui.MENU_BUTTON_COLOR_HI,
+        )
+        self.delete_button.enabled = False
+        self.done = False
+
+    @property
+    def confirmation_ready(self):
+        return self.confirmation_field.text.casefold() == "yes"
+
+    def confirm(self):
+        if not self.confirmation_ready:
+            return
+        self.on_confirm()
+        self.done = True
+
+    def cancel(self):
+        self.done = True
+
+    def handle_event(self, event, sound_manager=None):
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            self.cancel()
+            return
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
+            self.confirm()
+            return
+        self.confirmation_field.handle_event(event)
+        self.confirmation_field.active = True
+        self.delete_button.enabled = self.confirmation_ready
+        self.delete_button.handle_event(event, sound_manager)
+        self.cancel_button.handle_event(event, sound_manager)
+
+    def draw(self, screen, font, button_font):
+        shade = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        shade.fill((0, 0, 0, MODAL_SHADE_ALPHA))
+        screen.blit(shade, (0, 0))
+        pygame.draw.rect(screen, ui.BLACK, self.rect)
+        pygame.draw.rect(screen, ui.WHITE, self.rect, 2)
+        lines = _wrap_text(self.text, font, self.rect.width - 40)
+        y = self.rect.top + 28
+        for line in lines:
+            rendered = font.render(line, True, ui.WHITE)
+            screen.blit(rendered, rendered.get_rect(center=(self.rect.centerx, y)))
+            y += font.get_linesize()
+        field_width = button_font.size("WWW")[0] + 16
+        self.confirmation_field.rect.width = field_width
+        self.confirmation_field.rect.centerx = self.rect.centerx
+        self.confirmation_field.draw(screen, button_font)
+        self.delete_button.draw(screen, button_font)
+        self.cancel_button.draw(screen, button_font)
 
 
 class InformationPrompt:
@@ -3756,17 +3919,57 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         return f"{model_slot.ship} Model {model_slot.slot:02d}{suffix}"
 
     def request_delete(slot):
+        if instance_manager.any_instance_running():
+            show_notice("Models cannot be deleted while training is running")
+            return
         model_slot = slot_models[slot - 1]
         if not model_slot.is_user:
             return
 
+        apply_to_all = (
+            instance_manager.batch_scheduling.apply_to_all_open_instances
+        )
+        if apply_to_all:
+            targets, affected_instances = eligible_user_model_deletion_targets(
+                instance_manager,
+                model_repository,
+                slot,
+            )
+            if not targets:
+                return
+
+            def delete_models():
+                if instance_manager.any_instance_running():
+                    show_notice("Models cannot be deleted while training is running")
+                    return
+                for target in targets:
+                    model_repository.delete_user_model(target.ship, target.slot)
+                clear_deleted_model_references(instance_manager, targets)
+                refresh_slot_controls()
+                model_word = "model" if len(targets) == 1 else "models"
+                show_notice(f"Deleted {len(targets)} {model_word}")
+
+            confirmation_prompt[0] = TypedDeleteConfirmationPrompt(
+                bulk_delete_confirmation_text(
+                    instance_manager,
+                    affected_instances,
+                    target_count=len(targets),
+                    slot=slot,
+                ),
+                delete_models,
+            )
+            return
+
+        description = describe_model(model_slot)
+
         def delete_model():
             model_repository.delete_user_model(model_slot.ship, model_slot.slot)
+            clear_deleted_model_references(instance_manager, (model_slot,))
             refresh_slot_controls()
-            show_notice(f"Deleted {describe_model(model_slot)}")
+            show_notice(f"Deleted {description}")
 
         confirmation_prompt[0] = ConfirmationPrompt(
-            f"Do you want to delete {describe_model(model_slot)}?",
+            f"Do you want to delete {description}?",
             delete_model,
         )
 
@@ -4748,6 +4951,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         update_field_colors()
         selected_slot = selected_model_slot()
+        for delete_button, model_slot in zip(delete_buttons, slot_models):
+            delete_button.enabled = (
+                model_slot.is_user and not any_running and not coordinated_active
+            )
         back_button.text = "Back"
         back_button.enabled = not any_running
         back_button.bg_color = ui.CAN_RED
