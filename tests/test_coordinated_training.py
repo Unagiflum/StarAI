@@ -1481,38 +1481,18 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
 
 
 class CoordinatedTimingCsvTests(unittest.TestCase):
-    def test_append_coordinated_batch_timing_csv_writes_header_and_row(self):
+    def test_append_coordinated_batch_timing_csv_writes_one_session_row(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "Earthling-01.coordinated.csv"
+            path = Path(directory) / "coordinated-timing.csv"
             append_coordinated_batch_timing_csv(
                 path,
                 batch_number=3,
-                instance_id=7,
-                ship="Earthling",
-                slot=1,
                 instance_count=2,
-                rounds=1,
-                instance_frames=1200,
+                completed_rounds=2,
                 coordinated_record_frames=2400,
                 action_requests=2400,
                 exploratory_actions=12,
                 inference_mode="sequential_fallback:1200",
-                batch_seconds=180.0,
-                batches_per_hour=20.0,
-                metrics=SimpleNamespace(
-                    kills=2,
-                    deaths=4,
-                    average_match_score=4.25,
-                    epsilon=0.5,
-                    learning_rate=0.001,
-                    average_loss=0.125,
-                ),
-                rolling=SimpleNamespace(
-                    average_kills=2.31,
-                    average_deaths=3.62,
-                    average_match_score=4.0,
-                    average_loss=0.1,
-                ),
                 timing_seconds={
                     "observation": 1.0,
                     "trainee_inference": 2.0,
@@ -1542,20 +1522,13 @@ class CoordinatedTimingCsvTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         row = rows[0]
         self.assertEqual(row["Batch"], "3")
-        self.assertEqual(row["Instance ID"], "7")
-        self.assertEqual(row["Ship"], "Earthling")
         self.assertEqual(row["Instance Count"], "2")
-        self.assertEqual(row["Instance Frames"], "1200")
+        self.assertEqual(row["Completed Rounds"], "2")
         self.assertEqual(row["Coordinated Record Frames"], "2400")
         self.assertEqual(row["Inference Mode"], "sequential_fallback:1200")
-        self.assertEqual(row["Kills"], "2")
-        self.assertEqual(row["Average Kills"], "2.310000")
-        self.assertEqual(row["Deaths"], "4")
-        self.assertEqual(row["Average Deaths"], "3.620000")
-        self.assertEqual(row["Score"], "4.250000")
-        self.assertEqual(row["Average Score"], "4.000000")
-        self.assertEqual(row["Loss"], "0.125000")
-        self.assertEqual(row["Average Loss"], "0.100000")
+        self.assertNotIn("Instance ID", row)
+        self.assertNotIn("Ship", row)
+        self.assertNotIn("Kills", row)
         self.assertEqual(row["IPC Endpoint Seconds"], "0.500000")
         self.assertEqual(
             row["Coordinator Timed Phase Total Seconds"],
@@ -2235,17 +2208,18 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
         self.assertGreater(timing.simulation_seconds, 0.0)
         self.assertGreater(timing.reward_seconds, 0.0)
         self.assertGreater(timing.optimization_seconds, 0.0)
-        self.assertEqual(timing_csv.call_count, 2)
-        first_timing_row = timing_csv.call_args_list[0].kwargs
-        self.assertEqual(first_timing_row["batch_number"], 1)
-        self.assertEqual(first_timing_row["instance_count"], 2)
-        self.assertEqual(first_timing_row["rounds"], 1)
-        self.assertEqual(first_timing_row["instance_frames"], 3)
-        self.assertEqual(first_timing_row["coordinated_record_frames"], 6)
-        self.assertEqual(first_timing_row["action_requests"], 6)
-        self.assertEqual(first_timing_row["exploratory_actions"], 6)
+        self.assertEqual(timing_csv.call_count, 1)
+        timing_path = timing_csv.call_args.args[0]
+        timing_row = timing_csv.call_args.kwargs
+        self.assertEqual(timing_path.name, "coordinated-timing.csv")
+        self.assertEqual(timing_row["batch_number"], 1)
+        self.assertEqual(timing_row["instance_count"], 2)
+        self.assertEqual(timing_row["completed_rounds"], 2)
+        self.assertEqual(timing_row["coordinated_record_frames"], 6)
+        self.assertEqual(timing_row["action_requests"], 6)
+        self.assertEqual(timing_row["exploratory_actions"], 6)
         self.assertEqual(
-            first_timing_row["inference_mode"],
+            timing_row["inference_mode"],
             "exploration_only:3",
         )
 

@@ -351,28 +351,12 @@ _TIMING_BUCKETS = (
 
 _COORDINATED_TIMING_CSV_HEADER = (
     "Batch",
-    "Instance ID",
-    "Ship",
-    "Slot",
     "Instance Count",
-    "Rounds",
-    "Instance Frames",
+    "Completed Rounds",
     "Coordinated Record Frames",
     "Action Requests",
     "Exploratory Actions",
     "Inference Mode",
-    "Batch Seconds",
-    "Batches/Hour",
-    "Kills",
-    "Average Kills",
-    "Deaths",
-    "Average Deaths",
-    "Score",
-    "Average Score",
-    "Epsilon",
-    "Learning Rate",
-    "Loss",
-    "Average Loss",
     "Observation Seconds",
     "Trainee Inference Seconds",
     "Opponent Inference Seconds",
@@ -1360,21 +1344,19 @@ class CoordinatedTrainingSession:
                 0.0,
                 timing_seconds["batch_wall_seconds"] - accounted_coordinator,
             )
-        for instance_id, state in self._states.items():
-            if instance_id not in completed_batch_numbers:
-                continue
-            if timing_seconds is not None:
-                self._append_coordinated_batch_timing_row(
-                    state,
-                    batch_number=completed_batch_numbers[instance_id],
-                    rounds=len(results[instance_id]),
-                    instance_frames=sum(result.frames for result in results[instance_id]),
-                    coordinated_record_frames=timing_frame_count,
-                    action_requests=batch_action_requests,
-                    exploratory_actions=batch_exploratory_actions,
-                    inference_mode=inference_mode_summary,
-                    timing_seconds=timing_seconds,
-                )
+        if timing_seconds is not None and completed_batch_numbers:
+            self._append_coordinated_batch_timing_row(
+                batch_number=max(completed_batch_numbers.values()),
+                completed_rounds=sum(
+                    len(results[instance_id])
+                    for instance_id in completed_batch_numbers
+                ),
+                coordinated_record_frames=timing_frame_count,
+                action_requests=batch_action_requests,
+                exploratory_actions=batch_exploratory_actions,
+                inference_mode=inference_mode_summary,
+                timing_seconds=timing_seconds,
+            )
         timing_completed_batch = True
         self._merge_timing_stats(
             timing_seconds,
@@ -1791,21 +1773,19 @@ class CoordinatedTrainingSession:
                 0.0,
                 timing_seconds["batch_wall_seconds"] - accounted_coordinator,
             )
-        for instance_id, state in self._states.items():
-            if instance_id not in completed_batch_numbers:
-                continue
-            if timing_seconds is not None:
-                self._append_coordinated_batch_timing_row(
-                    state,
-                    batch_number=completed_batch_numbers[instance_id],
-                    rounds=len(results[instance_id]),
-                    instance_frames=sum(result.frames for result in results[instance_id]),
-                    coordinated_record_frames=timing_frame_count,
-                    action_requests=batch_action_requests,
-                    exploratory_actions=batch_exploratory_actions,
-                    inference_mode=inference_mode_summary,
-                    timing_seconds=timing_seconds,
-                )
+        if timing_seconds is not None and completed_batch_numbers:
+            self._append_coordinated_batch_timing_row(
+                batch_number=max(completed_batch_numbers.values()),
+                completed_rounds=sum(
+                    len(results[instance_id])
+                    for instance_id in completed_batch_numbers
+                ),
+                coordinated_record_frames=timing_frame_count,
+                action_requests=batch_action_requests,
+                exploratory_actions=batch_exploratory_actions,
+                inference_mode=inference_mode_summary,
+                timing_seconds=timing_seconds,
+            )
         self._merge_timing_stats(
             timing_seconds,
             completed_batches=1,
@@ -2198,21 +2178,16 @@ class CoordinatedTrainingSession:
         )
         return metadata_path.with_suffix(".csv")
 
-    def _coordinated_csv_path(self, state: _CoordinatedRecordState) -> Path:
-        _, metadata_path = model_paths(
-            state.record.repository.user_dir,
-            state.record.slot.ship,
-            state.record.slot.slot,
-        )
-        return metadata_path.with_suffix(".coordinated.csv")
+    def _coordinated_timing_csv_path(self) -> Path:
+        """Return the single timing report path for this coordinated session."""
+        first_state = next(iter(self._states.values()))
+        return Path(first_state.record.repository.user_dir) / "coordinated-timing.csv"
 
     def _append_coordinated_batch_timing_row(
         self,
-        state: _CoordinatedRecordState,
         *,
         batch_number: int,
-        rounds: int,
-        instance_frames: int,
+        completed_rounds: int,
         coordinated_record_frames: int,
         action_requests: int,
         exploratory_actions: int,
@@ -2221,35 +2196,15 @@ class CoordinatedTrainingSession:
     ) -> None:
         if not const.TRAINING_TIMING_ENABLED:
             return
-        with self._lock:
-            metrics = state.history[-1] if state.history else None
-            rolling = (
-                rolling_metrics(tuple(state.history), state.record.batch_grouping)
-                if state.history
-                else None
-            )
-            status = state.status
-            batch_seconds = float(status.last_batch_seconds)
-            batches_per_hour = float(status.batches_per_hour)
-        if metrics is None or rolling is None:
-            return
         append_coordinated_batch_timing_csv(
-            self._coordinated_csv_path(state),
+            self._coordinated_timing_csv_path(),
             batch_number=batch_number,
-            instance_id=state.record.instance_id,
-            ship=state.record.slot.ship,
-            slot=state.record.slot.slot,
             instance_count=len(self._states),
-            rounds=rounds,
-            instance_frames=instance_frames,
+            completed_rounds=completed_rounds,
             coordinated_record_frames=coordinated_record_frames,
             action_requests=action_requests,
             exploratory_actions=exploratory_actions,
             inference_mode=inference_mode,
-            batch_seconds=batch_seconds,
-            batches_per_hour=batches_per_hour,
-            metrics=metrics,
-            rolling=rolling,
             timing_seconds=timing_seconds,
         )
 
@@ -2803,20 +2758,12 @@ def append_coordinated_batch_timing_csv(
     path: Path,
     *,
     batch_number: int,
-    instance_id: int,
-    ship: str,
-    slot: int,
     instance_count: int,
-    rounds: int,
-    instance_frames: int,
+    completed_rounds: int,
     coordinated_record_frames: int,
     action_requests: int,
     exploratory_actions: int,
     inference_mode: str,
-    batch_seconds: float,
-    batches_per_hour: float,
-    metrics: BatchMetrics,
-    rolling: BatchMetrics,
     timing_seconds: Mapping[str, float],
 ) -> None:
     path = Path(path)
@@ -2840,28 +2787,12 @@ def append_coordinated_batch_timing_csv(
         writer.writerow(
             (
                 str(int(batch_number)),
-                str(int(instance_id)),
-                str(ship),
-                str(int(slot)),
                 str(int(instance_count)),
-                str(int(rounds)),
-                str(int(instance_frames)),
+                str(int(completed_rounds)),
                 str(int(coordinated_record_frames)),
                 str(int(action_requests)),
                 str(int(exploratory_actions)),
                 str(inference_mode),
-                f"{float(batch_seconds):.6f}",
-                f"{float(batches_per_hour):.6f}",
-                str(metrics.kills),
-                f"{rolling.average_kills:.6f}",
-                str(metrics.deaths),
-                f"{rolling.average_deaths:.6f}",
-                f"{metrics.average_match_score:.6f}",
-                f"{rolling.average_match_score:.6f}",
-                f"{metrics.epsilon:.6f}",
-                f"{metrics.learning_rate:.8f}",
-                f"{metrics.average_loss:.6f}",
-                f"{rolling.average_loss:.6f}",
                 f"{float(timing_seconds.get('observation', 0.0)):.6f}",
                 f"{float(timing_seconds.get('trainee_inference', 0.0)):.6f}",
                 f"{float(timing_seconds.get('opponent_inference', 0.0)):.6f}",
