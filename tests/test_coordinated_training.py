@@ -7,6 +7,7 @@ import random
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -17,7 +18,11 @@ from src.training import torch_backend
 from src.training import batched_value_network
 from src.training.coordinated import CPU_WORKER_FALLBACK_NOTICE
 from src.training.batched_value_network import BatchedValueNetworkParameterCache
-from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
+from src.training.contracts import (
+    ACTION_OUTPUT_SIZE,
+    OBSERVATION_INPUT_SIZE,
+    SHIP_TYPE_CATALOG_ORDER,
+)
 from src.training.contracts import action_for_index
 from src.training.observation_transfer import (
     PACKED_OBSERVATION_BYTES,
@@ -30,11 +35,13 @@ from src.training.coordinated import (
     _THREAD_PRIORITY_BELOW_NORMAL,
     _set_current_thread_below_normal_priority,
     CoordinatedActionRequest,
+    CoordinatedExplorationSchedule,
     CoordinatedFixedFrameWindowResult,
     CoordinatedRuntimeComponents,
     TrainingEpisodeResult,
     CoordinatedTrainingRecord,
     CoordinatedTrainingSession,
+    CoordinatedValueNetworkPolicy,
     _ProcessWorkerClient,
     append_coordinated_batch_timing_csv,
     select_actions_for_records,
@@ -127,6 +134,59 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
             )
 
         return build
+
+    def test_session_averages_current_epsilon_across_records(self):
+        session = CoordinatedTrainingSession(
+            (
+                _record(1, "Earthling", epsilon=0.2),
+                _record(2, "Androsynth", epsilon=0.6),
+            ),
+            run_batches=False,
+        )
+
+        self.assertAlmostEqual(session._shared_current_epsilon, 0.4)
+        self.assertEqual(
+            tuple(state.current_epsilon for state in session._states.values()),
+            (0.4, 0.4),
+        )
+
+    def test_opponent_schedule_uses_only_live_coordinated_models(self):
+        session = CoordinatedTrainingSession(
+            (
+                _record(
+                    1,
+                    "Earthling",
+                    opponent_mode="all",
+                    ai_opponent_chance=100.0,
+                ),
+                _record(
+                    2,
+                    "Androsynth",
+                    opponent_mode="all",
+                    ai_opponent_chance=100.0,
+                ),
+            ),
+            run_batches=False,
+        )
+        earthling_model = object()
+        androsynth_model = object()
+        session._states[1].components = CoordinatedRuntimeComponents(
+            earthling_model, object(), TrainingReplayBuffer(4)
+        )
+        session._states[2].components = CoordinatedRuntimeComponents(
+            androsynth_model, object(), TrainingReplayBuffer(4)
+        )
+
+        schedules = session._opponent_schedules_for_batch()
+        first, second = schedules.values()
+        earthling = first[SHIP_TYPE_CATALOG_ORDER.index("Earthling")]
+        androsynth = first[SHIP_TYPE_CATALOG_ORDER.index("Androsynth")]
+        missing = first[SHIP_TYPE_CATALOG_ORDER.index("Arilou")]
+
+        self.assertIs(first, second)
+        self.assertIs(earthling.model, earthling_model)
+        self.assertIs(androsynth.model, androsynth_model)
+        self.assertIsNone(missing.model)
 
     def test_start_builds_records_and_stop_all_marks_every_proxy_stopped(self):
         built = []
@@ -1230,6 +1290,76 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
 
 
 class CoordinatedActionSelectionTests(unittest.TestCase):
+    def test_shared_exploration_selects_independent_actions_for_every_record(self):
+        rng = mock.Mock()
+        rng.random.return_value = 0.0
+        rng.randrange.side_effect = (3, 7)
+        schedule = CoordinatedExplorationSchedule(
+            epsilon=0.5,
+            frame_span=2,
+            rng=rng,
+        )
+        policies = (
+            CoordinatedValueNetworkPolicy(
+                object(), record_id=1, exploration_schedule=schedule
+            ),
+            CoordinatedValueNetworkPolicy(
+                object(), record_id=2, exploration_schedule=schedule
+            ),
+        )
+        requests = tuple(
+            CoordinatedActionRequest(index, policy, ())
+            for index, policy in enumerate(policies, start=1)
+        )
+
+        first = select_actions_for_records(requests)
+        second = select_actions_for_records(requests)
+
+        self.assertEqual(first.inference_mode, "exploration_only")
+        self.assertEqual(first.exploratory_count, 2)
+        self.assertEqual(tuple(x.action_index for x in first.selections.values()), (3, 7))
+        self.assertEqual(tuple(x.action_index for x in second.selections.values()), (3, 7))
+        self.assertEqual(rng.randrange.call_count, 2)
+
+    def test_shared_greedy_schedule_reuses_one_full_model_tuple(self):
+        if torch_backend.get_torch() is None:
+            self.skipTest("PyTorch is not installed")
+        models = (
+            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1)),
+        )
+        schedule = CoordinatedExplorationSchedule(
+            epsilon=0.0,
+            frame_span=8,
+            rng=random.Random(1),
+        )
+        requests = tuple(
+            CoordinatedActionRequest(
+                index,
+                CoordinatedValueNetworkPolicy(
+                    model,
+                    record_id=index,
+                    exploration_schedule=schedule,
+                ),
+                [0.0] * OBSERVATION_INPUT_SIZE,
+            )
+            for index, model in enumerate(models, start=1)
+        )
+        cache = BatchedValueNetworkParameterCache(max_entries=1)
+        stack_parameters = batched_value_network._stack_linear_parameters
+
+        with mock.patch(
+            "src.training.batched_value_network._stack_linear_parameters",
+            wraps=stack_parameters,
+        ) as stack_mock:
+            first = select_actions_for_records(requests, parameter_cache=cache)
+            second = select_actions_for_records(requests, parameter_cache=cache)
+
+        self.assertEqual(first.exploratory_count, 0)
+        self.assertEqual(second.exploratory_count, 0)
+        self.assertEqual(stack_mock.call_count, 1)
+        self.assertEqual(stack_mock.call_args.args[0], models)
+
     def test_batched_inference_accepts_packed_observation_numeric_views(self):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")
@@ -2006,6 +2136,62 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
 
         self.assertTrue(all(client.shutdown_called for client in clients))
 
+    def test_worker_backed_inference_keeps_full_tuple_after_early_completion(self):
+        class StaggeredWorkerClient(FakeWorkerClient):
+            def send(self, command):
+                if command.name == "START_WINDOW" and self.record_id == 1:
+                    command = replace(command, frame_limit=1)
+                super().send(command)
+
+        session = CoordinatedTrainingSession(
+            (
+                _record(
+                    1,
+                    "Earthling",
+                    batch_grouping=99,
+                    match_time_limit=2,
+                    epsilon=1.0,
+                ),
+                _record(
+                    2,
+                    "Androsynth",
+                    batch_grouping=99,
+                    match_time_limit=2,
+                    epsilon=1.0,
+                ),
+            ),
+            component_builder=lambda _record: CoordinatedRuntimeComponents(
+                model=object(),
+                optimizer=object(),
+                replay_buffer=TrainingReplayBuffer(8),
+            ),
+            coordinated_cpu_workers_enabled=True,
+            worker_client_factory=StaggeredWorkerClient,
+        )
+        for state in session._states.values():
+            state.components = CoordinatedRuntimeComponents(
+                model=object(),
+                optimizer=object(),
+                replay_buffer=TrainingReplayBuffer(8),
+            )
+
+        with (
+            mock.patch(
+                "src.training.coordinated.simple_opponent_schedule",
+                return_value=(OpponentSpec("Earthling"),),
+            ),
+            mock.patch(
+                "src.training.coordinated.select_actions_for_records",
+                wraps=select_actions_for_records,
+            ) as select_actions,
+        ):
+            self.assertTrue(session._run_one_coordinated_batch())
+
+        request_counts = tuple(len(call.args[0]) for call in select_actions.call_args_list)
+        self.assertEqual(request_counts, (2, 2))
+        self.assertEqual(session.inference_stats.request_count, 4)
+        session._shutdown_persistent_cpu_workers()
+
     def test_worker_backed_timing_merges_worker_and_transport_measurements(self):
         clients = []
 
@@ -2404,7 +2590,14 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
                             batch_grouping=1,
                         )
                         session = CoordinatedTrainingSession(
-                            (record, _record(2, "Androsynth")),
+                            (
+                                record,
+                                _record(
+                                    2,
+                                    "Androsynth",
+                                    epsilon_decay=1.0,
+                                ),
+                            ),
                             run_batches=False,
                             opponent_model_cache=SimpleNamespace(
                                 notify_model_saved=mock.Mock()

@@ -56,6 +56,20 @@ from src.training.value_network import (
 MAX_BATCH_LOG_LINES = 1000
 LIVE_STATUS_FRAME_INTERVAL = 100
 RECENT_BATCH_METRICS_KEY = "recent_batch_metrics"
+GROUPED_METRICS_CSV_HEADER = (
+    "Batch",
+    "Kills",
+    "Average Kills",
+    "Deaths",
+    "Average Deaths",
+    "Score",
+    "Average Score",
+    "Epsilon",
+    "Learning Rate",
+    "Loss",
+    "Average Loss",
+    "Time per batch (s)",
+)
 
 
 @dataclass(frozen=True)
@@ -78,6 +92,7 @@ class BatchMetrics:
     epsilon: float
     learning_rate: float
     average_loss: float
+    batch_seconds: float = 0.0
 
     @property
     def average_kills(self) -> float:
@@ -86,6 +101,10 @@ class BatchMetrics:
     @property
     def average_deaths(self) -> float:
         return self.deaths / self.batch_count if self.batch_count else 0.0
+
+    @property
+    def average_batch_seconds(self) -> float:
+        return self.batch_seconds / self.batch_count if self.batch_count else 0.0
 
 
 def batch_metrics_to_metadata(metrics: BatchMetrics) -> dict[str, Any]:
@@ -98,6 +117,7 @@ def batch_metrics_to_metadata(metrics: BatchMetrics) -> dict[str, Any]:
         "epsilon": metrics.epsilon,
         "learning_rate": metrics.learning_rate,
         "average_loss": metrics.average_loss,
+        "batch_seconds": metrics.batch_seconds,
     }
 
 
@@ -111,6 +131,7 @@ def batch_metrics_from_metadata(value: Mapping[str, Any]) -> BatchMetrics:
         epsilon=float(value["epsilon"]),
         learning_rate=float(value["learning_rate"]),
         average_loss=float(value["average_loss"]),
+        batch_seconds=float(value.get("batch_seconds", 0.0)),
     )
 
 
@@ -235,6 +256,7 @@ def metrics_from_batch_result(
     batch: int,
     epsilon: float,
     learning_rate: float,
+    batch_seconds: float = 0.0,
 ) -> BatchMetrics:
     round_count = len(result.round_results)
     outcomes = tuple(
@@ -255,6 +277,7 @@ def metrics_from_batch_result(
         epsilon=float(epsilon),
         learning_rate=float(learning_rate),
         average_loss=float(result.average_loss or 0.0),
+        batch_seconds=max(0.0, float(batch_seconds)),
     )
 
 
@@ -273,7 +296,15 @@ def rolling_metrics(history: tuple[BatchMetrics, ...], grouping: int) -> BatchMe
         epsilon=latest.epsilon,
         learning_rate=latest.learning_rate,
         average_loss=sum(item.average_loss for item in window) / count,
+        batch_seconds=sum(item.batch_seconds for item in window),
     )
+
+
+def format_batch_duration(seconds: float) -> str:
+    total_seconds = max(0, int(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:3d}h:{minutes:02d}m:{seconds:02d}s"
 
 
 def format_batch_summary_line(metrics: BatchMetrics, rolling: BatchMetrics) -> str:
@@ -284,7 +315,8 @@ def format_batch_summary_line(metrics: BatchMetrics, rolling: BatchMetrics) -> s
         f"Score: {metrics.average_match_score:7.3f} ({rolling.average_match_score:7.3f}) | "
         f"Epsilon: {metrics.epsilon:.5f} | "
         f"LR: {metrics.learning_rate:.5f} | "
-        f"Loss: {metrics.average_loss:.4f} ({rolling.average_loss:.4f})"
+        f"Loss: {metrics.average_loss:.4f} ({rolling.average_loss:.4f}) | "
+        f"{format_batch_duration(metrics.batch_seconds)}"
     )
 
 
@@ -296,24 +328,12 @@ def append_grouped_metrics_csv(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not path.exists() or path.stat().st_size == 0
+    if not write_header:
+        _upgrade_grouped_metrics_csv_header(path)
     with path.open("a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         if write_header:
-            writer.writerow(
-                (
-                    "Batch",
-                    "Kills",
-                    "Average Kills",
-                    "Deaths",
-                    "Average Deaths",
-                    "Score",
-                    "Average Score",
-                    "Epsilon",
-                    "Learning Rate",
-                    "Loss",
-                    "Average Loss",
-                )
-            )
+            writer.writerow(GROUPED_METRICS_CSV_HEADER)
         writer.writerow(
             (
                 str(metrics.batch),
@@ -327,8 +347,25 @@ def append_grouped_metrics_csv(
                 f"{metrics.learning_rate:.6f}",
                 f"{metrics.average_loss:.4f}",
                 f"{rolling.average_loss:.4f}",
+                f"{rolling.average_batch_seconds:.0f}",
             )
         )
+
+
+def _upgrade_grouped_metrics_csv_header(path: Path) -> None:
+    with path.open("r+", newline="", encoding="utf-8") as file:
+        rows = list(csv.reader(file))
+        old_header = GROUPED_METRICS_CSV_HEADER[:-1]
+        if not rows or tuple(rows[0]) != old_header:
+            return
+        rows[0] = list(GROUPED_METRICS_CSV_HEADER)
+        for row in rows[1:]:
+            if len(row) == len(old_header):
+                row.append("")
+        file.seek(0)
+        writer = csv.writer(file)
+        writer.writerows(rows)
+        file.truncate()
 
 
 def should_update_live_frame_status(frame: int, *, display_on: bool = False) -> bool:
@@ -722,6 +759,7 @@ class TrainingSession:
             batch=batch_number,
             epsilon=current_epsilon,
             learning_rate=self.config.learning_rate,
+            batch_seconds=batch_seconds,
         )
         with self._lock:
             self._history.append(metrics)

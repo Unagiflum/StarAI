@@ -22,6 +22,44 @@ lifecycle rules:
 This document is the implementation source of truth for the coordinated
 scheduler feature.
 
+## July 2026 Coordinated Runtime Contract
+
+The following requirements supersede earlier sections that describe a separate
+Batch/Setup tab, independent coordinated epsilon state, or saved-slot opponent
+discovery:
+
+- Batch and Regimen controls are presented on one scrollable `Regimen` tab in
+  this order: match frame length, rounds per batch, batch grouping, replay size,
+  starting epsilon, epsilon floor, epsilon decay, epsilon frame span, gamma,
+  minibatch size, gradient steps, learning rate, hidden layer size, and hidden
+  layer count.
+- Every displayed Regimen value must match across a coordinated run. All models
+  must also use the same slot number, CUDA device, opponent mode, and AI-opponent
+  frequency.
+- A mismatch in persisted current epsilon is allowed. Start All initializes the
+  coordinated current epsilon to the arithmetic mean across included instances,
+  clamped to the shared epsilon floor and `[0, 1]`.
+- One scheduler-owned epsilon gate decides explore versus greedy once per
+  epsilon span. All trainees explore or all trainees infer together. During an
+  exploration span, each trainee receives its own independently sampled random
+  action and holds it for the span unless its episode resets.
+- Greedy trainee frames use the fixed full tuple of coordinated models. The
+  packed trainee parameter tensor is therefore reusable throughout a simulation
+  batch. If a record finishes a round before its peers, pad its observation and
+  discard its output until the round finishes so the tensor width does not
+  shrink.
+- Existing-AI selection is coordinated per opponent ship at the batch boundary.
+  Only the live in-memory models participating in that coordinated run are
+  eligible. Missing ship models fall back to each record's configured simple
+  behavior. Saved or bundled models outside the coordinated population are not
+  loaded as coordinated opponents.
+- All instances face the same selected AI model for a ship. Its observations
+  are evaluated as one conventional observation batch, padded to the full
+  coordinated width after early finishes. Trainee and opponent inference remain
+  separate GPU calls.
+- Independent `Start` training retains per-model Regimen/opponent settings and
+  discovery across all compatible available AI slots.
+
 ## Motivation
 
 Existing multi-instance training runs each `TrainingSession` independently on
@@ -70,18 +108,15 @@ using the current `TrainingSession` path.
 
 ## User Experience Requirements
 
-### Batch Scheduling Tab
+### Regimen Tab
 
-Add a new top-level training tab named `Batch`.
-
-The tab can operate as either a shared coordinated-run editor or an
-active-instance editor, depending on coordinated compatibility across open
-instances. It should make that mode clear through control state, not
-explanatory text.
+Use one top-level `Regimen` tab for both ordinary and coordinated setup. It is
+an active-instance editor; apply-to-all can propagate changes to other open
+instances. Start All validation requires complete matching Regimen values.
 
 Initial controls:
 
-- `Match frame limit`
+- `Match frame length`
 - `Rounds per batch`
 - `Batch grouping`
 - `Minibatch size`
@@ -486,22 +521,13 @@ that explicit so throughput results are interpreted correctly.
 
 ### Existing-AI Opponent Inference
 
-Existing-AI opponent mode must continue to work, but it is not required to be
-fully batched in the first implementation.
-
-Minimum behavior:
-
-- Existing-AI opponent models are loaded at coordinated batch boundaries.
-- Checkpoint readers see only saved model state, as they do today.
-- A model being trained in memory is not used as an opponent until it has been
-  saved.
-- Opponent inference can initially run through the existing read-only predictor.
-
-Future optimization:
-
-- Batch opponent observations by shared opponent model.
-- Keep opponent models CPU-backed if GPU memory becomes the limiting factor.
-- Share loaded opponent-model cache across all coordinated records.
+Existing-AI selection is shared across coordinated records for the duration of
+a batch. Only live models in the coordinated population are eligible. For each
+opponent ship, select AI versus simple once using the shared configured
+frequency. If AI is selected and that ship is being trained, apply its one
+in-memory model to the observation batch for every record. Otherwise use each
+record's simple behavior configuration. Do not consult the saved opponent-model
+cache from the coordinated path.
 
 ### Optimization Phase
 
@@ -538,16 +564,17 @@ serial saves are simpler and safer.
 
 ### Epsilon Handling
 
-Each instance keeps independent epsilon state:
+The scheduler owns one coordinated epsilon state:
 
-- Load/resume current epsilon from its metadata when possible.
-- Use the coordinated run's shared epsilon decay settings if those remain part
-  of the batch tab.
-- Decay epsilon once per completed coordinated batch for that instance.
-- Persist current epsilon in that instance's metadata on save.
-
-If the batch tab initially excludes epsilon controls, use each instance's
-existing regimen epsilon settings.
+- Starting epsilon, floor, decay, and frame span must match.
+- Initialize current epsilon from the mean persisted value across included
+  instances and clamp it to the shared floor and `[0, 1]`.
+- Draw one explore/greedy decision per span for the entire population.
+- Draw and hold a separate random exploratory action for every trainee.
+- Infer the full coordinated model tuple on greedy frames and skip trainee
+  inference on exploration frames.
+- Decay once per completed coordinated batch and persist the same current value
+  in every model's metadata.
 
 ### Error Handling
 

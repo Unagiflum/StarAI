@@ -2,6 +2,11 @@
 
 Updated from the current coordinated timing data on July 17, 2026.
 
+> Baseline note: batches 320 through 327 predate the shared coordinated epsilon
+> gate and live coordinated-opponent batching implemented later on July 17.
+> Their measurements remain the comparison baseline; the inference and opponent
+> changes require a new timing run before their throughput effect is known.
+
 ## Scope and Data Interpretation
 
 The current data comes from two coordinated training sessions:

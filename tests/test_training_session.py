@@ -136,6 +136,7 @@ class TrainingMetricsTests(unittest.TestCase):
             epsilon=0.26545,
             learning_rate=0.0003,
             average_loss=1.2658,
+            batch_seconds=1804.0,
         )
         rolling = BatchMetrics(
             batch=86,
@@ -152,7 +153,7 @@ class TrainingMetricsTests(unittest.TestCase):
             format_batch_summary_line(metrics, rolling),
             "#     86 |    2 K (   2.31),    4 D (   3.62) | "
             "Score:   0.809 (  0.819) | Epsilon: 0.26545 | "
-            "LR: 0.00030 | Loss: 1.2658 (1.2658)",
+            "LR: 0.00030 | Loss: 1.2658 (1.2658) |   0h:30m:04s",
         )
 
     def test_batch_summary_keeps_negative_score_sign_adjacent(self):
@@ -173,6 +174,7 @@ class TrainingMetricsTests(unittest.TestCase):
         self.assertIn("Score:  -0.809 ( -0.819)", summary)
         self.assertNotIn("- 0.809", summary)
         self.assertNotIn("- 0.819", summary)
+        self.assertTrue(summary.endswith("|   0h:00m:00s"))
 
     def test_metrics_from_batch_result_counts_kills_deaths_and_average_score(self):
         result = TrainingBatchResult(
@@ -240,8 +242,8 @@ class TrainingMetricsTests(unittest.TestCase):
 
     def test_rolling_metrics_uses_available_window(self):
         history = (
-            BatchMetrics(1, 1, 2, 1, 10.0, 0.1, 0.001, 1.0),
-            BatchMetrics(2, 3, 0, 1, 20.0, 0.2, 0.002, 3.0),
+            BatchMetrics(1, 1, 2, 1, 10.0, 0.1, 0.001, 1.0, 20.0),
+            BatchMetrics(2, 3, 0, 1, 20.0, 0.2, 0.002, 3.0, 40.0),
         )
 
         rolling = rolling_metrics(history, grouping=5)
@@ -253,6 +255,7 @@ class TrainingMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(rolling.average_deaths, 1.0)
         self.assertAlmostEqual(rolling.average_match_score, 15.0)
         self.assertAlmostEqual(rolling.average_loss, 2.0)
+        self.assertAlmostEqual(rolling.average_batch_seconds, 30.0)
         self.assertAlmostEqual(rolling.epsilon, 0.2)
         self.assertAlmostEqual(rolling.learning_rate, 0.002)
 
@@ -262,13 +265,13 @@ class TrainingMetricsTests(unittest.TestCase):
 
             append_grouped_metrics_csv(
                 path,
-                BatchMetrics(1000, 2, 4, 1, 34.3, 0.002, 0.0001, 0.05),
-                BatchMetrics(1000, 231, 362, 100, 33.3, 0.002, 0.0001, 0.04),
+                BatchMetrics(1000, 2, 4, 1, 34.3, 0.002, 0.0001, 0.05, 261.0),
+                BatchMetrics(1000, 231, 362, 100, 33.3, 0.002, 0.0001, 0.04, 25900.0),
             )
             append_grouped_metrics_csv(
                 path,
-                BatchMetrics(2000, 5, 3, 1, 35.0, 0.003, 0.0002, 0.06),
-                BatchMetrics(2000, 250, 350, 100, 34.0, 0.003, 0.0002, 0.05),
+                BatchMetrics(2000, 5, 3, 1, 35.0, 0.003, 0.0002, 0.06, 258.0),
+                BatchMetrics(2000, 250, 350, 100, 34.0, 0.003, 0.0002, 0.05, 25800.0),
             )
 
             with path.open(newline="", encoding="utf-8") as file:
@@ -281,14 +284,15 @@ class TrainingMetricsTests(unittest.TestCase):
                     "Batch", "Kills", "Average Kills", "Deaths",
                     "Average Deaths", "Score", "Average Score", "Epsilon",
                     "Learning Rate", "Loss", "Average Loss",
+                    "Time per batch (s)",
                 ],
                 [
                     "1000", "2", "2.31", "4", "3.62", "34.3", "33.3",
-                    "0.00200", "0.000100", "0.0500", "0.0400",
+                    "0.00200", "0.000100", "0.0500", "0.0400", "259",
                 ],
                 [
                     "2000", "5", "2.50", "3", "3.50", "35.0", "34.0",
-                    "0.00300", "0.000200", "0.0600", "0.0500",
+                    "0.00300", "0.000200", "0.0600", "0.0500", "258",
                 ],
             ],
         )
@@ -299,8 +303,8 @@ class TrainingMetricsTests(unittest.TestCase):
 
             append_grouped_metrics_csv(
                 path,
-                BatchMetrics(50, 4, 3, 1, 12.5, 0.100, 0.001, 0.25),
-                BatchMetrics(50, 12, 9, 3, 11.5, 0.100, 0.001, 0.20),
+                BatchMetrics(50, 4, 3, 1, 12.5, 0.100, 0.001, 0.25, 29.0),
+                BatchMetrics(50, 12, 9, 3, 11.5, 0.100, 0.001, 0.20, 90.0),
             )
 
             with path.open(newline="", encoding="utf-8") as file:
@@ -310,9 +314,52 @@ class TrainingMetricsTests(unittest.TestCase):
             rows[-1],
             [
                 "50", "4", "4.00", "3", "3.00", "12.5", "11.5",
-                "0.10000", "0.001000", "0.2500", "0.2000",
+                "0.10000", "0.001000", "0.2500", "0.2000", "30",
             ],
         )
+
+    def test_csv_append_upgrades_existing_header_and_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Earthling-01.csv"
+            with path.open("w", newline="", encoding="utf-8") as file:
+                csv.writer(file).writerows(
+                    (
+                        (
+                            "Batch", "Kills", "Average Kills", "Deaths",
+                            "Average Deaths", "Score", "Average Score", "Epsilon",
+                            "Learning Rate", "Loss", "Average Loss",
+                        ),
+                        (
+                            "50", "4", "4.00", "3", "3.00", "12.5", "11.5",
+                            "0.10000", "0.001000", "0.2500", "0.2000",
+                        ),
+                    )
+                )
+
+            append_grouped_metrics_csv(
+                path,
+                BatchMetrics(
+                    100, 3, 4, 1, 0.2, 0.42804, 0.0003, 0.1078, 259.0
+                ),
+                BatchMetrics(
+                    100,
+                    770,
+                    780,
+                    100,
+                    0.2,
+                    0.42804,
+                    0.0003,
+                    0.1407,
+                    25900.0,
+                ),
+            )
+
+            with path.open(newline="", encoding="utf-8") as file:
+                rows = list(csv.reader(file))
+
+        self.assertEqual(rows[0][-1], "Time per batch (s)")
+        self.assertEqual(rows[1][-1], "")
+        self.assertEqual(rows[2][-1], "259")
 
     def test_batch_metrics_history_round_trips_through_metadata(self):
         metrics = BatchMetrics(12, 9, 10, 1, 42.5, 0.1, 0.001, 0.25)
@@ -1386,7 +1433,7 @@ class TrainingSessionTests(unittest.TestCase):
             rows[-1],
             [
                 "3", "0", "0.00", "0", "0.00", "30.0", "20.0",
-                "0.10000", "0.001000", "0.1000", "0.1000",
+                "0.10000", "0.001000", "0.1000", "0.1000", "0",
             ],
         )
 

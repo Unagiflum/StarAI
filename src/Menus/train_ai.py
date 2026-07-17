@@ -94,20 +94,20 @@ EPSILON_FRAME_SPAN_VALUES = tuple(range(1, 49))
 GAMMA_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(50))
 HIDDEN_LAYER_SIZE_VALUES = (16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
 HIDDEN_LAYER_COUNT_VALUES = tuple(range(1, 9, 1))
-REGIMEN_REPLAY_BUFFER_INDEX = 0
-REGIMEN_STARTING_EPSILON_INDEX = 1
-REGIMEN_EPSILON_FLOOR_INDEX = 2
-REGIMEN_EPSILON_DECAY_INDEX = 3
-REGIMEN_EPSILON_FRAME_SPAN_INDEX = 4
-REGIMEN_GAMMA_INDEX = 5
-BATCH_MATCH_TIME_LIMIT_INDEX = 0
-BATCH_ROUNDS_PER_BATCH_INDEX = 1
-BATCH_BATCH_GROUPING_INDEX = 2
-BATCH_MINIBATCH_SIZE_INDEX = 3
-BATCH_REPLAY_UPDATES_INDEX = 4
-BATCH_LEARNING_RATE_INDEX = 5
-BATCH_HIDDEN_LAYER_SIZE_INDEX = 6
-BATCH_HIDDEN_LAYER_COUNT_INDEX = 7
+REGIMEN_MATCH_TIME_LIMIT_INDEX = 0
+REGIMEN_ROUNDS_PER_BATCH_INDEX = 1
+REGIMEN_BATCH_GROUPING_INDEX = 2
+REGIMEN_REPLAY_BUFFER_INDEX = 3
+REGIMEN_STARTING_EPSILON_INDEX = 4
+REGIMEN_EPSILON_FLOOR_INDEX = 5
+REGIMEN_EPSILON_DECAY_INDEX = 6
+REGIMEN_EPSILON_FRAME_SPAN_INDEX = 7
+REGIMEN_GAMMA_INDEX = 8
+REGIMEN_MINIBATCH_SIZE_INDEX = 9
+REGIMEN_REPLAY_UPDATES_INDEX = 10
+REGIMEN_LEARNING_RATE_INDEX = 11
+REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 12
+REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 13
 START_ALL_GREEN = tuple(max(0, channel - 50) for channel in ui.OK_GREEN[:3]) + (
     ui.OK_GREEN[3],
 )
@@ -115,14 +115,25 @@ START_ALL_GREEN_HI = (*START_ALL_GREEN[:3], ui.OK_GREEN_HI[3])
 START_ALL_DISABLED_TOOLTIP = (
     "Complete matching setups are required to start a coordinated run."
 )
-BATCH_CONTROLLED_FIELDS = (
+REGIMEN_CONTROLLED_FIELDS = (
     "match_time_limit",
     "rounds_per_batch",
     "batch_grouping",
+    "replay_buffer_size",
+    "starting_epsilon",
+    "epsilon_floor",
+    "epsilon_decay",
+    "epsilon_frame_span",
+    "gamma",
     "minibatch_size",
     "replay_updates_per_batch",
     "learning_rate",
+    "hidden_layer_size",
+    "hidden_layer_count",
 )
+# Backward-compatible helper name retained for persisted/UI callers.
+BATCH_CONTROLLED_FIELDS = REGIMEN_CONTROLLED_FIELDS
+COORDINATED_OPPONENT_FIELDS = ("opponent_mode", "ai_opponent_chance")
 FUTURE_CHANGE_SCALAR_FIELDS = (
     "training_device",
     "opponent_mode",
@@ -181,7 +192,7 @@ INSTANCE_BORDER_COLOR = (200, 200, 200)
 INSTANCE_BORDER_WIDTH = 3
 TRAIN_AI_SESSION_VERSION = 2
 TRAIN_AI_SESSION_PATH = const.USER_DATA_ROOT / "train_ai_session.json"
-TRAIN_AI_TABS = ("trainee", "opponent", "rewards", "regimen", "batch")
+TRAIN_AI_TABS = ("trainee", "opponent", "rewards", "regimen")
 UI_TOP_MARGIN = INSTANCE_TOP + INSTANCE_CONTROL_HEIGHT + 12
 TAB_GAP = 8
 TAB_HEIGHT = 28
@@ -220,7 +231,7 @@ class TrainingUIState:
             for label in REWARD_LABELS
         }
     )
-    opponent_mode: str = "simple"
+    opponent_mode: str = "all"
     ai_opponent_chance: float = 100.0
     forward_activity: float = 0.0
     a1_activity: float = 25.0
@@ -284,6 +295,7 @@ class TrainingBatchSchedulingState:
 class CoordinatedBatchValidation:
     included_instances: tuple[TrainingInstance, ...] = ()
     reset_required_instances: tuple[TrainingInstance, ...] = ()
+    shared_current_epsilon: float | None = None
     blocking_reason: str = ""
     blocking_code: str = ""
 
@@ -417,12 +429,21 @@ def validate_coordinated_batch_start(
             blocking_code="eligible_count",
         )
 
-    if not instances_have_matching_batch_settings(
-        instance for instance, _slot in resolved_slots
-    ):
+    slot_numbers = {int(slot.slot) for _instance, slot in resolved_slots}
+    if len(slot_numbers) > 1:
         return CoordinatedBatchValidation(
-            blocking_reason="Batch settings differ",
-            blocking_code="batch",
+            blocking_reason="Model slots differ",
+            blocking_code="slot",
+        )
+
+    opponent_signatures = {
+        tuple(getattr(instance.state, field) for field in COORDINATED_OPPONENT_FIELDS)
+        for instance, _slot in resolved_slots
+    }
+    if len(opponent_signatures) > 1:
+        return CoordinatedBatchValidation(
+            blocking_reason="Opponent mode or AI frequency differs",
+            blocking_code="opponent",
         )
 
     signatures = []
@@ -437,6 +458,14 @@ def validate_coordinated_batch_start(
         return CoordinatedBatchValidation(
             blocking_reason="Model architectures differ",
             blocking_code="architecture",
+        )
+
+    if not instances_have_matching_batch_settings(
+        instance for instance, _slot in resolved_slots
+    ):
+        return CoordinatedBatchValidation(
+            blocking_reason="Regimen settings differ",
+            blocking_code="regimen",
         )
 
     torch_obj = torch_backend.get_torch() if torch_module is None else torch_module
@@ -468,9 +497,19 @@ def validate_coordinated_batch_start(
             blocking_code="device",
         )
 
+    floor = float(resolved_slots[0][0].state.epsilon_floor)
+    shared_current_epsilon = max(
+        floor,
+        min(
+            1.0,
+            sum(float(instance.state.current_epsilon) for instance, _slot in resolved_slots)
+            / len(resolved_slots),
+        ),
+    )
     return CoordinatedBatchValidation(
         included_instances=tuple(instance for instance, _slot in resolved_slots),
         reset_required_instances=tuple(reset_required_instances),
+        shared_current_epsilon=shared_current_epsilon,
     )
 
 
@@ -973,6 +1012,12 @@ def _training_ui_state_from_json(payload):
         elif field_name in {"display_on", "running"}:
             value = False
         setattr(state, field_name, value)
+    try:
+        has_ai_opponents = float(state.ai_opponent_chance) > 0.0
+    except (TypeError, ValueError):
+        has_ai_opponents = False
+        state.ai_opponent_chance = 0.0
+    state.opponent_mode = "all" if has_ai_opponents else "simple"
     return state
 
 
@@ -1020,7 +1065,7 @@ def training_instance_manager_from_json(payload):
         raw_state = raw_instance.get("state")
         if (
             isinstance(raw_state, dict)
-            and raw_state.get("active_tab") in TRAIN_AI_TABS
+            and raw_state.get("active_tab") in (*TRAIN_AI_TABS, "batch")
         ):
             legacy_tabs[instance_id] = raw_state["active_tab"]
         label = str(raw_instance.get("label") or f"Instance {instance_id}")
@@ -1044,10 +1089,14 @@ def training_instance_manager_from_json(payload):
         active_instance_id = instances[0].instance_id
     manager.active_instance_id = active_instance_id
     active_tab = payload.get("active_tab")
+    if active_tab == "batch":
+        active_tab = "regimen"
     if active_tab not in TRAIN_AI_TABS:
         # Version 1 stored the tab separately on every instance. Adopt the
         # active instance's tab when migrating to the UI-wide selection.
         active_tab = legacy_tabs.get(active_instance_id)
+        if active_tab == "batch":
+            active_tab = "regimen"
     manager.active_tab = active_tab if active_tab in TRAIN_AI_TABS else "trainee"
     try:
         next_instance_id = int(payload.get("next_instance_id", 0) or 0)
@@ -3032,8 +3081,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         maximum=28,
     )
     tab_font = largest_fitting_font(
-        ("Trainee", "Opponent", "Rewards", "Regimen", "Setup"),
-        (CONTROL_WIDTH - 6 * TAB_MARGIN) // 5 - 16,
+        ("Trainee", "Opponent", "Rewards", "Regimen"),
+        (CONTROL_WIDTH - 5 * TAB_MARGIN) // 4 - 16,
         max_height=34,
         maximum=32,
     )
@@ -3047,7 +3096,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     regimen_font = largest_fitting_font(
         (
-            "Match frame limit: 12000",
+            "Match frame length: 12000",
             "Rounds per batch: 50",
             "Batch grouping: 1000",
             f"Replay size, batch=15M: 250k ({_format_replay_buffer_size(250_000)})",
@@ -3055,6 +3104,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Gradient steps: 500 (UTD=999.99)",
             "Learning rate: 0.01000",
             "Starting Epsilon: 1.000",
+            "Epsilon floor: 0.150",
             "Epsilon decay: 1.000",
             "Epsilon frame span: 48",
             "Gamma: 0.999",
@@ -3064,17 +3114,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         320,
         max_height=24,
         maximum=22,
-    )
-    batch_font = largest_fitting_font(
-        (
-            "Match frame limit: 12000",
-            "Gradient steps: 500",
-            "Hidden layer size: 4096",
-            "Hidden layer count: 8",
-        ),
-        320,
-        max_height=26,
-        maximum=24,
     )
     apply_all_font = largest_fitting_font(
         ("Apply changes to all instances",),
@@ -3102,7 +3141,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     selector_sprites = fit_ship_sprites(source_sprites, 188)
 
-    tab_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 4 * TAB_GAP) // 5
+    tab_width = (CONTROL_WIDTH - 2 * TAB_MARGIN - 3 * TAB_GAP) // 4
     tab_height = TAB_HEIGHT + TAB_GAP
     trainee_tab = TabButton(
         TAB_MARGIN,
@@ -3136,15 +3175,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         "Regimen",
         lambda: setattr(instance_manager, "active_tab", "regimen"),
     )
-    batch_tab = TabButton(
-        TAB_MARGIN + 4 * (tab_width + TAB_GAP),
-        UI_TOP_MARGIN,
-        tab_width,
-        tab_height,
-        "Setup",
-        lambda: setattr(instance_manager, "active_tab", "batch"),
-    )
-
     ship_tile = pygame.Rect(16, 48, 200, 200)
     device_selector_rect = pygame.Rect(
         ship_tile.right + 16,
@@ -3275,183 +3305,63 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     regimen_left = 16
     regimen_width = CONTROL_WIDTH - 32
-    regimen_top = CONTENT_TOP + 14
+    regimen_top = 14
     regimen_spacing = 38
     regimen_height = 36
     regimen_slider_width = 204
     regimen_layout = SliderRow.LABEL_VALUE_SLIDER
+
+    def regimen_slider(index, label, values, value, **kwargs):
+        return SliderRow(
+            (
+                regimen_left,
+                regimen_top + index * regimen_spacing,
+                regimen_width,
+                regimen_height,
+            ),
+            label,
+            values[0],
+            values[-1],
+            value,
+            values=values,
+            layout=regimen_layout,
+            slider_width=regimen_slider_width,
+            **kwargs,
+        )
+
     regimen_sliders = (
-        SliderRow(
-            (regimen_left, regimen_top, regimen_width, regimen_height),
+        regimen_slider(0, "Match frame length", MATCH_TIME_LIMIT_VALUES, state.match_time_limit, is_int=True),
+        regimen_slider(1, "Rounds per batch", ROUNDS_PER_BATCH_VALUES, state.rounds_per_batch, is_int=True),
+        regimen_slider(2, "Batch grouping", BATCH_GROUPING_VALUES, state.batch_grouping, is_int=True),
+        regimen_slider(
+            3,
             "Replay size, batch=30k",
-            REPLAY_BUFFER_SIZE_VALUES[0],
-            REPLAY_BUFFER_SIZE_VALUES[-1],
+            REPLAY_BUFFER_SIZE_VALUES,
             state.replay_buffer_size,
             is_int=True,
-            values=REPLAY_BUFFER_SIZE_VALUES,
             value_formatter=_format_short_count,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
         ),
-        SliderRow(
-            (regimen_left, regimen_top + regimen_spacing, regimen_width, regimen_height),
+        regimen_slider(
+            4,
             "Starting Epsilon",
-            EPSILON_VALUES[0],
-            EPSILON_VALUES[-1],
+            EPSILON_VALUES,
             state.starting_epsilon,
             step=0.025,
-            values=EPSILON_VALUES,
             decimal_places=3,
             value_suffix=f" ({state.current_epsilon:.3f})",
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
         ),
-        SliderRow(
-            (regimen_left, regimen_top + 2 * regimen_spacing, regimen_width, regimen_height),
-            "Epsilon floor",
-            EPSILON_FLOOR_VALUES[0],
-            EPSILON_FLOOR_VALUES[-1],
-            state.epsilon_floor,
-            step=0.005,
-            values=EPSILON_FLOOR_VALUES,
-            decimal_places=3,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
-        SliderRow(
-            (regimen_left, regimen_top + 3 * regimen_spacing, regimen_width, regimen_height),
-            "Epsilon decay",
-            EPSILON_DECAY_VALUES[0],
-            EPSILON_DECAY_VALUES[-1],
-            state.epsilon_decay,
-            step=0.001,
-            values=EPSILON_DECAY_VALUES,
-            decimal_places=3,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
-        SliderRow(
-            (regimen_left, regimen_top + 4 * regimen_spacing, regimen_width, regimen_height),
-            "Epsilon frame span",
-            EPSILON_FRAME_SPAN_VALUES[0],
-            EPSILON_FRAME_SPAN_VALUES[-1],
-            state.epsilon_frame_span,
-            is_int=True,
-            values=EPSILON_FRAME_SPAN_VALUES,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
-        SliderRow(
-            (regimen_left, regimen_top + 5 * regimen_spacing, regimen_width, regimen_height),
-            "Gamma",
-            GAMMA_VALUES[0],
-            GAMMA_VALUES[-1],
-            state.gamma,
-            step=0.001,
-            values=GAMMA_VALUES,
-            decimal_places=3,
-            layout=regimen_layout,
-            slider_width=regimen_slider_width,
-        ),
+        regimen_slider(5, "Epsilon floor", EPSILON_FLOOR_VALUES, state.epsilon_floor, step=0.005, decimal_places=3),
+        regimen_slider(6, "Epsilon decay", EPSILON_DECAY_VALUES, state.epsilon_decay, step=0.001, decimal_places=3),
+        regimen_slider(7, "Epsilon frame span", EPSILON_FRAME_SPAN_VALUES, state.epsilon_frame_span, is_int=True),
+        regimen_slider(8, "Gamma", GAMMA_VALUES, state.gamma, step=0.001, decimal_places=3),
+        regimen_slider(9, "Minibatch size", MINIBATCH_SIZE_VALUES, state.minibatch_size, is_int=True),
+        regimen_slider(10, "Gradient steps", REPLAY_UPDATES_PER_BATCH_VALUES, state.replay_updates_per_batch, is_int=True),
+        regimen_slider(11, "Learning rate", LEARNING_RATE_VALUES, state.learning_rate, step=0.00001, decimal_places=5),
+        regimen_slider(12, "Hidden layer size", HIDDEN_LAYER_SIZE_VALUES, state.hidden_layer_size, is_int=True),
+        regimen_slider(13, "Hidden layer count", HIDDEN_LAYER_COUNT_VALUES, state.hidden_layer_count, is_int=True),
     )
-
-    batch_left = 16
-    batch_width = CONTROL_WIDTH - 32
-    batch_top = CONTENT_TOP + 18
-    batch_spacing = 40
-    batch_height = 36
-    batch_slider_width = 204
-    batch_sliders = (
-        SliderRow(
-            (batch_left, batch_top, batch_width, batch_height),
-            "Match frame limit",
-            MATCH_TIME_LIMIT_VALUES[0],
-            MATCH_TIME_LIMIT_VALUES[-1],
-            state.match_time_limit,
-            is_int=True,
-            values=MATCH_TIME_LIMIT_VALUES,
-            layout=regimen_layout,
-            slider_width=batch_slider_width,
-        ),
-        SliderRow(
-            (batch_left, batch_top + batch_spacing, batch_width, batch_height),
-            "Rounds per batch",
-            ROUNDS_PER_BATCH_VALUES[0],
-            ROUNDS_PER_BATCH_VALUES[-1],
-            state.rounds_per_batch,
-            is_int=True,
-            values=ROUNDS_PER_BATCH_VALUES,
-            layout=regimen_layout,
-            slider_width=batch_slider_width,
-        ),
-        SliderRow(
-            (batch_left, batch_top + 2 * batch_spacing, batch_width, batch_height),
-            "Batch grouping",
-            BATCH_GROUPING_VALUES[0],
-            BATCH_GROUPING_VALUES[-1],
-            state.batch_grouping,
-            is_int=True,
-            values=BATCH_GROUPING_VALUES,
-            layout=regimen_layout,
-            slider_width=batch_slider_width,
-        ),
-        SliderRow(
-            (batch_left, batch_top + 3 * batch_spacing, batch_width, batch_height),
-            "Minibatch size",
-            MINIBATCH_SIZE_VALUES[0],
-            MINIBATCH_SIZE_VALUES[-1],
-            state.minibatch_size,
-            is_int=True,
-            values=MINIBATCH_SIZE_VALUES,
-            layout=regimen_layout,
-            slider_width=batch_slider_width,
-        ),
-        SliderRow(
-            (batch_left, batch_top + 4 * batch_spacing, batch_width, batch_height),
-            "Gradient steps",
-            REPLAY_UPDATES_PER_BATCH_VALUES[0],
-            REPLAY_UPDATES_PER_BATCH_VALUES[-1],
-            state.replay_updates_per_batch,
-            is_int=True,
-            values=REPLAY_UPDATES_PER_BATCH_VALUES,
-            layout=regimen_layout,
-            slider_width=batch_slider_width,
-        ),
-        SliderRow(
-            (batch_left, batch_top + 5 * batch_spacing, batch_width, batch_height),
-            "Learning rate",
-            LEARNING_RATE_VALUES[0],
-            LEARNING_RATE_VALUES[-1],
-            state.learning_rate,
-            step=0.00001,
-            values=LEARNING_RATE_VALUES,
-            decimal_places=5,
-            layout=regimen_layout,
-            slider_width=batch_slider_width,
-        ),
-        SliderRow(
-            (batch_left, batch_top + 6 * batch_spacing, batch_width, batch_height),
-            "Hidden layer size",
-            HIDDEN_LAYER_SIZE_VALUES[0],
-            HIDDEN_LAYER_SIZE_VALUES[-1],
-            state.hidden_layer_size,
-            is_int=True,
-            values=HIDDEN_LAYER_SIZE_VALUES,
-            layout=regimen_layout,
-            slider_width=batch_slider_width,
-        ),
-        SliderRow(
-            (batch_left, batch_top + 7 * batch_spacing, batch_width, batch_height),
-            "Hidden layer count",
-            HIDDEN_LAYER_COUNT_VALUES[0],
-            HIDDEN_LAYER_COUNT_VALUES[-1],
-            state.hidden_layer_count,
-            is_int=True,
-            values=HIDDEN_LAYER_COUNT_VALUES,
-            layout=regimen_layout,
-            slider_width=batch_slider_width,
-        ),
-    )
+    regimen_content_height = regimen_sliders[-1].rect.bottom + 14
+    regimen_scroll_y = 0
     apply_all_checkbox = TabScopeCheckbox(
         0,
         APPLY_ALL_STRIP_TOP,
@@ -3489,12 +3399,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.a1_activity = simple_activity_sliders[1].value
         state.a2_activity = simple_activity_sliders[2].value
         state.face_opponent_activity = simple_activity_sliders[3].value
-        state.match_time_limit = int(batch_sliders[BATCH_MATCH_TIME_LIMIT_INDEX].value)
-        state.rounds_per_batch = int(batch_sliders[BATCH_ROUNDS_PER_BATCH_INDEX].value)
-        state.batch_grouping = int(batch_sliders[BATCH_BATCH_GROUPING_INDEX].value)
-        state.minibatch_size = int(batch_sliders[BATCH_MINIBATCH_SIZE_INDEX].value)
-        state.replay_updates_per_batch = int(batch_sliders[BATCH_REPLAY_UPDATES_INDEX].value)
-        state.learning_rate = batch_sliders[BATCH_LEARNING_RATE_INDEX].value
+        state.match_time_limit = int(regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX].value)
+        state.rounds_per_batch = int(regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX].value)
+        state.batch_grouping = int(regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX].value)
+        state.minibatch_size = int(regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX].value)
+        state.replay_updates_per_batch = int(regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].value)
+        state.learning_rate = regimen_sliders[REGIMEN_LEARNING_RATE_INDEX].value
         state.replay_buffer_size = int(
             regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX].value
         )
@@ -3517,10 +3427,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         state.gamma = regimen_sliders[REGIMEN_GAMMA_INDEX].value
         state.hidden_layer_size = int(
-            batch_sliders[BATCH_HIDDEN_LAYER_SIZE_INDEX].value
+            regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX].value
         )
         state.hidden_layer_count = int(
-            batch_sliders[BATCH_HIDDEN_LAYER_COUNT_INDEX].value
+            regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX].value
         )
         changed_scalars = tuple(
             field_name
@@ -3545,7 +3455,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
 
     def apply_state_to_ui():
-        nonlocal trainee_scroll_y, rewards_scroll_y
+        nonlocal trainee_scroll_y, rewards_scroll_y, regimen_scroll_y
         display_checkbox.is_checked = instance_manager.display_on
         device_selector.selected = state.training_device
         refresh_slot_controls(load_labels=False)
@@ -3576,25 +3486,26 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         _set_slider_value(regimen_sliders[REGIMEN_GAMMA_INDEX], state.gamma)
         _set_slider_value(
-            batch_sliders[BATCH_HIDDEN_LAYER_SIZE_INDEX],
+            regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX],
             state.hidden_layer_size,
         )
         _set_slider_value(
-            batch_sliders[BATCH_HIDDEN_LAYER_COUNT_INDEX],
+            regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX],
             state.hidden_layer_count,
         )
-        _set_slider_value(batch_sliders[BATCH_MATCH_TIME_LIMIT_INDEX], state.match_time_limit)
-        _set_slider_value(batch_sliders[BATCH_ROUNDS_PER_BATCH_INDEX], state.rounds_per_batch)
-        _set_slider_value(batch_sliders[BATCH_BATCH_GROUPING_INDEX], state.batch_grouping)
-        _set_slider_value(batch_sliders[BATCH_MINIBATCH_SIZE_INDEX], state.minibatch_size)
-        _set_slider_value(batch_sliders[BATCH_REPLAY_UPDATES_INDEX], state.replay_updates_per_batch)
-        _set_slider_value(batch_sliders[BATCH_LEARNING_RATE_INDEX], state.learning_rate)
+        _set_slider_value(regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX], state.match_time_limit)
+        _set_slider_value(regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX], state.rounds_per_batch)
+        _set_slider_value(regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX], state.batch_grouping)
+        _set_slider_value(regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX], state.minibatch_size)
+        _set_slider_value(regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX], state.replay_updates_per_batch)
+        _set_slider_value(regimen_sliders[REGIMEN_LEARNING_RATE_INDEX], state.learning_rate)
         apply_all_checkbox.is_checked = (
             instance_manager.batch_scheduling.apply_to_all_open_instances
         )
         last_starting_epsilon_slider_value[0] = state.starting_epsilon
         trainee_scroll_y = 0
         rewards_scroll_y = 0
+        regimen_scroll_y = 0
         batch_log_box.set_lines(())
 
     def architecture_metadata_for(training_state):
@@ -4101,32 +4012,32 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     ),
                     (
                         "rounds_per_batch",
-                        batch_sliders[BATCH_ROUNDS_PER_BATCH_INDEX],
+                        regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX],
                         int,
                     ),
                     (
                         "batch_grouping",
-                        batch_sliders[BATCH_BATCH_GROUPING_INDEX],
+                        regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX],
                         int,
                     ),
                     (
                         "match_time_limit",
-                        batch_sliders[BATCH_MATCH_TIME_LIMIT_INDEX],
+                        regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX],
                         int,
                     ),
                     (
                         "minibatch_size",
-                        batch_sliders[BATCH_MINIBATCH_SIZE_INDEX],
+                        regimen_sliders[REGIMEN_MINIBATCH_SIZE_INDEX],
                         int,
                     ),
                     (
                         "replay_updates_per_batch",
-                        batch_sliders[BATCH_REPLAY_UPDATES_INDEX],
+                        regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX],
                         int,
                     ),
                     (
                         "learning_rate",
-                        batch_sliders[BATCH_LEARNING_RATE_INDEX],
+                        regimen_sliders[REGIMEN_LEARNING_RATE_INDEX],
                         float,
                     ),
                     (
@@ -4180,12 +4091,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         "hidden_layer_width",
                         architecture.get("hidden_layer_size"),
                     ),
-                    batch_sliders[BATCH_HIDDEN_LAYER_SIZE_INDEX],
+                    regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX],
                     "hidden layer size",
                 ),
                 (
                     architecture.get("hidden_layer_count"),
-                    batch_sliders[BATCH_HIDDEN_LAYER_COUNT_INDEX],
+                    regimen_sliders[REGIMEN_HIDDEN_LAYER_COUNT_INDEX],
                     "hidden layer count",
                 ),
             )
@@ -4438,6 +4349,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             instance.instance_id
             for instance in validation.reset_required_instances
         }
+        shared_current_epsilon = float(validation.shared_current_epsilon)
+        for instance in validation.included_instances:
+            instance.state.current_epsilon = shared_current_epsilon
         instance_slots = [
             (
                 instance,
@@ -4460,14 +4374,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     model_slot,
                     reset_checkpoint=reset_checkpoint,
                 )
+                regimen_metadata = metadata["training"]["regimen"]
+                regimen_metadata["current_epsilon"] = shared_current_epsilon
+                regimen_metadata["epsilon"] = shared_current_epsilon
                 updated_slot = model_repository.create_or_update_user_model(metadata)
                 if reset_checkpoint:
                     _clear_reset_model_artifacts(updated_slot)
-                    instance.state.current_epsilon = _epsilon_for_model_update(
-                        instance.state.starting_epsilon,
-                        instance.state.current_epsilon,
-                        reset_checkpoint=True,
-                    )
+                    instance.state.current_epsilon = shared_current_epsilon
                     instance_manager.clear_session_continuity(
                         instance,
                         release_writer=False,
@@ -4753,7 +4666,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             opponent_tab.handle_event(event, menu_sound_manager)
             rewards_tab.handle_event(event, menu_sound_manager)
             regimen_tab.handle_event(event, menu_sound_manager)
-            batch_tab.handle_event(event, menu_sound_manager)
             display_checkbox.handle_event(event, menu_sound_manager)
             start_stop_button.handle_event(event, menu_sound_manager)
             batch_start_all_button.handle_event(event, menu_sound_manager)
@@ -4822,11 +4734,27 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     slider.enabled = enabled
                     slider.handle_event(translated, menu_sound_manager)
             elif instance_manager.active_tab == "regimen":
+                if (
+                    event.type == pygame.MOUSEBUTTONDOWN
+                    and event.button in (4, 5)
+                    and layout.content_rect.collidepoint(event.pos)
+                ):
+                    direction = -1 if event.button == 4 else 1
+                    max_scroll = max(
+                        0, regimen_content_height - layout.content_rect.height
+                    )
+                    regimen_scroll_y = max(
+                        0,
+                        min(max_scroll, regimen_scroll_y + direction * 54),
+                    )
+                    continue
+                translated = _translated_event(
+                    event,
+                    layout.content_rect,
+                    regimen_scroll_y,
+                )
                 for slider in regimen_sliders:
-                    slider.handle_event(event, menu_sound_manager)
-            elif instance_manager.active_tab == "batch":
-                for slider in batch_sliders:
-                    slider.handle_event(event, menu_sound_manager)
+                    slider.handle_event(translated, menu_sound_manager)
 
         sync_state_from_ui()
         controls_enabled = state.simple_behavior_controls_enabled
@@ -4853,7 +4781,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             state.replay_updates_per_batch,
             max_batch_frames,
         )
-        batch_sliders[BATCH_REPLAY_UPDATES_INDEX].value_suffix = (
+        regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].value_suffix = (
             f" (UTD={utd_ratio})"
         )
 
@@ -4939,7 +4867,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             batch_start_all_button.bg_color = START_ALL_GREEN
             batch_start_all_button.hover_color = START_ALL_GREEN_HI
-        for slider in batch_sliders:
+        for slider in regimen_sliders:
             slider.enabled = not active_running and not coordinated_active
         device_selector.visible = torch_backend.training_device_selector_visible()
         if not device_selector.visible and state.training_device == torch_backend.DEVICE_GPU:
@@ -5066,7 +4994,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 *reward_sliders,
                 *grouped_controls,
                 *regimen_sliders,
-                *batch_sliders,
             ):
                 slider.enabled = False
 
@@ -5107,7 +5034,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         opponent_tab.active = instance_manager.active_tab == "opponent"
         rewards_tab.active = instance_manager.active_tab == "rewards"
         regimen_tab.active = instance_manager.active_tab == "regimen"
-        batch_tab.active = instance_manager.active_tab == "batch"
 
         if instance_manager.active_tab == "trainee":
             content = pygame.Surface(
@@ -5211,24 +5137,40 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 slider.draw(content, opponent_font)
             screen.blit(content, layout.content_rect)
         elif instance_manager.active_tab == "regimen":
-            panel = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)
-            panel.fill((0, 0, 0, 155))
-            screen.blit(panel, layout.content_rect)
-            for slider in regimen_sliders:
-                slider.draw(screen, regimen_font)
-        elif instance_manager.active_tab == "batch":
-            content = pygame.Surface(layout.content_rect.size, pygame.SRCALPHA)
+            content = pygame.Surface(
+                (
+                    CONTROL_WIDTH,
+                    max(regimen_content_height, layout.content_rect.height),
+                ),
+                pygame.SRCALPHA,
+            )
             content.fill((0, 0, 0, 155))
-            screen.blit(content, layout.content_rect)
-            for slider in batch_sliders:
-                slider.draw(screen, batch_font)
+            mouse_pos = pygame.mouse.get_pos()
+            content_mouse_pos = (
+                mouse_pos[0] - layout.content_rect.x,
+                mouse_pos[1] - layout.content_rect.y + regimen_scroll_y,
+            )
+            for slider in regimen_sliders:
+                slider.draw(content, regimen_font, content_mouse_pos)
+            source = pygame.Rect(
+                0,
+                regimen_scroll_y,
+                layout.content_rect.width,
+                layout.content_rect.height,
+            )
+            screen.blit(content, layout.content_rect, source)
+            _draw_scrollbar(
+                screen,
+                layout.content_rect,
+                regimen_content_height,
+                regimen_scroll_y,
+            )
 
         # Draw inactive tabs behind the content window border
         if not trainee_tab.active: trainee_tab.draw(screen, tab_font)
         if not opponent_tab.active: opponent_tab.draw(screen, tab_font)
         if not rewards_tab.active: rewards_tab.draw(screen, tab_font)
         if not regimen_tab.active: regimen_tab.draw(screen, tab_font)
-        if not batch_tab.active: batch_tab.draw(screen, tab_font)
 
         apply_all_checkbox.draw(screen, apply_all_font)
         pygame.draw.rect(
@@ -5243,7 +5185,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if opponent_tab.active: opponent_tab.draw(screen, tab_font)
         if rewards_tab.active: rewards_tab.draw(screen, tab_font)
         if regimen_tab.active: regimen_tab.draw(screen, tab_font)
-        if batch_tab.active: batch_tab.draw(screen, tab_font)
 
         running_color = ui.BRIGHT_GREEN
         pygame.draw.rect(screen, ui.BLACK, instance_summary_rect, border_radius=5)

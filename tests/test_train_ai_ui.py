@@ -131,7 +131,7 @@ class TrainingUIStateTests(unittest.TestCase):
             }
         )
         self.assertEqual(state.rewards, expected_rewards)
-        self.assertEqual(state.opponent_mode, "simple")
+        self.assertEqual(state.opponent_mode, "all")
         self.assertEqual(state.ai_opponent_chance, 100.0)
         self.assertEqual(state.forward_activity, 0.0)
         self.assertEqual(state.a1_activity, 25.0)
@@ -411,7 +411,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(restored.active_state.selected_ship, "Androsynth")
         self.assertEqual(restored.active_state.match_time_limit, 2400)
         self.assertTrue(restored.batch_scheduling.apply_to_all_open_instances)
-        self.assertEqual(restored.active_tab, "batch")
+        self.assertEqual(restored.active_tab, "regimen")
 
     def test_version_one_session_migrates_active_instances_tab(self):
         payload = training_instance_manager_to_json(TrainingInstanceManager())
@@ -680,7 +680,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(manager.instances, [second])
         self.assertIs(manager.active_instance, second)
 
-    def test_batch_settings_helpers_copy_only_batch_controlled_fields(self):
+    def test_batch_settings_helpers_copy_all_regimen_controlled_fields(self):
         source = TrainingUIState()
         target = TrainingUIState()
         source.match_time_limit = 2400
@@ -697,7 +697,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
             batch_settings_from_state(target),
             batch_settings_from_state(source),
         )
-        self.assertEqual(target.replay_buffer_size, TrainingUIState().replay_buffer_size)
+        self.assertEqual(target.replay_buffer_size, source.replay_buffer_size)
         self.assertEqual(set(batch_settings_from_state(source)), set(BATCH_CONTROLLED_FIELDS))
 
     def test_apply_future_changes_does_not_copy_existing_values(self):
@@ -1122,8 +1122,55 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         )
 
         self.assertFalse(validation.can_start_all)
-        self.assertEqual(validation.blocking_code, "batch")
-        self.assertEqual(validation.blocking_reason, "Batch settings differ")
+        self.assertEqual(validation.blocking_code, "regimen")
+        self.assertEqual(validation.blocking_reason, "Regimen settings differ")
+
+    def test_start_all_validation_requires_matching_slots(self):
+        manager, _first, second = self._coordinated_manager_with_two_user_slots()
+        second.state.selected_slot = 2
+        second.state.slot_labels[1] = "two"
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: TrainingModelSlot(ship, slot, SLOT_EMPTY),
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "gpu",
+        )
+
+        self.assertFalse(validation.can_start_all)
+        self.assertEqual(validation.blocking_code, "slot")
+
+    def test_start_all_validation_requires_matching_ai_frequency(self):
+        manager, _first, second = self._coordinated_manager_with_two_user_slots()
+        second.state.ai_opponent_chance = 50.0
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: TrainingModelSlot(ship, slot, SLOT_EMPTY),
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "gpu",
+        )
+
+        self.assertFalse(validation.can_start_all)
+        self.assertEqual(validation.blocking_code, "opponent")
+
+    def test_start_all_validation_averages_current_epsilon(self):
+        manager, first, second = self._coordinated_manager_with_two_user_slots()
+        first.state.current_epsilon = 0.2
+        second.state.current_epsilon = 0.6
+
+        validation = validate_coordinated_batch_start(
+            manager,
+            lambda ship, slot: TrainingModelSlot(ship, slot, SLOT_EMPTY),
+            torch_module=object(),
+            cuda_available=True,
+            training_device_key_func=lambda _choice: "gpu",
+        )
+
+        self.assertTrue(validation.can_start_all)
+        self.assertAlmostEqual(validation.shared_current_epsilon, 0.4)
 
     def test_start_all_validation_blocks_mixed_architectures_with_required_status_text(self):
         manager, first, second = self._coordinated_manager_with_two_user_slots()

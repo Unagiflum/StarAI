@@ -1,6 +1,44 @@
 # Coordinated Batch Scheduling Progress
 
-Last updated: 2026-07-13
+Last updated: 2026-07-17
+
+## Coordinated Regimen, Exploration, And Live Opponents
+
+Status: Implemented.
+
+Completed:
+
+- Merged the former Setup controls into one scrollable `Regimen` tab and
+  renamed the visible `Match frame limit` label to `Match frame length`.
+- Ordered the combined controls as match frame length, rounds, grouping, replay
+  size, epsilon settings, gamma, optimizer settings, and architecture settings.
+- Expanded Start All matching to every Regimen value and added matching model
+  slot, opponent mode, and AI-frequency requirements.
+- Added coordinated current-epsilon initialization from the mean persisted
+  value across open instances, clamped to the shared epsilon floor.
+- Replaced independent coordinated epsilon decisions with one shared span gate.
+  Exploration frames give each trainee an independently sampled action; greedy
+  frames infer the fixed full coordinated model tuple.
+- Reduced the trainee packed-parameter cache to the one stable full-model entry.
+- Replaced coordinated saved-slot opponent discovery with live-population
+  selection. AI-versus-simple and AI identity are shared by every coordinated
+  instance for an opponent ship and remain stable for the batch.
+- Batched all opponent observations for one selected live model through a
+  conventional single-model forward call. Trainee and opponent inference remain
+  separate calls.
+- Kept both inference tensors at the full coordinated width when one instance
+  finishes a round early by padding that instance's observation and discarding
+  its output until the remaining instances finish.
+- Preserved independent training behavior, including independent Regimen values
+  and discovery across all available AI slots.
+- Added validation and runtime tests for shared epsilon averaging, all-or-none
+  exploration, fixed trainee parameter reuse, matching slots/frequency, and
+  live coordinated opponent identity.
+
+Verified:
+
+- `python -m pytest -q tests/test_coordinated_training.py tests/test_train_ai_ui.py`
+- `PYTHONPATH=tests;. python -m pytest -q tests` (`1105 passed`, `1787 subtests passed`)
 
 ## Phase 1: Spec-To-Code Scaffolding
 
