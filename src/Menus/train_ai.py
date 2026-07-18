@@ -74,6 +74,10 @@ REWARD_VALUES = tuple(
 REWARD_LABELS = REWARD_COMPONENTS
 SPEEDOMETER_WIDTH = 80
 SPEEDOMETER_CELLS_PER_REAL_TIME = 2
+TRAINING_LOG_HEADING_COLOR = (255, 255, 255)
+TRAINING_LOG_ODD_ROW_COLOR = (255, 205, 205)
+TRAINING_LOG_EVEN_ROW_COLOR = (205, 205, 255)
+TRAINING_LOG_SPEED_COLOR = (0, 255, 0)
 
 SIMPLE_ACTIVITY_VALUES = tuple(float(value) for value in range(0, 101, 5))
 AI_OPPONENT_PERCENT_VALUES = SIMPLE_ACTIVITY_VALUES
@@ -2260,6 +2264,7 @@ class TrainingBatchLogBox:
 
     def __init__(self):
         self.lines: tuple[str, ...] = ()
+        self.line_colors: tuple[tuple[int, int, int], ...] = ()
         self.scroll_line = 0
         self.visible_count = 1
         self.dragging = False
@@ -2268,13 +2273,20 @@ class TrainingBatchLogBox:
         self.selection_anchor: int | None = None
         self.selection_focus: int | None = None
 
-    def set_lines(self, lines):
+    def set_lines(self, lines, colors=None):
         lines = tuple(lines)
-        if lines == self.lines:
+        if colors is None:
+            colors = (ui.WHITE,) * len(lines)
+        else:
+            colors = tuple(colors)
+            if len(colors) != len(lines):
+                raise ValueError("Log line colors must match the number of log lines")
+        if lines == self.lines and colors == self.line_colors:
             return
         old_max = self._max_scroll_line()
         was_at_bottom = self.scroll_line >= old_max
         self.lines = lines
+        self.line_colors = colors
         if was_at_bottom:
             self.scroll_line = self._max_scroll_line()
         else:
@@ -2363,7 +2375,7 @@ class TrainingBatchLogBox:
             if selected is not None and selected[0] <= index <= selected[1]:
                 highlight = pygame.Rect(rect.left + 6, y, rect.width - 12, line_height)
                 pygame.draw.rect(surface, (55, 80, 120), highlight)
-            rendered = font.render(line, True, ui.WHITE)
+            rendered = font.render(line, True, self.line_colors[index])
             surface.blit(rendered, (rect.left + 8, y))
             y += line_height
         surface.set_clip(None)
@@ -2815,32 +2827,78 @@ def _speedometer_console_lines(status):
         SPEEDOMETER_WIDTH,
         round(speed * SPEEDOMETER_CELLS_PER_REAL_TIME),
     )
-    bar = "|" * filled + "-" * (SPEEDOMETER_WIDTH - filled)
+    bar = "]" * filled + "-" * (SPEEDOMETER_WIDTH - filled)
     return (
         f"[{bar}] {speed:5.2f}x Real time",
         "0         5        10        15        20        25        30        35        40",
     )
 
 
-def _display_off_console_lines(status, log_lines):
+def _alternating_training_log_color(row_number):
+    if row_number % 2:
+        return TRAINING_LOG_ODD_ROW_COLOR
+    return TRAINING_LOG_EVEN_ROW_COLOR
+
+
+def _display_off_console_content(status, log_lines):
     lines = []
+    colors = []
+
+    def append(line, color=TRAINING_LOG_HEADING_COLOR):
+        lines.append(line)
+        colors.append(color)
+
     if log_lines:
-        lines.append("Completed batches")
-        lines.extend(log_lines)
+        append("Completed batches")
+        for row_number, line in enumerate(log_lines, start=1):
+            append(line, _alternating_training_log_color(row_number))
     elif status is None:
-        lines.append("Completed batch summaries will appear here.")
+        append("Completed batch summaries will appear here.")
     elif status.running:
-        lines.append("Waiting for the first completed batch summary...")
+        append("Waiting for the first completed batch summary...")
     else:
-        lines.append("No completed batch summaries yet.")
+        append("No completed batch summaries yet.")
     if status is not None:
         error = str(getattr(status, "error", "") or "").strip()
         if error:
-            lines.extend(("", "Training error"))
-            lines.extend(error.splitlines())
-        lines.extend(("", *_speedometer_console_lines(status)))
-        lines.extend(("", *_current_batch_console_lines(status)))
-    return tuple(lines)
+            append("")
+            append("Training error")
+            for line in error.splitlines():
+                append(line)
+
+        speed_line, speed_legend = _speedometer_console_lines(status)
+        append("")
+        append(speed_line, TRAINING_LOG_SPEED_COLOR)
+        append(speed_legend)
+
+        current_lines = _current_batch_console_lines(status)
+        reward_heading_index = next(
+            index
+            for index, line in enumerate(current_lines)
+            if line.startswith("Reward components")
+        )
+        append("")
+        append(current_lines[0])
+        current_row_number = 0
+        for line in current_lines[1:reward_heading_index]:
+            if not line:
+                append(line)
+                continue
+            current_row_number += 1
+            append(line, _alternating_training_log_color(current_row_number))
+        append(current_lines[reward_heading_index])
+        for row_number, line in enumerate(
+            current_lines[reward_heading_index + 1 :],
+            start=1,
+        ):
+            append(line, _alternating_training_log_color(row_number))
+
+    return tuple(lines), tuple(colors)
+
+
+def _display_off_console_lines(status, log_lines):
+    lines, _colors = _display_off_console_content(status, log_lines)
+    return lines
 
 
 def _training_battle_view_args(status):
@@ -5053,9 +5111,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 state.current_epsilon = float(
                     getattr(status, "current_epsilon", state.current_epsilon)
                 )
-                batch_log_box.set_lines(
-                    _display_off_console_lines(status, session.log_lines)
+                console_lines, console_colors = _display_off_console_content(
+                    status,
+                    session.log_lines,
                 )
+                batch_log_box.set_lines(console_lines, console_colors)
                 if not instance.last_running and status.running:
                     refresh_slot_controls()
                 if instance.last_running and not status.running:

@@ -1604,8 +1604,8 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 return_value={"Earthling": sprite},
             ),
             mock.patch(
-                "src.Menus.train_ai._display_off_console_lines",
-                return_value=("running",),
+                "src.Menus.train_ai._display_off_console_content",
+                return_value=(("running",), (ui.WHITE,)),
             ),
             mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
             mock.patch("pygame.event.get", return_value=[start_event]),
@@ -3395,7 +3395,7 @@ class TrainingConsoleTests(unittest.TestCase):
         )
         self.assertEqual(
             lines[lines.index("Batch      1 | summary") + 2],
-            "[||||||||||||||||||||||||||||||||||||||||"
+            "[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
             "----------------------------------------] "
             "20.25x Real time",
         )
@@ -3431,6 +3431,34 @@ class TrainingConsoleTests(unittest.TestCase):
             lines,
         )
 
+    def test_display_off_console_assigns_requested_section_colors(self):
+        status = self._status()
+        history = ("Batch      1 | first", "Batch      2 | second")
+
+        lines, colors = train_ai._display_off_console_content(status, history)
+
+        self.assertEqual(colors[lines.index("Completed batches")], (255, 255, 255))
+        self.assertEqual(colors[lines.index(history[0])], (255, 205, 205))
+        self.assertEqual(colors[lines.index(history[1])], (205, 205, 255))
+
+        speed_line, speed_legend = _speedometer_console_lines(status)
+        self.assertEqual(colors[lines.index(speed_line)], (0, 255, 0))
+        self.assertEqual(colors[lines.index(speed_legend)], (255, 255, 255))
+
+        current_heading = lines.index("Current batch")
+        self.assertEqual(colors[current_heading], (255, 255, 255))
+        self.assertEqual(colors[current_heading + 1], (255, 205, 205))
+        self.assertEqual(colors[current_heading + 2], (205, 205, 255))
+
+        reward_heading = next(
+            index
+            for index, line in enumerate(lines)
+            if line.startswith("Reward components")
+        )
+        self.assertEqual(colors[reward_heading], (255, 255, 255))
+        self.assertEqual(colors[reward_heading + 1], (255, 205, 205))
+        self.assertEqual(colors[reward_heading + 2], (205, 205, 255))
+
     def test_display_off_console_keeps_error_details_visible(self):
         status = self._status(
             running=False,
@@ -3453,8 +3481,8 @@ class TrainingConsoleTests(unittest.TestCase):
                 self._status(simulation_speed_multiplier=45.125)
             ),
             (
-                "[||||||||||||||||||||||||||||||||||||||||"
-                "||||||||||||||||||||||||||||||||||||||||] "
+                "[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
+                "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]] "
                 "45.12x Real time",
                 "0         5        10        15        20        25        30"
                 "        35        40",
