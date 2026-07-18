@@ -1314,6 +1314,21 @@ class TrainingUIRunWiringTests(unittest.TestCase):
     class StopRun(Exception):
         pass
 
+    @staticmethod
+    def trainee_start_position():
+        return (train_ai.CONTROL_WIDTH // 2, train_ai.CONTENT_TOP + 535)
+
+    @staticmethod
+    def synced_action_position():
+        action_gap = 10
+        available = train_ai.CONTROL_WIDTH - 2 * train_ai.TAB_MARGIN - 2 * action_gap
+        synced_width = min(240, available)
+        side_width = (available - synced_width) // 2
+        return (
+            train_ai.TAB_MARGIN + side_width + action_gap + synced_width // 2,
+            train_ai.ACTION_TOP + train_ai.FOOTER_CONTROL_HEIGHT // 2,
+        )
+
     class FakeRepository:
         def __init__(self, *_args):
             self.user_dir = Path("unused")
@@ -1549,24 +1564,20 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         manager.active_state.selected_slot = 1
         self.FakeSession.created = []
 
-        action_gap = 10
-        action_width = (
-            train_ai.CONTROL_WIDTH - 2 * train_ai.TAB_MARGIN - 3 * action_gap
-        ) // 4
-        start_pos = (
-            train_ai.TAB_MARGIN + action_width + action_gap + 1,
-            ACTION_TOP + 1,
-        )
+        start_pos = self.trainee_start_position()
         start_event = pygame.event.Event(
             pygame.MOUSEBUTTONDOWN,
             {"button": 1, "pos": start_pos},
         )
         footer_states = []
+        trainee_action_states = []
         close_states = []
 
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
+            elif button.rect.y == 518 and button.rect.width == train_ai.CONTROL_WIDTH - 32:
+                trainee_action_states.append((button.text, button.enabled))
             elif button.text == "Close":
                 close_states.append((button.text, button.enabled))
 
@@ -1626,11 +1637,12 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertIs(cache._save_coordinator, coordinator)
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Stop", True), ("Stop All", True), ("Back", False)],
+            [("Display", True), ("Start synced", False), ("Back", False)],
         )
+        self.assertEqual(trainee_action_states, [("Stop", True)])
         self.assertEqual(close_states, [("Close", False)])
 
-    def test_idle_start_is_enabled_for_selected_empty_slot_without_description(self):
+    def test_idle_start_is_disabled_for_selected_empty_slot_without_description(self):
         class EmptyRepository:
             def __init__(self, *_args):
                 self.user_dir = Path("unused")
@@ -1646,10 +1658,13 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         manager.active_state.selected_ship = "Earthling"
         manager.active_state.selected_slot = 1
         footer_states = []
+        trainee_action_states = []
 
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
+            elif button.rect.y == 518 and button.rect.width == train_ai.CONTROL_WIDTH - 32:
+                trainee_action_states.append((button.text, button.enabled))
 
         sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
         with (
@@ -1684,8 +1699,9 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Start", True), ("Start All", False), ("Back", True)],
+            [("Display", True), ("Start synced", False), ("Back", True)],
         )
+        self.assertEqual(trainee_action_states, [("Start", False)])
 
     def test_individual_start_confirms_and_resets_incompatible_checkpoint(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1739,18 +1755,11 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             manager.active_state.selected_ship = "Earthling"
             manager.active_state.selected_slot = 1
             self.FakeSession.created = []
-            action_gap = 10
-            action_width = (
-                train_ai.CONTROL_WIDTH - 2 * train_ai.TAB_MARGIN - 3 * action_gap
-            ) // 4
             start_event = pygame.event.Event(
                 pygame.MOUSEBUTTONDOWN,
                 {
                     "button": 1,
-                    "pos": (
-                        train_ai.TAB_MARGIN + action_width + action_gap + 1,
-                        ACTION_TOP + 1,
-                    ),
+                    "pos": self.trainee_start_position(),
                 },
             )
             sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
@@ -1968,14 +1977,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         manager.select_instance(first.instance_id)
         self.FakeCoordinatedSession.created = []
 
-        action_gap = 10
-        action_width = (
-            train_ai.CONTROL_WIDTH - 2 * train_ai.TAB_MARGIN - 3 * action_gap
-        ) // 4
-        start_all_pos = (
-            train_ai.TAB_MARGIN + 2 * (action_width + action_gap) + action_width // 2,
-            train_ai.ACTION_TOP + train_ai.FOOTER_CONTROL_HEIGHT // 2,
-        )
+        start_all_pos = self.synced_action_position()
         events = [
             pygame.event.Event(
                 pygame.MOUSEBUTTONDOWN,
@@ -2069,20 +2071,11 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 metadata=metadata,
             )
 
-        action_gap = 10
-        action_width = (
-            train_ai.CONTROL_WIDTH - 2 * train_ai.TAB_MARGIN - 3 * action_gap
-        ) // 4
         start_all_event = pygame.event.Event(
             pygame.MOUSEBUTTONDOWN,
             {
                 "button": 1,
-                "pos": (
-                    train_ai.TAB_MARGIN
-                    + 2 * (action_width + action_gap)
-                    + action_width // 2,
-                    train_ai.ACTION_TOP + train_ai.FOOTER_CONTROL_HEIGHT // 2,
-                ),
+                "pos": self.synced_action_position(),
             },
         )
         sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
@@ -2158,14 +2151,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         manager.select_instance(first.instance_id)
         self.FakeCoordinatedSession.created = []
 
-        action_gap = 10
-        action_width = (
-            train_ai.CONTROL_WIDTH - 2 * train_ai.TAB_MARGIN - 3 * action_gap
-        ) // 4
-        start_all_pos = (
-            train_ai.TAB_MARGIN + 2 * (action_width + action_gap) + action_width // 2,
-            train_ai.ACTION_TOP + train_ai.FOOTER_CONTROL_HEIGHT // 2,
-        )
+        start_all_pos = self.synced_action_position()
         click_start_all = pygame.event.Event(
             pygame.MOUSEBUTTONDOWN,
             {"button": 1, "pos": start_all_pos},
@@ -2237,19 +2223,19 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 train_ai.run(screen)
 
         self.assertEqual(
-            footer_states[:4],
-            [("Display", True), ("Stop", False), ("Stop All", True), ("Back", False)],
+            footer_states[:3],
+            [("Display", True), ("Stop synced", True), ("Back", False)],
         )
         self.assertEqual(
-            footer_states[4:8],
-            [("Display", True), ("Stop", False), ("Stop All", True), ("Back", False)],
+            footer_states[3:6],
+            [("Display", True), ("Stop synced", True), ("Back", False)],
         )
         self.assertEqual(
-            footer_states[-4:],
-            [("Display", True), ("Stop", False), ("Stopping All", False), ("Back", False)],
+            footer_states[-3:],
+            [("Display", True), ("Stopping synced", False), ("Back", False)],
         )
 
-    def test_background_individual_run_keeps_start_and_stop_all_available(self):
+    def test_background_individual_run_keeps_selected_instance_start_available(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         manager = TrainingInstanceManager()
         selected = manager.active_instance
@@ -2271,11 +2257,14 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         )
         manager.select_instance(selected.instance_id)
         footer_states = []
+        trainee_action_states = []
         close_states = []
 
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
+            elif button.rect.y == 518 and button.rect.width == train_ai.CONTROL_WIDTH - 32:
+                trainee_action_states.append((button.text, button.enabled))
             elif button.text == "Close":
                 close_states.append((button.text, button.enabled))
 
@@ -2312,9 +2301,250 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Start", True), ("Stop All", True), ("Back", False)],
+            [("Display", True), ("Start synced", False), ("Back", False)],
         )
+        self.assertEqual(trainee_action_states, [("Start", True)])
         self.assertEqual(close_states, [("Close", True)])
+
+    def test_apply_all_running_shows_stop_all_on_selected_stopped_instance(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        selected = manager.active_instance
+        selected.state.selected_ship = "Earthling"
+        selected.state.selected_slot = 1
+        selected.state.slot_labels[0] = "Ready"
+        background = manager.add_instance()
+        background.state.selected_ship = "Androsynth"
+        background.state.selected_slot = 1
+        background.state.slot_labels[0] = "Running"
+        background.session = SimpleNamespace(
+            status=TrainingSessionStatus(ship="Androsynth", running=True),
+            history=(),
+            log_lines=(),
+            set_display_on=lambda _enabled: None,
+        )
+        manager.select_instance(selected.instance_id)
+        manager.set_apply_future_changes_to_all(True)
+        trainee_action_states = []
+        scope_states = []
+
+        def capture_button(button, *_args, **_kwargs):
+            if button.rect.y == 518 and button.rect.width == train_ai.CONTROL_WIDTH - 32:
+                trainee_action_states.append((button.text, button.enabled))
+
+        def capture_scope(checkbox, *_args, **_kwargs):
+            scope_states.append(
+                (checkbox.text, checkbox.is_checked, checkbox.enabled)
+            )
+
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+        with (
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeRepository,
+            ),
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite, "Androsynth": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[]),
+            mock.patch(
+                "src.Menus.train_ai.ui_button.Button.draw",
+                new=capture_button,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TabScopeCheckbox.draw",
+                new=capture_scope,
+            ),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+        self.assertEqual(trainee_action_states, [("Stop all running", True)])
+        self.assertEqual(
+            scope_states,
+            [("Apply to all instances", True, True)],
+        )
+
+    def test_apply_all_stop_from_stopped_instance_stops_every_running_instance(self):
+        class StoppableSession:
+            def __init__(self, ship):
+                self.status = TrainingSessionStatus(ship=ship, running=True)
+                self.history = ()
+                self.log_lines = ()
+
+            def request_stop(self):
+                self.status.stopping = True
+
+            def set_display_on(self, _enabled):
+                pass
+
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        selected = manager.active_instance
+        selected.state.selected_ship = "Earthling"
+        selected.state.selected_slot = 1
+        selected.state.slot_labels[0] = "Ready"
+        second = manager.add_instance()
+        second.state.selected_ship = "Androsynth"
+        second.state.selected_slot = 1
+        second.state.slot_labels[0] = "Running"
+        second.session = StoppableSession("Androsynth")
+        manager.select_instance(selected.instance_id)
+        manager.set_apply_future_changes_to_all(True)
+        stop_event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": self.trainee_start_position()},
+        )
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeRepository,
+            ),
+            mock.patch("src.Menus.train_ai.ConfirmationPrompt") as prompt_class,
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite, "Androsynth": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[stop_event]),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+            prompt_text, on_confirm = prompt_class.call_args.args
+            self.assertIn("stop all running", prompt_text)
+            on_confirm()
+
+        self.assertTrue(second.session.status.stopping)
+        self.assertIsNone(selected.session)
+
+    def test_apply_all_idle_uses_bulk_load_start_and_delete_labels(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        manager.active_state.selected_ship = "Earthling"
+        manager.active_state.selected_slot = 1
+        manager.active_state.slot_labels[0] = "Ready"
+        manager.set_apply_future_changes_to_all(True)
+        full_width_states = []
+        delete_states = []
+
+        def capture_button(button, *_args, **_kwargs):
+            if button.rect.width == train_ai.CONTROL_WIDTH - 32:
+                full_width_states.append((button.text, button.enabled, button.rect.width))
+            elif button.rect.width == train_ai.SLOT_DELETE_BUTTON_WIDTH:
+                delete_states.append((button.text, button.enabled, button.rect.width))
+
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+        with (
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeRepository,
+            ),
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[]),
+            mock.patch(
+                "src.Menus.train_ai.ui_button.Button.draw",
+                new=capture_button,
+            ),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+        self.assertIn(("Load all", True, train_ai.CONTROL_WIDTH - 32), full_width_states)
+        self.assertIn(
+            ("Start all eligible", True, train_ai.CONTROL_WIDTH - 32),
+            full_width_states,
+        )
+        self.assertEqual(
+            delete_states[0],
+            ("X (ALL)", True, train_ai.SLOT_DELETE_BUTTON_WIDTH),
+        )
+        self.assertTrue(all(text == "X (ALL)" for text, _enabled, _width in delete_states))
+
+    def test_apply_all_start_launches_every_eligible_independent_instance(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.selected_ship = "Earthling"
+        first.state.selected_slot = 1
+        first.state.slot_labels[0] = "Earthling Ready"
+        first.state.training_device = torch_backend.DEVICE_GPU
+        second = manager.add_instance()
+        second.state.selected_ship = "Androsynth"
+        second.state.selected_slot = 1
+        second.state.slot_labels[0] = "Androsynth Ready"
+        second.state.training_device = torch_backend.DEVICE_GPU
+        manager.select_instance(first.instance_id)
+        manager.set_apply_future_changes_to_all(True)
+        repository = self.FakeCoordinatedRepository()
+        self.FakeSession.created = []
+        start_event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": self.trainee_start_position()},
+        )
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                return_value=repository,
+            ),
+            mock.patch("src.Menus.train_ai.TrainingSession", self.FakeSession),
+            mock.patch("src.Menus.train_ai.ConfirmationPrompt") as prompt_class,
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite, "Androsynth": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[start_event]),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+            prompt_text, on_confirm = prompt_class.call_args.args
+            self.assertIn("Start all 2 eligible instances", prompt_text)
+            on_confirm()
+
+        self.assertEqual(len(self.FakeSession.created), 2)
+        self.assertTrue(all(session.started for session in self.FakeSession.created))
+        self.assertTrue(manager.is_running_or_stopping(first))
+        self.assertTrue(manager.is_running_or_stopping(second))
 
     def test_individual_stopping_disables_stop_button(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
@@ -2335,10 +2565,13 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             set_display_on=lambda _enabled: None,
         )
         footer_states = []
+        trainee_action_states = []
 
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
+            elif button.rect.y == 518 and button.rect.width == train_ai.CONTROL_WIDTH - 32:
+                trainee_action_states.append((button.text, button.enabled))
 
         sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
         with (
@@ -2377,20 +2610,14 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Stopping", False), ("Stop All", True), ("Back", False)],
+            [("Display", True), ("Start synced", False), ("Back", False)],
         )
+        self.assertEqual(trainee_action_states, [("Stopping", False)])
 
     def test_disabled_start_all_shows_setup_settings_tooltip(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         manager = TrainingInstanceManager()
-        action_gap = 10
-        action_width = (
-            train_ai.CONTROL_WIDTH - 2 * train_ai.TAB_MARGIN - 3 * action_gap
-        ) // 4
-        start_all_pos = (
-            train_ai.TAB_MARGIN + 2 * (action_width + action_gap) + action_width // 2,
-            train_ai.ACTION_TOP + train_ai.FOOTER_CONTROL_HEIGHT // 2,
-        )
+        start_all_pos = self.synced_action_position()
 
         draw_order = []
         with (
@@ -2579,7 +2806,7 @@ class TrainingLayoutTests(unittest.TestCase):
             0,
             300,
             train_ai.APPLY_ALL_STRIP_HEIGHT,
-            "Apply changes to all instances",
+            "Apply to all instances",
         )
         font = pygame.font.SysFont(None, 18)
 
@@ -2604,7 +2831,7 @@ class TrainingLayoutTests(unittest.TestCase):
             surface.get_at((299, 29)),
             (*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_SELECTED_ALPHA),
         )
-        self.assertEqual(checkbox.text, "Apply changes to all instances")
+        self.assertEqual(checkbox.text, "Apply to all instances")
         self.assertEqual(train_ai.TAB_BOX_BORDER_WIDTH, 3)
 
     def test_tabs_use_an_opaque_tab_colored_border_in_every_state(self):
