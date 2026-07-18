@@ -38,5 +38,7 @@ Player settings and fleets are stored outside the installation at
 Set `STARAI_DATA_DIR` to use a different location, which is also useful for
 isolated smoke tests.
 
-Re-run `build.cmd` whenever code, assets, bundled defaults, dependencies, or the
-application icon changes.
+Full builds and packaged smoke tests run on a separate packaging schedule. Do
+not use them for routine source-level iteration, and do not invoke packaging
+from the normal test suite. Run `build.cmd` only when explicitly performing
+scheduled packaging verification.

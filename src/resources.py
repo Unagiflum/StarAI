@@ -414,6 +414,21 @@ class AssetManager:
                 used_placeholder = True
 
                 if not definition.omnidirectional and definition.frames > 1:
+                    # Discard any anchors collected before a partial load failed
+                    # and keep the fallback's per-frame assets structurally
+                    # aligned.  Mounted animated abilities such as UmgahA1 use
+                    # the anchor that corresponds to their current sprite frame.
+                    anchor_offsets = []
+                    if definition.excluded_radius is not None:
+                        anchor = _bottom_opaque_anchor(sprites[0])
+                        center = sprites[0].get_rect().center
+                        anchor_offset = (
+                            anchor[0] - center[0],
+                            anchor[1] - center[1],
+                        )
+                        anchor_offsets = [
+                            anchor_offset for _ in range(definition.frames)
+                        ]
                     frame_sprites, frame_masks = _expand_directional_sprites(sprites)
                     sprites = [frame_sprites for _ in range(definition.frames)]
                     masks = [frame_masks for _ in range(definition.frames)]

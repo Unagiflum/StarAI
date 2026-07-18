@@ -48,7 +48,7 @@ from src.training.coordinated import (
     CoordinatedTrainingSession,
 )
 from src.training.orchestration import TrainingOrchestrationConfig
-from src.training.opponent_cache import ModelSaveCoordinator, OpponentModelCache
+from src.training.opponent_cache import OpponentModelCache
 from src.training.rewards import (
     LEGACY_REWARD_ALIASES,
     ONGOING_REWARD_COMPONENTS,
@@ -306,6 +306,16 @@ class CoordinatedBatchValidation:
 
 def batch_settings_from_state(state: TrainingUIState) -> dict[str, int | float]:
     return {field_name: getattr(state, field_name) for field_name in BATCH_CONTROLLED_FIELDS}
+
+
+def independent_session_class(training_device: str):
+    if str(training_device).lower() == torch_backend.DEVICE_CPU:
+        from importlib import import_module
+
+        return import_module(
+            "src.training.process_session"
+        ).ProcessTrainingSession
+    return TrainingSession
 
 
 def apply_batch_settings(source: TrainingUIState, target: TrainingUIState) -> None:
@@ -3050,7 +3060,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         const.DEFAULT_MODELS_PATH,
         const.MODELS_PATH,
     )
-    save_coordinator = ModelSaveCoordinator()
+    process_session_module = __import__(
+        "src.training.process_session",
+        fromlist=("ProcessModelSaveCoordinator",),
+    )
+    save_coordinator = process_session_module.ProcessModelSaveCoordinator()
     opponent_model_cache = OpponentModelCache(save_coordinator=save_coordinator)
     slot_models = [
         TrainingModelSlot("", slot, SLOT_EMPTY)
@@ -4210,7 +4224,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         try:
             initial_history, initial_log_lines = session_continuity_for(model_slot)
-            session = TrainingSession(
+            session_class = independent_session_class(state.training_device)
+            session = session_class(
                 repository=model_repository,
                 slot=model_slot,
                 metadata=metadata,
@@ -4238,6 +4253,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             show_notice(str(exc))
 
     def start_selected_model():
+        if instance_manager.coordinated_run_active():
+            return
         if instance_manager.is_running_or_stopping(instance_manager.active_instance):
             confirm_stop_active_training_instance()
             return

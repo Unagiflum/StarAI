@@ -564,7 +564,7 @@ class TrainingSession:
         if self._thread is not None:
             self._thread.join(timeout)
 
-    def run_synchronously(self, *, max_batches: int = 1) -> None:
+    def run_synchronously(self, *, max_batches: int | None = 1) -> None:
         try:
             self._run_loop(max_batches=max_batches)
         finally:

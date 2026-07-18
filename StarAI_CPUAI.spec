@@ -14,6 +14,7 @@ datas = [
 # Ship and ability implementations are selected from JSON and imported with
 # importlib at runtime, so static analysis cannot discover them reliably.
 hiddenimports = collect_submodules("src.Objects.Ships") + [
+    "src.training.process_session",
     "src.training.process_worker",
 ]
 

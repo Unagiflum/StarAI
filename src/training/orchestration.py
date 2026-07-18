@@ -282,6 +282,7 @@ def run_training_batch(
     discovered_opponents: Sequence[OpponentSpec] | None = None,
     simulation_factory: Callable[..., BattleSimulation] = BattleSimulation,
     audio_service: Any | None = None,
+    resources: Any | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
     battle_view_enabled: Callable[[], bool] | None = None,
@@ -331,6 +332,7 @@ def run_training_batch(
             rng=rng,
             simulation_factory=simulation_factory,
             audio_service=audio_service,
+            resources=resources,
             progress_callback=progress_callback,
             stop_requested=stop_requested,
             battle_view_enabled=battle_view_enabled,
@@ -384,24 +386,28 @@ def run_training_round(
     rng: Any | None = None,
     simulation_factory: Callable[..., BattleSimulation] = BattleSimulation,
     audio_service: Any | None = None,
+    resources: Any | None = None,
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
     battle_view_enabled: Callable[[], bool] | None = None,
 ) -> TrainingRoundResult:
     rng = rng or random.Random()
     audio = audio_service or NullAudioService()
-    trainee = create_ship(config.trainee_ship, 1, audio_service=audio)
-    opponent_ship = create_ship(opponent.ship, 2, audio_service=audio)
+    ship_kwargs = {"audio_service": audio}
+    if resources is not None:
+        ship_kwargs["resources"] = resources
+    trainee = create_ship(config.trainee_ship, 1, **ship_kwargs)
+    opponent_ship = create_ship(opponent.ship, 2, **ship_kwargs)
     ledger = event_ledger.BattleEventLedger()
-    simulation = simulation_factory(
-        None,
-        trainee,
-        opponent_ship,
-        audio_service=audio,
-        rng=rng,
-        include_stars=False,
-        training_event_ledger=ledger,
-    )
+    simulation_kwargs = {
+        "audio_service": audio,
+        "rng": rng,
+        "include_stars": False,
+        "training_event_ledger": ledger,
+    }
+    if resources is not None:
+        simulation_kwargs["resources"] = resources
+    simulation = simulation_factory(None, trainee, opponent_ship, **simulation_kwargs)
     _initialize_training_simulation_ships(simulation, rng)
     if _battle_view_enabled(battle_view_enabled):
         _emit_progress(

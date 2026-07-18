@@ -22,7 +22,7 @@ from src.Objects.Ships.launch_geometry import gun_world_position
 from src.Objects.Ships.registry import create_ship
 from src.Objects.Ships.Umgah.A1.UmgahA1 import UmgahA1
 from src.Objects.Ships.Umgah.A2.UmgahA2 import UmgahA2
-from src.resources import AssetManager
+from src.resources import AssetManager, HeadlessAssetManager
 
 
 class UmgahTests(CollisionTestCase):
@@ -48,6 +48,33 @@ class UmgahTests(CollisionTestCase):
         center = assets.sprites[0][0].get_rect().center
         self.assertEqual(assets.masks[0][0].get_at(center), 0)
         self.assertFalse(self.resources._asset_errors)
+
+    def test_directional_animation_fallback_keeps_frame_anchors_aligned(self):
+        resources = AssetManager()
+        ship = create_ship("Umgah", 1, resources=resources)
+        ship.initialize_in_battle([500.0, 500.0], 0)
+
+        with mock.patch.object(
+            resources,
+            "_image",
+            side_effect=pygame.error("cannot convert without display"),
+        ):
+            assets = resources.ability("UmgahA1")
+
+        self.assertEqual(len(assets.sprites), 3)
+        self.assertEqual(len(assets.masks), 3)
+        self.assertEqual(len(assets.anchor_offsets), 3)
+        for frame in range(3):
+            ship._a1_animation_frame = frame
+            self.assertEqual(UmgahA1(ship).current_frame, frame)
+
+    def test_headless_assets_load_real_umgah_animation_without_display(self):
+        resources = HeadlessAssetManager()
+        assets = resources.ability("UmgahA1")
+
+        self.assertEqual(len(assets.sprites), 3)
+        self.assertEqual(len(assets.anchor_offsets), 3)
+        self.assertFalse(resources._asset_errors)
 
     def test_hud_indicator_counts_down_energy_wait(self):
         self.assertEqual(self.ship.hud_indicator_color, (255, 0, 0))
