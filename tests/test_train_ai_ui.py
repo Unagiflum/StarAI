@@ -77,6 +77,7 @@ from src.Menus.train_ai import (
     _format_replay_buffer_size,
     _format_update_to_data_ratio,
     _format_training_duration,
+    _speedometer_console_lines,
     _instance_row_parts,
     _instance_status_text,
     _training_settings_match,
@@ -3116,6 +3117,7 @@ class TrainingConsoleTests(unittest.TestCase):
             "batch_component_totals": {},
             "elapsed_training_seconds": 91266.0,
             "batches_per_hour": 5.69,
+            "simulation_speed_multiplier": 20.25,
         }
         values.update(overrides)
         return SimpleNamespace(**values)
@@ -3130,6 +3132,12 @@ class TrainingConsoleTests(unittest.TestCase):
         self.assertLess(
             lines.index("Batch      1 | summary"),
             lines.index("Current batch"),
+        )
+        self.assertEqual(
+            lines[lines.index("Batch      1 | summary") + 2],
+            "[||||||||||||||||||||||||||||||||||||||||"
+            "----------------------------------------] "
+            "20.25x Real time",
         )
         current_batch_index = lines.index("Current batch")
         self.assertEqual(
@@ -3178,6 +3186,27 @@ class TrainingConsoleTests(unittest.TestCase):
 
     def test_batch_log_font_size_keeps_log_fitting(self):
         self.assertEqual(TRAINING_BATCH_LOG_FONT_SIZE, 11)
+
+    def test_speedometer_caps_bar_without_capping_speed_label(self):
+        self.assertEqual(
+            _speedometer_console_lines(
+                self._status(simulation_speed_multiplier=45.125)
+            ),
+            (
+                "[||||||||||||||||||||||||||||||||||||||||"
+                "||||||||||||||||||||||||||||||||||||||||] "
+                "45.12x Real time",
+                "0         5        10        15        20        25        30"
+                "        35        40",
+            ),
+        )
+
+    def test_speedometer_aligns_single_digit_speed_at_decimal(self):
+        speed_line, _scale_line = _speedometer_console_lines(
+            self._status(simulation_speed_multiplier=5.25)
+        )
+
+        self.assertTrue(speed_line.endswith("]  5.25x Real time"))
 
     def test_current_batch_ship_name_is_right_aligned(self):
         lines = _display_off_console_lines(self._status(ship="Mycon"), ())

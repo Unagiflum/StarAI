@@ -173,6 +173,7 @@ class TrainingSessionStatus:
     previous_opponent: str = ""
     current_frame: int = 0
     current_frame_limit: int = 0
+    simulation_speed_multiplier: float = 0.0
     replay_size: int = 0
     recent_loss: float | None = None
     learning_rate: float = 0.0
@@ -315,7 +316,7 @@ def format_batch_summary_line(metrics: BatchMetrics, rolling: BatchMetrics) -> s
         f"Score: {metrics.average_match_score:7.3f} ({rolling.average_match_score:7.3f}) | "
         f"Epsilon: {metrics.epsilon:.5f} | "
         f"LR: {metrics.learning_rate:.5f} | "
-        f"Loss: {metrics.average_loss:.4f} ({rolling.average_loss:.4f}) | "
+        f"Loss: {metrics.average_loss:7.4f} ({rolling.average_loss:7.4f}) | "
         f"{format_batch_duration(metrics.batch_seconds)}"
     )
 
@@ -373,6 +374,40 @@ def should_update_live_frame_status(frame: int, *, display_on: bool = False) -> 
         return True
     frame = int(frame)
     return frame > 0 and frame % LIVE_STATUS_FRAME_INTERVAL == 0
+
+
+@dataclass
+class SimulationSpeedTracker:
+    """Measure recent simulation speed at live-status frame intervals."""
+
+    frame: int = 0
+    sampled_at: float | None = None
+
+    def reset(self, *, sampled_at: float | None = None) -> None:
+        self.frame = 0
+        self.sampled_at = time.perf_counter() if sampled_at is None else sampled_at
+
+    def sample(
+        self,
+        frame: int,
+        *,
+        sampled_at: float | None = None,
+    ) -> float | None:
+        frame = int(frame)
+        if frame <= 0 or frame % LIVE_STATUS_FRAME_INTERVAL:
+            return None
+        now = time.perf_counter() if sampled_at is None else sampled_at
+        if self.sampled_at is None or frame <= self.frame:
+            self.frame = frame
+            self.sampled_at = now
+            return None
+        elapsed = now - self.sampled_at
+        frames = frame - self.frame
+        self.frame = frame
+        self.sampled_at = now
+        if elapsed <= 0.0:
+            return None
+        return frames / elapsed / const.FPS
 
 
 class TrainingSession:
@@ -433,6 +468,7 @@ class TrainingSession:
             self._display_on.is_set,
         )
         self._next_display_frame_time = time.perf_counter()
+        self._simulation_speed_tracker = SimulationSpeedTracker()
         self._run_started_at: float | None = None
         self._run_stopped_at: float | None = None
         self._current_batch_started_at: float | None = None
@@ -485,6 +521,7 @@ class TrainingSession:
                 previous_opponent=self._status.previous_opponent,
                 current_frame=self._status.current_frame,
                 current_frame_limit=self._status.current_frame_limit,
+                simulation_speed_multiplier=self._status.simulation_speed_multiplier,
                 replay_size=self._status.replay_size,
                 recent_loss=self._status.recent_loss,
                 learning_rate=self._status.learning_rate,
@@ -517,6 +554,7 @@ class TrainingSession:
             self._status.running = True
             self._status.stopping = False
             self._status.error = ""
+            self._status.simulation_speed_multiplier = 0.0
         self._thread = threading.Thread(
             target=self._run_worker,
             name="StarAITrainingSession",
@@ -595,12 +633,14 @@ class TrainingSession:
             self._status.last_batch_seconds = 0.0
             self._status.average_batch_seconds = 0.0
             self._status.batches_per_hour = 0.0
+            self._status.simulation_speed_multiplier = 0.0
 
         while not self._stop_requested.is_set():
             discovered_opponents = self._existing_ai_opponents_for_batch()
             with self._lock:
                 self._status.display_message = "Preparing new batch"
                 self._status.battle_view = None
+                self._status.simulation_speed_multiplier = 0.0
                 batch_config = replace(
                     self.config,
                     epsilon=self._current_epsilon,
@@ -657,6 +697,7 @@ class TrainingSession:
             with self._lock:
                 self._status.display_message = "Loading AI opponents"
                 self._status.battle_view = None
+                self._status.simulation_speed_multiplier = 0.0
             self.opponent_model_cache.load_initial(
                 self.repository,
                 device_choice=self.config.training_device,
@@ -685,6 +726,7 @@ class TrainingSession:
                 return cached
             self._status.display_message = "Loading AI opponents"
             self._status.battle_view = None
+            self._status.simulation_speed_multiplier = 0.0
 
         discovery = discover_existing_ai_opponents(
             self.repository,
@@ -891,6 +933,7 @@ class TrainingSession:
             self._current_batch_started_at = None
             self._status.elapsed_training_seconds = self._elapsed_training_seconds_locked()
             self._status.current_batch_seconds = 0.0
+            self._status.simulation_speed_multiplier = 0.0
             self._status.average_batch_seconds = self._average_batch_seconds_locked()
             self._status.batches_per_hour = self._batches_per_hour_locked(
                 self._status.elapsed_training_seconds
@@ -941,6 +984,15 @@ class TrainingSession:
             frame,
             display_on=display_on,
         )
+        speed_multiplier = None
+        speed_tracker = getattr(self, "_simulation_speed_tracker", None)
+        if speed_tracker is None:
+            speed_tracker = SimulationSpeedTracker()
+            self._simulation_speed_tracker = speed_tracker
+        if event == "round_start":
+            speed_tracker.reset()
+        elif event == "frame":
+            speed_multiplier = speed_tracker.sample(frame)
         with self._lock:
             if event == "round_start":
                 self._status.display_message = ""
@@ -949,11 +1001,14 @@ class TrainingSession:
                 self._status.total_rounds = int(payload.get("total_rounds", 0))
                 self._status.current_opponent = opponent_label
                 self._status.current_frame = 0
+                self._status.simulation_speed_multiplier = 0.0
                 self._status.weighted_total_return = 0.0
             if event == "batch_optimization_start":
                 self._status.display_message = "Applying gradient descent"
                 self._status.battle_view = None
+                self._status.simulation_speed_multiplier = 0.0
             if event == "round_end":
+                self._status.simulation_speed_multiplier = 0.0
                 if "result" in payload:
                     self._status.component_totals = dict(
                         payload.get("result").component_totals
@@ -965,6 +1020,8 @@ class TrainingSession:
                 )
             if event == "frame" and update_frame_status:
                 self._status.current_frame = frame
+                if speed_multiplier is not None:
+                    self._status.simulation_speed_multiplier = speed_multiplier
                 self._status.current_opponent = opponent_label
                 self._status.replay_size = int(payload.get("replay_size", 0))
                 self._status.last_action_exploratory = bool(

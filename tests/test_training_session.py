@@ -34,6 +34,7 @@ from src.training.replay import TrainingReplayBuffer, save_training_checkpoint
 from src.training.render_view import freeze_battle_view
 from src.training.session import (
     BatchMetrics,
+    SimulationSpeedTracker,
     TrainingSession,
     TrainingSessionStatus,
     append_grouped_metrics_csv,
@@ -153,8 +154,16 @@ class TrainingMetricsTests(unittest.TestCase):
             format_batch_summary_line(metrics, rolling),
             "#     86 |    2 K (   2.31),    4 D (   3.62) | "
             "Score:   0.809 (  0.819) | Epsilon: 0.26545 | "
-            "LR: 0.00030 | Loss: 1.2658 (1.2658) |   0h:30m:04s",
+            "LR: 0.00030 | Loss:  1.2658 ( 1.2658) |   0h:30m:04s",
         )
+
+    def test_simulation_speed_tracks_each_100_frame_interval(self):
+        tracker = SimulationSpeedTracker()
+        tracker.reset(sampled_at=10.0)
+
+        self.assertIsNone(tracker.sample(99, sampled_at=10.1))
+        self.assertEqual(tracker.sample(100, sampled_at=10.25), 100 / 0.25 / 24)
+        self.assertEqual(tracker.sample(200, sampled_at=10.75), 100 / 0.5 / 24)
 
     def test_batch_summary_keeps_negative_score_sign_adjacent(self):
         metrics = BatchMetrics(86, 2, 4, 1, -0.809, 0.26545, 0.0003, 1.2658)
@@ -524,6 +533,24 @@ class TrainingSessionDisplayTests(unittest.TestCase):
         self.assertEqual(session.status.replay_size, 100)
         self.assertEqual(session.status.weighted_total_return, 10.0)
 
+    def test_headless_frame_progress_updates_simulation_speed(self):
+        session = TrainingSession.__new__(TrainingSession)
+        session._lock = threading.Lock()
+        session._status = TrainingSessionStatus()
+        session._display_on = threading.Event()
+
+        with mock.patch(
+            "src.training.session.time.perf_counter",
+            side_effect=(10.0, 10.25),
+        ):
+            session._on_progress({"event": "round_start"})
+            session._on_progress({"event": "frame", "frame": 100})
+
+        self.assertAlmostEqual(
+            session.status.simulation_speed_multiplier,
+            100 / 0.25 / 24,
+        )
+
     def test_headless_progress_drops_battle_view_without_freezing(self):
         session = TrainingSession.__new__(TrainingSession)
         session._lock = threading.Lock()
@@ -575,7 +602,8 @@ class TrainingSessionDisplayTests(unittest.TestCase):
         session = TrainingSession.__new__(TrainingSession)
         session._lock = threading.Lock()
         session._status = TrainingSessionStatus(
-            battle_view={"game_objects": ("last-frame",)}
+            battle_view={"game_objects": ("last-frame",)},
+            simulation_speed_multiplier=12.5,
         )
         session._display_on = threading.Event()
         session._display_on.set()
@@ -584,6 +612,7 @@ class TrainingSessionDisplayTests(unittest.TestCase):
 
         self.assertEqual(session.status.display_message, "Applying gradient descent")
         self.assertIsNone(session.status.battle_view)
+        self.assertEqual(session.status.simulation_speed_multiplier, 0.0)
 
     def test_live_display_toggle_starts_and_stops_training_audio(self):
         session = TrainingSession.__new__(TrainingSession)

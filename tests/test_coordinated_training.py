@@ -252,6 +252,7 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
     def test_record_progress_updates_live_status_every_100_frames(self):
         session = self._session()
         state = session._states[1]
+        state.simulation_speed_tracker.reset(sampled_at=10.0)
 
         session._on_record_progress(
             state,
@@ -269,21 +270,29 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
         self.assertEqual(status.replay_size, 0)
         self.assertEqual(status.weighted_total_return, 0.0)
 
-        session._on_record_progress(
-            state,
-            {
-                "event": "frame",
-                "frame": 100,
-                "opponent": OpponentSpec("Earthling"),
-                "replay_size": 100,
-                "weighted_total_return": 10.0,
-            },
-        )
+        with mock.patch(
+            "src.training.session.time.perf_counter",
+            return_value=10.25,
+        ):
+            session._on_record_progress(
+                state,
+                {
+                    "event": "frame",
+                    "frame": 100,
+                    "opponent": OpponentSpec("Earthling"),
+                    "replay_size": 100,
+                    "weighted_total_return": 10.0,
+                },
+            )
 
         status = session.status_for_instance(1)
         self.assertEqual(status.current_frame, 100)
         self.assertEqual(status.replay_size, 100)
         self.assertEqual(status.weighted_total_return, 10.0)
+        self.assertAlmostEqual(
+            status.simulation_speed_multiplier,
+            100 / 0.25 / 24,
+        )
 
     def test_display_proxy_selects_instance_and_paces_at_physics_rate(self):
         session = self._session()
@@ -2087,6 +2096,7 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
         )
         for state in session._states.values():
             state.components = component_builder(state.record)
+            state.status.simulation_speed_multiplier = 12.5
 
         with (
             mock.patch(
@@ -2490,6 +2500,10 @@ class CoordinatedFrameLoopTests(unittest.TestCase):
         self.assertEqual(
             session.status_for_instance(1).display_message,
             "Applying gradient descent",
+        )
+        self.assertEqual(
+            session.status_for_instance(1).simulation_speed_multiplier,
+            0.0,
         )
 
     def test_stop_during_batched_optimization_finishes_all_updates(self):

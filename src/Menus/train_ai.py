@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import json
+import math
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -71,6 +72,8 @@ REWARD_VALUES = tuple(
 )
 
 REWARD_LABELS = REWARD_COMPONENTS
+SPEEDOMETER_WIDTH = 80
+SPEEDOMETER_CELLS_PER_REAL_TIME = 2
 
 SIMPLE_ACTIVITY_VALUES = tuple(float(value) for value in range(0, 101, 5))
 AI_OPPONENT_PERCENT_VALUES = SIMPLE_ACTIVITY_VALUES
@@ -2793,6 +2796,22 @@ def _current_batch_console_lines(status):
     return tuple(lines)
 
 
+def _speedometer_console_lines(status):
+    speed = float(getattr(status, "simulation_speed_multiplier", 0.0))
+    if not math.isfinite(speed):
+        speed = 0.0
+    speed = max(0.0, speed)
+    filled = min(
+        SPEEDOMETER_WIDTH,
+        round(speed * SPEEDOMETER_CELLS_PER_REAL_TIME),
+    )
+    bar = "|" * filled + "-" * (SPEEDOMETER_WIDTH - filled)
+    return (
+        f"[{bar}] {speed:5.2f}x Real time",
+        "0         5        10        15        20        25        30        35        40",
+    )
+
+
 def _display_off_console_lines(status, log_lines):
     lines = []
     if log_lines:
@@ -2809,6 +2828,7 @@ def _display_off_console_lines(status, log_lines):
         if error:
             lines.extend(("", "Training error"))
             lines.extend(error.splitlines())
+        lines.extend(("", *_speedometer_console_lines(status)))
         lines.extend(("", *_current_batch_console_lines(status)))
     return tuple(lines)
 

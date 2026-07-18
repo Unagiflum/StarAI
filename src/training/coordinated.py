@@ -100,6 +100,7 @@ from src.training.session import (
     BatchMetrics,
     MAX_BATCH_LOG_LINES,
     RECENT_BATCH_METRICS_KEY,
+    SimulationSpeedTracker,
     TrainingSessionStatus,
     append_grouped_metrics_csv,
     batch_metrics_to_metadata,
@@ -534,6 +535,9 @@ class _CoordinatedRecordState:
     components: CoordinatedRuntimeComponents | None = None
     current_epsilon: float = 0.0
     last_saved_completed_batches: int = 0
+    simulation_speed_tracker: SimulationSpeedTracker = field(
+        default_factory=SimulationSpeedTracker
+    )
 
 
 @dataclass
@@ -1087,6 +1091,7 @@ class CoordinatedTrainingSession:
                 state.status.error = ""
                 state.status.display_message = "Preparing coordinated run"
                 state.status.battle_view = None
+                state.status.simulation_speed_multiplier = 0.0
         self._thread = threading.Thread(
             target=self._run_worker,
             name="StarAICoordinatedTrainingSession",
@@ -1156,6 +1161,7 @@ class CoordinatedTrainingSession:
                 previous_opponent=status.previous_opponent,
                 current_frame=status.current_frame,
                 current_frame_limit=status.current_frame_limit,
+                simulation_speed_multiplier=status.simulation_speed_multiplier,
                 replay_size=status.replay_size,
                 recent_loss=status.recent_loss,
                 learning_rate=status.learning_rate,
@@ -1206,10 +1212,12 @@ class CoordinatedTrainingSession:
                     state.components = components
                     state.status.replay_size = len(components.replay_buffer)
                     state.status.display_message = "Preparing coordinated batch"
+                    state.status.simulation_speed_multiplier = 0.0
             if not self._run_batches:
                 with self._lock:
                     for state in self._states.values():
                         state.status.display_message = "Coordinated scheduler idle"
+                        state.status.simulation_speed_multiplier = 0.0
                 while not self._stop_requested.is_set():
                     time.sleep(self._idle_sleep_seconds)
                 return
@@ -1283,6 +1291,7 @@ class CoordinatedTrainingSession:
                 state.status.total_rounds = len(schedules[instance_id])
                 state.status.current_round = 0
                 state.status.current_frame = 0
+                state.status.simulation_speed_multiplier = 0.0
 
         results: dict[int, list[CoordinatedFixedFrameWindowResult]] = {
             instance_id: []
@@ -1306,6 +1315,8 @@ class CoordinatedTrainingSession:
                         state.status.total_rounds = len(schedule)
                         state.status.current_opponent = opponent.ship
                         state.status.current_frame = 0
+                        state.status.simulation_speed_multiplier = 0.0
+                        state.simulation_speed_tracker.reset()
                     policy = CoordinatedValueNetworkPolicy(
                         components.model,
                         record_id=instance_id,
@@ -1441,6 +1452,7 @@ class CoordinatedTrainingSession:
             for state in self._states.values():
                 state.status.display_message = "Applying gradient descent"
                 state.status.battle_view = None
+                state.status.simulation_speed_multiplier = 0.0
 
         _synchronize_cuda_for_timing(timing_seconds)
         optimization_started_at = _timing_started_at(timing_seconds)
@@ -1571,6 +1583,7 @@ class CoordinatedTrainingSession:
                     state.status.total_rounds = len(schedules[instance_id])
                     state.status.current_round = 0
                     state.status.current_frame = 0
+                    state.status.simulation_speed_multiplier = 0.0
             for round_index in range(1, max(len(s) for s in schedules.values()) + 1):
                 exploration_schedule.begin_round()
                 active_windows: list[_WorkerWindowRuntime] = []
@@ -1588,6 +1601,8 @@ class CoordinatedTrainingSession:
                         state.status.total_rounds = len(schedule)
                         state.status.current_opponent = opponent.ship
                         state.status.current_frame = 0
+                        state.status.simulation_speed_multiplier = 0.0
+                        state.simulation_speed_tracker.reset()
                     policy = CoordinatedValueNetworkPolicy(
                         components.model,
                         record_id=instance_id,
@@ -1865,6 +1880,7 @@ class CoordinatedTrainingSession:
             for state in self._states.values():
                 state.status.display_message = "Applying gradient descent"
                 state.status.battle_view = None
+                state.status.simulation_speed_multiplier = 0.0
 
         _synchronize_cuda_for_timing(timing_seconds)
         optimization_started_at = _timing_started_at(timing_seconds)
@@ -2398,6 +2414,7 @@ class CoordinatedTrainingSession:
         display_on = self._display_enabled_for(state.record.instance_id)
         if not should_update_live_frame_status(frame, display_on=display_on):
             return
+        speed_multiplier = state.simulation_speed_tracker.sample(frame)
         opponent = payload.get("opponent")
         opponent_label = getattr(opponent, "ship", "") if opponent is not None else ""
         battle_view = payload.get("battle_view") if display_on else None
@@ -2405,6 +2422,8 @@ class CoordinatedTrainingSession:
             battle_view = freeze_battle_view(battle_view)
         with self._lock:
             state.status.current_frame = frame
+            if speed_multiplier is not None:
+                state.status.simulation_speed_multiplier = speed_multiplier
             state.status.current_opponent = opponent_label
             state.status.replay_size = int(payload.get("replay_size", 0))
             state.status.last_action_exploratory = bool(
@@ -2543,6 +2562,7 @@ class CoordinatedTrainingSession:
             for state in self._states.values():
                 state.status.running = False
                 state.status.stopping = False
+                state.status.simulation_speed_multiplier = 0.0
                 if not state.status.error:
                     state.status.display_message = ""
         if stop_music:
