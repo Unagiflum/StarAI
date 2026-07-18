@@ -117,7 +117,10 @@ class ReplayBufferSizeHintTests(unittest.TestCase):
 
 class TrainingUIStateTests(unittest.TestCase):
     def test_defaults_match_training_specification(self):
-        state = TrainingUIState()
+        with mock.patch(
+            "src.Menus.train_ai.torch_backend.cuda_available", return_value=False
+        ):
+            state = TrainingUIState()
 
         self.assertEqual(state.selected_slot, 1)
         self.assertEqual(state.slot_labels, ["", "", "", ""])
@@ -150,9 +153,39 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.gamma, 0.99)
         self.assertEqual(state.minibatch_size, 2048)
         self.assertEqual(state.replay_updates_per_batch, 15)
-        self.assertEqual(state.training_device, "auto")
+        self.assertEqual(state.training_device, "cpu")
         self.assertFalse(state.display_on)
         self.assertFalse(state.running)
+
+    def test_training_device_choices_only_include_cpu_and_gpu(self):
+        self.assertEqual(
+            train_ai.TRAINING_DEVICE_LABELS,
+            (
+                (torch_backend.DEVICE_CPU, "CPU"),
+                (torch_backend.DEVICE_GPU, "GPU"),
+            ),
+        )
+
+    def test_training_device_defaults_to_gpu_when_available(self):
+        with mock.patch(
+            "src.Menus.train_ai.torch_backend.cuda_available", return_value=True
+        ):
+            state = TrainingUIState()
+
+        self.assertEqual(state.training_device, torch_backend.DEVICE_GPU)
+
+    def test_legacy_auto_device_uses_available_gpu(self):
+        payload = training_instance_manager_to_json(TrainingInstanceManager())
+        payload["instances"][0]["state"]["training_device"] = (
+            torch_backend.DEVICE_AUTO
+        )
+
+        with mock.patch(
+            "src.Menus.train_ai.torch_backend.cuda_available", return_value=True
+        ):
+            restored = training_instance_manager_from_json(payload)
+
+        self.assertEqual(restored.active_state.training_device, torch_backend.DEVICE_GPU)
 
     def test_ai_opponent_mode_keeps_simple_behavior_controls_available(self):
         state = TrainingUIState()

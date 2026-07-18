@@ -78,10 +78,19 @@ SPEEDOMETER_CELLS_PER_REAL_TIME = 2
 SIMPLE_ACTIVITY_VALUES = tuple(float(value) for value in range(0, 101, 5))
 AI_OPPONENT_PERCENT_VALUES = SIMPLE_ACTIVITY_VALUES
 TRAINING_DEVICE_LABELS = (
-    (torch_backend.DEVICE_AUTO, "Auto"),
     (torch_backend.DEVICE_CPU, "CPU"),
     (torch_backend.DEVICE_GPU, "GPU"),
 )
+
+
+def default_training_device() -> str:
+    """Prefer GPU training when CUDA is available, otherwise use CPU."""
+    return (
+        torch_backend.DEVICE_GPU
+        if torch_backend.cuda_available()
+        else torch_backend.DEVICE_CPU
+    )
+
 
 REPLAY_BUFFER_SIZE_VALUES = tuple(range(5000, 250001, 5000))
 ROUNDS_PER_BATCH_VALUES = tuple(range(1, 51, 1))
@@ -252,7 +261,7 @@ class TrainingUIState:
     gamma: float = 0.990
     minibatch_size: int = 2048
     replay_updates_per_batch: int = 15
-    training_device: str = torch_backend.DEVICE_AUTO
+    training_device: str = field(default_factory=default_training_device)
     hidden_layer_size: int = 256
     hidden_layer_count: int = 2
     replay_buffer_size: int = 30000
@@ -1021,7 +1030,7 @@ def _training_ui_state_from_json(payload):
         elif field_name == "training_device":
             valid_devices = {device for device, _label in TRAINING_DEVICE_LABELS}
             if value not in valid_devices:
-                value = torch_backend.DEVICE_AUTO
+                value = default_training_device()
         elif field_name in {"display_on", "running"}:
             value = False
         setattr(state, field_name, value)
@@ -3423,7 +3432,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if device_selector.visible:
             state.training_device = device_selector.selected
         elif state.training_device == torch_backend.DEVICE_GPU:
-            state.training_device = torch_backend.DEVICE_AUTO
+            state.training_device = torch_backend.DEVICE_CPU
         state.rewards.update(
             (slider.reward_key, slider.value) for slider in reward_sliders
         )
@@ -4908,7 +4917,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider.enabled = not active_running and not coordinated_active
         device_selector.visible = torch_backend.training_device_selector_visible()
         if not device_selector.visible and state.training_device == torch_backend.DEVICE_GPU:
-            state.training_device = torch_backend.DEVICE_AUTO
+            state.training_device = torch_backend.DEVICE_CPU
             device_selector.selected = state.training_device
         else:
             device_selector.selected = state.training_device
