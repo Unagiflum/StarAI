@@ -3417,9 +3417,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         device_selector_rect.bottom + 12,
         device_selector_rect.width,
         40,
-        "Sync independent CPU runs",
+        "Sync CPU runs",
         initial_state=state.synchronize_cpu_runs,
         text_offset=(14, 0),
+        box_offset=(0, -2),
     )
     cpu_sync_checkbox.enabled = state.training_device == torch_backend.DEVICE_CPU
     slot_rows = tuple(
