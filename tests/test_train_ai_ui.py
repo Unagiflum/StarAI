@@ -1576,7 +1576,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
-            elif button.rect.y == 518 and button.rect.width == train_ai.CONTROL_WIDTH - 32:
+            elif button.rect.y == 518:
                 trainee_action_states.append((button.text, button.enabled))
             elif button.text == "Close":
                 close_states.append((button.text, button.enabled))
@@ -1637,7 +1637,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertIs(cache._save_coordinator, coordinator)
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Start synced", False), ("Back", False)],
+            [("Display", True), ("Stop all", True), ("Back", False)],
         )
         self.assertEqual(trainee_action_states, [("Stop", True)])
         self.assertEqual(close_states, [("Close", False)])
@@ -1663,7 +1663,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
-            elif button.rect.y == 518 and button.rect.width == train_ai.CONTROL_WIDTH - 32:
+            elif button.rect.y == 518:
                 trainee_action_states.append((button.text, button.enabled))
 
         sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
@@ -2263,7 +2263,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
-            elif button.rect.y == 518 and button.rect.width == train_ai.CONTROL_WIDTH - 32:
+            elif button.rect.y == 518:
                 trainee_action_states.append((button.text, button.enabled))
             elif button.text == "Close":
                 close_states.append((button.text, button.enabled))
@@ -2301,10 +2301,79 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Start synced", False), ("Back", False)],
+            [("Display", True), ("Stop all", True), ("Back", False)],
         )
         self.assertEqual(trainee_action_states, [("Start", True)])
         self.assertEqual(close_states, [("Close", True)])
+
+    def test_global_stop_all_stops_independent_runs_from_another_tab(self):
+        class StoppableSession:
+            def __init__(self):
+                self.status = TrainingSessionStatus(ship="Earthling", running=True)
+                self.history = ()
+                self.log_lines = ()
+
+            def request_stop(self):
+                self.status.stopping = True
+
+            def set_display_on(self, _enabled):
+                pass
+
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        manager.active_state.selected_ship = "Earthling"
+        manager.active_state.selected_slot = 1
+        manager.active_state.slot_labels[0] = "Ready"
+        manager.active_instance.session = StoppableSession()
+        manager.active_tab = "opponent"
+        stop_all_event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": self.synced_action_position()},
+        )
+        footer_states = []
+
+        def capture_footer(button, *_args, **_kwargs):
+            if button.rect.y == train_ai.ACTION_TOP:
+                footer_states.append((button.text, button.enabled))
+
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+        with (
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeRepository,
+            ),
+            mock.patch("src.Menus.train_ai.ConfirmationPrompt") as prompt_class,
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[stop_all_event]),
+            mock.patch(
+                "src.Menus.train_ai.ui_button.Button.draw",
+                new=capture_footer,
+            ),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+            prompt_text, on_confirm = prompt_class.call_args.args
+            self.assertIn("stop all running", prompt_text)
+            on_confirm()
+
+        self.assertEqual(manager.active_tab, "opponent")
+        self.assertEqual(
+            footer_states,
+            [("Display", True), ("Stop all", True), ("Back", False)],
+        )
+        self.assertTrue(manager.active_session.status.stopping)
 
     def test_apply_all_running_shows_stop_all_on_selected_stopped_instance(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
@@ -2329,7 +2398,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         scope_states = []
 
         def capture_button(button, *_args, **_kwargs):
-            if button.rect.y == 518 and button.rect.width == train_ai.CONTROL_WIDTH - 32:
+            if button.rect.y == 518:
                 trainee_action_states.append((button.text, button.enabled))
 
         def capture_scope(checkbox, *_args, **_kwargs):
@@ -2368,10 +2437,10 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             with self.assertRaises(self.StopRun):
                 train_ai.run(screen)
 
-        self.assertEqual(trainee_action_states, [("Stop all running", True)])
+        self.assertEqual(trainee_action_states, [("Stop all", True)])
         self.assertEqual(
             scope_states,
-            [("Apply to all instances", True, True)],
+            [("Apply actions to all instances", True, True)],
         )
 
     def test_apply_all_stop_from_stopped_instance_stops_every_running_instance(self):
@@ -2443,12 +2512,14 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         manager.active_state.selected_slot = 1
         manager.active_state.slot_labels[0] = "Ready"
         manager.set_apply_future_changes_to_all(True)
-        full_width_states = []
+        trainee_action_states = []
         delete_states = []
 
         def capture_button(button, *_args, **_kwargs):
-            if button.rect.width == train_ai.CONTROL_WIDTH - 32:
-                full_width_states.append((button.text, button.enabled, button.rect.width))
+            if button.rect.y in (476, 518):
+                trainee_action_states.append(
+                    (button.text, button.enabled, button.rect.copy())
+                )
             elif button.rect.width == train_ai.SLOT_DELETE_BUTTON_WIDTH:
                 delete_states.append((button.text, button.enabled, button.rect.width))
 
@@ -2479,10 +2550,30 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             with self.assertRaises(self.StopRun):
                 train_ai.run(screen)
 
-        self.assertIn(("Load all", True, train_ai.CONTROL_WIDTH - 32), full_width_states)
-        self.assertIn(
-            ("Start all eligible", True, train_ai.CONTROL_WIDTH - 32),
-            full_width_states,
+        action_states = {
+            text: (enabled, rect)
+            for text, enabled, rect in trainee_action_states
+        }
+        self.assertTrue(action_states["Load all"][0])
+        self.assertTrue(action_states["Start all eligible"][0])
+        action_rects = tuple(rect for _enabled, rect in action_states.values())
+        self.assertEqual(action_rects[0].width, action_rects[1].width)
+        self.assertLess(action_rects[0].width, train_ai.CONTROL_WIDTH - 32)
+        self.assertTrue(
+            all(rect.centerx == train_ai.CONTROL_WIDTH // 2 for rect in action_rects)
+        )
+        body_font = train_ai.largest_fitting_font(
+            train_ai.REWARD_LABELS,
+            270,
+            max_height=34,
+            maximum=32,
+        )
+        longest_label_width = body_font.size(
+            train_ai.TRAINEE_ACTION_LONGEST_LABEL
+        )[0]
+        self.assertGreaterEqual(
+            action_rects[0].width - longest_label_width,
+            2 * train_ai.TRAINEE_ACTION_HORIZONTAL_PADDING,
         )
         self.assertEqual(
             delete_states[0],
@@ -2570,7 +2661,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
-            elif button.rect.y == 518 and button.rect.width == train_ai.CONTROL_WIDTH - 32:
+            elif button.rect.y == 518:
                 trainee_action_states.append((button.text, button.enabled))
 
         sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
@@ -2610,7 +2701,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Start synced", False), ("Back", False)],
+            [("Display", True), ("Stopping all", False), ("Back", False)],
         )
         self.assertEqual(trainee_action_states, [("Stopping", False)])
 
@@ -2806,7 +2897,7 @@ class TrainingLayoutTests(unittest.TestCase):
             0,
             300,
             train_ai.APPLY_ALL_STRIP_HEIGHT,
-            "Apply to all instances",
+            "Apply actions to all instances",
         )
         font = pygame.font.SysFont(None, 18)
 
@@ -2831,8 +2922,25 @@ class TrainingLayoutTests(unittest.TestCase):
             surface.get_at((299, 29)),
             (*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_SELECTED_ALPHA),
         )
-        self.assertEqual(checkbox.text, "Apply to all instances")
+        self.assertEqual(checkbox.text, "Apply actions to all instances")
         self.assertEqual(train_ai.TAB_BOX_BORDER_WIDTH, 3)
+
+    def test_tab_box_uses_three_times_thicker_vertical_border(self):
+        rect = pygame.Rect(0, 0, 60, 40)
+        surface = pygame.Surface(rect.size)
+        surface.fill(ui.BLACK)
+
+        train_ai._draw_tab_box_border(surface, rect)
+
+        self.assertEqual(
+            train_ai.TAB_BOX_VERTICAL_BORDER_WIDTH,
+            train_ai.TAB_BOX_BORDER_WIDTH * 3,
+        )
+        border_color = const.TAB_BUTTON_COLOR
+        self.assertEqual(surface.get_at((8, rect.centery))[:3], border_color)
+        self.assertEqual(surface.get_at((9, rect.centery))[:3], ui.BLACK)
+        self.assertEqual(surface.get_at((rect.centerx, 2))[:3], border_color)
+        self.assertEqual(surface.get_at((rect.centerx, 3))[:3], ui.BLACK)
 
     def test_tabs_use_an_opaque_tab_colored_border_in_every_state(self):
         tab = train_ai.TabButton(0, 0, 140, 34, "Trainee", lambda: None)
@@ -3395,8 +3503,8 @@ class TrainingConsoleTests(unittest.TestCase):
         )
         self.assertEqual(
             lines[lines.index("Batch      1 | summary") + 2],
-            "[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
-            "----------------------------------------] "
+            "|]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
+            "----------------------------------------| "
             "20.25x Real time",
         )
         current_batch_index = lines.index("Current batch")
@@ -3438,8 +3546,8 @@ class TrainingConsoleTests(unittest.TestCase):
         lines, colors = train_ai._display_off_console_content(status, history)
 
         self.assertEqual(colors[lines.index("Completed batches")], (255, 255, 255))
-        self.assertEqual(colors[lines.index(history[0])], (255, 205, 205))
-        self.assertEqual(colors[lines.index(history[1])], (205, 205, 255))
+        self.assertEqual(colors[lines.index(history[0])], (155, 255, 155))
+        self.assertEqual(colors[lines.index(history[1])], (155, 155, 255))
 
         speed_line, speed_legend = _speedometer_console_lines(status)
         self.assertEqual(colors[lines.index(speed_line)], (0, 255, 0))
@@ -3447,8 +3555,8 @@ class TrainingConsoleTests(unittest.TestCase):
 
         current_heading = lines.index("Current batch")
         self.assertEqual(colors[current_heading], (255, 255, 255))
-        self.assertEqual(colors[current_heading + 1], (255, 205, 205))
-        self.assertEqual(colors[current_heading + 2], (205, 205, 255))
+        self.assertEqual(colors[current_heading + 1], (155, 255, 155))
+        self.assertEqual(colors[current_heading + 2], (155, 155, 255))
 
         reward_heading = next(
             index
@@ -3456,8 +3564,8 @@ class TrainingConsoleTests(unittest.TestCase):
             if line.startswith("Reward components")
         )
         self.assertEqual(colors[reward_heading], (255, 255, 255))
-        self.assertEqual(colors[reward_heading + 1], (255, 205, 205))
-        self.assertEqual(colors[reward_heading + 2], (205, 205, 255))
+        self.assertEqual(colors[reward_heading + 1], (155, 255, 155))
+        self.assertEqual(colors[reward_heading + 2], (155, 155, 255))
 
     def test_display_off_console_keeps_error_details_visible(self):
         status = self._status(
@@ -3481,8 +3589,8 @@ class TrainingConsoleTests(unittest.TestCase):
                 self._status(simulation_speed_multiplier=45.125)
             ),
             (
-                "[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
-                "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]] "
+                "|]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
+                "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]| "
                 "45.12x Real time",
                 "0         5        10        15        20        25        30"
                 "        35        40",
@@ -3494,7 +3602,7 @@ class TrainingConsoleTests(unittest.TestCase):
             self._status(simulation_speed_multiplier=5.25)
         )
 
-        self.assertTrue(speed_line.endswith("]  5.25x Real time"))
+        self.assertTrue(speed_line.endswith("|  5.25x Real time"))
 
     def test_current_batch_ship_name_is_right_aligned(self):
         lines = _display_off_console_lines(self._status(ship="Mycon"), ())

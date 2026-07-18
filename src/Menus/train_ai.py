@@ -75,8 +75,8 @@ REWARD_LABELS = REWARD_COMPONENTS
 SPEEDOMETER_WIDTH = 80
 SPEEDOMETER_CELLS_PER_REAL_TIME = 2
 TRAINING_LOG_HEADING_COLOR = (255, 255, 255)
-TRAINING_LOG_ODD_ROW_COLOR = (255, 205, 205)
-TRAINING_LOG_EVEN_ROW_COLOR = (205, 205, 255)
+TRAINING_LOG_ODD_ROW_COLOR = (155, 255, 155)
+TRAINING_LOG_EVEN_ROW_COLOR = (155, 155, 255)
 TRAINING_LOG_SPEED_COLOR = (0, 255, 0)
 
 SIMPLE_ACTIVITY_VALUES = tuple(float(value) for value in range(0, 101, 5))
@@ -229,6 +229,9 @@ APPLY_ALL_STRIP_TOP = APPLY_ALL_STRIP_BOTTOM - APPLY_ALL_STRIP_HEIGHT
 CONTENT_BOTTOM = APPLY_ALL_STRIP_TOP
 CONTENT_VIEW_HEIGHT = CONTENT_BOTTOM - CONTENT_TOP
 TAB_BOX_BORDER_WIDTH = 3
+TAB_BOX_VERTICAL_BORDER_WIDTH = TAB_BOX_BORDER_WIDTH * 3
+TRAINEE_ACTION_LONGEST_LABEL = "Androsynth-01 Loaded"
+TRAINEE_ACTION_HORIZONTAL_PADDING = 20
 
 
 @dataclass
@@ -1364,6 +1367,35 @@ def training_layout():
             ),
         ),
     )
+
+
+def _draw_tab_box_border(surface, rect):
+    """Draw the tab enclosure with stronger vertical rails."""
+    rect = pygame.Rect(rect)
+    pygame.draw.rect(
+        surface,
+        const.TAB_BUTTON_COLOR,
+        rect,
+        TAB_BOX_BORDER_WIDTH,
+    )
+    vertical_width = min(TAB_BOX_VERTICAL_BORDER_WIDTH, rect.width // 2)
+    pygame.draw.rect(
+        surface,
+        const.TAB_BUTTON_COLOR,
+        (rect.left, rect.top, vertical_width, rect.height),
+    )
+    pygame.draw.rect(
+        surface,
+        const.TAB_BUTTON_COLOR,
+        (rect.right - vertical_width, rect.top, vertical_width, rect.height),
+    )
+
+
+def _trainee_action_button_width(font):
+    """Return one stable width that fits every trainee action label."""
+    label_width = font.size(TRAINEE_ACTION_LONGEST_LABEL)[0]
+    padded_width = label_width + 2 * TRAINEE_ACTION_HORIZONTAL_PADDING
+    return min(CONTROL_WIDTH - 2 * TAB_MARGIN, padded_width)
 
 
 class TabButton(ui_button.Button):
@@ -2829,7 +2861,7 @@ def _speedometer_console_lines(status):
     )
     bar = "]" * filled + "-" * (SPEEDOMETER_WIDTH - filled)
     return (
-        f"[{bar}] {speed:5.2f}x Real time",
+        f"|{bar}| {speed:5.2f}x Real time",
         "0         5        10        15        20        25        30        35        40",
     )
 
@@ -3218,7 +3250,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         maximum=22,
     )
     apply_all_font = largest_fitting_font(
-        ("Apply to all instances",),
+        ("Apply actions to all instances",),
         CONTROL_WIDTH - 54,
         max_height=APPLY_ALL_STRIP_HEIGHT - 6,
         maximum=22,
@@ -3317,12 +3349,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         for row in slot_rows
     ]
+    trainee_action_button_width = _trainee_action_button_width(body_font)
     load_button_rect = pygame.Rect(
-        16,
+        0,
         slot_rows[-1].bottom + 8,
-        CONTROL_WIDTH - 32,
+        trainee_action_button_width,
         34,
     )
+    load_button_rect.centerx = CONTROL_WIDTH // 2
     instance_start_button_rect = pygame.Rect(
         load_button_rect.x,
         load_button_rect.bottom + 8,
@@ -3486,7 +3520,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         APPLY_ALL_STRIP_TOP,
         CONTROL_WIDTH,
         APPLY_ALL_STRIP_HEIGHT,
-        "Apply to all instances",
+        "Apply actions to all instances",
         initial_state=instance_manager.batch_scheduling.apply_to_all_open_instances,
     )
 
@@ -4752,6 +4786,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
             return
         if instance_manager.any_instance_running():
+            confirm_stop_all_independent_training()
             return
         sync_state_from_ui()
         validation = validate_start_all()
@@ -5179,12 +5214,19 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         elif coordinated_active:
             batch_start_all_button.text = "Stop synced"
             batch_start_all_button.enabled = True
+        elif independent_running_instances:
+            if independent_stop_capable:
+                batch_start_all_button.text = "Stop all"
+                batch_start_all_button.enabled = True
+            else:
+                batch_start_all_button.text = "Stopping all"
+                batch_start_all_button.enabled = False
         else:
             batch_start_all_button.text = "Start synced"
             batch_start_all_button.enabled = (
-                not any_running and batch_validation.can_start_all
+                batch_validation.can_start_all
             )
-        if coordinated_active:
+        if coordinated_active or independent_running_instances:
             batch_start_all_button.bg_color = (*ui.CAN_RED[:3], const.TAB_BUTTON_HOVER_ALPHA)
             batch_start_all_button.hover_color = ui.CAN_RED_HI
         else:
@@ -5282,7 +5324,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             display_checkbox.hover_color = ui.MENU_BUTTON_COLOR_HI
         elif apply_to_all and independent_running_instances:
             if independent_stop_capable:
-                start_stop_button.text = "Stop all running"
+                start_stop_button.text = "Stop all"
                 start_stop_button.enabled = True
             else:
                 start_stop_button.text = "Stopping all"
@@ -5527,12 +5569,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if not regimen_tab.active: regimen_tab.draw(screen, tab_font)
 
         apply_all_checkbox.draw(screen, apply_all_font)
-        pygame.draw.rect(
-            screen,
-            const.TAB_BUTTON_COLOR,
-            layout.tab_box_rect,
-            TAB_BOX_BORDER_WIDTH,
-        )
+        _draw_tab_box_border(screen, layout.tab_box_rect)
 
         # Draw active tab in front to merge seamlessly
         if trainee_tab.active: trainee_tab.draw(screen, tab_font)
