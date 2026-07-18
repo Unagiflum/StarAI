@@ -62,6 +62,7 @@ from src.Menus.train_ai import (
     batch_settings_from_state,
     coordinated_architecture_signature,
     instances_with_different_batch_settings,
+    validate_independent_cpu_pacing_start,
     validate_coordinated_batch_start,
     TRAINING_HUD_HEIGHT,
     TrainingBatchLogBox,
@@ -177,6 +178,16 @@ class TrainingUIStateTests(unittest.TestCase):
             state = TrainingUIState()
 
         self.assertEqual(state.training_device, torch_backend.DEVICE_GPU)
+
+    def test_cpu_sync_preference_round_trips_with_instance_state(self):
+        manager = TrainingInstanceManager()
+        manager.active_state.synchronize_cpu_runs = True
+
+        restored = training_instance_manager_from_json(
+            training_instance_manager_to_json(manager)
+        )
+
+        self.assertTrue(restored.active_state.synchronize_cpu_runs)
 
     def test_legacy_auto_device_uses_available_gpu(self):
         payload = training_instance_manager_to_json(TrainingInstanceManager())
@@ -761,6 +772,75 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
         self.assertEqual(second.state.rounds_per_batch, 8)
         self.assertNotEqual(second.state.match_time_limit, first.state.match_time_limit)
+
+    def test_apply_future_changes_propagates_cpu_sync_checkbox(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        second = manager.add_instance()
+        manager.select_instance(first.instance_id)
+        manager.set_apply_future_changes_to_all(True)
+
+        first.state.synchronize_cpu_runs = True
+        manager.propagate_future_changes(
+            first,
+            scalar_fields=("synchronize_cpu_runs",),
+        )
+
+        self.assertTrue(second.state.synchronize_cpu_runs)
+
+    def test_cpu_pacing_validation_averages_only_opted_in_cpu_instances(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        second = manager.add_instance()
+        unchecked = manager.add_instance()
+        for instance, ship, epsilon in (
+            (first, "Earthling", 0.2),
+            (second, "Androsynth", 0.6),
+            (unchecked, "Chenjesu", 0.9),
+        ):
+            instance.state.selected_ship = ship
+            instance.state.selected_slot = 1
+            instance.state.training_device = torch_backend.DEVICE_CPU
+            instance.state.current_epsilon = epsilon
+        first.state.synchronize_cpu_runs = True
+        second.state.synchronize_cpu_runs = True
+        unchecked.state.rounds_per_batch += 1
+        slots = tuple(
+            (
+                instance,
+                TrainingModelSlot(instance.state.selected_ship, 1, SLOT_USER),
+            )
+            for instance in (first, second, unchecked)
+        )
+
+        validation = validate_independent_cpu_pacing_start(slots)
+
+        self.assertTrue(validation.can_start)
+        self.assertEqual(validation.included_instances, (first, second))
+        self.assertAlmostEqual(validation.shared_current_epsilon, 0.4)
+
+    def test_cpu_pacing_validation_requires_matching_epsilon_schedule(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        second = manager.add_instance()
+        for instance, ship in ((first, "Earthling"), (second, "Androsynth")):
+            instance.state.selected_ship = ship
+            instance.state.selected_slot = 1
+            instance.state.training_device = torch_backend.DEVICE_CPU
+            instance.state.synchronize_cpu_runs = True
+        second.state.epsilon_decay = first.state.epsilon_decay - 0.001
+        slots = (
+            (first, TrainingModelSlot("Earthling", 1, SLOT_USER)),
+            (second, TrainingModelSlot("Androsynth", 1, SLOT_USER)),
+        )
+
+        validation = validate_independent_cpu_pacing_start(slots)
+
+        self.assertFalse(validation.can_start)
+        self.assertEqual(
+            validation.blocking_reason,
+            "Synchronized CPU regimen settings differ",
+        )
 
     def test_new_instance_keeps_defaults_when_future_changes_is_checked(self):
         manager = TrainingInstanceManager()
@@ -2640,6 +2720,97 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertTrue(all(session.started for session in self.FakeSession.created))
         self.assertTrue(manager.is_running_or_stopping(first))
         self.assertTrue(manager.is_running_or_stopping(second))
+
+    def test_apply_all_cpu_sync_launch_shares_pacer_and_average_epsilon(self):
+        from src.training import process_session
+
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.state.selected_ship = "Earthling"
+        first.state.selected_slot = 1
+        first.state.slot_labels[0] = "Earthling Ready"
+        first.state.training_device = torch_backend.DEVICE_CPU
+        first.state.synchronize_cpu_runs = True
+        first.state.current_epsilon = 0.2
+        second = manager.add_instance()
+        second.state.selected_ship = "Androsynth"
+        second.state.selected_slot = 1
+        second.state.slot_labels[0] = "Androsynth Ready"
+        second.state.training_device = torch_backend.DEVICE_CPU
+        second.state.synchronize_cpu_runs = True
+        second.state.current_epsilon = 0.6
+        manager.select_instance(first.instance_id)
+        manager.set_apply_future_changes_to_all(True)
+        repository = self.FakeCoordinatedRepository()
+        self.FakeSession.created = []
+
+        class FakePacingGroup:
+            created = []
+
+            def __init__(self, participant_count):
+                self.participant_count = participant_count
+                self.deactivated = []
+                self.__class__.created.append(self)
+
+            def deactivate(self, participant_index):
+                self.deactivated.append(participant_index)
+
+        start_event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": self.trainee_start_position()},
+        )
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                return_value=repository,
+            ),
+            mock.patch.object(
+                process_session,
+                "ProcessTrainingSession",
+                self.FakeSession,
+            ),
+            mock.patch.object(
+                process_session,
+                "CpuBatchPacingGroup",
+                FakePacingGroup,
+            ),
+            mock.patch("src.Menus.train_ai.ConfirmationPrompt") as prompt_class,
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch(
+                "src.Menus.train_ai.fit_ship_sprites",
+                return_value={"Earthling": sprite, "Androsynth": sprite},
+            ),
+            mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+            mock.patch("pygame.event.get", return_value=[start_event]),
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+            _prompt_text, on_confirm = prompt_class.call_args.args
+            on_confirm()
+
+        self.assertEqual(len(FakePacingGroup.created), 1)
+        pacing_group = FakePacingGroup.created[0]
+        self.assertEqual(pacing_group.participant_count, 2)
+        self.assertEqual(len(self.FakeSession.created), 2)
+        for index, session in enumerate(self.FakeSession.created):
+            self.assertIs(session.kwargs["batch_pacing_group"], pacing_group)
+            self.assertEqual(session.kwargs["batch_pacing_index"], index)
+            self.assertAlmostEqual(session.kwargs["config"].epsilon, 0.4)
+            regimen = session.kwargs["metadata"]["training"]["regimen"]
+            self.assertAlmostEqual(regimen["current_epsilon"], 0.4)
+            self.assertAlmostEqual(regimen["epsilon"], 0.4)
+        self.assertAlmostEqual(first.state.current_epsilon, 0.4)
+        self.assertAlmostEqual(second.state.current_epsilon, 0.4)
 
     def test_individual_stopping_disables_stop_button(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))

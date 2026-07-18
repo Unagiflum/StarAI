@@ -59,6 +59,79 @@ _CONTROL_DISPLAY_BUFFER = "display_buffer"
 _CONTROL_STARTING_EPSILON = "starting_epsilon"
 
 
+class CpuBatchPacingGroup:
+    """Bound the batch lead among independent CPU training processes."""
+
+    def __init__(
+        self,
+        participant_count: int,
+        *,
+        max_batch_lead: int = 1,
+        context: multiprocessing.context.BaseContext | None = None,
+    ) -> None:
+        participant_count = int(participant_count)
+        if participant_count < 2:
+            raise ValueError("CPU pacing requires at least two participants")
+        self.participant_count = participant_count
+        self.max_batch_lead = max(0, int(max_batch_lead))
+        process_context = context or multiprocessing.get_context("spawn")
+        self._completed = process_context.Array(
+            "Q", participant_count, lock=False
+        )
+        self._active = process_context.Array(
+            "b", [1] * participant_count, lock=False
+        )
+        self._condition = process_context.Condition(process_context.RLock())
+
+    def wait_after_batch(
+        self,
+        participant_index: int,
+        completed_batches: int,
+        *,
+        stop_requested,
+    ) -> None:
+        """Record progress and wait while this participant is too far ahead."""
+
+        index = self._validated_index(participant_index)
+        completed_batches = max(0, int(completed_batches))
+        with self._condition:
+            if not self._active[index]:
+                return
+            self._completed[index] = completed_batches
+            self._condition.notify_all()
+            while self._active[index] and not stop_requested():
+                active_progress = [
+                    int(self._completed[other_index])
+                    for other_index in range(self.participant_count)
+                    if self._active[other_index]
+                ]
+                if (
+                    not active_progress
+                    or completed_batches
+                    <= min(active_progress) + self.max_batch_lead
+                ):
+                    return
+                self._condition.wait(timeout=0.1)
+            if stop_requested():
+                self._active[index] = 0
+                self._condition.notify_all()
+
+    def deactivate(self, participant_index: int) -> None:
+        """Remove a stopped or failed participant without blocking its peers."""
+
+        index = self._validated_index(participant_index)
+        with self._condition:
+            if self._active[index]:
+                self._active[index] = 0
+                self._condition.notify_all()
+
+    def _validated_index(self, participant_index: int) -> int:
+        index = int(participant_index)
+        if not 0 <= index < self.participant_count:
+            raise IndexError(f"unknown CPU pacing participant {index}")
+        return index
+
+
 class ProcessModelSaveCoordinator(ModelSaveCoordinator):
     """Share save-in-progress and committed generations with CPU workers."""
 
@@ -316,6 +389,8 @@ class _ProcessTrainingEngine(TrainingSession):
         stop_event,
         display_event,
         save_coordinator: ProcessModelSaveCoordinator,
+        batch_pacing_group: CpuBatchPacingGroup | None = None,
+        batch_pacing_index: int | None = None,
         **kwargs,
     ) -> None:
         self._publisher = publisher
@@ -324,6 +399,8 @@ class _ProcessTrainingEngine(TrainingSession):
         self._discovery_deferred = False
         self._last_frame_status_published_at = 0.0
         self._simulation_resources = HeadlessAssetManager()
+        self._batch_pacing_group = batch_pacing_group
+        self._batch_pacing_index = batch_pacing_index
         super().__init__(save_coordinator=save_coordinator, **kwargs)
         self._stop_requested = stop_event
         self._display_on = display_event
@@ -354,6 +431,19 @@ class _ProcessTrainingEngine(TrainingSession):
     def _record_completed_batch(self, *args, **kwargs) -> int:
         batch_number = super()._record_completed_batch(*args, **kwargs)
         self._publisher.publish_status(self, include_continuity=True)
+        if (
+            self._batch_pacing_group is not None
+            and self._batch_pacing_index is not None
+        ):
+            completed_this_run = max(
+                0,
+                batch_number - int(self._completed_batches_at_run_start),
+            )
+            self._batch_pacing_group.wait_after_batch(
+                self._batch_pacing_index,
+                completed_this_run,
+                stop_requested=self._stop_requested.is_set,
+            )
         return batch_number
 
     def _save_state(self, *args, **kwargs) -> None:
@@ -431,6 +521,8 @@ def independent_training_process_main(
     stop_event,
     display_event,
     display_frame_count: int,
+    batch_pacing_group: CpuBatchPacingGroup | None = None,
+    batch_pacing_index: int | None = None,
 ) -> None:
     _set_worker_process_below_normal_priority()
     torch = torch_backend.get_torch()
@@ -455,6 +547,8 @@ def independent_training_process_main(
             stop_event=stop_event,
             display_event=display_event,
             save_coordinator=save_coordinator,
+            batch_pacing_group=batch_pacing_group,
+            batch_pacing_index=batch_pacing_index,
             repository=repository,
             slot=slot,
             metadata=metadata,
@@ -494,6 +588,8 @@ def independent_training_process_main(
                     f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
                 )
     finally:
+        if batch_pacing_group is not None and batch_pacing_index is not None:
+            batch_pacing_group.deactivate(batch_pacing_index)
         if session is not None:
             publisher.publish_status(session, include_continuity=True)
         publisher.close()
@@ -517,6 +613,8 @@ class ProcessTrainingSession:
         save_coordinator: ProcessModelSaveCoordinator | None = None,
         context: multiprocessing.context.BaseContext | None = None,
         display_frame_count: int | None = None,
+        batch_pacing_group: CpuBatchPacingGroup | None = None,
+        batch_pacing_index: int | None = None,
     ) -> None:
         self.repository = repository
         self.slot = slot
@@ -527,6 +625,12 @@ class ProcessTrainingSession:
         self.opponent_model_cache = opponent_model_cache
         self.save_coordinator = save_coordinator or ProcessModelSaveCoordinator()
         self._context = context or multiprocessing.get_context("spawn")
+        self._batch_pacing_group = batch_pacing_group
+        self._batch_pacing_index = batch_pacing_index
+        if (batch_pacing_group is None) != (batch_pacing_index is None):
+            raise ValueError(
+                "CPU pacing group and participant index must be provided together"
+            )
         self._display_frame_count = max(
             1,
             int(
@@ -579,6 +683,7 @@ class ProcessTrainingSession:
                         error=error,
                     )
                 status = replace(self._status)
+            self._deactivate_batch_pacing()
             try:
                 process.join(0)
                 process.close()
@@ -628,6 +733,8 @@ class ProcessTrainingSession:
                 "stop_event": self._stop_event,
                 "display_event": self._display_event,
                 "display_frame_count": self._display_frame_count,
+                "batch_pacing_group": self._batch_pacing_group,
+                "batch_pacing_index": self._batch_pacing_index,
             },
             daemon=True,
             name="StarAIIndependentCPUTraining",
@@ -636,6 +743,7 @@ class ProcessTrainingSession:
         try:
             _start_process_with_single_threaded_openblas(process)
         except Exception:
+            self._deactivate_batch_pacing()
             self._process = None
             with self._lock:
                 self._status = replace(self._status, running=False)
@@ -643,6 +751,7 @@ class ProcessTrainingSession:
             raise
 
     def request_stop(self) -> None:
+        self._deactivate_batch_pacing()
         self._stop_event.set()
         with self._lock:
             self._status = replace(self._status, stopping=True)
@@ -725,6 +834,15 @@ class ProcessTrainingSession:
                 self._history = tuple(payload["history"])
             if payload.get("log_lines") is not None:
                 self._log_lines = tuple(payload["log_lines"])
+        if not status.running:
+            self._deactivate_batch_pacing()
+
+    def _deactivate_batch_pacing(self) -> None:
+        if (
+            self._batch_pacing_group is not None
+            and self._batch_pacing_index is not None
+        ):
+            self._batch_pacing_group.deactivate(self._batch_pacing_index)
 
     def _read_display_frames(self, metadata: Mapping[str, Any]):
         memory = self._display_memory

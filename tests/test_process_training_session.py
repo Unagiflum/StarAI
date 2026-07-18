@@ -1,6 +1,8 @@
 import multiprocessing
 from pathlib import Path
+import queue
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -16,6 +18,7 @@ from src.training.model_registry import (
 )
 from src.training.orchestration import OpponentSpec
 from src.training.process_session import (
+    CpuBatchPacingGroup,
     ProcessModelSaveCoordinator,
     ProcessTrainingSession,
     _ProcessTrainingEngine,
@@ -31,6 +34,88 @@ class _PublisherStub:
 
     def publish_saved(self, _session):
         pass
+
+
+def _pacing_process(group, participant_index, completed_batches, results):
+    group.wait_after_batch(
+        participant_index,
+        completed_batches,
+        stop_requested=lambda: False,
+    )
+    results.put(participant_index)
+
+
+class CpuBatchPacingGroupTests(unittest.TestCase):
+    def test_fast_participant_waits_until_lead_is_within_limit(self):
+        group = CpuBatchPacingGroup(2, max_batch_lead=1)
+        group.wait_after_batch(0, 1, stop_requested=lambda: False)
+        finished = threading.Event()
+
+        def report_second_fast_batch():
+            group.wait_after_batch(0, 2, stop_requested=lambda: False)
+            finished.set()
+
+        thread = threading.Thread(target=report_second_fast_batch)
+        thread.start()
+        self.assertFalse(finished.wait(0.05))
+
+        group.wait_after_batch(1, 1, stop_requested=lambda: False)
+        thread.join(1.0)
+
+        self.assertTrue(finished.is_set())
+
+    def test_deactivating_slow_participant_releases_waiter(self):
+        group = CpuBatchPacingGroup(2, max_batch_lead=1)
+        finished = threading.Event()
+
+        def report_fast_progress():
+            group.wait_after_batch(0, 2, stop_requested=lambda: False)
+            finished.set()
+
+        thread = threading.Thread(target=report_fast_progress)
+        thread.start()
+        self.assertFalse(finished.wait(0.05))
+
+        group.deactivate(1)
+        thread.join(1.0)
+
+        self.assertTrue(finished.is_set())
+
+    def test_pacing_primitives_are_shared_by_spawned_processes(self):
+        context = multiprocessing.get_context("spawn")
+        group = CpuBatchPacingGroup(2, max_batch_lead=1, context=context)
+        results = context.Queue()
+        fast = context.Process(
+            target=_pacing_process,
+            args=(group, 0, 2, results),
+        )
+        slower = context.Process(
+            target=_pacing_process,
+            args=(group, 1, 1, results),
+        )
+        fast.start()
+        try:
+            with self.assertRaises(queue.Empty):
+                results.get(timeout=0.1)
+            slower.start()
+            completed = {results.get(timeout=5.0), results.get(timeout=5.0)}
+            fast.join(5.0)
+            slower.join(5.0)
+        finally:
+            group.deactivate(0)
+            group.deactivate(1)
+            if fast.is_alive():
+                fast.terminate()
+            if slower.pid is not None and slower.is_alive():
+                slower.terminate()
+            fast.join(1.0)
+            if slower.pid is not None:
+                slower.join(1.0)
+            results.close()
+
+        self.assertEqual(completed, {0, 1})
+        self.assertEqual(fast.exitcode, 0)
+        self.assertEqual(slower.exitcode, 0)
 
 
 class ProcessModelSaveCoordinatorTests(unittest.TestCase):
@@ -168,6 +253,65 @@ class ProcessTrainingResourceTests(unittest.TestCase):
         assets = seen[0].ability("UmgahA1")
         self.assertEqual(len(assets.anchor_offsets), 3)
         self.assertFalse(seen[0]._asset_errors)
+
+    def test_worker_reports_run_relative_batches_to_pacing_group(self):
+        class PacingStub:
+            def __init__(self):
+                self.calls = []
+
+            def wait_after_batch(
+                self,
+                participant_index,
+                completed_batches,
+                *,
+                stop_requested,
+            ):
+                self.calls.append(
+                    (participant_index, completed_batches, stop_requested())
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Pacing test",
+                architecture=model_architecture_metadata(8, 1),
+                training={},
+                progress={"completed_batches": 40},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            context = multiprocessing.get_context("spawn")
+            pacing = PacingStub()
+            engine = _ProcessTrainingEngine(
+                publisher=_PublisherStub(),
+                stop_event=context.Event(),
+                display_event=context.Event(),
+                save_coordinator=ProcessModelSaveCoordinator(),
+                batch_pacing_group=pacing,
+                batch_pacing_index=1,
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    training_device="cpu",
+                ),
+                batch_grouping=10,
+            )
+            engine._completed_batches_at_run_start = 40
+
+            with mock.patch(
+                "src.training.process_session.TrainingSession._record_completed_batch",
+                return_value=43,
+            ):
+                batch_number = engine._record_completed_batch(object())
+
+        self.assertEqual(batch_number, 43)
+        self.assertEqual(pacing.calls, [(1, 3, False)])
 
 
 class ProcessTrainingSessionTests(unittest.TestCase):

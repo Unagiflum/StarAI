@@ -157,6 +157,7 @@ BATCH_CONTROLLED_FIELDS = REGIMEN_CONTROLLED_FIELDS
 COORDINATED_OPPONENT_FIELDS = ("opponent_mode", "ai_opponent_chance")
 FUTURE_CHANGE_SCALAR_FIELDS = (
     "training_device",
+    "synchronize_cpu_runs",
     "opponent_mode",
     "ai_opponent_chance",
     "forward_activity",
@@ -274,6 +275,7 @@ class TrainingUIState:
     minibatch_size: int = 2048
     replay_updates_per_batch: int = 15
     training_device: str = field(default_factory=default_training_device)
+    synchronize_cpu_runs: bool = False
     hidden_layer_size: int = 256
     hidden_layer_count: int = 2
     replay_buffer_size: int = 30000
@@ -325,6 +327,17 @@ class CoordinatedBatchValidation:
 
     @property
     def can_start_all(self):
+        return not self.blocking_reason
+
+
+@dataclass(frozen=True)
+class IndependentCpuPacingValidation:
+    included_instances: tuple[TrainingInstance, ...] = ()
+    shared_current_epsilon: float | None = None
+    blocking_reason: str = ""
+
+    @property
+    def can_start(self):
         return not self.blocking_reason
 
 
@@ -406,6 +419,73 @@ def model_checkpoint_reset_reasons(
         metadata,
         architecture=architecture,
     ).errors
+
+
+def validate_independent_cpu_pacing_start(
+    instance_slots,
+) -> IndependentCpuPacingValidation:
+    """Validate the opted-in CPU subset for one independent bulk start."""
+
+    resolved = tuple(
+        (instance, slot)
+        for instance, slot in instance_slots
+        if instance.state.synchronize_cpu_runs
+        and str(instance.state.training_device).lower() == torch_backend.DEVICE_CPU
+    )
+    if len(resolved) < 2:
+        return IndependentCpuPacingValidation(
+            included_instances=tuple(instance for instance, _slot in resolved)
+        )
+
+    slot_numbers = {int(slot.slot) for _instance, slot in resolved}
+    if len(slot_numbers) > 1:
+        return IndependentCpuPacingValidation(
+            blocking_reason="Synchronized CPU model slots differ"
+        )
+
+    opponent_signatures = {
+        tuple(getattr(instance.state, field) for field in COORDINATED_OPPONENT_FIELDS)
+        for instance, _slot in resolved
+    }
+    if len(opponent_signatures) > 1:
+        return IndependentCpuPacingValidation(
+            blocking_reason=(
+                "Synchronized CPU opponent mode or AI frequency differs"
+            )
+        )
+
+    architecture_signatures = {
+        coordinated_architecture_signature(architecture_for_state(instance.state))
+        for instance, _slot in resolved
+    }
+    if len(architecture_signatures) > 1:
+        return IndependentCpuPacingValidation(
+            blocking_reason="Synchronized CPU model architectures differ"
+        )
+
+    if not instances_have_matching_batch_settings(
+        instance for instance, _slot in resolved
+    ):
+        return IndependentCpuPacingValidation(
+            blocking_reason="Synchronized CPU regimen settings differ"
+        )
+
+    floor = float(resolved[0][0].state.epsilon_floor)
+    shared_current_epsilon = max(
+        floor,
+        min(
+            1.0,
+            sum(
+                float(instance.state.current_epsilon)
+                for instance, _slot in resolved
+            )
+            / len(resolved),
+        ),
+    )
+    return IndependentCpuPacingValidation(
+        included_instances=tuple(instance for instance, _slot in resolved),
+        shared_current_epsilon=shared_current_epsilon,
+    )
 
 
 def validate_coordinated_batch_start(
@@ -1043,6 +1123,8 @@ def _training_ui_state_from_json(payload):
             valid_devices = {device for device, _label in TRAINING_DEVICE_LABELS}
             if value not in valid_devices:
                 value = default_training_device()
+        elif field_name == "synchronize_cpu_runs":
+            value = bool(value)
         elif field_name in {"display_on", "running"}:
             value = False
         setattr(state, field_name, value)
@@ -3330,6 +3412,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.training_device,
     )
     device_selector.visible = torch_backend.training_device_selector_visible()
+    cpu_sync_checkbox = ui_button.Checkbox(
+        device_selector_rect.x,
+        device_selector_rect.bottom + 12,
+        device_selector_rect.width,
+        40,
+        "Sync independent CPU runs",
+        initial_state=state.synchronize_cpu_runs,
+        text_offset=(14, 0),
+    )
+    cpu_sync_checkbox.enabled = state.training_device == torch_backend.DEVICE_CPU
     slot_rows = tuple(
         pygame.Rect(16, 290 + index * 46, CONTROL_WIDTH - 32, 40)
         for index in range(4)
@@ -3550,6 +3642,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             state.training_device = device_selector.selected
         elif state.training_device == torch_backend.DEVICE_GPU:
             state.training_device = torch_backend.DEVICE_CPU
+        state.synchronize_cpu_runs = cpu_sync_checkbox.value
         state.rewards.update(
             (slider.reward_key, slider.value) for slider in reward_sliders
         )
@@ -3618,6 +3711,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         nonlocal trainee_scroll_y, rewards_scroll_y, regimen_scroll_y
         display_checkbox.is_checked = instance_manager.display_on
         device_selector.selected = state.training_device
+        cpu_sync_checkbox.is_checked = state.synchronize_cpu_runs
         refresh_slot_controls(load_labels=False)
         for slider in reward_sliders:
             slider.set_ship(state.selected_ship)
@@ -4458,9 +4552,34 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             (instance, model_slot)
             for instance, model_slot, _reset_checkpoint, _changed in specs
         ]
+        pacing_validation = validate_independent_cpu_pacing_start(instance_slots)
+        if not pacing_validation.can_start:
+            show_notice(pacing_validation.blocking_reason)
+            return
+        pacing_group = None
+        pacing_indexes = {}
+        if len(pacing_validation.included_instances) >= 2:
+            from src.training.process_session import CpuBatchPacingGroup
+
+            pacing_group = CpuBatchPacingGroup(
+                len(pacing_validation.included_instances)
+            )
+            pacing_indexes = {
+                instance.instance_id: index
+                for index, instance in enumerate(
+                    pacing_validation.included_instances
+                )
+            }
         if not instance_manager.reserve_writers_for_slots(instance_slots):
             show_notice("One or more selected models are already training")
             return
+
+        if pacing_group is not None:
+            shared_current_epsilon = float(
+                pacing_validation.shared_current_epsilon
+            )
+            for instance in pacing_validation.included_instances:
+                instance.state.current_epsilon = shared_current_epsilon
 
         started_count = 0
         failures = []
@@ -4489,10 +4608,19 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         reset_checkpoint=reset_checkpoint,
                     ),
                 )
+                pacing_index = pacing_indexes.get(instance.instance_id)
+                if pacing_index is not None:
+                    regimen_metadata = metadata["training"]["regimen"]
+                    regimen_metadata["current_epsilon"] = shared_current_epsilon
+                    regimen_metadata["epsilon"] = shared_current_epsilon
                 updated_slot = model_repository.create_or_update_user_model(metadata)
                 if reset_checkpoint:
                     _clear_reset_model_artifacts(updated_slot)
-                    instance_state.current_epsilon = instance_state.starting_epsilon
+                    instance_state.current_epsilon = (
+                        shared_current_epsilon
+                        if pacing_index is not None
+                        else instance_state.starting_epsilon
+                    )
                     instance_manager.clear_session_continuity(
                         instance,
                         release_writer=False,
@@ -4503,6 +4631,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     updated_slot,
                 )
                 session_class = independent_session_class(instance_state.training_device)
+                pacing_kwargs = (
+                    {
+                        "batch_pacing_group": pacing_group,
+                        "batch_pacing_index": pacing_index,
+                    }
+                    if pacing_index is not None
+                    else {}
+                )
                 session = session_class(
                     repository=model_repository,
                     slot=updated_slot,
@@ -4514,6 +4650,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     initial_log_lines=initial_log_lines,
                     opponent_model_cache=opponent_model_cache,
                     save_coordinator=save_coordinator,
+                    **pacing_kwargs,
                 )
                 instance.session = session
                 instance_state.running = True
@@ -4523,10 +4660,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     ship=updated_slot.ship,
                     slot=updated_slot.slot,
                     architecture=architecture,
-                    training=updated_training,
+                    training=metadata.get("training", updated_training),
                 )
                 started_count += 1
             except (TrainingSessionError, RuntimeError, ValueError, PermissionError) as exc:
+                pacing_index = pacing_indexes.get(instance.instance_id)
+                if pacing_group is not None and pacing_index is not None:
+                    pacing_group.deactivate(pacing_index)
                 instance.session = previous_session
                 instance_state.running = False
                 instance_manager.release_writer(instance)
@@ -5057,6 +5197,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 for field in slot_fields:
                     field.handle_event(translated)
                 device_selector.handle_event(translated, menu_sound_manager)
+                cpu_sync_checkbox.handle_event(translated, menu_sound_manager)
                 for delete_btn in delete_buttons:
                     delete_btn.handle_event(translated, menu_sound_manager)
                 load_button.handle_event(translated, menu_sound_manager)
@@ -5252,6 +5393,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             device_selector.selected = state.training_device
         device_selector.enabled = not active_running and not coordinated_active
+        cpu_sync_checkbox.enabled = bool(
+            not active_running
+            and not coordinated_active
+            and state.training_device == torch_backend.DEVICE_CPU
+        )
+        cpu_sync_checkbox.is_checked = state.synchronize_cpu_runs
 
         update_field_colors()
         selected_slot = selected_model_slot()
@@ -5470,6 +5617,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     device_heading.get_rect(center=(device_selector.rect.centerx, 25)),
                 )
                 device_selector.draw(content, body_font, content_mouse_pos)
+            cpu_sync_checkbox.draw(content, body_font, content_mouse_pos)
 
             slot_heading = body_font.render("AI Slot", True, ui.WHITE)
             content.blit(slot_heading, (slot_rows[0].x, slot_rows[0].y - 30))
