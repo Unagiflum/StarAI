@@ -10,6 +10,8 @@ from src.training.contracts import (
     ACTION_OUTPUT_SIZE,
     ACTION_SCHEMA_METADATA,
     OBSERVATION_INPUT_SIZE,
+    REFLECTION_AUGMENTATION_METADATA_KEY,
+    REFLECTION_AUGMENTATION_MODE,
     SHIP_TYPE_CATALOG_ORDER,
 )
 from src.training.model_registry import (
@@ -244,6 +246,106 @@ class ValueNetworkTests(unittest.TestCase):
             ):
                 self.assertTrue(torch.allclose(value, expected))
 
+    def test_training_updates_original_and_reflected_actions_in_one_step(self):
+        torch = torch_backend.require_torch()
+        model = build_value_network(ValueNetworkConfig(8, 1))
+        with torch.no_grad():
+            for parameter in model.parameters():
+                parameter.zero_()
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+
+        with mock.patch.object(
+            optimizer,
+            "step",
+            wraps=optimizer.step,
+        ) as optimizer_step:
+            loss = train_selected_action_regression(
+                model,
+                optimizer,
+                torch.zeros((1, OBSERVATION_INPUT_SIZE)),
+                torch.tensor([2]),  # turn left; reflection is turn right (index 4)
+                torch.tensor([1.0]),
+            )
+
+        self.assertAlmostEqual(loss, 0.5, places=6)
+        self.assertAlmostEqual(float(model[-1].bias[2]), 0.05, places=6)
+        self.assertAlmostEqual(float(model[-1].bias[4]), 0.05, places=6)
+        self.assertEqual(optimizer_step.call_count, 1)
+
+    def test_batched_training_updates_original_and_reflected_actions(self):
+        torch = torch_backend.require_torch()
+        models = [
+            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1)),
+        ]
+        with torch.no_grad():
+            for model in models:
+                for parameter in model.parameters():
+                    parameter.zero_()
+        optimizers = [
+            torch.optim.SGD(model.parameters(), lr=0.1)
+            for model in models
+        ]
+
+        losses = train_selected_action_regression_batched(
+            models,
+            optimizers,
+            [
+                [[0.0] * OBSERVATION_INPUT_SIZE],
+                [[0.0] * OBSERVATION_INPUT_SIZE],
+            ],
+            [[2], [4]],
+            [[1.0], [1.0]],
+        )
+
+        self.assertEqual(losses, (0.5, 0.5))
+        for model in models:
+            self.assertAlmostEqual(float(model[-1].bias[2]), 0.05, places=6)
+            self.assertAlmostEqual(float(model[-1].bias[4]), 0.05, places=6)
+
+    def test_reflected_scalar_and_batched_training_run_on_cuda(self):
+        torch = torch_backend.require_torch()
+        if not torch.cuda.is_available():
+            self.skipTest("CUDA is not available")
+        device = torch.device("cuda")
+        models = [
+            build_value_network(ValueNetworkConfig(8, 1), device=device)
+            for _ in range(3)
+        ]
+        with torch.no_grad():
+            for model in models:
+                for parameter in model.parameters():
+                    parameter.zero_()
+        optimizers = [
+            torch.optim.SGD(model.parameters(), lr=0.1)
+            for model in models
+        ]
+
+        scalar_loss = train_selected_action_regression(
+            models[0],
+            optimizers[0],
+            [[0.0] * OBSERVATION_INPUT_SIZE],
+            [2],
+            [1.0],
+        )
+        batched_losses = train_selected_action_regression_batched(
+            models[1:],
+            optimizers[1:],
+            [
+                [[0.0] * OBSERVATION_INPUT_SIZE],
+                [[0.0] * OBSERVATION_INPUT_SIZE],
+            ],
+            [[2], [4]],
+            [[1.0], [1.0]],
+        )
+
+        self.assertAlmostEqual(scalar_loss, 0.5, places=6)
+        self.assertEqual(batched_losses, (0.5, 0.5))
+        for model in models:
+            self.assertEqual(next(model.parameters()).device.type, "cuda")
+            self.assertAlmostEqual(float(model[-1].bias[2]), 0.05, places=6)
+            self.assertAlmostEqual(float(model[-1].bias[4]), 0.05, places=6)
+
     def test_model_construction_fails_clearly_without_torch(self):
         with mock.patch("src.training.torch_backend._torch", None):
             with self.assertRaises(torch_backend.TorchUnavailableError):
@@ -251,6 +353,22 @@ class ValueNetworkTests(unittest.TestCase):
 
 
 class TrainingModelRepositoryTests(unittest.TestCase):
+    def test_model_metadata_records_original_plus_mirror_augmentation(self):
+        metadata = metadata_from_state(
+            ship="Earthling",
+            slot=1,
+            description="Reflection",
+            architecture=model_architecture_metadata(8, 1),
+            training={"regimen": {"minibatch_size": 32}},
+        )
+
+        regimen = metadata["training"]["regimen"]
+        self.assertEqual(regimen["minibatch_size"], 32)
+        self.assertEqual(
+            regimen[REFLECTION_AUGMENTATION_METADATA_KEY],
+            REFLECTION_AUGMENTATION_MODE,
+        )
+
     def test_empty_slot_is_available_without_bundled_or_user_model(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

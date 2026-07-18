@@ -48,6 +48,10 @@ from src.training.coordinated import (
     CoordinatedTrainingRecord,
     CoordinatedTrainingSession,
 )
+from src.training.contracts import (
+    REFLECTION_AUGMENTATION_METADATA_KEY,
+    REFLECTION_AUGMENTATION_MODE,
+)
 from src.training.orchestration import TrainingOrchestrationConfig
 from src.training.opponent_cache import OpponentModelCache
 from src.training.rewards import (
@@ -1716,6 +1720,10 @@ def _normalized_training_settings(training):
             normalized[group] = settings
     regimen = normalized.get("regimen")
     if isinstance(regimen, dict):
+        regimen.setdefault(
+            REFLECTION_AUGMENTATION_METADATA_KEY,
+            REFLECTION_AUGMENTATION_MODE,
+        )
         if "starting_epsilon" not in regimen and "epsilon" in regimen:
             regimen["starting_epsilon"] = regimen["epsilon"]
         regimen.pop("current_epsilon", None)
@@ -3686,6 +3694,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             },
             "rewards": dict(training_state.rewards),
             "regimen": {
+                REFLECTION_AUGMENTATION_METADATA_KEY: (
+                    REFLECTION_AUGMENTATION_MODE
+                ),
                 "replay_buffer_size": training_state.replay_buffer_size,
                 "rounds_per_batch": training_state.rounds_per_batch,
                 "batch_grouping": training_state.batch_grouping,

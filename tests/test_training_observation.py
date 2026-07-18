@@ -2,6 +2,8 @@ import math
 import unittest
 from types import SimpleNamespace
 
+import numpy as np
+
 import src.const as const
 from src.training.contracts import (
     ENEMY_SHIP_BLOCK_OFFSET,
@@ -15,6 +17,7 @@ from src.training.contracts import (
     SHIP_TYPE_CATALOG_ORDER,
 )
 from src.training.observation import build_observation_context, encode_observation
+from src.training.reflection import reflect_observations
 
 
 def _field(prefix, name):
@@ -78,6 +81,109 @@ def _obj(name, **overrides):
 
 
 class TrainingObservationTests(unittest.TestCase):
+    def test_reflection_matches_encoding_of_an_explicitly_mirrored_state(self):
+        trainee = _ship(
+            "Orz",
+            player=1,
+            position=[1100.0, 1700.0],
+            rotation=45.0,
+            velocity=[30.0, -20.0],
+            turret_heading=100.0,
+            turn_left_active=True,
+            turn_right_active=False,
+            input_pressed_frames={"turn_left": 9},
+        )
+        enemy = _ship(
+            "Mycon",
+            player=2,
+            position=[2400.0, 900.0],
+            rotation=225.0,
+            velocity=[-15.0, 25.0],
+            turn_left_active=False,
+            turn_right_active=True,
+            input_pressed_frames={"turn_right": 10},
+        )
+        planet = _obj(
+            "Planet",
+            type="space",
+            position=[4000.0, 4000.0],
+            velocity=[0.0, 0.0],
+            gravity=1.0,
+            diameter=300,
+        )
+        asteroid = _obj(
+            "Asteroid",
+            type="space",
+            position=[1800.0, 2600.0],
+            velocity=[12.0, -7.0],
+        )
+
+        mirrored_trainee = SimpleNamespace(
+            **{
+                **vars(trainee),
+                "position": [(-trainee.position[0]) % const.ARENA_SIZE, trainee.position[1]],
+                "rotation": (-trainee.rotation) % 360.0,
+                "velocity": [-trainee.velocity[0], trainee.velocity[1]],
+                "turret_heading": (-trainee.turret_heading) % 360.0,
+                "turn_left_active": trainee.turn_right_active,
+                "turn_right_active": trainee.turn_left_active,
+                "input_pressed_frames": {"turn_right": 9},
+            },
+        )
+        mirrored_enemy = SimpleNamespace(
+            **{
+                **vars(enemy),
+                "position": [(-enemy.position[0]) % const.ARENA_SIZE, enemy.position[1]],
+                "rotation": (-enemy.rotation) % 360.0,
+                "velocity": [-enemy.velocity[0], enemy.velocity[1]],
+                "turn_left_active": enemy.turn_right_active,
+                "turn_right_active": enemy.turn_left_active,
+                "input_pressed_frames": {"turn_left": 10},
+            },
+        )
+        mirrored_planet = SimpleNamespace(
+            **{
+                **vars(planet),
+                "position": [(-planet.position[0]) % const.ARENA_SIZE, planet.position[1]],
+                "velocity": [-planet.velocity[0], planet.velocity[1]],
+            },
+        )
+        mirrored_asteroid = SimpleNamespace(
+            **{
+                **vars(asteroid),
+                "position": [(-asteroid.position[0]) % const.ARENA_SIZE, asteroid.position[1]],
+                "velocity": [-asteroid.velocity[0], asteroid.velocity[1]],
+            },
+        )
+
+        observation = encode_observation(
+            trainee,
+            enemy,
+            frame_id=11,
+            game_objects=[trainee, enemy, planet, asteroid],
+        )
+        explicitly_mirrored = encode_observation(
+            mirrored_trainee,
+            mirrored_enemy,
+            frame_id=11,
+            game_objects=[
+                mirrored_trainee,
+                mirrored_enemy,
+                mirrored_planet,
+                mirrored_asteroid,
+            ],
+        )
+
+        transformed = reflect_observations(
+            np.asarray([observation], dtype=np.float32)
+        )[0]
+        np.testing.assert_allclose(
+            transformed,
+            np.asarray(explicitly_mirrored, dtype=np.float32),
+            rtol=0.0,
+            atol=1e-6,
+        )
+
     def test_shared_frame_context_matches_independent_perspective_encoding(self):
         trainee = _ship("Earthling", player=1, position=[100.0, 150.0])
         enemy = _ship("Mycon", player=2, position=[450.0, 500.0])

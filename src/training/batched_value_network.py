@@ -11,6 +11,7 @@ import numpy as np
 
 from src.training import torch_backend
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
+from src.training.reflection import reflect_action_indices, reflect_observations
 
 
 @dataclass(frozen=True)
@@ -157,7 +158,7 @@ def train_selected_action_regression_batched(
     action_indices_by_model: Sequence[Sequence[int]],
     returns_by_model: Sequence[Sequence[float]],
 ) -> tuple[float, ...]:
-    """Train same-shaped models on independent minibatches in one autograd pass."""
+    """Train same-shaped models on original and reflected replay minibatches."""
 
     torch = torch_backend.require_torch()
     model_count = len(models)
@@ -211,10 +212,30 @@ def train_selected_action_regression_batched(
         reduction="none",
     )
     per_model_losses = per_sample_losses.mean(dim=1)
-    per_model_losses.sum().backward()
+    (per_model_losses.sum() * 0.5).backward()
+    original_losses = per_model_losses.detach()
+
+    mirrored_observations = reflect_observations(observations)
+    mirrored_actions = reflect_action_indices(actions)
+    del observations, actions, predictions, selected, per_sample_losses
+    del per_model_losses, params
+
+    # Rebuild the stacked parameter graph so the reflected half can release the
+    # original activations before accumulating its equally weighted gradients.
+    params = _stack_linear_parameters(models, torch)
+    predictions = _batched_forward(params, mirrored_observations)
+    selected = predictions.gather(2, mirrored_actions.unsqueeze(2)).squeeze(2)
+    per_sample_losses = torch.nn.functional.smooth_l1_loss(
+        selected,
+        returns,
+        reduction="none",
+    )
+    per_model_losses = per_sample_losses.mean(dim=1)
+    (per_model_losses.sum() * 0.5).backward()
+    combined_losses = 0.5 * (original_losses + per_model_losses.detach())
     detached_losses = tuple(
         float(loss)
-        for loss in per_model_losses.detach().cpu().tolist()
+        for loss in combined_losses.cpu().tolist()
     )
     for optimizer in optimizers:
         optimizer.step()

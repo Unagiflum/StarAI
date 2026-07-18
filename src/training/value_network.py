@@ -7,6 +7,7 @@ from typing import Any
 
 from src.training import torch_backend
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
+from src.training.reflection import reflect_action_indices, reflect_observations
 
 
 @dataclass(frozen=True)
@@ -117,14 +118,26 @@ def train_selected_action_regression(
     action_indices,
     returns,
 ) -> float:
+    mirrored_observations = reflect_observations(observations)
+    mirrored_action_indices = reflect_action_indices(action_indices)
     model.train()
     optimizer.zero_grad()
-    loss = selected_action_regression_loss(
+    original_loss = selected_action_regression_loss(
         model,
         observations,
         action_indices,
         returns,
     )
-    loss.backward()
+    (original_loss * 0.5).backward()
+    mirrored_loss = selected_action_regression_loss(
+        model,
+        mirrored_observations,
+        mirrored_action_indices,
+        returns,
+    )
+    (mirrored_loss * 0.5).backward()
     optimizer.step()
-    return float(loss.detach().cpu().item())
+    combined_loss = 0.5 * (
+        original_loss.detach() + mirrored_loss.detach()
+    )
+    return float(combined_loss.cpu().item())

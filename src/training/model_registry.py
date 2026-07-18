@@ -14,6 +14,8 @@ from src.training.contracts import (
     ACTION_SCHEMA_VERSION,
     OBSERVATION_INPUT_SIZE,
     OBSERVATION_SCHEMA_VERSION,
+    REFLECTION_AUGMENTATION_METADATA_KEY,
+    REFLECTION_AUGMENTATION_MODE,
     SHIP_TYPE_CATALOG_ORDER,
 )
 
@@ -126,6 +128,14 @@ def metadata_from_state(
     game_settings: Mapping[str, Any] | None = None,
     progress: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    training_metadata = dict(training)
+    if training_metadata:
+        regimen = training_metadata.get("regimen", {})
+        regimen = dict(regimen) if isinstance(regimen, Mapping) else {}
+        regimen[REFLECTION_AUGMENTATION_METADATA_KEY] = (
+            REFLECTION_AUGMENTATION_MODE
+        )
+        training_metadata["regimen"] = regimen
     game_settings_metadata = (
         dict(game_settings) if game_settings is not None else current_game_settings_metadata()
     )
@@ -140,7 +150,7 @@ def metadata_from_state(
         "slot": slot,
         "description": description,
         "architecture": normalize_architecture_metadata(architecture),
-        "training": dict(training),
+        "training": training_metadata,
         "game_settings": game_settings_metadata,
         "progress": {"completed_batches": 0, **dict(progress or {})},
     }

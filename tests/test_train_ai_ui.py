@@ -16,6 +16,10 @@ import src.const as const
 import src.Menus.train_ai as train_ai
 from src.UI import ui, ui_slider
 from src.training import torch_backend
+from src.training.contracts import (
+    REFLECTION_AUGMENTATION_METADATA_KEY,
+    REFLECTION_AUGMENTATION_MODE,
+)
 from src.training.session import TrainingSessionStatus
 from src.training.rewards import REWARD_POINT_A1, REWARD_SPAWN_A1, REWARD_SPAWN_A2
 from src.Menus.train_ai import (
@@ -3215,7 +3219,7 @@ class SliderRowTests(unittest.TestCase):
         self.assertEqual(_format_short_count(30000), "30k")
         self.assertEqual(_format_short_count(15000000), "15M")
 
-    def test_update_to_data_ratio_uses_batch_samples(self):
+    def test_update_to_data_ratio_uses_replay_samples_without_augmentation(self):
         self.assertEqual(
             _format_update_to_data_ratio(4096, 10, 30000),
             "1.37",
@@ -3241,6 +3245,19 @@ class SliderRowTests(unittest.TestCase):
 
 
 class TrainingSettingsComparisonTests(unittest.TestCase):
+    def test_legacy_regimen_implies_current_reflection_augmentation(self):
+        legacy = {"regimen": {"minibatch_size": 32}}
+        current = {
+            "regimen": {
+                "minibatch_size": 32,
+                REFLECTION_AUGMENTATION_METADATA_KEY: (
+                    REFLECTION_AUGMENTATION_MODE
+                ),
+            }
+        }
+
+        self.assertTrue(_training_settings_match(legacy, current))
+
     def test_decayed_current_epsilon_does_not_change_settings_match(self):
         saved = {
             "regimen": {
