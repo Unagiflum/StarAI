@@ -69,7 +69,7 @@ SCREEN_LEFT = int((SCREEN_WIDTH - SCREEN_HEIGHT) / 2)
 FPS = 24
 INPUT_REPEAT_DELAY_FRAMES = 3
 COORDINATED_TRAINING_YIELD_INTERVAL_FRAMES = 4
-COORDINATED_TRAINING_YIELD_SECONDS = 0.00025
+COORDINATED_TRAINING_YIELD_SECONDS = 0 #0.00025
 # Enables detailed training timing in the coordinator and CPU workers and
 # writes the associated CSV output. Keep disabled for normal training runs.
 TRAINING_TIMING_ENABLED = False
