@@ -881,6 +881,7 @@ class CoordinatedTrainingSession:
         coordinated_cpu_workers_enabled: bool = False,
         coordinated_cpu_worker_count: int | str | None = 0,
         worker_client_factory: Callable[..., Any] | None = None,
+        reconcile_metrics_csv: bool = True,
     ):
         if len(records) < 2:
             raise ValueError("Coordinated training requires at least two records")
@@ -972,6 +973,8 @@ class CoordinatedTrainingSession:
         }
         for state in self._states.values():
             state.last_saved_completed_batches = state.status.completed_batches
+            if not reconcile_metrics_csv:
+                continue
             user_dir = getattr(state.record.repository, "user_dir", None)
             if user_dir is not None:
                 _, metadata_path = model_paths(

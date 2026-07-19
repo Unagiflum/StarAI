@@ -135,6 +135,14 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
 
         return build
 
+    def test_constructor_can_skip_already_completed_metrics_reconciliation(self):
+        with mock.patch(
+            "src.training.coordinated.reconcile_grouped_metrics_csv"
+        ) as reconcile:
+            self._session(reconcile_metrics_csv=False)
+
+        reconcile.assert_not_called()
+
     def test_session_averages_current_epsilon_across_records(self):
         session = CoordinatedTrainingSession(
             (

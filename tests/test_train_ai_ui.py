@@ -2102,6 +2102,13 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         second.state.training_device = torch_backend.DEVICE_GPU
         manager.select_instance(first.instance_id)
         self.FakeCoordinatedSession.created = []
+        startup_log_updates = []
+
+        original_set_lines = train_ai.TrainingBatchLogBox.set_lines
+
+        def capture_log_lines(log_box, lines, colors=None):
+            startup_log_updates.append(tuple(lines))
+            return original_set_lines(log_box, lines, colors)
 
         start_all_pos = self.synced_action_position()
         events = [
@@ -2129,6 +2136,11 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 "src.Menus.train_ai.CoordinatedTrainingSession",
                 self.FakeCoordinatedSession,
             ),
+            mock.patch.object(
+                train_ai.TrainingBatchLogBox,
+                "set_lines",
+                new=capture_log_lines,
+            ),
             mock.patch("src.Menus.train_ai.torch_backend.get_torch", return_value=object()),
             mock.patch("src.Menus.train_ai.torch_backend.cuda_available", return_value=True),
             mock.patch(
@@ -2142,8 +2154,14 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 return_value={"Earthling": sprite, "Androsynth": sprite},
             ),
             mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
-            mock.patch("pygame.event.get", return_value=events),
-            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+            mock.patch(
+                "pygame.event.get",
+                side_effect=[events, [], [], []],
+            ),
+            mock.patch(
+                "pygame.display.flip",
+                side_effect=[None, None, None, self.StopRun()],
+            ),
         ):
             with self.assertRaises(self.StopRun):
                 train_ai.run(screen)
@@ -2153,6 +2171,14 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertTrue(created.started)
         self.assertTrue(
             created.kwargs["coordinated_cpu_workers_enabled"]
+        )
+        self.assertTrue(
+            any(
+                any(line.startswith("Status") and "Starting" in line for line in update)
+                and any(line.startswith("Progress") for line in update)
+                and any(line.startswith("Time") for line in update)
+                for update in startup_log_updates
+            )
         )
         records_by_id = {record.instance_id: record for record in created.records}
         for instance in (first, second):
@@ -2333,6 +2359,8 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 side_effect=[
                     [click_start_all],
                     [],
+                    [],
+                    [],
                     [click_stop_all],
                     [confirm_stop_all],
                 ],
@@ -2343,7 +2371,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             ),
             mock.patch(
                 "pygame.display.flip",
-                side_effect=[None, None, None, self.StopRun()],
+                side_effect=[None, None, None, None, None, self.StopRun()],
             ),
         ):
             with self.assertRaises(self.StopRun):
@@ -2354,12 +2382,12 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             [("Display", True), ("Starting", False), ("Back", True)],
         )
         self.assertEqual(
-            footer_states[3:6],
-            [("Display", True), ("Stop synced", True), ("Back", False)],
+            footer_states[3:9],
+            2 * [("Display", False), ("Starting", False), ("Back", False)],
         )
         self.assertEqual(
-            footer_states[6:9],
-            [("Display", True), ("Stop synced", True), ("Back", False)],
+            footer_states[9:15],
+            2 * [("Display", True), ("Stop synced", True), ("Back", False)],
         )
         self.assertEqual(
             footer_states[-3:],
@@ -3007,6 +3035,32 @@ class TrainingMenuClockTests(unittest.TestCase):
         self.assertEqual(elapsed, 0.125)
         clock.set_multiplier.assert_called_once_with(const.VIDEO_FPS_MULTIPLIER)
         clock.tick.assert_called_once_with()
+
+
+class IncrementalStartJobTests(unittest.TestCase):
+    def test_advance_runs_exactly_one_startup_unit_at_a_time(self):
+        steps = []
+        finished = []
+        errors = []
+        cancelled = []
+        job = train_ai.IncrementalStartJob(
+            total=3,
+            step=steps.append,
+            finish=lambda: finished.append(True),
+            on_error=errors.append,
+            on_cancel=lambda: cancelled.append(True),
+        )
+
+        self.assertFalse(job.advance())
+        self.assertEqual(steps, [0])
+        self.assertFalse(job.advance())
+        self.assertEqual(steps, [0, 1])
+        self.assertTrue(job.advance())
+
+        self.assertEqual(steps, [0, 1, 2])
+        self.assertEqual(finished, [True])
+        self.assertEqual(errors, [])
+        self.assertEqual(cancelled, [])
 
 
 class TrainingStartAllStyleTests(unittest.TestCase):
@@ -3784,6 +3838,10 @@ class TrainingConsoleTests(unittest.TestCase):
     def test_current_batch_status_reports_each_training_behavior(self):
         cases = (
             ({"running": True}, "Running"),
+            (
+                {"running": True, "display_message": "Starting training instances"},
+                "Starting",
+            ),
             ({"running": True, "display_message": "Preparing new batch"}, "Waiting"),
             (
                 {"running": True, "display_message": "Applying gradient descent"},
@@ -3800,6 +3858,21 @@ class TrainingConsoleTests(unittest.TestCase):
                 )
                 status_line = next(line for line in lines if line.startswith("Status"))
                 self.assertEqual(status_line.split("|", 1)[1].strip(), expected)
+
+    def test_startup_status_reports_progress_and_elapsed_time(self):
+        status = self._status(
+            running=True,
+            display_message="Starting training instances",
+            elapsed_training_seconds=65,
+        )
+        status.startup_completed = 2
+        status.startup_total = 5
+
+        lines = train_ai._current_batch_console_lines(status)
+
+        self.assertIn("Status    |   Starting           ", lines)
+        self.assertIn("Progress  |        2 / 5", lines)
+        self.assertIn("Time      |          0h:01m:05s", lines)
 
     def test_selected_model_progress_uses_persisted_batch_and_epsilon(self):
         metadata = metadata_from_state(

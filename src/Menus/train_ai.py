@@ -5,7 +5,8 @@ from __future__ import annotations
 import sys
 import json
 import math
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -66,6 +67,8 @@ from src.training.replay import PACKED_REPLAY_SAMPLE_BYTES
 from src.training.session import (
     TrainingSession,
     TrainingSessionError,
+    TrainingSessionStatus,
+    reconcile_grouped_metrics_csv,
     validate_model_metadata,
 )
 
@@ -345,6 +348,39 @@ class IndependentCpuPacingValidation:
     @property
     def can_start(self):
         return not self.blocking_reason
+
+
+@dataclass
+class IncrementalStartJob:
+    """Advance a multi-instance startup by one bounded unit per UI frame."""
+
+    total: int
+    step: Callable[[int], None]
+    finish: Callable[[], None]
+    on_error: Callable[[Exception], None]
+    on_cancel: Callable[[], None]
+    completed: int = 0
+    started_at: float = field(default_factory=time.perf_counter)
+
+    @property
+    def elapsed_seconds(self) -> float:
+        return max(0.0, time.perf_counter() - self.started_at)
+
+    def advance(self) -> bool:
+        """Run one unit and return whether startup is now finished."""
+
+        try:
+            self.step(self.completed)
+            self.completed += 1
+            if self.completed < self.total:
+                return False
+            self.finish()
+        except Exception as exc:
+            self.on_error(exc)
+        return True
+
+    def cancel(self) -> None:
+        self.on_cancel()
 
 
 def batch_settings_from_state(state: TrainingUIState) -> dict[str, int | float]:
@@ -2973,6 +3009,8 @@ def _current_batch_status_label(status):
 
     behavior = str(getattr(status, "behavior", "") or "").strip().lower()
     message = str(getattr(status, "display_message", "") or "").strip().lower()
+    if "starting" in message:
+        return "Starting"
     if behavior == "optimizing" or "optimiz" in message or "gradient descent" in message:
         return "Optimizing"
     if behavior == "waiting" or any(
@@ -2995,30 +3033,49 @@ def _current_batch_console_lines(status):
         "Current batch",
         _current_batch_row("Ship", f"{ship:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}"),
         _current_batch_row("Status", f"{state_label:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}".ljust(22)),
-        _current_batch_row("Opponent", f"{opponent:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}".ljust(24)),
-        _current_batch_row("Time", f"{_format_training_duration(elapsed):>20}"),
-        _current_batch_row("Replay", f"{str(status.replay_size) + ' frames':>18}"),
-        _current_batch_row("Batch", f"{status.completed_batches + 1:>11d}"),
-        _current_batch_row(
-            "Round",
-            f"{status.current_round:>11d} / {status.total_rounds:d}",
-        ),
-        _current_batch_row(
-            "Frame",
-            f"{status.current_frame:>11d} / {current_frame_limit:d}",
-        ),
-        _current_batch_row("Batches/h", f"{batches_per_hour:>14.2f}"),
-        _current_batch_row("Reward", f"{status.weighted_total_return:>16.4f}"),
-        _current_batch_row(
-            "Loss",
-            f"{recent_loss:>16.4f}" if recent_loss is not None else f"{'-':>16}",
-        ),
-        _current_batch_row("Gamma", f"{getattr(status, 'gamma', 0.0):>15.3f}"),
-        _current_batch_row("Eps decay", f"{getattr(status, 'epsilon_decay', 0.0):>15.3f}"),
-        _current_batch_row("Epsilon", f"{getattr(status, 'current_epsilon', 0.0):>17.5f}"),
-        _current_batch_row("Learning", f"{getattr(status, 'learning_rate', 0.0):>17.5f}"),
-        "",
     ]
+    startup_total = max(0, int(getattr(status, "startup_total", 0)))
+    if startup_total:
+        startup_completed = min(
+            startup_total,
+            max(0, int(getattr(status, "startup_completed", 0))),
+        )
+        lines.append(
+            _current_batch_row(
+                "Progress",
+                f"{startup_completed:>9d} / {startup_total:d}",
+            )
+        )
+    lines.extend(
+        [
+            _current_batch_row(
+                "Opponent",
+                f"{opponent:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}".ljust(24),
+            ),
+            _current_batch_row("Time", f"{_format_training_duration(elapsed):>20}"),
+            _current_batch_row("Replay", f"{str(status.replay_size) + ' frames':>18}"),
+            _current_batch_row("Batch", f"{status.completed_batches + 1:>11d}"),
+            _current_batch_row(
+                "Round",
+                f"{status.current_round:>11d} / {status.total_rounds:d}",
+            ),
+            _current_batch_row(
+                "Frame",
+                f"{status.current_frame:>11d} / {current_frame_limit:d}",
+            ),
+            _current_batch_row("Batches/h", f"{batches_per_hour:>14.2f}"),
+            _current_batch_row("Reward", f"{status.weighted_total_return:>16.4f}"),
+            _current_batch_row(
+                "Loss",
+                f"{recent_loss:>16.4f}" if recent_loss is not None else f"{'-':>16}",
+            ),
+            _current_batch_row("Gamma", f"{getattr(status, 'gamma', 0.0):>15.3f}"),
+            _current_batch_row("Eps decay", f"{getattr(status, 'epsilon_decay', 0.0):>15.3f}"),
+            _current_batch_row("Epsilon", f"{getattr(status, 'current_epsilon', 0.0):>17.5f}"),
+            _current_batch_row("Learning", f"{getattr(status, 'learning_rate', 0.0):>17.5f}"),
+            "",
+        ]
+    )
     
     ship_name = status.previous_opponent or "-"
     col2_header = f" {ship_name[:10]:>10} "
@@ -3389,6 +3446,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     ]
     confirmation_prompt = [None]
     pending_start_action = [None]
+    startup_job = [None]
     frame_in_progress = [False]
     notice = [None]
     background = ui.load_background(
@@ -3530,6 +3588,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if pending_start_action[0] is not None:
             return False
         pending_start_action[0] = callback
+        return True
+
+    def begin_incremental_start(job):
+        """Queue a startup job, draining it only when no UI frame is active."""
+
+        if startup_job[0] is not None:
+            return False
+        startup_job[0] = job
+        if not frame_in_progress[0]:
+            while startup_job[0] is job:
+                if job.advance():
+                    startup_job[0] = None
         return True
     device_selector.visible = torch_backend.training_device_selector_visible()
     cpu_sync_checkbox = ui_button.Checkbox(
@@ -4730,9 +4800,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             for instance in pacing_validation.included_instances:
                 instance.state.current_epsilon = shared_current_epsilon
 
-        started_count = 0
+        started_count = [0]
         failures = []
-        for instance, model_slot, reset_checkpoint, _changed in specs:
+
+        def launch_one(index):
+            instance, model_slot, reset_checkpoint, _changed = specs[index]
             instance_state = instance.state
             previous_session = instance.session
             try:
@@ -4815,7 +4887,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     architecture=architecture,
                     training=metadata.get("training", updated_training),
                 )
-                started_count += 1
+                started_count[0] += 1
             except (TrainingSessionError, RuntimeError, ValueError, PermissionError) as exc:
                 pacing_index = pacing_indexes.get(instance.instance_id)
                 if pacing_group is not None and pacing_index is not None:
@@ -4825,17 +4897,44 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 instance_manager.release_writer(instance)
                 failures.append(str(exc))
 
-        refresh_slot_controls()
-        go_to_batch_field.set_value(state.go_to_batch_number)
-        skipped_total = int(skipped_count) + len(failures)
-        message = f"Started {started_count} training instance"
-        if started_count != 1:
-            message += "s"
-        if skipped_total:
-            message += f"; skipped {skipped_total}"
-        if failures:
-            message += f" ({failures[0]})"
-        show_notice(message)
+        def deactivate_inactive_pacing_members():
+            if pacing_group is None:
+                return
+            for instance in pacing_validation.included_instances:
+                if instance_manager.is_running_or_stopping(instance):
+                    continue
+                pacing_index = pacing_indexes.get(instance.instance_id)
+                if pacing_index is not None:
+                    pacing_group.deactivate(pacing_index)
+
+        def finish_start():
+            refresh_slot_controls()
+            go_to_batch_field.set_value(state.go_to_batch_number)
+            skipped_total = int(skipped_count) + len(failures)
+            message = f"Started {started_count[0]} training instance"
+            if started_count[0] != 1:
+                message += "s"
+            if skipped_total:
+                message += f"; skipped {skipped_total}"
+            if failures:
+                message += f" ({failures[0]})"
+            show_notice(message)
+
+        def abort_start(exc=None):
+            deactivate_inactive_pacing_members()
+            instance_manager.release_stopped_writers()
+            if exc is not None:
+                show_notice(str(exc))
+
+        begin_incremental_start(
+            IncrementalStartJob(
+                total=len(specs),
+                step=launch_one,
+                finish=finish_start,
+                on_error=abort_start,
+                on_cancel=abort_start,
+            )
+        )
 
     def start_all_eligible_models():
         sync_state_from_ui()
@@ -5024,51 +5123,63 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             show_notice("One or more selected models are already training")
             return
         records = []
-        try:
-            for instance, model_slot in instance_slots:
-                reset_checkpoint = instance.instance_id in reset_instance_ids
-                metadata = metadata_for_coordinated_instance(
+
+        def prepare_record(index):
+            instance, model_slot = instance_slots[index]
+            reset_checkpoint = instance.instance_id in reset_instance_ids
+            metadata = metadata_for_coordinated_instance(
+                instance,
+                model_slot,
+                reset_checkpoint=reset_checkpoint,
+            )
+            regimen_metadata = metadata["training"]["regimen"]
+            regimen_metadata["current_epsilon"] = shared_current_epsilon
+            regimen_metadata["epsilon"] = shared_current_epsilon
+            updated_slot = model_repository.create_or_update_user_model(metadata)
+            if reset_checkpoint:
+                _clear_reset_model_artifacts(updated_slot)
+                instance.state.current_epsilon = shared_current_epsilon
+                instance_manager.clear_session_continuity(
                     instance,
-                    model_slot,
-                    reset_checkpoint=reset_checkpoint,
+                    release_writer=False,
                 )
-                regimen_metadata = metadata["training"]["regimen"]
-                regimen_metadata["current_epsilon"] = shared_current_epsilon
-                regimen_metadata["epsilon"] = shared_current_epsilon
-                updated_slot = model_repository.create_or_update_user_model(metadata)
-                if reset_checkpoint:
-                    _clear_reset_model_artifacts(updated_slot)
-                    instance.state.current_epsilon = shared_current_epsilon
-                    instance_manager.clear_session_continuity(
-                        instance,
-                        release_writer=False,
-                    )
-                initial_history, initial_log_lines = session_continuity_for_instance(
-                    instance,
-                    updated_slot,
+            initial_history, initial_log_lines = session_continuity_for_instance(
+                instance,
+                updated_slot,
+            )
+            if updated_slot.pth_path is not None:
+                reconcile_grouped_metrics_csv(
+                    updated_slot.pth_path.with_suffix(".csv"),
+                    completed_batches=int(
+                        metadata.get("progress", {}).get("completed_batches", 0)
+                    ),
+                    batch_grouping=instance.state.batch_grouping,
                 )
-                records.append(
-                    CoordinatedTrainingRecord(
-                        instance_id=instance.instance_id,
-                        repository=model_repository,
-                        slot=updated_slot,
-                        metadata=metadata,
-                        config=training_config_from_state(instance.state),
-                        batch_grouping=instance.state.batch_grouping,
-                        initial_history=initial_history,
-                        initial_log_lines=initial_log_lines,
-                        stop_at_batch=stop_at_batch_for_state(
-                            instance.state,
-                            metadata,
-                        ),
-                    )
+            records.append(
+                CoordinatedTrainingRecord(
+                    instance_id=instance.instance_id,
+                    repository=model_repository,
+                    slot=updated_slot,
+                    metadata=metadata,
+                    config=training_config_from_state(instance.state),
+                    batch_grouping=instance.state.batch_grouping,
+                    initial_history=initial_history,
+                    initial_log_lines=initial_log_lines,
+                    stop_at_batch=stop_at_batch_for_state(
+                        instance.state,
+                        metadata,
+                    ),
                 )
+            )
+
+        def finish_start():
             scheduler = CoordinatedTrainingSession(
                 tuple(records),
                 audio_service=audio_service,
                 opponent_model_cache=opponent_model_cache,
                 save_coordinator=save_coordinator,
                 coordinated_cpu_workers_enabled=True,
+                reconcile_metrics_csv=False,
             )
             instance_manager.start_coordinated_session(scheduler)
             for (instance, _model_slot), record in zip(instance_slots, records):
@@ -5081,10 +5192,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 )
             go_to_batch_field.set_value(state.go_to_batch_number)
             show_notice("Synced training started")
-        except (RuntimeError, ValueError, PermissionError) as exc:
+
+        def abort_start(exc=None):
             for instance, _slot in instance_slots:
                 instance_manager.release_writer(instance)
-            show_notice(str(exc))
+            if exc is not None:
+                show_notice(str(exc))
+
+        begin_incremental_start(
+            IncrementalStartJob(
+                total=len(instance_slots),
+                step=prepare_record,
+                finish=finish_start,
+                on_error=abort_start,
+                on_cancel=abort_start,
+            )
+        )
 
     def start_synced_models():
         if instance_manager.coordinated_run_active():
@@ -5279,6 +5402,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     confirmation_prompt[0] = None
                 continue
 
+            if startup_job[0] is not None:
+                if not display_checkbox.value:
+                    batch_log_box.handle_event(event, layout.arena_rect, log_font)
+                continue
+
             if ship_picker is not None:
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     ship_picker = None
@@ -5459,6 +5587,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 for slider in regimen_sliders:
                     slider.handle_event(translated, menu_sound_manager)
 
+        if application_close_requested[0]:
+            pending_start_action[0] = None
+            if startup_job[0] is not None:
+                startup_job[0].cancel()
+                startup_job[0] = None
+
         sync_state_from_ui()
         controls_enabled = state.simple_behavior_controls_enabled
         ai_opponent_slider.enabled = not state.running
@@ -5558,6 +5692,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             for instance in independent_running_instances
         )
         active_stopping = bool(getattr(session_status, "stopping", False))
+        starting_in_progress = (
+            pending_start_action[0] is not None or startup_job[0] is not None
+        )
         batch_validation = validate_start_all()
         apply_to_all = (
             instance_manager.batch_scheduling.apply_to_all_open_instances
@@ -5745,11 +5882,49 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ):
             batch_start_all_button.enabled = False
 
-        if pending_start_action[0] is not None:
+        if starting_in_progress:
             start_stop_button.text = "Starting"
             start_stop_button.enabled = False
             batch_start_all_button.text = "Starting"
             batch_start_all_button.enabled = False
+
+        if startup_job[0] is not None:
+            apply_all_checkbox.enabled = False
+            device_selector.enabled = False
+            go_to_batch_checkbox.enabled = False
+            go_to_batch_field.enabled = False
+            display_checkbox.enabled = False
+            back_button.enabled = False
+            close_instance_button.enabled = False
+            add_instance_button.enabled = False
+            load_button.enabled = False
+            for delete_button in delete_buttons:
+                delete_button.enabled = False
+            for slider in (
+                *reward_sliders,
+                *grouped_controls,
+                *regimen_sliders,
+            ):
+                slider.enabled = False
+
+            job = startup_job[0]
+            startup_status = TrainingSessionStatus(
+                ship=state.selected_ship or "",
+                running=True,
+                elapsed_training_seconds=job.elapsed_seconds,
+                current_epsilon=state.current_epsilon,
+                epsilon_decay=state.epsilon_decay,
+                gamma=state.gamma,
+                learning_rate=state.learning_rate,
+                display_message="Starting training instances",
+            )
+            startup_status.startup_completed = job.completed
+            startup_status.startup_total = job.total
+            console_lines, console_colors = _display_off_console_content(
+                startup_status,
+                (),
+            )
+            batch_log_box.set_lines(console_lines, console_colors)
 
         if application_close_requested[0]:
             apply_all_checkbox.enabled = False
@@ -5783,7 +5958,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             screen.blit(background, (0, 0))
         else:
             screen.fill(ui.BG_COLOR)
-        if session_status is not None:
+        if startup_job[0] is not None:
+            batch_log_box.draw(screen, layout.arena_rect, log_font)
+        elif session_status is not None:
             display_interp_t = training_display_playback.interpolation_for(
                 active_instance.instance_id,
                 session_status,
@@ -6089,6 +6266,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     start_action = pending_start_action[0]
                     pending_start_action[0] = None
                     start_action()
+                elif startup_job[0] is not None:
+                    job = startup_job[0]
+                    if job.advance() and startup_job[0] is job:
+                        startup_job[0] = None
             finally:
                 frame_in_progress[0] = False
 
