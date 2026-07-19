@@ -66,7 +66,7 @@ class CpuBatchPacingGroup:
         self,
         participant_count: int,
         *,
-        max_batch_lead: int = 1,
+        max_batch_lead: int = 0,
         context: multiprocessing.context.BaseContext | None = None,
     ) -> None:
         participant_count = int(participant_count)
@@ -391,6 +391,7 @@ class _ProcessTrainingEngine(TrainingSession):
         save_coordinator: ProcessModelSaveCoordinator,
         batch_pacing_group: CpuBatchPacingGroup | None = None,
         batch_pacing_index: int | None = None,
+        batch_accounting_started_at: float | None = None,
         **kwargs,
     ) -> None:
         self._publisher = publisher
@@ -401,6 +402,12 @@ class _ProcessTrainingEngine(TrainingSession):
         self._simulation_resources = HeadlessAssetManager()
         self._batch_pacing_group = batch_pacing_group
         self._batch_pacing_index = batch_pacing_index
+        self._batch_accounting_started_at = (
+            float(batch_accounting_started_at)
+            if batch_accounting_started_at is not None
+            else time.perf_counter()
+        )
+        self._pending_paced_batch_number: int | None = None
         super().__init__(save_coordinator=save_coordinator, **kwargs)
         self._stop_requested = stop_event
         self._display_on = display_event
@@ -429,26 +436,63 @@ class _ProcessTrainingEngine(TrainingSession):
                 self._last_frame_status_published_at = now
 
     def _record_completed_batch(self, *args, **kwargs) -> int:
+        if self._batch_pacing_group is None or self._batch_pacing_index is None:
+            batch_number = super()._record_completed_batch(*args, **kwargs)
+            self._publisher.publish_status(self, include_continuity=True)
+            return batch_number
+
+        kwargs["batch_seconds"] = max(
+            0.0,
+            time.perf_counter() - self._batch_accounting_started_at,
+        )
+        kwargs["emit_outputs"] = False
         batch_number = super()._record_completed_batch(*args, **kwargs)
-        self._publisher.publish_status(self, include_continuity=True)
-        if (
-            self._batch_pacing_group is not None
-            and self._batch_pacing_index is not None
-        ):
-            completed_this_run = max(
-                0,
-                batch_number - int(self._completed_batches_at_run_start),
-            )
-            self._batch_pacing_group.wait_after_batch(
-                self._batch_pacing_index,
-                completed_this_run,
-                stop_requested=self._stop_requested.is_set,
-            )
+        if batch_number % self.batch_grouping == 0:
+            self._pending_paced_batch_number = batch_number
+        else:
+            self._complete_paced_batch(batch_number)
         return batch_number
 
     def _save_state(self, *args, **kwargs) -> None:
         super()._save_state(*args, **kwargs)
         self._publisher.publish_saved(self)
+        pending_batch_number = self._pending_paced_batch_number
+        if pending_batch_number is not None:
+            self._complete_paced_batch(pending_batch_number)
+
+    def _complete_paced_batch(self, batch_number: int) -> None:
+        completed_this_run = max(
+            0,
+            int(batch_number) - int(self._completed_batches_at_run_start),
+        )
+        with self._lock:
+            self._status.display_message = "Waiting for synchronized CPU runs"
+            self._status.battle_view = None
+            self._status.simulation_speed_multiplier = 0.0
+        self._publisher.publish_status(self, include_continuity=True)
+        self._batch_pacing_group.wait_after_batch(
+            self._batch_pacing_index,
+            completed_this_run,
+            stop_requested=self._stop_requested.is_set,
+        )
+        finished_at = time.perf_counter()
+        with self._lock:
+            self._status.display_message = ""
+        self._finalize_completed_batch_metrics(
+            batch_number=batch_number,
+            batch_seconds=max(
+                0.0,
+                finished_at - self._batch_accounting_started_at,
+            ),
+        )
+        self._batch_accounting_started_at = finished_at
+        self._pending_paced_batch_number = None
+        self._publisher.publish_status(self, include_continuity=True)
+
+    def _run_timing_started_at(self) -> float:
+        if self._batch_pacing_group is not None:
+            return self._batch_accounting_started_at
+        return super()._run_timing_started_at()
 
     def _run_batch(self, **kwargs) -> TrainingBatchResult:
         return self.batch_runner(resources=self._simulation_resources, **kwargs)
@@ -524,6 +568,7 @@ def independent_training_process_main(
     batch_pacing_group: CpuBatchPacingGroup | None = None,
     batch_pacing_index: int | None = None,
 ) -> None:
+    process_started_at = time.perf_counter()
     _set_worker_process_below_normal_priority()
     torch = torch_backend.get_torch()
     if torch is not None:
@@ -549,6 +594,7 @@ def independent_training_process_main(
             save_coordinator=save_coordinator,
             batch_pacing_group=batch_pacing_group,
             batch_pacing_index=batch_pacing_index,
+            batch_accounting_started_at=process_started_at,
             repository=repository,
             slot=slot,
             metadata=metadata,

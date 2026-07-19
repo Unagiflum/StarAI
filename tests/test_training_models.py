@@ -393,6 +393,7 @@ class TrainingModelRepositoryTests(unittest.TestCase):
         self.assertEqual(slot.source, SLOT_BUNDLED)
         self.assertEqual(slot.description, "Default")
         self.assertTrue(slot.is_bundled)
+        self.assertEqual(slot.metadata, {"description": "Optimized"})
 
     def test_user_model_description_comes_from_sidecar_json(self):
         with tempfile.TemporaryDirectory() as directory:

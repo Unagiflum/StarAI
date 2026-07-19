@@ -17,6 +17,7 @@ from src.training.model_registry import (
     model_architecture_metadata,
 )
 from src.training.orchestration import OpponentSpec
+from src.training.session import TrainingSessionStatus
 from src.training.process_session import (
     CpuBatchPacingGroup,
     ProcessModelSaveCoordinator,
@@ -46,6 +47,11 @@ def _pacing_process(group, participant_index, completed_batches, results):
 
 
 class CpuBatchPacingGroupTests(unittest.TestCase):
+    def test_default_pacing_is_a_zero_lead_barrier(self):
+        group = CpuBatchPacingGroup(2)
+
+        self.assertEqual(group.max_batch_lead, 0)
+
     def test_fast_participant_waits_until_lead_is_within_limit(self):
         group = CpuBatchPacingGroup(2, max_batch_lead=1)
         group.wait_after_batch(0, 1, stop_requested=lambda: False)
@@ -255,6 +261,8 @@ class ProcessTrainingResourceTests(unittest.TestCase):
         self.assertFalse(seen[0]._asset_errors)
 
     def test_worker_reports_run_relative_batches_to_pacing_group(self):
+        waiting_messages = []
+
         class PacingStub:
             def __init__(self):
                 self.calls = []
@@ -269,6 +277,7 @@ class ProcessTrainingResourceTests(unittest.TestCase):
                 self.calls.append(
                     (participant_index, completed_batches, stop_requested())
                 )
+                waiting_messages.append(engine._status.display_message)
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -303,15 +312,91 @@ class ProcessTrainingResourceTests(unittest.TestCase):
                 batch_grouping=10,
             )
             engine._completed_batches_at_run_start = 40
+            engine._batch_accounting_started_at = 10.0
 
-            with mock.patch(
-                "src.training.process_session.TrainingSession._record_completed_batch",
-                return_value=43,
+            with (
+                mock.patch(
+                    "src.training.process_session.TrainingSession._record_completed_batch",
+                    return_value=43,
+                ),
+                mock.patch.object(
+                    engine,
+                    "_finalize_completed_batch_metrics",
+                ) as finalize,
+                mock.patch(
+                    "src.training.process_session.time.perf_counter",
+                    return_value=15.0,
+                ),
             ):
                 batch_number = engine._record_completed_batch(object())
 
         self.assertEqual(batch_number, 43)
         self.assertEqual(pacing.calls, [(1, 3, False)])
+        self.assertEqual(waiting_messages, ["Waiting for synchronized CPU runs"])
+        finalize.assert_called_once_with(batch_number=43, batch_seconds=5.0)
+
+    def test_grouped_pacing_barrier_runs_after_save(self):
+        events = []
+
+        class PacingStub:
+            def wait_after_batch(
+                self,
+                participant_index,
+                completed_batches,
+                *,
+                stop_requested,
+            ):
+                events.append(
+                    ("wait", participant_index, completed_batches, stop_requested())
+                )
+
+        engine = object.__new__(_ProcessTrainingEngine)
+        engine._batch_pacing_group = PacingStub()
+        engine._batch_pacing_index = 1
+        engine._batch_accounting_started_at = 10.0
+        engine._pending_paced_batch_number = None
+        engine._completed_batches_at_run_start = 40
+        engine.batch_grouping = 10
+        engine._stop_requested = mock.Mock()
+        engine._stop_requested.is_set.return_value = False
+        engine._publisher = _PublisherStub()
+        engine._lock = threading.Lock()
+        engine._status = TrainingSessionStatus()
+
+        with mock.patch(
+            "src.training.process_session.TrainingSession._record_completed_batch",
+            return_value=50,
+        ):
+            batch_number = engine._record_completed_batch(object())
+
+        self.assertEqual(batch_number, 50)
+        self.assertEqual(events, [])
+
+        with (
+            mock.patch(
+                "src.training.process_session.TrainingSession._save_state",
+                side_effect=lambda *_args, **_kwargs: events.append(("save",)),
+            ),
+            mock.patch.object(
+                engine,
+                "_finalize_completed_batch_metrics",
+                side_effect=lambda **_kwargs: events.append(("finalize",)),
+            ),
+            mock.patch(
+                "src.training.process_session.time.perf_counter",
+                return_value=25.0,
+            ),
+        ):
+            engine._save_state(object(), object(), object(), include_replay=False)
+
+        self.assertEqual(
+            events,
+            [
+                ("save",),
+                ("wait", 1, 10, False),
+                ("finalize",),
+            ],
+        )
 
 
 class ProcessTrainingSessionTests(unittest.TestCase):

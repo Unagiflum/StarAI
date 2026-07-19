@@ -166,6 +166,7 @@ class TrainingModelRepository:
     def slot_for(self, ship: str, slot: int) -> TrainingModelSlot:
         bundled_pth, bundled_json = model_paths(self.bundled_dir, ship, slot)
         if bundled_pth.exists():
+            _description, metadata = _description_from_metadata(bundled_json)
             return TrainingModelSlot(
                 ship=ship,
                 slot=slot,
@@ -173,6 +174,7 @@ class TrainingModelRepository:
                 description="Default",
                 pth_path=bundled_pth,
                 metadata_path=bundled_json if bundled_json.exists() else None,
+                metadata=metadata,
             )
 
         user_pth, user_json = model_paths(self.user_dir, ship, slot)

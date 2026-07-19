@@ -2478,11 +2478,14 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         )
         manager.select_instance(selected.instance_id)
         manager.set_apply_future_changes_to_all(True)
+        footer_states = []
         trainee_action_states = []
         scope_states = []
 
         def capture_button(button, *_args, **_kwargs):
-            if button.rect.y == 518:
+            if button.rect.y == train_ai.ACTION_TOP:
+                footer_states.append((button.text, button.enabled))
+            elif button.rect.y == 518:
                 trainee_action_states.append((button.text, button.enabled))
 
         def capture_scope(checkbox, *_args, **_kwargs):
@@ -2522,6 +2525,10 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 train_ai.run(screen)
 
         self.assertEqual(trainee_action_states, [("Stop all", True)])
+        self.assertEqual(
+            footer_states,
+            [("Display", True), ("Stop all", False), ("Back", False)],
+        )
         self.assertEqual(
             scope_states,
             [("Apply actions to all instances", True, True)],
@@ -3725,6 +3732,48 @@ class TrainingConsoleTests(unittest.TestCase):
         self.assertIn(
             f"{'Kill enemy':<{reward_name_width}} |     2.0000 |        -",
             lines,
+        )
+
+    def test_current_batch_status_reports_each_training_behavior(self):
+        cases = (
+            ({"running": True}, "Running"),
+            ({"running": True, "display_message": "Preparing new batch"}, "Waiting"),
+            (
+                {"running": True, "display_message": "Applying gradient descent"},
+                "Optimizing",
+            ),
+            ({"running": False}, "Stopped"),
+            ({"running": True, "stopping": True}, "Stopping"),
+        )
+
+        for overrides, expected in cases:
+            with self.subTest(expected=expected):
+                lines = train_ai._current_batch_console_lines(
+                    self._status(**overrides)
+                )
+                status_line = next(line for line in lines if line.startswith("Status"))
+                self.assertEqual(status_line.split("|", 1)[1].strip(), expected)
+
+    def test_selected_model_progress_uses_persisted_batch_and_epsilon(self):
+        metadata = metadata_from_state(
+            ship="Earthling",
+            slot=1,
+            description="Ready",
+            architecture=model_architecture_metadata(256, 2),
+            training={"regimen": {"current_epsilon": 0.112}},
+            progress={"completed_batches": 432},
+        )
+        slot = TrainingModelSlot(
+            "Earthling",
+            1,
+            SLOT_USER,
+            description="Ready",
+            metadata=metadata,
+        )
+
+        self.assertEqual(
+            train_ai._selected_model_progress_lines(slot),
+            ("Last batch done: #432", "Current epsilon: 0.112"),
         )
 
     def test_display_off_console_assigns_requested_section_colors(self):

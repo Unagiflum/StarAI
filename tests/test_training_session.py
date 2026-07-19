@@ -127,6 +127,48 @@ class _MutableOpponentCache:
 
 
 class TrainingMetricsTests(unittest.TestCase):
+    def test_deferred_batch_time_updates_log_and_csv_together(self):
+        session = object.__new__(TrainingSession)
+        session._lock = threading.Lock()
+        session._completed_batch_seconds = [12.0]
+        session._history = [
+            BatchMetrics(
+                batch=1,
+                kills=1,
+                deaths=0,
+                batch_count=1,
+                average_match_score=4.0,
+                epsilon=0.5,
+                learning_rate=0.001,
+                average_loss=0.25,
+                batch_seconds=12.0,
+            )
+        ]
+        session._last_recorded_batch_metrics = session._history[-1]
+        session._status = TrainingSessionStatus()
+        session._log_lines = []
+        session.batch_grouping = 1
+
+        with (
+            mock.patch.object(session, "_csv_path", return_value=Path("unused.csv")),
+            mock.patch(
+                "src.training.session.append_grouped_metrics_csv"
+            ) as metrics_csv,
+        ):
+            session._finalize_completed_batch_metrics(
+                batch_number=1,
+                batch_seconds=35.0,
+            )
+
+        self.assertEqual(session._history[-1].batch_seconds, 35.0)
+        self.assertEqual(session._status.last_batch_seconds, 35.0)
+        self.assertEqual(session._status.average_batch_seconds, 35.0)
+        self.assertTrue(session._log_lines[-1].endswith("  0h:00m:35s"))
+        csv_metrics = metrics_csv.call_args.args[1]
+        csv_rolling = metrics_csv.call_args.args[2]
+        self.assertEqual(csv_metrics.batch_seconds, 35.0)
+        self.assertEqual(csv_rolling.average_batch_seconds, 35.0)
+
     def test_batch_summary_line_uses_specified_format(self):
         metrics = BatchMetrics(
             batch=86,

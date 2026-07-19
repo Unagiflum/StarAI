@@ -623,7 +623,7 @@ class TrainingSession:
         with self._lock:
             self._status.running = True
             self._status.error = ""
-            self._run_started_at = time.perf_counter()
+            self._run_started_at = self._run_timing_started_at()
             self._run_stopped_at = None
             self._current_batch_started_at = None
             self._completed_batches_at_run_start = self._status.completed_batches
@@ -778,6 +778,7 @@ class TrainingSession:
         result: TrainingBatchResult,
         *,
         batch_seconds: float = 0.0,
+        emit_outputs: bool = True,
     ) -> int:
         with self._lock:
             self._status.completed_batches += 1
@@ -807,7 +808,8 @@ class TrainingSession:
             self._history.append(metrics)
             self._last_recorded_batch_metrics = metrics
             rolling = rolling_metrics(tuple(self._history), self.batch_grouping)
-            self._log_lines.append(format_batch_summary_line(metrics, rolling))
+            if emit_outputs:
+                self._log_lines.append(format_batch_summary_line(metrics, rolling))
             
             from src.training.rewards import REWARD_COMPONENTS
             batch_components = {c: 0.0 for c in REWARD_COMPONENTS}
@@ -823,15 +825,53 @@ class TrainingSession:
             
             self._status.batch_component_totals = batch_components
             
-            if len(self._log_lines) > MAX_BATCH_LOG_LINES:
+            if emit_outputs and len(self._log_lines) > MAX_BATCH_LOG_LINES:
                 del self._log_lines[: len(self._log_lines) - MAX_BATCH_LOG_LINES]
             self._status.recent_loss = metrics.average_loss
             self._status.replay_size = result.replay_size
 
-        if batch_number % self.batch_grouping == 0:
+        if emit_outputs and batch_number % self.batch_grouping == 0:
             append_grouped_metrics_csv(self._csv_path(), metrics, rolling)
         self._trim_history()
         return batch_number
+
+    def _finalize_completed_batch_metrics(
+        self,
+        *,
+        batch_number: int,
+        batch_seconds: float,
+    ) -> None:
+        batch_seconds = max(0.0, float(batch_seconds))
+        with self._lock:
+            if self._completed_batch_seconds:
+                self._completed_batch_seconds[-1] = batch_seconds
+            metrics_index = next(
+                (
+                    index
+                    for index in range(len(self._history) - 1, -1, -1)
+                    if self._history[index].batch == int(batch_number)
+                ),
+                None,
+            )
+            if metrics_index is None:
+                raise RuntimeError("completed batch metrics were not recorded")
+            metrics = replace(
+                self._history[metrics_index],
+                batch_seconds=batch_seconds,
+            )
+            self._history[metrics_index] = metrics
+            self._last_recorded_batch_metrics = metrics
+            rolling = rolling_metrics(tuple(self._history), self.batch_grouping)
+            self._status.last_batch_seconds = batch_seconds
+            self._status.average_batch_seconds = self._average_batch_seconds_locked()
+            self._log_lines.append(format_batch_summary_line(metrics, rolling))
+            if len(self._log_lines) > MAX_BATCH_LOG_LINES:
+                del self._log_lines[: len(self._log_lines) - MAX_BATCH_LOG_LINES]
+        if batch_number % self.batch_grouping == 0:
+            append_grouped_metrics_csv(self._csv_path(), metrics, rolling)
+
+    def _run_timing_started_at(self) -> float:
+        return time.perf_counter()
 
     def _save_state(
         self,

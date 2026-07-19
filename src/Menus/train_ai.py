@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import json
 import math
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -2870,14 +2871,56 @@ def _format_training_duration(seconds):
     return f"{hours:d}h:{minutes:02d}m:{seconds:02d}s"
 
 
+def _selected_model_progress_lines(model_slot):
+    if model_slot is None or not model_slot.exists:
+        return ()
+    metadata = model_slot.metadata
+    if not isinstance(metadata, Mapping):
+        return ()
+    progress = metadata.get("progress", {})
+    training = metadata.get("training", {})
+    regimen = training.get("regimen", {}) if isinstance(training, Mapping) else {}
+    if not isinstance(progress, Mapping) or not isinstance(regimen, Mapping):
+        return ()
+    epsilon = regimen.get(
+        "current_epsilon",
+        regimen.get("epsilon", regimen.get("starting_epsilon")),
+    )
+    try:
+        completed_batches = max(0, int(progress["completed_batches"]))
+        current_epsilon = float(epsilon)
+    except (KeyError, TypeError, ValueError):
+        return ()
+    return (
+        f"Last batch done: #{completed_batches}",
+        f"Current epsilon: {current_epsilon:.3f}",
+    )
+
+
 def _current_batch_row(label, value):
     return f"{label:<{CURRENT_BATCH_LABEL_WIDTH}}|{value}"
 
 
+def _current_batch_status_label(status):
+    if getattr(status, "stopping", False):
+        return "Stopping"
+    if not getattr(status, "running", False):
+        return "Stopped"
+
+    behavior = str(getattr(status, "behavior", "") or "").strip().lower()
+    message = str(getattr(status, "display_message", "") or "").strip().lower()
+    if behavior == "optimizing" or "optimiz" in message or "gradient descent" in message:
+        return "Optimizing"
+    if behavior == "waiting" or any(
+        marker in message
+        for marker in ("waiting", "preparing", "loading", "scheduler idle")
+    ):
+        return "Waiting"
+    return "Running"
+
+
 def _current_batch_console_lines(status):
-    state_label = "Running" if status.running else "Stopped"
-    if status.stopping:
-        state_label = "Stopping"
+    state_label = _current_batch_status_label(status)
     elapsed = getattr(status, "elapsed_training_seconds", 0.0)
     batches_per_hour = getattr(status, "batches_per_hour", 0.0)
     ship = getattr(status, "ship", "") or "-"
@@ -5532,6 +5575,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             display_checkbox.bg_color = ui.MENU_BUTTON_COLOR
             display_checkbox.hover_color = ui.MENU_BUTTON_COLOR_HI
 
+        if (
+            instance_manager.active_tab == "trainee"
+            and start_stop_button.text == "Stop all"
+            and start_stop_button.enabled
+        ):
+            batch_start_all_button.enabled = False
+
         if application_close_requested[0]:
             apply_all_checkbox.enabled = False
             device_selector.enabled = False
@@ -5619,6 +5669,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 )
                 device_selector.draw(content, body_font, content_mouse_pos)
             cpu_sync_checkbox.draw(content, body_font, content_mouse_pos)
+            progress_y = cpu_sync_checkbox.rect.bottom + 4
+            for line in _selected_model_progress_lines(selected_slot):
+                rendered = small_font.render(line, True, ui.LIGHT_GREY)
+                content.blit(rendered, (cpu_sync_checkbox.rect.x, progress_y))
+                progress_y += rendered.get_height() + 2
 
             slot_heading = body_font.render("AI Slot", True, ui.WHITE)
             content.blit(slot_heading, (slot_rows[0].x, slot_rows[0].y - 30))
