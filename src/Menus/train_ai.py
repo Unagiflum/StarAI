@@ -162,6 +162,8 @@ FUTURE_CHANGE_SCALAR_FIELDS = (
     "synchronize_cpu_runs",
     "go_to_batch_enabled",
     "go_to_batch_number",
+    "go_to_epsilon_enabled",
+    "go_to_epsilon_value",
     "opponent_mode",
     "ai_opponent_chance",
     "forward_activity",
@@ -241,6 +243,7 @@ TAB_BOX_BORDER_WIDTH = 3
 TAB_BOX_VERTICAL_BORDER_WIDTH = TAB_BOX_BORDER_WIDTH * 3
 TRAINEE_ACTION_LONGEST_LABEL = "Androsynth-01 Loaded"
 TRAINEE_ACTION_HORIZONTAL_PADDING = 20
+TRAINEE_ACTION_VERTICAL_GAP = 6
 
 
 @dataclass
@@ -282,6 +285,8 @@ class TrainingUIState:
     synchronize_cpu_runs: bool = False
     go_to_batch_enabled: bool = False
     go_to_batch_number: int = 0
+    go_to_epsilon_enabled: bool = False
+    go_to_epsilon_value: float = 0.0
     hidden_layer_size: int = 256
     hidden_layer_count: int = 2
     replay_buffer_size: int = 30000
@@ -410,6 +415,46 @@ def stop_at_batch_for_state(state: TrainingUIState, metadata) -> int | None:
             state.go_to_batch_number = 0
         return None
     state.go_to_batch_number = target
+    return target
+
+
+def normalize_go_to_epsilon_value(value) -> float:
+    """Return a three-decimal epsilon target, or zero for indefinite runs."""
+
+    text = str(value).strip()
+    if text in {"0", "0.0", "0.00", "0.000"}:
+        return 0.0
+    whole, separator, fraction = text.partition(".")
+    if (
+        separator != "."
+        or whole not in {"", "0"}
+        or not fraction.isdigit()
+        or len(fraction) > 3
+    ):
+        return 0.0
+    target = float(f"0.{fraction}")
+    if not 0.001 <= target <= 0.999:
+        return 0.0
+    return round(target, 3)
+
+
+def stop_at_epsilon_for_state(
+    state: TrainingUIState,
+    current_epsilon: float,
+) -> float | None:
+    """Resolve one UI state's optional descending-epsilon target."""
+
+    target = normalize_go_to_epsilon_value(state.go_to_epsilon_value)
+    if not state.go_to_epsilon_enabled or target <= 0.0:
+        return None
+    effective_current_epsilon = max(
+        float(state.epsilon_floor),
+        min(1.0, float(current_epsilon)),
+    )
+    if target >= effective_current_epsilon:
+        state.go_to_epsilon_value = 0.0
+        return None
+    state.go_to_epsilon_value = target
     return target
 
 
@@ -1207,6 +1252,10 @@ def _training_ui_state_from_json(payload):
             value = bool(value)
         elif field_name == "go_to_batch_number":
             value = normalize_go_to_batch_number(value)
+        elif field_name == "go_to_epsilon_enabled":
+            value = bool(value)
+        elif field_name == "go_to_epsilon_value":
+            value = normalize_go_to_epsilon_value(value)
         elif field_name in {"display_on", "running"}:
             value = False
         setattr(state, field_name, value)
@@ -2486,6 +2535,45 @@ class PositiveIntegerField(TextField):
         self.edited = False
 
 
+class EpsilonTargetField(TextField):
+    """Single-line editor for an optional three-decimal epsilon target."""
+
+    def __init__(self, rect, value=0.0):
+        super().__init__(rect, self._formatted_value(value), max_length=5)
+
+    def handle_event(self, event):
+        previous = self.text
+        super().handle_event(event)
+        candidate = self.text
+        if candidate:
+            whole, separator, fraction = candidate.partition(".")
+            valid = (
+                whole in {"", "0"}
+                and (not separator or separator == ".")
+                and (not separator or fraction.isdigit() or not fraction)
+                and len(fraction) <= 3
+            )
+            if not valid:
+                self.text = previous
+        if self.text != previous:
+            self.edited = True
+
+    @property
+    def value(self) -> float:
+        return normalize_go_to_epsilon_value(self.text)
+
+    def set_value(self, value) -> None:
+        self.text = self._formatted_value(value)
+        self.edited = False
+
+    @staticmethod
+    def _formatted_value(value) -> str:
+        normalized = normalize_go_to_epsilon_value(value)
+        if normalized <= 0.0:
+            return "0"
+        return f"{normalized:.3f}".rstrip("0").rstrip(".")
+
+
 @dataclass
 class TrainingNotice:
     text: str
@@ -3661,8 +3749,35 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
         state.go_to_batch_number,
     )
+    go_to_epsilon_rect = pygame.Rect(
+        go_to_batch_rect.x,
+        go_to_batch_rect.bottom + 6,
+        go_to_batch_rect.width,
+        go_to_batch_rect.height,
+    )
+    go_to_epsilon_checkbox = ui_button.Checkbox(
+        *go_to_epsilon_rect,
+        "Go to Epsilon:",
+        initial_state=state.go_to_epsilon_enabled,
+        text_offset=(-48, 0),
+        box_offset=(0, -2),
+    )
+    go_to_epsilon_field = EpsilonTargetField(
+        (
+            go_to_epsilon_rect.right - 96,
+            go_to_epsilon_rect.y + 5,
+            88,
+            go_to_epsilon_rect.height - 10,
+        ),
+        state.go_to_epsilon_value,
+    )
     slot_rows = tuple(
-        pygame.Rect(16, 290 + index * 46, CONTROL_WIDTH - 32, 40)
+        pygame.Rect(
+            16,
+            go_to_epsilon_rect.bottom + 30 + index * 42,
+            CONTROL_WIDTH - 32,
+            40,
+        )
         for index in range(4)
     )
     slot_fields = [
@@ -3691,14 +3806,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     trainee_action_button_width = _trainee_action_button_width(body_font)
     load_button_rect = pygame.Rect(
         0,
-        slot_rows[-1].bottom + 8,
+        slot_rows[-1].bottom + TRAINEE_ACTION_VERTICAL_GAP,
         trainee_action_button_width,
         34,
     )
     load_button_rect.centerx = CONTROL_WIDTH // 2
     instance_start_button_rect = pygame.Rect(
         load_button_rect.x,
-        load_button_rect.bottom + 8,
+        load_button_rect.bottom + TRAINEE_ACTION_VERTICAL_GAP,
         load_button_rect.width,
         load_button_rect.height,
     )
@@ -3884,6 +3999,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.synchronize_cpu_runs = cpu_sync_checkbox.value
         state.go_to_batch_enabled = go_to_batch_checkbox.value
         state.go_to_batch_number = go_to_batch_field.value
+        state.go_to_epsilon_enabled = go_to_epsilon_checkbox.value
+        state.go_to_epsilon_value = go_to_epsilon_field.value
         state.rewards.update(
             (slider.reward_key, slider.value) for slider in reward_sliders
         )
@@ -3955,6 +4072,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         cpu_sync_checkbox.is_checked = state.synchronize_cpu_runs
         go_to_batch_checkbox.is_checked = state.go_to_batch_enabled
         go_to_batch_field.set_value(state.go_to_batch_number)
+        go_to_epsilon_checkbox.is_checked = state.go_to_epsilon_enabled
+        go_to_epsilon_field.set_value(state.go_to_epsilon_value)
         refresh_slot_controls(load_labels=False)
         for slider in reward_sliders:
             slider.set_ship(state.selected_ship)
@@ -4730,8 +4849,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 opponent_model_cache=opponent_model_cache,
                 save_coordinator=save_coordinator,
                 stop_at_batch=stop_at_batch_for_state(state, metadata),
+                stop_at_epsilon=stop_at_epsilon_for_state(
+                    state,
+                    state.current_epsilon,
+                ),
             )
             go_to_batch_field.set_value(state.go_to_batch_number)
+            go_to_epsilon_field.set_value(state.go_to_epsilon_value)
             instance_manager.set_active_session(session)
             state.running = True
             session.start()
@@ -4911,6 +5035,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         instance_state,
                         metadata,
                     ),
+                    stop_at_epsilon=stop_at_epsilon_for_state(
+                        instance_state,
+                        instance_state.current_epsilon,
+                    ),
                     **pacing_kwargs,
                 )
                 instance.session = session
@@ -4946,6 +5074,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         def finish_start():
             refresh_slot_controls()
             go_to_batch_field.set_value(state.go_to_batch_number)
+            go_to_epsilon_field.set_value(state.go_to_epsilon_value)
             skipped_total = int(skipped_count) + len(failures)
             message = f"Started {started_count[0]} training instance"
             if started_count[0] != 1:
@@ -5205,6 +5334,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         instance.state,
                         metadata,
                     ),
+                    stop_at_epsilon=stop_at_epsilon_for_state(
+                        instance.state,
+                        shared_current_epsilon,
+                    ),
                 )
             )
 
@@ -5227,6 +5360,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     training=record.metadata.get("training", {}),
                 )
             go_to_batch_field.set_value(state.go_to_batch_number)
+            go_to_epsilon_field.set_value(state.go_to_epsilon_value)
             show_notice("Synced training started")
 
         def abort_start(exc=None):
@@ -5566,6 +5700,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         menu_sound_manager,
                     )
                 go_to_batch_field.handle_event(translated)
+                if not (
+                    translated.type == pygame.MOUSEBUTTONDOWN
+                    and go_to_epsilon_field.rect.collidepoint(translated.pos)
+                ):
+                    go_to_epsilon_checkbox.handle_event(
+                        translated,
+                        menu_sound_manager,
+                    )
+                go_to_epsilon_field.handle_event(translated)
                 for delete_btn in delete_buttons:
                     delete_btn.handle_event(translated, menu_sound_manager)
                 load_button.handle_event(translated, menu_sound_manager)
@@ -5781,6 +5924,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         go_to_batch_checkbox.enabled = not active_running and not coordinated_active
         go_to_batch_checkbox.is_checked = state.go_to_batch_enabled
         go_to_batch_field.enabled = go_to_batch_checkbox.enabled
+        go_to_epsilon_checkbox.enabled = (
+            not active_running and not coordinated_active
+        )
+        go_to_epsilon_checkbox.is_checked = state.go_to_epsilon_enabled
+        go_to_epsilon_field.enabled = go_to_epsilon_checkbox.enabled
 
         update_field_colors()
         selected_slot = selected_model_slot()
@@ -5931,6 +6079,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             device_selector.enabled = False
             go_to_batch_checkbox.enabled = False
             go_to_batch_field.enabled = False
+            go_to_epsilon_checkbox.enabled = False
+            go_to_epsilon_field.enabled = False
             display_checkbox.enabled = False
             back_button.enabled = False
             close_instance_button.enabled = False
@@ -5969,6 +6119,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             device_selector.enabled = False
             go_to_batch_checkbox.enabled = False
             go_to_batch_field.enabled = False
+            go_to_epsilon_checkbox.enabled = False
+            go_to_epsilon_field.enabled = False
             display_checkbox.enabled = False
             start_stop_button.enabled = False
             batch_start_all_button.text = "Closing"
@@ -6062,6 +6214,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 progress_y += rendered.get_height() + 2
             go_to_batch_checkbox.draw(content, body_font, content_mouse_pos)
             go_to_batch_field.draw(content, body_font)
+            go_to_epsilon_checkbox.draw(content, body_font, content_mouse_pos)
+            go_to_epsilon_field.draw(content, body_font)
 
             slot_heading = body_font.render("AI Slot", True, ui.WHITE)
             content.blit(slot_heading, (slot_rows[0].x, slot_rows[0].y - 30))

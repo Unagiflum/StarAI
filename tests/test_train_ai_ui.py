@@ -91,7 +91,9 @@ from src.Menus.train_ai import (
     _wheel_step,
     _progress_for_model_update,
     normalize_go_to_batch_number,
+    normalize_go_to_epsilon_value,
     stop_at_batch_for_state,
+    stop_at_epsilon_for_state,
     _set_slider_value,
     training_config_from_state,
     training_layout,
@@ -164,6 +166,60 @@ class TrainingUIStateTests(unittest.TestCase):
         )
 
         self.assertEqual(target, 1000)
+
+    def test_go_to_epsilon_target_is_validated_and_persisted(self):
+        manager = TrainingInstanceManager()
+        manager.active_state.go_to_epsilon_enabled = True
+        manager.active_state.go_to_epsilon_value = 0.125
+
+        restored = training_instance_manager_from_json(
+            training_instance_manager_to_json(manager)
+        )
+
+        self.assertTrue(restored.active_state.go_to_epsilon_enabled)
+        self.assertEqual(restored.active_state.go_to_epsilon_value, 0.125)
+        self.assertEqual(normalize_go_to_epsilon_value(".001"), 0.001)
+        self.assertEqual(normalize_go_to_epsilon_value("0.999"), 0.999)
+        self.assertEqual(normalize_go_to_epsilon_value("0.1234"), 0.0)
+        self.assertEqual(normalize_go_to_epsilon_value("1.000"), 0.0)
+
+    def test_go_to_epsilon_at_or_above_current_becomes_indefinite(self):
+        for target_value in (0.5, 0.6):
+            with self.subTest(target_value=target_value):
+                state = TrainingUIState(
+                    current_epsilon=0.5,
+                    go_to_epsilon_enabled=True,
+                    go_to_epsilon_value=target_value,
+                )
+
+                target = stop_at_epsilon_for_state(state, state.current_epsilon)
+
+                self.assertIsNone(target)
+                self.assertEqual(state.go_to_epsilon_value, 0.0)
+
+    def test_go_to_epsilon_below_current_sets_target(self):
+        state = TrainingUIState(
+            current_epsilon=0.5,
+            go_to_epsilon_enabled=True,
+            go_to_epsilon_value=0.125,
+        )
+
+        target = stop_at_epsilon_for_state(state, state.current_epsilon)
+
+        self.assertEqual(target, 0.125)
+
+    def test_go_to_epsilon_below_effective_floor_remains_unreachable_target(self):
+        state = TrainingUIState(
+            current_epsilon=0.1,
+            epsilon_floor=0.2,
+            go_to_epsilon_enabled=True,
+            go_to_epsilon_value=0.15,
+        )
+
+        target = stop_at_epsilon_for_state(state, state.current_epsilon)
+
+        self.assertEqual(target, 0.15)
+        self.assertEqual(state.go_to_epsilon_value, 0.15)
 
     def test_defaults_match_training_specification(self):
         with mock.patch(
@@ -1482,7 +1538,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
     @staticmethod
     def trainee_start_position():
-        return (train_ai.CONTROL_WIDTH // 2, train_ai.CONTENT_TOP + 535)
+        return (train_ai.CONTROL_WIDTH // 2, train_ai.CONTENT_TOP + 537)
 
     @staticmethod
     def synced_action_position():
@@ -1742,7 +1798,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
-            elif button.rect.y == 518:
+            elif button.rect.y == 520:
                 trainee_action_states.append((button.text, button.enabled))
             elif button.text == "Close":
                 close_states.append((button.text, button.enabled))
@@ -1837,7 +1893,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
-            elif button.rect.y == 518:
+            elif button.rect.y == 520:
                 trainee_action_states.append((button.text, button.enabled))
 
         sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
@@ -2094,7 +2150,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 "button": 1,
                 "pos": (
                     layout.content_rect.x + train_ai.CONTROL_WIDTH - 34,
-                    layout.content_rect.y + 310,
+                    layout.content_rect.y + 328,
                 ),
             },
         )
@@ -2476,7 +2532,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
-            elif button.rect.y == 518:
+            elif button.rect.y == 520:
                 trainee_action_states.append((button.text, button.enabled))
             elif button.text == "Close":
                 close_states.append((button.text, button.enabled))
@@ -2614,7 +2670,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         def capture_button(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
-            elif button.rect.y == 518:
+            elif button.rect.y == 520:
                 trainee_action_states.append((button.text, button.enabled))
 
         def capture_scope(checkbox, *_args, **_kwargs):
@@ -2736,7 +2792,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         delete_states = []
 
         def capture_button(button, *_args, **_kwargs):
-            if button.rect.y in (476, 518):
+            if button.rect.y in (480, 520):
                 trainee_action_states.append(
                     (button.text, button.enabled, button.rect.copy())
                 )
@@ -2972,7 +3028,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         def capture_footer(button, *_args, **_kwargs):
             if button.rect.y == train_ai.ACTION_TOP:
                 footer_states.append((button.text, button.enabled))
-            elif button.rect.y == 518:
+            elif button.rect.y == 520:
                 trainee_action_states.append((button.text, button.enabled))
 
         sprite = pygame.Surface((32, 32), pygame.SRCALPHA)

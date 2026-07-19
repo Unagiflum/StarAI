@@ -462,6 +462,7 @@ class TrainingSession:
         opponent_model_cache: Any | None = None,
         save_coordinator: Any | None = None,
         stop_at_batch: int | None = None,
+        stop_at_epsilon: float | None = None,
     ):
         if slot.is_bundled:
             raise TrainingSessionError("Bundled training models are read-only")
@@ -476,6 +477,12 @@ class TrainingSession:
         self.batch_grouping = max(1, int(batch_grouping))
         self.stop_at_batch = (
             max(1, int(stop_at_batch)) if stop_at_batch is not None else None
+        )
+        epsilon_target = (
+            float(stop_at_epsilon) if stop_at_epsilon is not None else 0.0
+        )
+        self.stop_at_epsilon = (
+            epsilon_target if 0.0 < epsilon_target < 1.0 else None
         )
         self.batch_runner = batch_runner
         self.rng = rng or random.Random()
@@ -684,6 +691,10 @@ class TrainingSession:
                 self.stop_at_batch is None
                 or self.status.completed_batches < self.stop_at_batch
             )
+            and (
+                self.stop_at_epsilon is None
+                or self.status.current_epsilon > self.stop_at_epsilon
+            )
         ):
             discovered_opponents = self._existing_ai_opponents_for_batch()
             with self._lock:
@@ -730,8 +741,14 @@ class TrainingSession:
                 )
             batches_run += 1
             if (
-                self.stop_at_batch is not None
-                and completed_batches >= self.stop_at_batch
+                (
+                    self.stop_at_batch is not None
+                    and completed_batches >= self.stop_at_batch
+                )
+                or (
+                    self.stop_at_epsilon is not None
+                    and self.status.current_epsilon <= self.stop_at_epsilon
+                )
             ):
                 break
             if max_batches is not None and batches_run >= max_batches:

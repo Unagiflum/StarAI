@@ -558,6 +558,7 @@ def independent_training_process_main(
     config,
     batch_grouping: int,
     stop_at_batch: int | None,
+    stop_at_epsilon: float | None,
     initial_history: tuple[BatchMetrics, ...],
     initial_log_lines: tuple[str, ...],
     save_coordinator: ProcessModelSaveCoordinator,
@@ -602,6 +603,7 @@ def independent_training_process_main(
             config=config,
             batch_grouping=batch_grouping,
             stop_at_batch=stop_at_batch,
+            stop_at_epsilon=stop_at_epsilon,
             audio_service=recording_audio,
             initial_history=initial_history,
             initial_log_lines=initial_log_lines,
@@ -664,6 +666,7 @@ class ProcessTrainingSession:
         batch_pacing_group: CpuBatchPacingGroup | None = None,
         batch_pacing_index: int | None = None,
         stop_at_batch: int | None = None,
+        stop_at_epsilon: float | None = None,
     ) -> None:
         self.repository = repository
         self.slot = slot
@@ -672,6 +675,12 @@ class ProcessTrainingSession:
         self.batch_grouping = max(1, int(batch_grouping))
         self.stop_at_batch = (
             max(1, int(stop_at_batch)) if stop_at_batch is not None else None
+        )
+        epsilon_target = (
+            float(stop_at_epsilon) if stop_at_epsilon is not None else 0.0
+        )
+        self.stop_at_epsilon = (
+            epsilon_target if 0.0 < epsilon_target < 1.0 else None
         )
         self.audio_service = audio_service or NullAudioService()
         self.opponent_model_cache = opponent_model_cache
@@ -778,6 +787,7 @@ class ProcessTrainingSession:
                 "config": self.config,
                 "batch_grouping": self.batch_grouping,
                 "stop_at_batch": self.stop_at_batch,
+                "stop_at_epsilon": self.stop_at_epsilon,
                 "initial_history": self._history,
                 "initial_log_lines": self._log_lines,
                 "save_coordinator": self.save_coordinator,

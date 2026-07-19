@@ -163,6 +163,7 @@ class CoordinatedTrainingRecord:
     initial_history: tuple[BatchMetrics, ...] = ()
     initial_log_lines: tuple[str, ...] = ()
     stop_at_batch: int | None = None
+    stop_at_epsilon: float | None = None
 
 
 @dataclass
@@ -1243,7 +1244,7 @@ class CoordinatedTrainingSession:
                 return
             while not self._stop_requested.is_set():
                 ran_batch = self._run_one_coordinated_batch()
-                if ran_batch and self._configured_batch_target_reached():
+                if ran_batch and self._configured_stop_target_reached():
                     break
                 if not ran_batch:
                     time.sleep(self._idle_sleep_seconds)
@@ -1278,6 +1279,21 @@ class CoordinatedTrainingSession:
                 and state.status.completed_batches >= int(state.record.stop_at_batch)
                 for state in self._states.values()
             )
+
+    def _configured_epsilon_target_reached(self) -> bool:
+        with self._lock:
+            return any(
+                state.record.stop_at_epsilon is not None
+                and self._shared_current_epsilon
+                <= float(state.record.stop_at_epsilon)
+                for state in self._states.values()
+            )
+
+    def _configured_stop_target_reached(self) -> bool:
+        return (
+            self._configured_batch_target_reached()
+            or self._configured_epsilon_target_reached()
+        )
 
     def _run_one_coordinated_batch(self) -> bool:
         if self._should_use_cpu_workers():

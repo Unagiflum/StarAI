@@ -988,6 +988,144 @@ class TrainingSessionTests(unittest.TestCase):
         self.assertEqual(session.status.completed_batches, 6)
         self.assertEqual(session.saved_batches, [6])
 
+    def test_session_stops_after_decaying_through_epsilon_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            runs = []
+
+            def batch_runner(**kwargs):
+                runs.append(kwargs["config"].epsilon)
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(0.125,),
+                    round_results=(_round_result(5.0),),
+                )
+
+            session = _RecordingSaveSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon=0.5,
+                    epsilon_floor=0.05,
+                    epsilon_decay=0.5,
+                ),
+                batch_grouping=10,
+                batch_runner=batch_runner,
+                stop_at_epsilon=0.125,
+            )
+            session.run_synchronously(max_batches=None)
+
+        self.assertEqual(runs, [0.5, 0.25])
+        self.assertEqual(session.status.completed_batches, 2)
+        self.assertEqual(session.status.current_epsilon, 0.125)
+        self.assertEqual(session.saved_batches, [2])
+
+    def test_session_uses_first_batch_or_epsilon_target_reached(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+
+            def batch_runner(**_kwargs):
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(0.125,),
+                    round_results=(_round_result(5.0),),
+                )
+
+            session = _RecordingSaveSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon=0.5,
+                    epsilon_floor=0.05,
+                    epsilon_decay=0.5,
+                ),
+                batch_grouping=10,
+                batch_runner=batch_runner,
+                stop_at_batch=1,
+                stop_at_epsilon=0.125,
+            )
+            session.run_synchronously(max_batches=None)
+
+        self.assertEqual(session.status.completed_batches, 1)
+        self.assertEqual(session.status.current_epsilon, 0.25)
+
+    def test_unreachable_epsilon_targets_do_not_stop_session(self):
+        cases = (
+            {"epsilon_decay": 1.0, "epsilon_floor": 0.05, "target": 0.25},
+            {"epsilon_decay": 0.5, "epsilon_floor": 0.2, "target": 0.1},
+        )
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                repository = TrainingModelRepository(
+                    root / "bundled",
+                    root / "user",
+                )
+                metadata = metadata_from_state(
+                    ship="Earthling",
+                    slot=1,
+                    description="Test",
+                    architecture=model_architecture_metadata(8, 1),
+                    training={"regimen": {"rounds_per_batch": 1}},
+                )
+                slot = repository.create_or_update_user_model(metadata)
+
+                def batch_runner(**_kwargs):
+                    return TrainingBatchResult(
+                        completed_rounds=1,
+                        replay_size=0,
+                        optimization_losses=(0.125,),
+                        round_results=(_round_result(5.0),),
+                    )
+
+                session = _RecordingSaveSession(
+                    repository=repository,
+                    slot=slot,
+                    metadata=metadata,
+                    config=TrainingOrchestrationConfig(
+                        trainee_ship="Earthling",
+                        hidden_layer_width=8,
+                        hidden_layer_count=1,
+                        epsilon=0.5,
+                        epsilon_floor=case["epsilon_floor"],
+                        epsilon_decay=case["epsilon_decay"],
+                    ),
+                    batch_grouping=10,
+                    batch_runner=batch_runner,
+                    stop_at_epsilon=case["target"],
+                )
+                session.run_synchronously(max_batches=3)
+
+                self.assertEqual(session.status.completed_batches, 3)
+
     def test_session_skips_exit_save_after_group_boundary_model_save(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

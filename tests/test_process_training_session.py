@@ -87,6 +87,36 @@ class CpuBatchPacingGroupTests(unittest.TestCase):
 
         self.assertTrue(finished.is_set())
 
+    def test_target_stopped_participant_does_not_block_later_peer_batch(self):
+        group = CpuBatchPacingGroup(2)
+        first_batch_finished = threading.Event()
+
+        def report_stopping_participant_first_batch():
+            group.wait_after_batch(0, 1, stop_requested=lambda: False)
+            first_batch_finished.set()
+
+        first_thread = threading.Thread(
+            target=report_stopping_participant_first_batch
+        )
+        first_thread.start()
+        group.wait_after_batch(1, 1, stop_requested=lambda: False)
+        first_thread.join(1.0)
+        self.assertTrue(first_batch_finished.is_set())
+        finished = threading.Event()
+
+        def report_surviving_participant_next_batch():
+            group.wait_after_batch(1, 2, stop_requested=lambda: False)
+            finished.set()
+
+        thread = threading.Thread(target=report_surviving_participant_next_batch)
+        thread.start()
+        self.assertFalse(finished.wait(0.05))
+
+        group.deactivate(0)
+        thread.join(1.0)
+
+        self.assertTrue(finished.is_set())
+
     def test_pacing_primitives_are_shared_by_spawned_processes(self):
         context = multiprocessing.get_context("spawn")
         group = CpuBatchPacingGroup(2, max_batch_lead=1, context=context)
@@ -460,6 +490,78 @@ class ProcessTrainingSessionTests(unittest.TestCase):
             finally:
                 session.request_stop()
                 session.join(5.0)
+
+    def test_synced_cpu_runs_with_different_targets_exit_without_deadlock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            sessions = []
+            pacing_group = CpuBatchPacingGroup(2)
+            save_coordinator = ProcessModelSaveCoordinator()
+            targets = (
+                ("Earthling", {"stop_at_batch": 1}),
+                ("Androsynth", {"stop_at_epsilon": 0.125}),
+            )
+            for pacing_index, (ship, target_kwargs) in enumerate(targets):
+                metadata = metadata_from_state(
+                    ship=ship,
+                    slot=1,
+                    description="Mixed target pacing test",
+                    architecture=model_architecture_metadata(8, 1),
+                    training={},
+                )
+                slot = repository.create_or_update_user_model(metadata)
+                sessions.append(
+                    ProcessTrainingSession(
+                        repository=repository,
+                        slot=slot,
+                        metadata=metadata,
+                        config=TrainingOrchestrationConfig(
+                            trainee_ship=ship,
+                            rounds_per_batch=1,
+                            match_time_limit=2,
+                            replay_updates_per_batch=0,
+                            hidden_layer_width=8,
+                            hidden_layer_count=1,
+                            training_device="cpu",
+                            epsilon=0.5,
+                            epsilon_floor=0.05,
+                            epsilon_decay=0.5,
+                        ),
+                        batch_grouping=1,
+                        save_coordinator=save_coordinator,
+                        batch_pacing_group=pacing_group,
+                        batch_pacing_index=pacing_index,
+                        **target_kwargs,
+                    )
+                )
+
+            try:
+                for session in sessions:
+                    session.start()
+                deadline = time.monotonic() + 30.0
+                while time.monotonic() < deadline:
+                    statuses = tuple(session.status for session in sessions)
+                    for status in statuses:
+                        if status.error:
+                            self.fail(status.error)
+                    if all(not status.running for status in statuses):
+                        break
+                    time.sleep(0.02)
+                else:
+                    self.fail("mixed CPU targets did not stop without deadlock")
+                for session in sessions:
+                    session.join(5.0)
+
+                self.assertEqual(
+                    tuple(session.status.completed_batches for session in sessions),
+                    (1, 2),
+                )
+                self.assertEqual(sessions[1].status.current_epsilon, 0.125)
+            finally:
+                for session in sessions:
+                    session.request_stop()
+                    session.join(5.0)
 
     def test_display_frames_are_rendered_in_worker_shared_memory(self):
         with tempfile.TemporaryDirectory() as directory:
