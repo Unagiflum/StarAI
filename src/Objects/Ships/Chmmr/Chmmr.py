@@ -13,6 +13,7 @@ class Chmmr(SpaceShip):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._satellites_spawned = False
+        self.satellite_orbit_direction = None
         self._spawned_objects = []
 
     def initialize_in_battle(self, position, heading):
@@ -30,11 +31,13 @@ class Chmmr(SpaceShip):
         if self._satellites_spawned:
             return ()
         definition = SHIP_DEFINITIONS[self.name]
+        rng = rng or self.rng
+        if self.satellite_orbit_direction is None:
+            self.satellite_orbit_direction = rng.choice((-1, 1))
         count = int(definition.satellite_count)
         hp_per_satellite = int(definition.satellite_hp)
         orbit_indices = list(range(count))
         if randomized_health:
-            rng = rng or self.rng
             rng.shuffle(orbit_indices)
             total_hp = math.floor(
                 count * hp_per_satellite * float(rng.random()) + 0.5
@@ -51,6 +54,7 @@ class Chmmr(SpaceShip):
                 ChmmrSatellite(
                     self,
                     orbit_index,
+                    orbit_direction=self.satellite_orbit_direction,
                     starting_hp=satellite_hp,
                 )
             )

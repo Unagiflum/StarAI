@@ -1,6 +1,7 @@
 import math
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 import src.const as const
 from src.Battle import collisions
@@ -253,6 +254,38 @@ class SyreenSongTests(unittest.TestCase):
         crews = self.drain_crews(song)
         self.assertEqual(len(crews), 4)
         self.assertTrue(all(crew.origin_ship is target for crew in crews))
+
+    def test_each_song_randomizes_the_ejection_pattern_handedness(self):
+        target = create_ship("Earthling", 2)
+        target.position = [700.0, 500.0]
+        self.parent.rng = mock.Mock()
+        self.parent.rng.choice.side_effect = [1, -1]
+
+        positive_song = SyreenA2(self.parent)
+        negative_song = SyreenA2(self.parent)
+        positive_song.on_area_damage_hit(target, 2)
+        negative_song.on_area_damage_hit(target, 2)
+        positive_crews = self.drain_crews(positive_song)
+        negative_crews = self.drain_crews(negative_song)
+
+        positive_delta = wrapped_delta(target.position, positive_crews[1].position)
+        negative_delta = wrapped_delta(target.position, negative_crews[1].position)
+        positive_angle = math.degrees(
+            math.atan2(positive_delta[0], -positive_delta[1])
+        ) % 360
+        negative_angle = math.degrees(
+            math.atan2(negative_delta[0], -negative_delta[1])
+        ) % 360
+        base_delta = wrapped_delta(target.position, self.parent.position)
+        base_angle = math.degrees(
+            math.atan2(base_delta[0], -base_delta[1])
+        ) % 360
+        positive_offset = (positive_angle - base_angle + 180) % 360 - 180
+        negative_offset = (negative_angle - base_angle + 180) % 360 - 180
+
+        self.assertAlmostEqual(positive_offset, -negative_offset)
+        self.assertEqual(positive_song.ejection_direction, 1)
+        self.assertEqual(negative_song.ejection_direction, -1)
 
     def test_song_tracks_parent_before_area_collision_processing(self):
         song = SyreenA2(self.parent)

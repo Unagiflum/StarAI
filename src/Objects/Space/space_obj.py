@@ -386,6 +386,7 @@ class Asteroid(Object):
 
         self.rotation_delay = self.rng.randint(0, 3)
         self.rotation_timer = 0
+        self.rotation_direction = self.rng.choice((-1, 1))
 
         speed = self.rng.randrange(
             Const.ASTEROID_MIN_SPEED,
@@ -506,7 +507,9 @@ class Asteroid(Object):
         return [gravity_force * dx / distance, gravity_force * dy / distance]
 
     def next_sprite(self):
-        next_sprite = (self.current_sprite + 1) % len(self.sprites)
+        next_sprite = (
+            self.current_sprite + self.rotation_direction
+        ) % len(self.sprites)
         if self.sprite_would_overlap(next_sprite):
             return
 
@@ -590,7 +593,18 @@ class Asteroid(Object):
                 Const.VIDEO_FPS_MULTIPLIER - 1,
                 max(0, int(fraction * Const.VIDEO_FPS_MULTIPLIER)),
             )
-            draw_sprite_idx = (self.current_sprite * Const.VIDEO_FPS_MULTIPLIER + sub_frame_offset) % len(assets.interpolated_sprites)
+            if self.rotation_direction > 0 or sub_frame_offset == 0:
+                draw_sprite_idx = (
+                    self.current_sprite * Const.VIDEO_FPS_MULTIPLIER
+                    + sub_frame_offset
+                ) % len(assets.interpolated_sprites)
+            else:
+                previous_sprite = (self.current_sprite - 1) % len(self.sprites)
+                draw_sprite_idx = (
+                    previous_sprite * Const.VIDEO_FPS_MULTIPLIER
+                    + Const.VIDEO_FPS_MULTIPLIER
+                    - sub_frame_offset
+                ) % len(assets.interpolated_sprites)
             self.image = assets.interpolated_sprites[draw_sprite_idx]
         else:
             self.image = self.sprites[self.current_sprite]

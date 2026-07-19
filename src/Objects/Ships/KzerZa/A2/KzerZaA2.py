@@ -30,6 +30,8 @@ class KzerZaA2(Ability):
         launch_angle=None,
         formation_index=0,
         gun_location=None,
+        *,
+        formation_direction=1,
     ):
         super().__init__("KzerZaA2", parent)
         self.area_damage_capabilities = replace(
@@ -74,12 +76,14 @@ class KzerZaA2(Ability):
         # weapon cooldown, then advances that cooldown every active frame.
         self.weapon_timer = self.launch_time
         self.formation_index = formation_index
+        self.formation_direction = -1 if formation_direction < 0 else 1
         self.spawned_objects = []
         self.planet_avoidance = None
         self._crew_loss_recorded = False
         self._crew_recovered = False
         self.jitter_angle_toggle = self.rng.choice([True, False])
         self.jitter_dist_toggle = self.rng.choice([True, False])
+        self.steering_tie_direction = self.rng.choice((-1, 1))
 
     def update(self):
         if not self.currently_alive:
@@ -158,19 +162,28 @@ class KzerZaA2(Ability):
             return None
 
         flank_destinations = [self._attack_position(target, side) for side in (90, 270)]
-        destination = min(
-            flank_destinations,
-            key=lambda position: sum(
+        flank_distances = [
+            sum(
                 component * component
                 for component in wrapped_delta(self.position, position)
-            ),
-        )
+            )
+            for position in flank_destinations
+        ]
+        if math.isclose(flank_distances[0], flank_distances[1]):
+            flank_index = 0 if self.steering_tie_direction > 0 else 1
+        else:
+            flank_index = min(range(2), key=flank_distances.__getitem__)
+        destination = flank_destinations[flank_index]
 
         # SpecialObjects may share a flank. Fan them out around its center instead of
         # assigning every other special_object to the far side of the target.
         spread_slot = self.formation_index % 13
         spread_index = (spread_slot + 1) // 2
-        spread = spread_index * (5 if spread_slot % 2 else -5)
+        spread = (
+            spread_index
+            * (5 if spread_slot % 2 else -5)
+            * self.formation_direction
+        )
         if spread == 0:
             return destination
 
@@ -178,7 +191,9 @@ class KzerZaA2(Ability):
         return self._attack_position(target, side + spread)
 
     def _attack_position(self, target, angle_offset):
-        jitter_angle = 5 if self.jitter_angle_toggle else 0
+        jitter_angle = (
+            5 * self.formation_direction if self.jitter_angle_toggle else 0
+        )
         angle = math.radians((target.rotation + angle_offset + jitter_angle) % 360)
         dist = self.laser_range - (5 if self.jitter_dist_toggle else 0)
         return [
@@ -226,7 +241,10 @@ class KzerZaA2(Ability):
 
         if direction is None:
             dx, dy = wrapped_delta(self.position, destination)
-            if base_tangent[0] * dx + base_tangent[1] * dy < 0:
+            tangent_progress = base_tangent[0] * dx + base_tangent[1] * dy
+            if math.isclose(tangent_progress, 0.0, abs_tol=1e-9):
+                direction = self.steering_tie_direction
+            elif tangent_progress < 0:
                 direction = -1
             else:
                 direction = 1

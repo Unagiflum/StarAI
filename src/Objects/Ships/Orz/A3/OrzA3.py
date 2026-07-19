@@ -84,6 +84,7 @@ class OrzA3(Ability):
             ability_def.look_ahead if ability_def.look_ahead is not None else 15
         )
         self.thrust_timer = 0
+        self.steering_tie_direction = self.rng.choice((-1, 1))
 
         self.spawned_objects = []
         self._death_sound_played = False
@@ -280,7 +281,11 @@ class OrzA3(Ability):
                 diff1 = abs((adj1 - anti_heading + 180) % 360 - 180)
                 diff2 = abs((adj2 - anti_heading + 180) % 360 - 180)
 
-                if diff1 < diff2:
+                if math.isclose(diff1, diff2):
+                    self.rotation = (
+                        adj1 if self.steering_tie_direction > 0 else adj2
+                    )
+                elif diff1 < diff2:
                     self.rotation = adj1
                 else:
                     self.rotation = adj2
@@ -362,7 +367,11 @@ class OrzA3(Ability):
             else:
                 vx, vy = self.velocity
                 dot_product = -vy * dx + vx * dy
-                if dot_product < 0:
+                if math.isclose(dot_product, 0.0, abs_tol=1e-9):
+                    turn_first_way = self.steering_tie_direction < 0
+                else:
+                    turn_first_way = dot_product < 0
+                if turn_first_way:
                     thrust_dir_x = -vy / speed
                     thrust_dir_y = vx / speed
                 else:

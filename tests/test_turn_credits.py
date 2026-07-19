@@ -116,6 +116,31 @@ class TurnCreditTests(unittest.TestCase):
         self.assertAlmostEqual(missile.rotation, 22.5)
         self.assertAlmostEqual(math.hypot(*missile.velocity), missile.speed)
 
+    def test_tracking_projectile_randomizes_an_exact_u_turn(self):
+        ship = self.make_ship()
+        target = create_ship("Shofixti", 2, resources=self.resources)
+        target.initialize_in_battle([500.0, 700.0], 0)
+        ship.opponent = target
+
+        rotations = []
+        for turn_direction in (-1, 1):
+            missile = create_ability("EarthlingA1", ship)
+            missile.position = [500.0, 500.0]
+            missile.rotation = 0.0
+            missile.turn_credits = const.DIRECTIONS_MULTIPLIER
+            missile.rng = mock.Mock()
+            missile.rng.choice.return_value = turn_direction
+
+            missile.update_heading()
+
+            rotations.append(missile.rotation)
+            missile.rng.choice.assert_called_once_with((-1, 1))
+
+        self.assertEqual(
+            rotations,
+            [360.0 - const.TURN_ANGLE, const.TURN_ANGLE],
+        )
+
     def test_slylandro_animation_cache_is_independent_of_heading_count(self):
         ship = self.make_ship("Slylandro")
 

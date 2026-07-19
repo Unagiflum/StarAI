@@ -198,6 +198,7 @@ class SyreenA2(Ability):
             if definition.spawn_angle_increment is not None
             else 25
         )
+        self.ejection_direction = self.rng.choice((-1, 1))
 
         self._spawned_objects = []
         self.place_self()
@@ -252,7 +253,7 @@ class SyreenA2(Ability):
 
         for i in range(damage):
             multiplier = (i + 1) // 2
-            sign = 1 if i % 2 == 1 else -1
+            sign = (1 if i % 2 == 1 else -1) * self.ejection_direction
             if i == 0:
                 sign = 0
 

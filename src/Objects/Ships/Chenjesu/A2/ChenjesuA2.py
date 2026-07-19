@@ -38,6 +38,7 @@ class ChenjesuA2(Ability):
         self.collision_wait = definition.collision_wait or 0
         self.ship_collision_wait = definition.ship_collision_wait or 0
         self.collision_wait_timer = 0
+        self.steering_tie_direction = self.rng.choice((-1, 1))
         self.launch_frames_remaining = 1
         self.mass = definition.mass
         self.expiration_timer = float("inf")
@@ -132,10 +133,18 @@ class ChenjesuA2(Ability):
                 (radial_angle - 90.0) % 360,
                 (radial_angle + 90.0) % 360,
             )
-            move_angle = max(
-                candidates,
-                key=lambda angle: abs(self._signed_angle(angle - target.rotation)),
+            candidate_offsets = tuple(
+                abs(self._signed_angle(angle - target.rotation))
+                for angle in candidates
             )
+            if math.isclose(candidate_offsets[0], candidate_offsets[1]):
+                move_angle = (
+                    radial_angle + 90.0 * self.steering_tie_direction
+                ) % 360
+            else:
+                move_angle = candidates[
+                    max(range(2), key=candidate_offsets.__getitem__)
+                ]
             return self._quantized_angle(move_angle)
 
         return self._quantized_angle(self._vector_angle(dx, dy))

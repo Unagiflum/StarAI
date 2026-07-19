@@ -11,11 +11,19 @@ from src.toroidal import wrapped_delta, wrapped_distance
 
 
 class ChmmrSatellite(Ability):
-    def __init__(self, parent, orbit_index=0, *, starting_hp=None):
+    def __init__(
+        self,
+        parent,
+        orbit_index=0,
+        *,
+        orbit_direction=1,
+        starting_hp=None,
+    ):
         super().__init__("ChmmrSatellite", parent)
         definition = SHIP_DEFINITIONS[parent.name]
         laser_definition = ABILITY_DEFINITIONS["ChmmrSatelliteLaser"]
         self.orbit_index = orbit_index
+        self.orbit_direction = -1 if orbit_direction < 0 else 1
         self.orbit_phase = orbit_index * definition.satellite_period / definition.satellite_count
         self.current_hp = (
             definition.satellite_hp
@@ -137,9 +145,13 @@ class ChmmrSatellite(Ability):
             return False
 
         self.previous_position = self.position.copy()
-        self.orbit_phase = (self.orbit_phase + 1) % self.orbit_period
+        self.orbit_phase = (
+            self.orbit_phase + self.orbit_direction
+        ) % self.orbit_period
         self._move_toward_orbit_target()
-        self.animation_frame = (self.animation_frame + 1) % 8
+        self.animation_frame = (
+            self.animation_frame + self.orbit_direction
+        ) % 8
 
         if self.laser_timer > 0:
             self.laser_timer -= 1
@@ -168,7 +180,17 @@ class ChmmrSatellite(Ability):
             const.VIDEO_FPS_MULTIPLIER - 1,
             max(0, int(interp_t * const.VIDEO_FPS_MULTIPLIER)),
         )
-        frame_index = self.animation_frame * const.VIDEO_FPS_MULTIPLIER + subframe
+        if self.orbit_direction > 0 or subframe == 0:
+            frame_index = (
+                self.animation_frame * const.VIDEO_FPS_MULTIPLIER + subframe
+            )
+        else:
+            previous_frame = (self.animation_frame - 1) % 8
+            frame_index = (
+                previous_frame * const.VIDEO_FPS_MULTIPLIER
+                + const.VIDEO_FPS_MULTIPLIER
+                - subframe
+            )
         sprite = self._satellite_frames[frame_index % len(self._satellite_frames)]
         scaled = pygame.transform.smoothscale_by(sprite, scale_factor)
         rect = scaled.get_rect()

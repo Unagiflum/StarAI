@@ -310,7 +310,10 @@ class Ability(PlayerObject):
                     const.DIRECTIONS_MULTIPLIER,
                 )
                 if steps:
-                    direction = 1 if angle_diff > 0 else -1
+                    if math.isclose(abs(angle_diff), 180.0, abs_tol=1e-9):
+                        direction = self.rng.choice((-1, 1))
+                    else:
+                        direction = 1 if angle_diff > 0 else -1
                     self.rotation = (
                         current_angle + direction * steps * direction_step
                     ) % 360

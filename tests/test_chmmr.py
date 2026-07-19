@@ -117,6 +117,10 @@ class ChmmrTests(unittest.TestCase):
     def test_training_spawn_randomizes_satellite_slots_and_combined_hp(self):
         class SatelliteRng:
             @staticmethod
+            def choice(values):
+                return values[0]
+
+            @staticmethod
             def shuffle(values):
                 values.reverse()
 
@@ -135,6 +139,62 @@ class ChmmrTests(unittest.TestCase):
         )
         self.assertEqual(self.chmmr.drain_spawned_objects(), list(satellites))
         self.assertEqual(self.chmmr.drain_spawned_objects(), [])
+
+    def test_satellites_share_and_retain_the_parent_orbit_direction(self):
+        rng = mock.Mock()
+        rng.choice.return_value = -1
+
+        satellites = self.chmmr.spawn_satellites(rng=rng)
+
+        self.assertEqual(self.chmmr.satellite_orbit_direction, -1)
+        self.assertEqual(
+            {satellite.orbit_direction for satellite in satellites},
+            {-1},
+        )
+        self.chmmr.initialize_in_battle([1000.0, 1000.0], 0)
+        replacement_satellites = self.chmmr.spawn_satellites(rng=rng)
+        self.assertEqual(
+            {satellite.orbit_direction for satellite in replacement_satellites},
+            {-1},
+        )
+        rng.choice.assert_called_once_with((-1, 1))
+
+    def test_opposite_satellite_directions_follow_mirrored_trajectories(self):
+        clockwise = ChmmrSatellite(self.chmmr, orbit_direction=1)
+        counterclockwise = ChmmrSatellite(self.chmmr, orbit_direction=-1)
+        clockwise.opponent = counterclockwise.opponent = None
+        clockwise.enemy_objects = counterclockwise.enemy_objects = []
+
+        clockwise.update()
+        counterclockwise.update()
+
+        clockwise_delta = wrapped_delta(self.chmmr.position, clockwise.position)
+        counterclockwise_delta = wrapped_delta(
+            self.chmmr.position,
+            counterclockwise.position,
+        )
+        self.assertAlmostEqual(clockwise_delta[0], -counterclockwise_delta[0])
+        self.assertAlmostEqual(clockwise_delta[1], counterclockwise_delta[1])
+        self.assertEqual(clockwise.animation_frame, 1)
+        self.assertEqual(counterclockwise.animation_frame, 7)
+
+    def test_reverse_satellite_animation_interpolates_toward_previous_frame(self):
+        satellite = ChmmrSatellite(self.chmmr, orbit_direction=-1)
+        satellite.animation_frame = 0
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+
+        with mock.patch.object(
+            pygame.transform,
+            "smoothscale_by",
+            wraps=pygame.transform.smoothscale_by,
+        ) as smoothscale:
+            satellite.draw(screen, 1.0, [0.0, 0.0], interp_t=0.99)
+
+        expected_index = 7 * const.VIDEO_FPS_MULTIPLIER + 1
+        self.assertIs(
+            smoothscale.call_args.args[0],
+            satellite._satellite_frames[expected_index],
+        )
 
     def test_training_satellite_pool_can_spawn_no_satellites(self):
         rng = mock.Mock()

@@ -28,9 +28,12 @@ class Slylandro(SpaceShip):
         self.masks = tuple(self.masks[::stride])
         self.base_sprites = self.sprites
         self.animation_frame = 0
+        self.animation_direction = None
 
     def initialize_in_battle(self, position, heading):
         super().initialize_in_battle(position, heading)
+        if self.animation_direction is None:
+            self.animation_direction = self.rng.choice((-1, 1))
         self.animation_frame = 0
         self._set_velocity_from_heading()
 
@@ -67,7 +70,9 @@ class Slylandro(SpaceShip):
     def update(self):
         self.previous_position = self.position.copy()
         self.update_physics()
-        next_phase = (self.animation_frame + 1) % self.animation_phases
+        next_phase = (
+            self.animation_frame + self.animation_direction
+        ) % self.animation_phases
         next_sprite = next_phase % len(self.masks)
         if not self._sprite_would_overlap(next_sprite):
             self.animation_frame = next_phase

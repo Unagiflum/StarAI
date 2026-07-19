@@ -150,6 +150,38 @@ class ResourceCharacterizationTests(unittest.TestCase):
         first.rotation_timer = 3
         self.assertEqual(second.rotation_timer, 0)
 
+    def test_asteroid_rotation_direction_is_randomized_and_persistent(self):
+        asteroid = Asteroid()
+        asteroid.current_sprite = 0
+        with mock.patch.object(asteroid, "sprite_would_overlap", return_value=False):
+            asteroid.rotation_direction = 1
+            asteroid.next_sprite()
+            self.assertEqual(asteroid.current_sprite, 1)
+
+            asteroid.current_sprite = 0
+            asteroid.rotation_direction = -1
+            asteroid.next_sprite()
+            self.assertEqual(asteroid.current_sprite, len(asteroid.sprites) - 1)
+
+    def test_reverse_asteroid_rotation_interpolates_toward_previous_frame(self):
+        asteroid = Asteroid()
+        asteroid.current_sprite = 0
+        asteroid.rotation_direction = -1
+        asteroid.rotation_delay = 1
+        asteroid.rotation_timer = 0
+        asteroid.position = [100, 100]
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+
+        asteroid.draw(screen, 1.0, [0, 0], interp_t=0.99)
+
+        expected_index = (
+            (len(asteroid.sprites) - 1) * const.VIDEO_FPS_MULTIPLIER + 1
+        )
+        self.assertIs(
+            asteroid.image,
+            asteroid.resources.asteroid().interpolated_sprites[expected_index],
+        )
+
     def test_planet_dimensions_and_mask_follow_catalog_definition(self):
         with mock.patch("src.Objects.Space.space_obj.random.choices", return_value=["Gas01"]):
             planet = Planet()
@@ -232,6 +264,7 @@ class ResourceCharacterizationTests(unittest.TestCase):
     def test_asteroid_visual_reaches_last_subframe_before_base_frame_advances(self):
         asteroid = Asteroid()
         asteroid.current_sprite = 0
+        asteroid.rotation_direction = 1
         asteroid.rotation_delay = 1
         asteroid.rotation_timer = 0
         asteroid.position = [100, 100]

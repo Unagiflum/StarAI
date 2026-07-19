@@ -1,6 +1,7 @@
 import math
 import os
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -488,6 +489,26 @@ class OrzAbilityTests(unittest.TestCase):
 
         self.assertEqual(len(markers), 1)
         self.assertIsInstance(markers[0], ThrustMarker)
+
+    def test_a3_equal_planet_avoidance_uses_persistent_instance_direction(self):
+        marine = OrzA3(self.ship)
+        marine.position = [500.0, 500.0]
+        marine.velocity = [10.0, 0.0]
+        marine.planet = SimpleNamespace(position=[600.0, 500.0])
+
+        marine.steering_tie_direction = 1
+        marine._apply_avoidance_thrust()
+        positive_rotation = marine.rotation
+
+        marine.position = [500.0, 500.0]
+        marine.velocity = [10.0, 0.0]
+        marine.thrust_timer = 0
+        marine.steering_tie_direction = -1
+        marine._apply_avoidance_thrust()
+        negative_rotation = marine.rotation
+
+        self.assertEqual(positive_rotation, 0.0)
+        self.assertEqual(negative_rotation, 180.0)
 
     def test_a3_bounces_without_boarding_an_active_shield(self):
         enemy = create_ship("Yehat", 2)

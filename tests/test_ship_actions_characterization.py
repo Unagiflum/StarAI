@@ -21,7 +21,9 @@ from src.Battle.battle_aftermath import hide_dead_ship
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.action_transaction import ActionOutput, ActionPlan, ActionResult
 from src.Objects.Ships.catalog import ABILITIES_DATA, ABILITY_DEFINITIONS, SHIPS_DATA
+from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
 from src.Objects.Ships.registry import create_ability, create_ship
+from src.toroidal import wrapped_delta
 from src.training.event_ledger import (
     BattleEventLedger,
     EVENT_CREW_CHANGED,
@@ -679,7 +681,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
     def test_kzerza_fighter_uses_its_simulation_rng(self):
         carrier = create_ship("KzerZa", 1)
         rng = mock.Mock()
-        rng.choice.side_effect = [True, False, True]
+        rng.choice.side_effect = [True, False, 1, True]
         rng.random.return_value = 0.1
         carrier.rng = rng
 
@@ -687,13 +689,14 @@ class ShipActionCharacterizationTests(unittest.TestCase):
 
         self.assertTrue(fighter.jitter_angle_toggle)
         self.assertFalse(fighter.jitter_dist_toggle)
-        self.assertEqual(rng.choice.call_count, 2)
+        self.assertEqual(fighter.steering_tie_direction, 1)
+        self.assertEqual(rng.choice.call_count, 3)
 
         fighter.mode = fighter.ATTACKING
         fighter.update()
 
         rng.random.assert_called_once_with()
-        self.assertEqual(rng.choice.call_count, 3)
+        self.assertEqual(rng.choice.call_count, 4)
         self.assertFalse(fighter.jitter_angle_toggle)
 
     def test_kohr_ah_primary_is_press_only_and_release_stops_live_saws(self):
@@ -765,6 +768,8 @@ class ShipActionCharacterizationTests(unittest.TestCase):
 
     def test_kzer_za_fighters_preserve_formation_crew_cost_and_launch_index(self):
         ship = create_ship("KzerZa", 1)
+        ship.rng = mock.Mock()
+        ship.rng.choice.return_value = 1
         ship.current_hp = 3
         special_objects = [SimpleNamespace(launch_sound=mock.Mock()) for _ in range(2)]
         with mock.patch(
@@ -776,7 +781,13 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(
             constructor.call_args_list,
             [
-                mock.call(ship, direction, index, location)
+                mock.call(
+                    ship,
+                    direction,
+                    index,
+                    location,
+                    formation_direction=1,
+                )
                 for index, (location, direction) in enumerate(
                     zip(definition.gun_locations, definition.gun_directions)
                 )
@@ -786,6 +797,69 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(ship.fighter_launch_count, 2)
         special_objects[0].launch_sound.play.assert_called_once_with()
         special_objects[1].launch_sound.play.assert_not_called()
+
+    def test_kzer_za_formation_roll_flips_single_fighter_gun_and_spread(self):
+        definition = ABILITY_DEFINITIONS["KzerZaA2"]
+        for handedness, gun_index in ((1, 0), (-1, 1)):
+            with self.subTest(handedness=handedness):
+                ship = create_ship("KzerZa", 1)
+                ship.current_hp = 2
+                ship.rng = mock.Mock()
+                ship.rng.choice.return_value = handedness
+                fighter = SimpleNamespace(launch_sound=mock.Mock())
+                with mock.patch(
+                    "src.Objects.Ships.KzerZa.KzerZa.KzerZaA2",
+                    return_value=fighter,
+                ) as constructor:
+                    ship.perform_action2()
+
+                constructor.assert_called_once_with(
+                    ship,
+                    definition.gun_directions[gun_index],
+                    0,
+                    definition.gun_locations[gun_index],
+                    formation_direction=handedness,
+                )
+                self.assertEqual(ship.fighter_formation_direction, handedness)
+
+    def test_kzer_za_equal_flank_choice_uses_persistent_fighter_direction(self):
+        carrier = create_ship("KzerZa", 1)
+        target = create_ship("Earthling", 2)
+        target.position = [500.0, 500.0]
+        target.rotation = 0.0
+        fighter = create_ability("KzerZaA2", carrier)
+        fighter.position = [500.0, 500.0]
+        fighter.jitter_angle_toggle = False
+
+        fighter.steering_tie_direction = 1
+        positive = fighter._destination(target)
+        fighter.steering_tie_direction = -1
+        negative = fighter._destination(target)
+
+        positive_delta = wrapped_delta(target.position, positive)
+        negative_delta = wrapped_delta(target.position, negative)
+        self.assertAlmostEqual(positive_delta[0], -negative_delta[0])
+        self.assertAlmostEqual(positive_delta[1], negative_delta[1])
+
+    def test_kzer_za_formation_roll_mirrors_angular_jitter(self):
+        carrier = create_ship("KzerZa", 1)
+        target = create_ship("Earthling", 2)
+        target.position = [500.0, 500.0]
+        target.rotation = 0.0
+        angles = []
+
+        for handedness in (1, -1):
+            fighter = KzerZaA2(
+                carrier,
+                formation_direction=handedness,
+            )
+            fighter.jitter_angle_toggle = True
+            destination = fighter._attack_position(target, 90)
+            delta = wrapped_delta(target.position, destination)
+            angles.append(math.degrees(math.atan2(delta[0], -delta[1])) % 360)
+
+        self.assertAlmostEqual(angles[0], 95.0)
+        self.assertAlmostEqual(angles[1], 85.0)
 
     def test_kzer_za_lost_fighter_records_parent_crew_loss_once(self):
         ledger = BattleEventLedger()

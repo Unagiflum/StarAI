@@ -26,6 +26,7 @@ class SlylandroTests(unittest.TestCase):
     def setUp(self):
         self.ship = create_ship("Slylandro", 1)
         self.ship.initialize_in_battle([500.0, 500.0], 0)
+        self.ship.animation_direction = 1
         self.ship.in_battle = True
         self.target = create_ship("Earthling", 2)
         self.target.initialize_in_battle([500.0, 200.0], 0)
@@ -263,6 +264,20 @@ class SlylandroTests(unittest.TestCase):
         with mock.patch.object(self.ship, "_sprite_would_overlap", return_value=True):
             self.ship.update()
         self.assertEqual(self.ship.animation_frame, 3)
+
+    def test_animation_direction_is_randomized_once_per_probe(self):
+        probe = create_ship("Slylandro", 1)
+        probe.rng = mock.Mock()
+        probe.rng.choice.return_value = -1
+
+        probe.initialize_in_battle([500.0, 500.0], 0)
+        with mock.patch.object(probe, "_sprite_would_overlap", return_value=False):
+            probe.update()
+        self.assertEqual(probe.animation_frame, probe.animation_phases - 1)
+
+        probe.initialize_in_battle([600.0, 600.0], 0)
+        self.assertEqual(probe.animation_direction, -1)
+        probe.rng.choice.assert_called_once_with((-1, 1))
 
     def test_limpet_tracks_full_rotation_across_two_animation_cycles(self):
         limpet = self.ship.resources.ability("VuxA2").sprites[0]

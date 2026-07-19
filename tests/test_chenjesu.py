@@ -194,6 +194,19 @@ class ChenjesuTests(unittest.TestCase):
         self.assertAlmostEqual(move_angle, 112.5)
         self.assertEqual(move_angle % const.TURN_ANGLE, 0.0)
 
+    def test_a2_equal_avoidance_choice_uses_persistent_instance_direction(self):
+        ship = self.make_ship()
+        target = self.make_ship(player=2)
+        target.position = [1000.0, 1000.0]
+        target.rotation = 0.0
+        cloud = ChenjesuA2(ship)
+        cloud.position = [1000.0, 500.0]
+
+        cloud.steering_tie_direction = 1
+        self.assertEqual(cloud._target_move_angle(target), 90.0)
+        cloud.steering_tie_direction = -1
+        self.assertEqual(cloud._target_move_angle(target), 270.0)
+
     def test_a2_keeps_bounce_velocity_for_six_steering_frames(self):
         ship = self.make_ship()
         target = self.make_ship(player=2)
