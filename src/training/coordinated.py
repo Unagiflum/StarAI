@@ -945,6 +945,7 @@ class CoordinatedTrainingSession:
         self._run_started_at: float | None = None
         self._run_stopped_at: float | None = None
         self._current_batch_started_at: float | None = None
+        self._batch_accounting_started_at: float | None = None
         self._completed_batches_at_run_start = {
             instance_id: state.status.completed_batches
             for instance_id, state in self._states.items()
@@ -1064,9 +1065,11 @@ class CoordinatedTrainingSession:
             return
         with self._lock:
             self._stop_requested.clear()
-            self._run_started_at = time.perf_counter()
+            run_started_at = time.perf_counter()
+            self._run_started_at = run_started_at
             self._run_stopped_at = None
             self._current_batch_started_at = None
+            self._batch_accounting_started_at = run_started_at
             self._completed_batches_at_run_start = {
                 instance_id: state.status.completed_batches
                 for instance_id, state in self._states.items()
@@ -1262,6 +1265,7 @@ class CoordinatedTrainingSession:
         return self._run_one_in_process_coordinated_batch()
 
     def _run_one_in_process_coordinated_batch(self) -> bool:
+        batch_accounting_started_at = self._begin_batch_accounting()
         timing_seconds = _new_timing_seconds()
         measurement_started_at = _timing_started_at(timing_seconds)
         timing_frame_count = 0
@@ -1436,7 +1440,6 @@ class CoordinatedTrainingSession:
                         window.state.status.component_totals = dict(
                             result.component_totals
                         )
-            batch_finished_at = time.perf_counter()
         except TrainingBatchAborted:
             self._merge_timing_stats(
                 timing_seconds,
@@ -1466,6 +1469,10 @@ class CoordinatedTrainingSession:
 
         self._advance_shared_epsilon()
         completed_batch_numbers: dict[int, int] = {}
+        preliminary_batch_seconds = max(
+            0.0,
+            time.perf_counter() - batch_accounting_started_at,
+        )
         for instance_id, state in self._states.items():
             components = state.components
             if components is None:
@@ -1478,13 +1485,26 @@ class CoordinatedTrainingSession:
                     optimization_losses=optimization_losses[instance_id],
                     round_results=tuple(results[instance_id]),
                 ),
-                batch_seconds=max(0.0, batch_finished_at - batch_started_at),
+                batch_seconds=preliminary_batch_seconds,
+                emit_outputs=False,
             )
             completed_batch_numbers[instance_id] = batch_number
             if batch_number % state.record.batch_grouping == 0:
                 save_started_at = _timing_started_at(timing_seconds)
                 self._save_state(state, include_replay=False)
                 _add_timing_seconds(timing_seconds, "save", save_started_at)
+        batch_accounting_finished_at = time.perf_counter()
+        batch_seconds = max(
+            0.0,
+            batch_accounting_finished_at - batch_accounting_started_at,
+        )
+        for instance_id, batch_number in completed_batch_numbers.items():
+            self._finalize_completed_batch_metrics(
+                self._states[instance_id],
+                batch_number=batch_number,
+                batch_seconds=batch_seconds,
+            )
+        self._finish_batch_accounting(batch_accounting_finished_at)
         inference_mode_summary = _format_inference_mode_counts(
             batch_inference_mode_counts
         )
@@ -1530,6 +1550,7 @@ class CoordinatedTrainingSession:
             StepFrameCommand,
         )
 
+        batch_accounting_started_at = self._begin_batch_accounting()
         timing_seconds = _new_timing_seconds()
         measurement_started_at = _timing_started_at(timing_seconds)
         worker_timings: dict[int, dict[str, float]] = {}
@@ -1852,7 +1873,6 @@ class CoordinatedTrainingSession:
                         window.state.status.component_totals = dict(
                             result.component_totals
                         )
-            batch_finished_at = time.perf_counter()
         except TrainingBatchAborted:
             self._merge_timing_stats(
                 timing_seconds,
@@ -1894,6 +1914,10 @@ class CoordinatedTrainingSession:
 
         self._advance_shared_epsilon()
         completed_batch_numbers: dict[int, int] = {}
+        preliminary_batch_seconds = max(
+            0.0,
+            time.perf_counter() - batch_accounting_started_at,
+        )
         for instance_id, state in self._states.items():
             components = state.components
             if components is None:
@@ -1906,13 +1930,26 @@ class CoordinatedTrainingSession:
                     optimization_losses=optimization_losses[instance_id],
                     round_results=tuple(results[instance_id]),
                 ),
-                batch_seconds=max(0.0, batch_finished_at - batch_started_at),
+                batch_seconds=preliminary_batch_seconds,
+                emit_outputs=False,
             )
             completed_batch_numbers[instance_id] = batch_number
             if batch_number % state.record.batch_grouping == 0:
                 save_started_at = _timing_started_at(timing_seconds)
                 self._save_state(state, include_replay=False)
                 _add_timing_seconds(timing_seconds, "save", save_started_at)
+        batch_accounting_finished_at = time.perf_counter()
+        batch_seconds = max(
+            0.0,
+            batch_accounting_finished_at - batch_accounting_started_at,
+        )
+        for instance_id, batch_number in completed_batch_numbers.items():
+            self._finalize_completed_batch_metrics(
+                self._states[instance_id],
+                batch_number=batch_number,
+                batch_seconds=batch_seconds,
+            )
+        self._finish_batch_accounting(batch_accounting_finished_at)
         inference_mode_summary = _format_inference_mode_counts(
             batch_inference_mode_counts
         )
@@ -2150,6 +2187,7 @@ class CoordinatedTrainingSession:
         result: TrainingBatchResult,
         *,
         batch_seconds: float,
+        emit_outputs: bool = True,
     ) -> int:
         with self._lock:
             state.status.completed_batches += 1
@@ -2180,9 +2218,10 @@ class CoordinatedTrainingSession:
         with self._lock:
             state.history.append(metrics)
             rolling = rolling_metrics(tuple(state.history), state.record.batch_grouping)
-            state.log_lines.append(format_batch_summary_line(metrics, rolling))
-            if len(state.log_lines) > MAX_BATCH_LOG_LINES:
-                del state.log_lines[: len(state.log_lines) - MAX_BATCH_LOG_LINES]
+            if emit_outputs:
+                state.log_lines.append(format_batch_summary_line(metrics, rolling))
+                if len(state.log_lines) > MAX_BATCH_LOG_LINES:
+                    del state.log_lines[: len(state.log_lines) - MAX_BATCH_LOG_LINES]
             state.status.recent_loss = metrics.average_loss
             state.status.replay_size = result.replay_size
             batch_components = {component: 0.0 for component in REWARD_COMPONENTS}
@@ -2197,9 +2236,59 @@ class CoordinatedTrainingSession:
             limit = max(1, int(state.record.batch_grouping))
             if len(state.history) > limit:
                 del state.history[: len(state.history) - limit]
-        if batch_number % state.record.batch_grouping == 0:
+        if emit_outputs and batch_number % state.record.batch_grouping == 0:
             append_grouped_metrics_csv(self._csv_path(state), metrics, rolling)
         return batch_number
+
+    def _begin_batch_accounting(self) -> float:
+        with self._lock:
+            started_at = self._batch_accounting_started_at
+            if started_at is None:
+                started_at = self._run_started_at
+            if started_at is None:
+                started_at = time.perf_counter()
+            self._batch_accounting_started_at = started_at
+            return started_at
+
+    def _finish_batch_accounting(self, finished_at: float) -> None:
+        with self._lock:
+            self._batch_accounting_started_at = float(finished_at)
+
+    def _finalize_completed_batch_metrics(
+        self,
+        state: _CoordinatedRecordState,
+        *,
+        batch_number: int,
+        batch_seconds: float,
+    ) -> None:
+        batch_seconds = max(0.0, float(batch_seconds))
+        with self._lock:
+            durations = self._completed_batch_seconds[state.record.instance_id]
+            if durations:
+                durations[-1] = batch_seconds
+            metrics_index = next(
+                (
+                    index
+                    for index in range(len(state.history) - 1, -1, -1)
+                    if state.history[index].batch == int(batch_number)
+                ),
+                None,
+            )
+            if metrics_index is None:
+                raise RuntimeError("completed coordinated batch metrics were not recorded")
+            metrics = replace(
+                state.history[metrics_index],
+                batch_seconds=batch_seconds,
+            )
+            state.history[metrics_index] = metrics
+            rolling = rolling_metrics(tuple(state.history), state.record.batch_grouping)
+            state.status.last_batch_seconds = batch_seconds
+            state.status.average_batch_seconds = self._average_batch_seconds_locked(state)
+            state.log_lines.append(format_batch_summary_line(metrics, rolling))
+            if len(state.log_lines) > MAX_BATCH_LOG_LINES:
+                del state.log_lines[: len(state.log_lines) - MAX_BATCH_LOG_LINES]
+        if batch_number % state.record.batch_grouping == 0:
+            append_grouped_metrics_csv(self._csv_path(state), metrics, rolling)
 
     def _advance_shared_epsilon(self) -> None:
         with self._lock:

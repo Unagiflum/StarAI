@@ -226,6 +226,53 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
 
         lower_priority.assert_called_once_with()
 
+    def test_completed_batch_time_uses_run_boundary_for_log_and_csv(self):
+        session = self._session()
+        state = session._states[1]
+        session._run_started_at = 100.0
+        session._batch_accounting_started_at = None
+        result = SimpleNamespace(
+            replay_size=0,
+            average_loss=0.5,
+            round_results=(
+                SimpleNamespace(
+                    total_return=4.0,
+                    kills=1,
+                    deaths=0,
+                    component_totals={},
+                ),
+            ),
+            optimization_losses=(0.5,),
+        )
+
+        started_at = session._begin_batch_accounting()
+        batch_number = session._record_completed_batch(
+            state,
+            result,
+            batch_seconds=12.0,
+            emit_outputs=False,
+        )
+        with mock.patch(
+            "src.training.coordinated.append_grouped_metrics_csv"
+        ) as metrics_csv:
+            session._finalize_completed_batch_metrics(
+                state,
+                batch_number=batch_number,
+                batch_seconds=35.0,
+            )
+        session._finish_batch_accounting(135.0)
+
+        self.assertEqual(started_at, 100.0)
+        self.assertEqual(state.history[-1].batch_seconds, 35.0)
+        self.assertEqual(state.status.last_batch_seconds, 35.0)
+        self.assertEqual(state.status.average_batch_seconds, 35.0)
+        self.assertTrue(state.log_lines[-1].endswith("  0h:00m:35s"))
+        csv_metrics = metrics_csv.call_args.args[1]
+        csv_rolling = metrics_csv.call_args.args[2]
+        self.assertEqual(csv_metrics.batch_seconds, 35.0)
+        self.assertEqual(csv_rolling.average_batch_seconds, 35.0)
+        self.assertEqual(session._begin_batch_accounting(), 135.0)
+
     @mock.patch("src.training.coordinated.ctypes.WinDLL", create=True)
     @mock.patch("src.training.coordinated.sys.platform", "win32")
     def test_windows_coordinator_thread_uses_below_normal_priority(
