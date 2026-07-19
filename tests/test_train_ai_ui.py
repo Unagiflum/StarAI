@@ -2174,8 +2174,10 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                any(line.startswith("Status") and "Starting" in line for line in update)
-                and any(line.startswith("Progress") for line in update)
+                any(
+                    line.startswith("Status") and "Starting (" in line
+                    for line in update
+                )
                 and any(line.startswith("Time") for line in update)
                 for update in startup_log_updates
             )
@@ -3859,19 +3861,19 @@ class TrainingConsoleTests(unittest.TestCase):
                 status_line = next(line for line in lines if line.startswith("Status"))
                 self.assertEqual(status_line.split("|", 1)[1].strip(), expected)
 
-    def test_startup_status_reports_progress_and_elapsed_time(self):
+    def test_startup_status_appends_progress_and_reports_elapsed_time(self):
         status = self._status(
             running=True,
             display_message="Starting training instances",
             elapsed_training_seconds=65,
         )
         status.startup_completed = 2
-        status.startup_total = 5
+        status.startup_total = 25
 
         lines = train_ai._current_batch_console_lines(status)
 
-        self.assertIn("Status    |   Starting           ", lines)
-        self.assertIn("Progress  |        2 / 5", lines)
+        self.assertIn("Status    |   Starting (02/25)", lines)
+        self.assertFalse(any(line.startswith("Progress") for line in lines))
         self.assertIn("Time      |          0h:01m:05s", lines)
 
     def test_selected_model_progress_uses_persisted_batch_and_epsilon(self):

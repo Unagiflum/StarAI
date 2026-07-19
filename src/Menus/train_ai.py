@@ -3029,23 +3029,25 @@ def _current_batch_console_lines(status):
     opponent = status.current_opponent or "-"
     recent_loss = getattr(status, "recent_loss", None)
     current_frame_limit = max(0, int(getattr(status, "current_frame_limit", 0)))
-    lines = [
-        "Current batch",
-        _current_batch_row("Ship", f"{ship:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}"),
-        _current_batch_row("Status", f"{state_label:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}".ljust(22)),
-    ]
+    status_value = f"{state_label:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}"
     startup_total = max(0, int(getattr(status, "startup_total", 0)))
     if startup_total:
         startup_completed = min(
             startup_total,
             max(0, int(getattr(status, "startup_completed", 0))),
         )
-        lines.append(
-            _current_batch_row(
-                "Progress",
-                f"{startup_completed:>9d} / {startup_total:d}",
-            )
+        progress_width = max(2, len(str(startup_total)))
+        status_value += (
+            f" ({startup_completed:0{progress_width}d}/"
+            f"{startup_total:0{progress_width}d})"
         )
+    else:
+        status_value = status_value.ljust(22)
+    lines = [
+        "Current batch",
+        _current_batch_row("Ship", f"{ship:>{CURRENT_BATCH_TEXT_VALUE_WIDTH}}"),
+        _current_batch_row("Status", status_value),
+    ]
     lines.extend(
         [
             _current_batch_row(
