@@ -450,12 +450,15 @@ class TrainingModelRepositoryTests(unittest.TestCase):
             pth_path.write_bytes(b"checkpoint")
             replay_path = replay_checkpoint_path(pth_path)
             replay_path.write_bytes(b"replay")
+            csv_path = pth_path.with_suffix(".csv")
+            csv_path.write_text("Batch\n450\n", encoding="utf-8")
 
             repository.delete_user_model("Mycon", 2)
 
         self.assertFalse(pth_path.exists())
         self.assertFalse(metadata_path.exists())
         self.assertFalse(replay_path.exists())
+        self.assertFalse(csv_path.exists())
 
     def test_pth_without_json_is_existing_model_with_empty_description(self):
         with tempfile.TemporaryDirectory() as directory:

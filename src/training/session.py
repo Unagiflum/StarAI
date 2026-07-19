@@ -353,6 +353,39 @@ def append_grouped_metrics_csv(
         )
 
 
+def reconcile_grouped_metrics_csv(
+    path: Path,
+    *,
+    completed_batches: int,
+    batch_grouping: int,
+) -> bool:
+    """Delete metrics output that cannot belong to the saved model progress."""
+
+    path = Path(path)
+    if not path.exists():
+        return False
+    completed_batches = max(0, int(completed_batches))
+    batch_grouping = max(1, int(batch_grouping))
+    expected_last_batch = completed_batches - (completed_batches % batch_grouping)
+    actual_last_batch = None
+    try:
+        with path.open(newline="", encoding="utf-8") as file:
+            rows = list(csv.reader(file))
+        for row in reversed(rows[1:]):
+            if row:
+                actual_last_batch = int(row[0])
+                break
+    except (OSError, UnicodeError, ValueError, csv.Error):
+        actual_last_batch = None
+    if expected_last_batch > 0 and actual_last_batch == expected_last_batch:
+        return False
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def _upgrade_grouped_metrics_csv_header(path: Path) -> None:
     with path.open("r+", newline="", encoding="utf-8") as file:
         rows = list(csv.reader(file))
@@ -428,6 +461,7 @@ class TrainingSession:
         initial_log_lines: tuple[str, ...] = (),
         opponent_model_cache: Any | None = None,
         save_coordinator: Any | None = None,
+        stop_at_batch: int | None = None,
     ):
         if slot.is_bundled:
             raise TrainingSessionError("Bundled training models are read-only")
@@ -440,6 +474,9 @@ class TrainingSession:
             min(1.0, float(config.epsilon)),
         )
         self.batch_grouping = max(1, int(batch_grouping))
+        self.stop_at_batch = (
+            max(1, int(stop_at_batch)) if stop_at_batch is not None else None
+        )
         self.batch_runner = batch_runner
         self.rng = rng or random.Random()
         self._status = TrainingSessionStatus(
@@ -482,6 +519,12 @@ class TrainingSession:
         self._opponent_model_cache_initial_loaded = False
         self._completed_batch_seconds: list[float] = []
         self._thread: threading.Thread | None = None
+
+        reconcile_grouped_metrics_csv(
+            self._csv_path(),
+            completed_batches=self._status.completed_batches,
+            batch_grouping=self.batch_grouping,
+        )
 
         report = validate_model_metadata(
             self.metadata,
@@ -635,7 +678,13 @@ class TrainingSession:
             self._status.batches_per_hour = 0.0
             self._status.simulation_speed_multiplier = 0.0
 
-        while not self._stop_requested.is_set():
+        while (
+            not self._stop_requested.is_set()
+            and (
+                self.stop_at_batch is None
+                or self.status.completed_batches < self.stop_at_batch
+            )
+        ):
             discovered_opponents = self._existing_ai_opponents_for_batch()
             with self._lock:
                 self._status.display_message = "Preparing new batch"
@@ -680,6 +729,11 @@ class TrainingSession:
                     include_replay=False,
                 )
             batches_run += 1
+            if (
+                self.stop_at_batch is not None
+                and completed_batches >= self.stop_at_batch
+            ):
+                break
             if max_batches is not None and batches_run >= max_batches:
                 break
         if self.status.completed_batches > self._last_saved_completed_batches:

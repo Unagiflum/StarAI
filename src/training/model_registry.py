@@ -217,7 +217,12 @@ class TrainingModelRepository:
         if not model_slot.is_user:
             return
         pth_path, metadata_path = model_paths(self.user_dir, ship, slot)
-        for path in (pth_path, metadata_path, replay_checkpoint_path(pth_path)):
+        for path in (
+            pth_path,
+            metadata_path,
+            pth_path.with_suffix(".csv"),
+            replay_checkpoint_path(pth_path),
+        ):
             try:
                 path.unlink()
             except FileNotFoundError:

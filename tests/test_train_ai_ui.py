@@ -88,6 +88,8 @@ from src.Menus.train_ai import (
     _training_settings_match,
     _wheel_step,
     _progress_for_model_update,
+    normalize_go_to_batch_number,
+    stop_at_batch_for_state,
     _set_slider_value,
     training_config_from_state,
     training_layout,
@@ -121,6 +123,46 @@ class ReplayBufferSizeHintTests(unittest.TestCase):
 
 
 class TrainingUIStateTests(unittest.TestCase):
+    def test_go_to_batch_target_is_bounded_and_persisted(self):
+        manager = TrainingInstanceManager()
+        manager.active_state.go_to_batch_enabled = True
+        manager.active_state.go_to_batch_number = 1_500_000
+
+        restored = training_instance_manager_from_json(
+            training_instance_manager_to_json(manager)
+        )
+
+        self.assertTrue(restored.active_state.go_to_batch_enabled)
+        self.assertEqual(restored.active_state.go_to_batch_number, 999999)
+        self.assertEqual(normalize_go_to_batch_number("1000"), 1000)
+
+    def test_go_to_batch_at_or_below_progress_becomes_indefinite(self):
+        state = TrainingUIState(
+            go_to_batch_enabled=True,
+            go_to_batch_number=30,
+        )
+
+        target = stop_at_batch_for_state(
+            state,
+            {"progress": {"completed_batches": 30}},
+        )
+
+        self.assertIsNone(target)
+        self.assertEqual(state.go_to_batch_number, 0)
+
+    def test_go_to_batch_above_progress_sets_absolute_target(self):
+        state = TrainingUIState(
+            go_to_batch_enabled=True,
+            go_to_batch_number=1000,
+        )
+
+        target = stop_at_batch_for_state(
+            state,
+            {"progress": {"completed_batches": 450}},
+        )
+
+        self.assertEqual(target, 1000)
+
     def test_defaults_match_training_specification(self):
         with mock.patch(
             "src.Menus.train_ai.torch_backend.cuda_available", return_value=False
@@ -1721,9 +1763,9 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertIs(cache._save_coordinator, coordinator)
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Stop all", True), ("Back", False)],
+            [("Display", True), ("Starting", False), ("Back", True)],
         )
-        self.assertEqual(trainee_action_states, [("Stop", True)])
+        self.assertEqual(trainee_action_states, [("Starting", False)])
         self.assertEqual(close_states, [("Close", False)])
 
     def test_idle_start_is_disabled_for_selected_empty_slot_without_description(self):
@@ -2290,6 +2332,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 "pygame.event.get",
                 side_effect=[
                     [click_start_all],
+                    [],
                     [click_stop_all],
                     [confirm_stop_all],
                 ],
@@ -2300,7 +2343,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             ),
             mock.patch(
                 "pygame.display.flip",
-                side_effect=[None, None, self.StopRun()],
+                side_effect=[None, None, None, self.StopRun()],
             ),
         ):
             with self.assertRaises(self.StopRun):
@@ -2308,10 +2351,14 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states[:3],
-            [("Display", True), ("Stop synced", True), ("Back", False)],
+            [("Display", True), ("Starting", False), ("Back", True)],
         )
         self.assertEqual(
             footer_states[3:6],
+            [("Display", True), ("Stop synced", True), ("Back", False)],
+        )
+        self.assertEqual(
+            footer_states[6:9],
             [("Display", True), ("Stop synced", True), ("Back", False)],
         )
         self.assertEqual(

@@ -90,6 +90,7 @@ TRAINING_DEVICE_LABELS = (
     (torch_backend.DEVICE_CPU, "CPU"),
     (torch_backend.DEVICE_GPU, "GPU"),
 )
+MAX_GO_TO_BATCH = 999999
 
 
 def default_training_device() -> str:
@@ -159,6 +160,8 @@ COORDINATED_OPPONENT_FIELDS = ("opponent_mode", "ai_opponent_chance")
 FUTURE_CHANGE_SCALAR_FIELDS = (
     "training_device",
     "synchronize_cpu_runs",
+    "go_to_batch_enabled",
+    "go_to_batch_number",
     "opponent_mode",
     "ai_opponent_chance",
     "forward_activity",
@@ -277,6 +280,8 @@ class TrainingUIState:
     replay_updates_per_batch: int = 15
     training_device: str = field(default_factory=default_training_device)
     synchronize_cpu_runs: bool = False
+    go_to_batch_enabled: bool = False
+    go_to_batch_number: int = 0
     hidden_layer_size: int = 256
     hidden_layer_count: int = 2
     replay_buffer_size: int = 30000
@@ -344,6 +349,35 @@ class IndependentCpuPacingValidation:
 
 def batch_settings_from_state(state: TrainingUIState) -> dict[str, int | float]:
     return {field_name: getattr(state, field_name) for field_name in BATCH_CONTROLLED_FIELDS}
+
+
+def normalize_go_to_batch_number(value) -> int:
+    """Return the valid absolute batch target, or zero for indefinite runs."""
+
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+    if number <= 0:
+        return 0
+    return min(MAX_GO_TO_BATCH, number)
+
+
+def stop_at_batch_for_state(state: TrainingUIState, metadata) -> int | None:
+    """Resolve and normalize one UI state's optional absolute batch target."""
+
+    target = normalize_go_to_batch_number(state.go_to_batch_number)
+    progress = metadata.get("progress", {}) if isinstance(metadata, Mapping) else {}
+    try:
+        completed_batches = max(0, int(progress.get("completed_batches", 0)))
+    except (TypeError, ValueError):
+        completed_batches = 0
+    if not state.go_to_batch_enabled or target <= completed_batches:
+        if state.go_to_batch_enabled and target <= completed_batches:
+            state.go_to_batch_number = 0
+        return None
+    state.go_to_batch_number = target
+    return target
 
 
 def independent_session_class(training_device: str):
@@ -1126,6 +1160,10 @@ def _training_ui_state_from_json(payload):
                 value = default_training_device()
         elif field_name == "synchronize_cpu_runs":
             value = bool(value)
+        elif field_name == "go_to_batch_enabled":
+            value = bool(value)
+        elif field_name == "go_to_batch_number":
+            value = normalize_go_to_batch_number(value)
         elif field_name in {"display_on", "running"}:
             value = False
         setattr(state, field_name, value)
@@ -2376,6 +2414,32 @@ class TextField:
         surface.set_clip(None)
 
 
+class PositiveIntegerField(TextField):
+    """Single-line numeric editor with a bounded positive integer value."""
+
+    def __init__(self, rect, value=0, *, maximum=MAX_GO_TO_BATCH):
+        self.maximum = max(1, int(maximum))
+        super().__init__(rect, str(normalize_go_to_batch_number(value)), max_length=6)
+
+    def handle_event(self, event):
+        previous = self.text
+        super().handle_event(event)
+        digits = "".join(character for character in self.text if character.isdigit())
+        if digits:
+            digits = str(min(self.maximum, int(digits)))
+        self.text = digits
+        if self.text != previous:
+            self.edited = True
+
+    @property
+    def value(self) -> int:
+        return normalize_go_to_batch_number(self.text)
+
+    def set_value(self, value) -> None:
+        self.text = str(normalize_go_to_batch_number(value))
+        self.edited = False
+
+
 @dataclass
 class TrainingNotice:
     text: str
@@ -3324,6 +3388,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         for slot in range(1, MODEL_SLOT_COUNT + 1)
     ]
     confirmation_prompt = [None]
+    pending_start_action = [None]
+    frame_in_progress = [False]
     notice = [None]
     background = ui.load_background(
         const.MENU_BG_PATH, const.SCREEN_WIDTH, const.SCREEN_HEIGHT
@@ -3454,6 +3520,17 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         TRAINING_DEVICE_LABELS,
         state.training_device,
     )
+
+    def defer_start_action(callback):
+        """Run startup after one disabled-button frame has been presented."""
+
+        if not frame_in_progress[0]:
+            callback()
+            return True
+        if pending_start_action[0] is not None:
+            return False
+        pending_start_action[0] = callback
+        return True
     device_selector.visible = torch_backend.training_device_selector_visible()
     cpu_sync_checkbox = ui_button.Checkbox(
         device_selector_rect.x,
@@ -3466,6 +3543,28 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         box_offset=(0, -2),
     )
     cpu_sync_checkbox.enabled = state.training_device == torch_backend.DEVICE_CPU
+    go_to_batch_rect = pygame.Rect(
+        device_selector_rect.x,
+        cpu_sync_checkbox.rect.bottom + 52,
+        device_selector_rect.width,
+        40,
+    )
+    go_to_batch_checkbox = ui_button.Checkbox(
+        *go_to_batch_rect,
+        "Go to batch#:",
+        initial_state=state.go_to_batch_enabled,
+        text_offset=(-48, 0),
+        box_offset=(0, -2),
+    )
+    go_to_batch_field = PositiveIntegerField(
+        (
+            go_to_batch_rect.right - 96,
+            go_to_batch_rect.y + 5,
+            88,
+            go_to_batch_rect.height - 10,
+        ),
+        state.go_to_batch_number,
+    )
     slot_rows = tuple(
         pygame.Rect(16, 290 + index * 46, CONTROL_WIDTH - 32, 40)
         for index in range(4)
@@ -3687,6 +3786,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         elif state.training_device == torch_backend.DEVICE_GPU:
             state.training_device = torch_backend.DEVICE_CPU
         state.synchronize_cpu_runs = cpu_sync_checkbox.value
+        state.go_to_batch_enabled = go_to_batch_checkbox.value
+        state.go_to_batch_number = go_to_batch_field.value
         state.rewards.update(
             (slider.reward_key, slider.value) for slider in reward_sliders
         )
@@ -3756,6 +3857,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         display_checkbox.is_checked = instance_manager.display_on
         device_selector.selected = state.training_device
         cpu_sync_checkbox.is_checked = state.synchronize_cpu_runs
+        go_to_batch_checkbox.is_checked = state.go_to_batch_enabled
+        go_to_batch_field.set_value(state.go_to_batch_number)
         refresh_slot_controls(load_labels=False)
         for slider in reward_sliders:
             slider.set_ship(state.selected_ship)
@@ -4525,7 +4628,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 initial_log_lines=initial_log_lines,
                 opponent_model_cache=opponent_model_cache,
                 save_coordinator=save_coordinator,
+                stop_at_batch=stop_at_batch_for_state(state, metadata),
             )
+            go_to_batch_field.set_value(state.go_to_batch_number)
             instance_manager.set_active_session(session)
             state.running = True
             session.start()
@@ -4694,6 +4799,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     initial_log_lines=initial_log_lines,
                     opponent_model_cache=opponent_model_cache,
                     save_coordinator=save_coordinator,
+                    stop_at_batch=stop_at_batch_for_state(
+                        instance_state,
+                        metadata,
+                    ),
                     **pacing_kwargs,
                 )
                 instance.session = session
@@ -4717,6 +4826,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 failures.append(str(exc))
 
         refresh_slot_controls()
+        go_to_batch_field.set_value(state.go_to_batch_number)
         skipped_total = int(skipped_count) + len(failures)
         message = f"Started {started_count} training instance"
         if started_count != 1:
@@ -4749,7 +4859,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     f"{'s' if reset_count != 1 else ''}, including checkpoint, replay "
                     "data, and progress."
                 ),
-                launch,
+                lambda: defer_start_action(launch),
             )
         elif changed_count:
             confirmation_prompt[0] = ConfirmationPrompt(
@@ -4758,7 +4868,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     f"settings for {changed_count} model"
                     f"{'s' if changed_count != 1 else ''}?"
                 ),
-                launch,
+                lambda: defer_start_action(launch),
             )
         else:
             launch()
@@ -4817,6 +4927,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             new_architecture,
         )
         if reset_reasons:
+            def reset_and_begin_training():
+                persist_selected_model(reset_checkpoint=True)
+                clear_session_continuity()
+                begin_training()
+
             confirmation_prompt[0] = ConfirmationPrompt(
                 (
                     f"{describe_model(model_slot)} is incompatible with the current "
@@ -4824,11 +4939,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     "Starting will reset its checkpoint, replay data, and progress. "
                     "Continue?"
                 ),
-                lambda: (
-                    persist_selected_model(reset_checkpoint=True),
-                    clear_session_continuity(),
-                    begin_training(),
-                ),
+                lambda: defer_start_action(reset_and_begin_training),
             )
             return
 
@@ -4844,7 +4955,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 changed_summary = ", ".join(changed_groups[:-1]) + f" and {changed_groups[-1]}"
             confirmation_prompt[0] = ConfirmationPrompt(
                 f"Do you want to run {describe_model(model_slot)} with new {changed_summary} settings?",
-                lambda: (persist_selected_model(), begin_training()),
+                lambda: defer_start_action(
+                    lambda: (persist_selected_model(), begin_training())
+                ),
             )
             return
 
@@ -4944,6 +5057,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         batch_grouping=instance.state.batch_grouping,
                         initial_history=initial_history,
                         initial_log_lines=initial_log_lines,
+                        stop_at_batch=stop_at_batch_for_state(
+                            instance.state,
+                            metadata,
+                        ),
                     )
                 )
             scheduler = CoordinatedTrainingSession(
@@ -4962,6 +5079,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     architecture=record.metadata.get("architecture", {}),
                     training=record.metadata.get("training", {}),
                 )
+            go_to_batch_field.set_value(state.go_to_batch_number)
             show_notice("Synced training started")
         except (RuntimeError, ValueError, PermissionError) as exc:
             for instance, _slot in instance_slots:
@@ -4994,10 +5112,42 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     instance_manager,
                     validation.reset_required_instances,
                 ),
-                lambda: start_coordinated_run(validation),
+                lambda: defer_start_action(
+                    lambda: start_coordinated_run(validation)
+                ),
             )
             return
         start_coordinated_run(validation)
+
+    def request_synced_start_stop():
+        if (
+            not instance_manager.coordinated_run_active()
+            and not instance_manager.any_instance_running()
+        ):
+            defer_start_action(start_synced_models)
+        else:
+            start_synced_models()
+
+    def request_selected_start_stop():
+        apply_to_all = (
+            instance_manager.batch_scheduling.apply_to_all_open_instances
+        )
+        starting = (
+            not instance_manager.coordinated_run_active()
+            and (
+                (apply_to_all and not instance_manager.any_instance_running())
+                or (
+                    not apply_to_all
+                    and not instance_manager.is_running_or_stopping(
+                        instance_manager.active_instance
+                    )
+                )
+            )
+        )
+        if starting:
+            defer_start_action(start_selected_model)
+        else:
+            start_selected_model()
 
     action_gap = 10
     action_available_width = CONTROL_WIDTH - 2 * TAB_MARGIN - 2 * action_gap
@@ -5018,7 +5168,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         synced_action_width,
         FOOTER_CONTROL_HEIGHT,
         "Start synced",
-        start_synced_models,
+        request_synced_start_stop,
         START_ALL_GREEN,
         START_ALL_GREEN_HI,
     )
@@ -5091,7 +5241,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         instance_start_button_rect.width,
         instance_start_button_rect.height,
         "Start",
-        start_selected_model,
+        request_selected_start_stop,
         ui.OK_GREEN,
         ui.OK_GREEN_HI,
     )
@@ -5102,6 +5252,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     apply_state_to_ui()
 
     while not exited[0]:
+        frame_in_progress[0] = True
         elapsed_seconds = _tick_training_menu_clock(
             clock,
             display_on=display_checkbox.value,
@@ -5242,6 +5393,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     field.handle_event(translated)
                 device_selector.handle_event(translated, menu_sound_manager)
                 cpu_sync_checkbox.handle_event(translated, menu_sound_manager)
+                if not (
+                    translated.type == pygame.MOUSEBUTTONDOWN
+                    and go_to_batch_field.rect.collidepoint(translated.pos)
+                ):
+                    go_to_batch_checkbox.handle_event(
+                        translated,
+                        menu_sound_manager,
+                    )
+                go_to_batch_field.handle_event(translated)
                 for delete_btn in delete_buttons:
                     delete_btn.handle_event(translated, menu_sound_manager)
                 load_button.handle_event(translated, menu_sound_manager)
@@ -5443,6 +5603,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             and state.training_device == torch_backend.DEVICE_CPU
         )
         cpu_sync_checkbox.is_checked = state.synchronize_cpu_runs
+        go_to_batch_checkbox.enabled = not active_running and not coordinated_active
+        go_to_batch_checkbox.is_checked = state.go_to_batch_enabled
+        go_to_batch_field.enabled = go_to_batch_checkbox.enabled
 
         update_field_colors()
         selected_slot = selected_model_slot()
@@ -5582,9 +5745,17 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ):
             batch_start_all_button.enabled = False
 
+        if pending_start_action[0] is not None:
+            start_stop_button.text = "Starting"
+            start_stop_button.enabled = False
+            batch_start_all_button.text = "Starting"
+            batch_start_all_button.enabled = False
+
         if application_close_requested[0]:
             apply_all_checkbox.enabled = False
             device_selector.enabled = False
+            go_to_batch_checkbox.enabled = False
+            go_to_batch_field.enabled = False
             display_checkbox.enabled = False
             start_stop_button.enabled = False
             batch_start_all_button.text = "Closing"
@@ -5674,6 +5845,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 rendered = small_font.render(line, True, ui.LIGHT_GREY)
                 content.blit(rendered, (cpu_sync_checkbox.rect.x, progress_y))
                 progress_y += rendered.get_height() + 2
+            go_to_batch_checkbox.draw(content, body_font, content_mouse_pos)
+            go_to_batch_field.draw(content, body_font)
 
             slot_heading = body_font.render("AI Slot", True, ui.WHITE)
             content.blit(slot_heading, (slot_rows[0].x, slot_rows[0].y - 30))
@@ -5908,7 +6081,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 batch_start_all_button.rect,
             )
 
-        pygame.display.flip()
+        try:
+            pygame.display.flip()
+        finally:
+            try:
+                if pending_start_action[0] is not None:
+                    start_action = pending_start_action[0]
+                    pending_start_action[0] = None
+                    start_action()
+            finally:
+                frame_in_progress[0] = False
 
         if (
             application_close_requested[0]

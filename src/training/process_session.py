@@ -557,6 +557,7 @@ def independent_training_process_main(
     metadata: Mapping[str, Any],
     config,
     batch_grouping: int,
+    stop_at_batch: int | None,
     initial_history: tuple[BatchMetrics, ...],
     initial_log_lines: tuple[str, ...],
     save_coordinator: ProcessModelSaveCoordinator,
@@ -600,6 +601,7 @@ def independent_training_process_main(
             metadata=metadata,
             config=config,
             batch_grouping=batch_grouping,
+            stop_at_batch=stop_at_batch,
             audio_service=recording_audio,
             initial_history=initial_history,
             initial_log_lines=initial_log_lines,
@@ -661,12 +663,16 @@ class ProcessTrainingSession:
         display_frame_count: int | None = None,
         batch_pacing_group: CpuBatchPacingGroup | None = None,
         batch_pacing_index: int | None = None,
+        stop_at_batch: int | None = None,
     ) -> None:
         self.repository = repository
         self.slot = slot
         self.metadata = dict(metadata)
         self.config = config
         self.batch_grouping = max(1, int(batch_grouping))
+        self.stop_at_batch = (
+            max(1, int(stop_at_batch)) if stop_at_batch is not None else None
+        )
         self.audio_service = audio_service or NullAudioService()
         self.opponent_model_cache = opponent_model_cache
         self.save_coordinator = save_coordinator or ProcessModelSaveCoordinator()
@@ -771,6 +777,7 @@ class ProcessTrainingSession:
                 "metadata": self.metadata,
                 "config": self.config,
                 "batch_grouping": self.batch_grouping,
+                "stop_at_batch": self.stop_at_batch,
                 "initial_history": self._history,
                 "initial_log_lines": self._log_lines,
                 "save_coordinator": self.save_coordinator,

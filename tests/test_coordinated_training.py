@@ -150,6 +150,19 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
             (0.4, 0.4),
         )
 
+    def test_configured_absolute_batch_target_stops_synced_run(self):
+        session = CoordinatedTrainingSession(
+            (
+                replace(_record(1, "Earthling"), stop_at_batch=10),
+                replace(_record(2, "Androsynth"), stop_at_batch=None),
+            ),
+            run_batches=False,
+        )
+
+        self.assertFalse(session._configured_batch_target_reached())
+        session._states[1].status.completed_batches = 10
+        self.assertTrue(session._configured_batch_target_reached())
+
     def test_opponent_schedule_uses_only_live_coordinated_models(self):
         session = CoordinatedTrainingSession(
             (

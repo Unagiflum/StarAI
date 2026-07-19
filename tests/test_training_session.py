@@ -43,6 +43,7 @@ from src.training.session import (
     format_batch_summary_line,
     metrics_from_batch_result,
     rolling_metrics,
+    reconcile_grouped_metrics_csv,
     validate_model_metadata,
 )
 from src.training.value_network import ValueNetworkConfig, build_value_network
@@ -127,6 +128,44 @@ class _MutableOpponentCache:
 
 
 class TrainingMetricsTests(unittest.TestCase):
+    def test_csv_reconciliation_deletes_new_or_misaligned_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Earthling-01.csv"
+            path.write_text("Batch,Kills\n450,1\n", encoding="utf-8")
+
+            removed = reconcile_grouped_metrics_csv(
+                path,
+                completed_batches=29,
+                batch_grouping=30,
+            )
+
+            self.assertTrue(removed)
+            self.assertFalse(path.exists())
+
+            path.write_text("Batch,Kills\n30,1\n", encoding="utf-8")
+            removed = reconcile_grouped_metrics_csv(
+                path,
+                completed_batches=0,
+                batch_grouping=30,
+            )
+
+            self.assertTrue(removed)
+            self.assertFalse(path.exists())
+
+    def test_csv_reconciliation_keeps_aligned_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Earthling-01.csv"
+            path.write_text("Batch,Kills\n30,1\n", encoding="utf-8")
+
+            removed = reconcile_grouped_metrics_csv(
+                path,
+                completed_batches=37,
+                batch_grouping=30,
+            )
+
+            self.assertFalse(removed)
+            self.assertTrue(path.exists())
+
     def test_deferred_batch_time_updates_log_and_csv_together(self):
         session = object.__new__(TrainingSession)
         session._lock = threading.Lock()
@@ -904,6 +943,50 @@ class TrainingSessionTests(unittest.TestCase):
         self.assertEqual(session.saved_replay_flags, [False, True])
         self.assertEqual(saved_slot.metadata["progress"]["completed_batches"], 5)
         self.assertFalse(replay_exists)
+
+    def test_session_stops_at_absolute_batch_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Test",
+                architecture=model_architecture_metadata(8, 1),
+                training={"regimen": {"rounds_per_batch": 1}},
+                progress={"completed_batches": 4},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            runs = []
+
+            def batch_runner(**kwargs):
+                runs.append(1)
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(0.125,),
+                    round_results=(_round_result(5.0),),
+                )
+
+            session = _RecordingSaveSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon_decay=1.0,
+                ),
+                batch_grouping=10,
+                batch_runner=batch_runner,
+                stop_at_batch=6,
+            )
+            session.run_synchronously(max_batches=None)
+
+        self.assertEqual(len(runs), 2)
+        self.assertEqual(session.status.completed_batches, 6)
+        self.assertEqual(session.saved_batches, [6])
 
     def test_session_skips_exit_save_after_group_boundary_model_save(self):
         with tempfile.TemporaryDirectory() as directory:

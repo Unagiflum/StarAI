@@ -107,6 +107,7 @@ from src.training.session import (
     batch_metrics_history_from_metadata,
     format_batch_summary_line,
     metrics_from_batch_result,
+    reconcile_grouped_metrics_csv,
     rolling_metrics,
     should_update_live_frame_status,
 )
@@ -161,6 +162,7 @@ class CoordinatedTrainingRecord:
     batch_grouping: int
     initial_history: tuple[BatchMetrics, ...] = ()
     initial_log_lines: tuple[str, ...] = ()
+    stop_at_batch: int | None = None
 
 
 @dataclass
@@ -970,6 +972,18 @@ class CoordinatedTrainingSession:
         }
         for state in self._states.values():
             state.last_saved_completed_batches = state.status.completed_batches
+            user_dir = getattr(state.record.repository, "user_dir", None)
+            if user_dir is not None:
+                _, metadata_path = model_paths(
+                    user_dir,
+                    state.record.slot.ship,
+                    state.record.slot.slot,
+                )
+                reconcile_grouped_metrics_csv(
+                    metadata_path.with_suffix(".csv"),
+                    completed_batches=state.status.completed_batches,
+                    batch_grouping=state.record.batch_grouping,
+                )
 
     @property
     def records(self) -> tuple[CoordinatedTrainingRecord, ...]:
@@ -1226,6 +1240,8 @@ class CoordinatedTrainingSession:
                 return
             while not self._stop_requested.is_set():
                 ran_batch = self._run_one_coordinated_batch()
+                if ran_batch and self._configured_batch_target_reached():
+                    break
                 if not ran_batch:
                     time.sleep(self._idle_sleep_seconds)
         except Exception as exc:
@@ -1251,6 +1267,14 @@ class CoordinatedTrainingSession:
                         if not state.status.error:
                             state.status.error = str(exc)
             self._mark_stopped()
+
+    def _configured_batch_target_reached(self) -> bool:
+        with self._lock:
+            return any(
+                state.record.stop_at_batch is not None
+                and state.status.completed_batches >= int(state.record.stop_at_batch)
+                for state in self._states.values()
+            )
 
     def _run_one_coordinated_batch(self) -> bool:
         if self._should_use_cpu_workers():
