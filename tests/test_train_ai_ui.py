@@ -49,6 +49,7 @@ from src.Menus.train_ai import (
     ROUNDS_PER_BATCH_VALUES,
     BATCH_CONTROLLED_FIELDS,
     BATCH_GROUPING_VALUES,
+    DeviceRadioSelector,
     InstanceDropdown,
     AI_OPPONENT_PERCENT_VALUES,
     SIMPLE_ACTIVITY_VALUES,
@@ -62,6 +63,7 @@ from src.Menus.train_ai import (
     batch_settings_from_state,
     coordinated_architecture_signature,
     instances_with_different_batch_settings,
+    independent_training_device,
     validate_independent_cpu_pacing_start,
     validate_coordinated_batch_start,
     TRAINING_HUD_HEIGHT,
@@ -200,26 +202,27 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.gamma, 0.99)
         self.assertEqual(state.minibatch_size, 2048)
         self.assertEqual(state.replay_updates_per_batch, 15)
-        self.assertEqual(state.training_device, "cpu")
+        self.assertEqual(state.training_device, torch_backend.DEVICE_AUTO)
         self.assertFalse(state.display_on)
         self.assertFalse(state.running)
 
-    def test_training_device_choices_only_include_cpu_and_gpu(self):
+    def test_training_device_choices_include_auto_cpu_and_gpu(self):
         self.assertEqual(
             train_ai.TRAINING_DEVICE_LABELS,
             (
+                (torch_backend.DEVICE_AUTO, "Auto"),
                 (torch_backend.DEVICE_CPU, "CPU"),
                 (torch_backend.DEVICE_GPU, "GPU"),
             ),
         )
 
-    def test_training_device_defaults_to_gpu_when_available(self):
+    def test_training_device_defaults_to_auto_when_gpu_is_available(self):
         with mock.patch(
             "src.Menus.train_ai.torch_backend.cuda_available", return_value=True
         ):
             state = TrainingUIState()
 
-        self.assertEqual(state.training_device, torch_backend.DEVICE_GPU)
+        self.assertEqual(state.training_device, torch_backend.DEVICE_AUTO)
 
     def test_cpu_sync_preference_round_trips_with_instance_state(self):
         manager = TrainingInstanceManager()
@@ -231,7 +234,7 @@ class TrainingUIStateTests(unittest.TestCase):
 
         self.assertTrue(restored.active_state.synchronize_cpu_runs)
 
-    def test_legacy_auto_device_uses_available_gpu(self):
+    def test_auto_device_round_trips_without_resolving_the_saved_selection(self):
         payload = training_instance_manager_to_json(TrainingInstanceManager())
         payload["instances"][0]["state"]["training_device"] = (
             torch_backend.DEVICE_AUTO
@@ -242,7 +245,10 @@ class TrainingUIStateTests(unittest.TestCase):
         ):
             restored = training_instance_manager_from_json(payload)
 
-        self.assertEqual(restored.active_state.training_device, torch_backend.DEVICE_GPU)
+        self.assertEqual(
+            restored.active_state.training_device,
+            torch_backend.DEVICE_AUTO,
+        )
 
     def test_ai_opponent_mode_keeps_simple_behavior_controls_available(self):
         state = TrainingUIState()
@@ -830,6 +836,22 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
         self.assertTrue(second.state.synchronize_cpu_runs)
 
+    def test_apply_future_changes_propagates_auto_device(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        second = manager.add_instance()
+        second.state.training_device = torch_backend.DEVICE_GPU
+        manager.select_instance(first.instance_id)
+        manager.set_apply_future_changes_to_all(True)
+
+        first.state.training_device = torch_backend.DEVICE_AUTO
+        manager.propagate_future_changes(
+            first,
+            scalar_fields=("training_device",),
+        )
+
+        self.assertEqual(second.state.training_device, torch_backend.DEVICE_AUTO)
+
     def test_cpu_pacing_validation_averages_only_opted_in_cpu_instances(self):
         manager = TrainingInstanceManager()
         first = manager.active_instance
@@ -860,6 +882,24 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertTrue(validation.can_start)
         self.assertEqual(validation.included_instances, (first, second))
         self.assertAlmostEqual(validation.shared_current_epsilon, 0.4)
+
+    def test_cpu_pacing_validation_includes_auto_instances(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        second = manager.add_instance()
+        for instance, ship in ((first, "Earthling"), (second, "Androsynth")):
+            instance.state.selected_ship = ship
+            instance.state.training_device = torch_backend.DEVICE_AUTO
+            instance.state.synchronize_cpu_runs = True
+        slots = (
+            (first, TrainingModelSlot("Earthling", 1, SLOT_USER)),
+            (second, TrainingModelSlot("Androsynth", 1, SLOT_USER)),
+        )
+
+        validation = validate_independent_cpu_pacing_start(slots)
+
+        self.assertTrue(validation.can_start)
+        self.assertEqual(validation.included_instances, (first, second))
 
     def test_cpu_pacing_validation_requires_matching_epsilon_schedule(self):
         manager = TrainingInstanceManager()
@@ -1723,6 +1763,10 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 self.FakeRepository,
             ),
             mock.patch("src.Menus.train_ai.TrainingSession", self.FakeSession),
+            mock.patch(
+                "src.Menus.train_ai.independent_session_class",
+                return_value=self.FakeSession,
+            ),
             mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
             mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
             mock.patch(
@@ -1750,6 +1794,10 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         coordinator = created.kwargs["save_coordinator"]
 
         self.assertTrue(created.started)
+        self.assertEqual(
+            created.kwargs["config"].training_device,
+            torch_backend.DEVICE_CPU,
+        )
         self.assertIs(manager.active_session, created)
         self.assertEqual(manager.active_state.loaded_ship, "Earthling")
         self.assertEqual(manager.active_state.loaded_slot, 1)
@@ -1904,6 +1952,10 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                     return_value=repository,
                 ),
                 mock.patch("src.Menus.train_ai.TrainingSession", self.FakeSession),
+                mock.patch(
+                    "src.Menus.train_ai.independent_session_class",
+                    return_value=self.FakeSession,
+                ),
                 mock.patch("src.Menus.train_ai.ConfirmationPrompt") as prompt_class,
                 mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
                 mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
@@ -3652,7 +3704,102 @@ class DisabledCheckboxTests(unittest.TestCase):
         self.assertFalse(checkbox.value)
 
 
+class DeviceRadioSelectorTests(unittest.TestCase):
+    def test_three_options_share_the_existing_width(self):
+        selector = DeviceRadioSelector(
+            pygame.Rect(10, 20, 301, 40),
+            train_ai.TRAINING_DEVICE_LABELS,
+            torch_backend.DEVICE_AUTO,
+        )
+
+        option_rects = selector._option_rects()
+
+        self.assertEqual(len(option_rects), 3)
+        self.assertEqual(option_rects[0].left, selector.rect.left)
+        self.assertEqual(option_rects[-1].right, selector.rect.right)
+        self.assertEqual(sum(rect.width for rect in option_rects), selector.rect.width)
+        self.assertLessEqual(
+            max(rect.width for rect in option_rects)
+            - min(rect.width for rect in option_rects),
+            1,
+        )
+
+    def test_disabled_gpu_option_does_not_change_selection(self):
+        selector = DeviceRadioSelector(
+            pygame.Rect(0, 0, 300, 40),
+            train_ai.TRAINING_DEVICE_LABELS,
+            torch_backend.DEVICE_AUTO,
+        )
+        selector.disabled_values = {torch_backend.DEVICE_GPU}
+        gpu_rect = selector._option_rects()[-1]
+        event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": gpu_rect.center},
+        )
+
+        selector.handle_event(event)
+
+        self.assertEqual(selector.selected, torch_backend.DEVICE_AUTO)
+
+    def test_cpu_option_remains_available_when_gpu_is_disabled(self):
+        selector = DeviceRadioSelector(
+            pygame.Rect(0, 0, 300, 40),
+            train_ai.TRAINING_DEVICE_LABELS,
+            torch_backend.DEVICE_AUTO,
+        )
+        selector.disabled_values = {torch_backend.DEVICE_GPU}
+        cpu_rect = selector._option_rects()[1]
+        event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": cpu_rect.center},
+        )
+
+        selector.handle_event(event)
+
+        self.assertEqual(selector.selected, torch_backend.DEVICE_CPU)
+
+    def test_disabled_gpu_option_draws_with_gray_background(self):
+        selector = DeviceRadioSelector(
+            pygame.Rect(0, 0, 300, 40),
+            train_ai.TRAINING_DEVICE_LABELS,
+            torch_backend.DEVICE_AUTO,
+        )
+        selector.disabled_values = {torch_backend.DEVICE_GPU}
+        surface = pygame.Surface((300, 40))
+        font = pygame.font.Font(None, 20)
+
+        selector.draw(surface, font, mouse_pos=(-1, -1))
+
+        auto_rect, _cpu_rect, gpu_rect = selector._option_rects()
+        self.assertEqual(surface.get_at((auto_rect.right - 10, 5))[:3], ui.SLIDER_BG[:3])
+        self.assertEqual(surface.get_at((gpu_rect.right - 10, 5))[:3], ui.DARK_GREY[:3])
+
+
 class TrainingConfigAdapterTests(unittest.TestCase):
+    def test_auto_resolves_to_cpu_for_independent_runs(self):
+        self.assertEqual(
+            independent_training_device(torch_backend.DEVICE_AUTO),
+            torch_backend.DEVICE_CPU,
+        )
+        self.assertEqual(
+            independent_training_device(torch_backend.DEVICE_GPU),
+            torch_backend.DEVICE_GPU,
+        )
+
+    def test_training_config_can_use_launch_device_without_changing_ui_state(self):
+        state = TrainingUIState(
+            selected_ship="Earthling",
+            training_device=torch_backend.DEVICE_AUTO,
+        )
+
+        config = training_config_from_state(
+            state,
+            training_device=independent_training_device(state.training_device),
+        )
+
+        self.assertEqual(state.training_device, torch_backend.DEVICE_AUTO)
+        self.assertEqual(config.training_device, torch_backend.DEVICE_CPU)
+
     def test_training_config_from_state_carries_ui_values(self):
         state = TrainingUIState(selected_ship="Earthling")
         state.rewards["Kill enemy"] = 2.56

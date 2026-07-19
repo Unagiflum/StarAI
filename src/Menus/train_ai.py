@@ -90,6 +90,7 @@ TRAINING_LOG_SPEED_COLOR = (0, 255, 0)
 SIMPLE_ACTIVITY_VALUES = tuple(float(value) for value in range(0, 101, 5))
 AI_OPPONENT_PERCENT_VALUES = SIMPLE_ACTIVITY_VALUES
 TRAINING_DEVICE_LABELS = (
+    (torch_backend.DEVICE_AUTO, "Auto"),
     (torch_backend.DEVICE_CPU, "CPU"),
     (torch_backend.DEVICE_GPU, "GPU"),
 )
@@ -97,12 +98,8 @@ MAX_GO_TO_BATCH = 999999
 
 
 def default_training_device() -> str:
-    """Prefer GPU training when CUDA is available, otherwise use CPU."""
-    return (
-        torch_backend.DEVICE_GPU
-        if torch_backend.cuda_available()
-        else torch_backend.DEVICE_CPU
-    )
+    """Return the launch-context-aware default device selection."""
+    return torch_backend.DEVICE_AUTO
 
 
 REPLAY_BUFFER_SIZE_VALUES = tuple(range(5000, 250001, 5000))
@@ -416,8 +413,17 @@ def stop_at_batch_for_state(state: TrainingUIState, metadata) -> int | None:
     return target
 
 
+def independent_training_device(training_device: str | None) -> str:
+    """Resolve the device used by a trainee-tab (non-coordinated) start."""
+
+    choice = str(training_device or torch_backend.DEVICE_AUTO).lower()
+    if choice == torch_backend.DEVICE_AUTO:
+        return torch_backend.DEVICE_CPU
+    return choice
+
+
 def independent_session_class(training_device: str):
-    if str(training_device).lower() == torch_backend.DEVICE_CPU:
+    if independent_training_device(training_device) == torch_backend.DEVICE_CPU:
         from importlib import import_module
 
         return import_module(
@@ -501,7 +507,8 @@ def validate_independent_cpu_pacing_start(
         (instance, slot)
         for instance, slot in instance_slots
         if instance.state.synchronize_cpu_runs
-        and str(instance.state.training_device).lower() == torch_backend.DEVICE_CPU
+        and independent_training_device(instance.state.training_device)
+        == torch_backend.DEVICE_CPU
     )
     if len(resolved) < 2:
         return IndependentCpuPacingValidation(
@@ -2354,6 +2361,7 @@ class DeviceRadioSelector:
         self.selected = selected
         self.enabled = True
         self.visible = True
+        self.disabled_values = set()
 
     def _option_rects(self):
         width = max(1, self.rect.width // max(1, len(self.choices)))
@@ -2372,7 +2380,7 @@ class DeviceRadioSelector:
         if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
             return
         for rect, (value, _label) in zip(self._option_rects(), self.choices):
-            if rect.collidepoint(event.pos):
+            if value not in self.disabled_values and rect.collidepoint(event.pos):
                 self.selected = value
                 if sound_manager:
                     sound_manager.play_sound("menu")
@@ -2383,22 +2391,24 @@ class DeviceRadioSelector:
             return
         if mouse_pos is None:
             mouse_pos = pygame.mouse.get_pos()
-        bg = ui.SLIDER_BG_HI if self.enabled and self.rect.collidepoint(mouse_pos) else ui.SLIDER_BG
-        if not self.enabled:
-            bg = ui.DARK_GREY
-        pygame.draw.rect(surface, bg, self.rect)
-        pygame.draw.rect(surface, ui.BLACK, self.rect, 3)
+        pygame.draw.rect(surface, ui.SLIDER_BG, self.rect)
         for rect, (value, label) in zip(self._option_rects(), self.choices):
+            option_enabled = self.enabled and value not in self.disabled_values
+            if not option_enabled:
+                pygame.draw.rect(surface, ui.DARK_GREY, rect.inflate(-3, -3))
+            elif rect.collidepoint(mouse_pos):
+                pygame.draw.rect(surface, ui.SLIDER_BG_HI, rect.inflate(-3, -3))
             if rect.left != self.rect.left:
                 pygame.draw.line(surface, ui.BLACK, rect.topleft, rect.bottomleft, 2)
             circle_center = (rect.x + 18, rect.centery)
-            circle_color = ui.WHITE if self.enabled else ui.GREY
-            selected_color = ui.BRIGHT_GREEN if self.enabled else ui.GREY
+            circle_color = ui.WHITE if option_enabled else ui.GREY
+            selected_color = ui.BRIGHT_GREEN if option_enabled else ui.GREY
             pygame.draw.circle(surface, circle_color, circle_center, 8, 2)
             if self.selected == value:
                 pygame.draw.circle(surface, selected_color, circle_center, 5)
             text = font.render(label, True, circle_color)
             surface.blit(text, text.get_rect(midleft=(rect.x + 32, rect.centery)))
+        pygame.draw.rect(surface, ui.BLACK, self.rect, 3)
 
 
 class TextField:
@@ -3361,7 +3371,11 @@ def _draw_group_panel(surface, rect, hovered=False, enabled=True):
     pygame.draw.rect(surface, ui.BLACK, rect, 3)
 
 
-def training_config_from_state(state: TrainingUIState) -> TrainingOrchestrationConfig:
+def training_config_from_state(
+    state: TrainingUIState,
+    *,
+    training_device: str | None = None,
+) -> TrainingOrchestrationConfig:
     return TrainingOrchestrationConfig(
         trainee_ship=str(state.selected_ship),
         reward_weights=dict(state.rewards),
@@ -3385,7 +3399,9 @@ def training_config_from_state(state: TrainingUIState) -> TrainingOrchestrationC
         hidden_layer_count=state.hidden_layer_count,
         minibatch_size=state.minibatch_size,
         replay_updates_per_batch=state.replay_updates_per_batch,
-        training_device=state.training_device,
+        training_device=(
+            state.training_device if training_device is None else training_device
+        ),
         display_on=state.display_on,
     )
 
@@ -3580,6 +3596,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         TRAINING_DEVICE_LABELS,
         state.training_device,
     )
+    device_selector.disabled_values = (
+        set()
+        if torch_backend.cuda_available()
+        else {torch_backend.DEVICE_GPU}
+    )
 
     def defer_start_action(callback):
         """Run startup after one disabled-button frame has been presented."""
@@ -3614,7 +3635,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         text_offset=(14, 0),
         box_offset=(0, -2),
     )
-    cpu_sync_checkbox.enabled = state.training_device == torch_backend.DEVICE_CPU
+    cpu_sync_checkbox.enabled = (
+        independent_training_device(state.training_device)
+        == torch_backend.DEVICE_CPU
+    )
     go_to_batch_rect = pygame.Rect(
         device_selector_rect.x,
         cpu_sync_checkbox.rect.bottom + 52,
@@ -4693,7 +4717,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 repository=model_repository,
                 slot=model_slot,
                 metadata=metadata,
-                config=training_config_from_state(state),
+                config=training_config_from_state(
+                    state,
+                    training_device=independent_training_device(
+                        state.training_device
+                    ),
+                ),
                 batch_grouping=state.batch_grouping,
                 audio_service=audio_service,
                 initial_history=initial_history,
@@ -4866,7 +4895,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     repository=model_repository,
                     slot=updated_slot,
                     metadata=metadata,
-                    config=training_config_from_state(instance_state),
+                    config=training_config_from_state(
+                        instance_state,
+                        training_device=independent_training_device(
+                            instance_state.training_device
+                        ),
+                    ),
                     batch_grouping=instance_state.batch_grouping,
                     audio_service=audio_service,
                     initial_history=initial_history,
@@ -5730,16 +5764,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         for slider in regimen_sliders:
             slider.enabled = not active_running and not coordinated_active
         device_selector.visible = torch_backend.training_device_selector_visible()
-        if not device_selector.visible and state.training_device == torch_backend.DEVICE_GPU:
-            state.training_device = torch_backend.DEVICE_CPU
-            device_selector.selected = state.training_device
-        else:
-            device_selector.selected = state.training_device
+        device_selector.disabled_values = (
+            set()
+            if torch_backend.cuda_available()
+            else {torch_backend.DEVICE_GPU}
+        )
+        device_selector.selected = state.training_device
         device_selector.enabled = not active_running and not coordinated_active
         cpu_sync_checkbox.enabled = bool(
             not active_running
             and not coordinated_active
-            and state.training_device == torch_backend.DEVICE_CPU
+            and independent_training_device(state.training_device)
+            == torch_backend.DEVICE_CPU
         )
         cpu_sync_checkbox.is_checked = state.synchronize_cpu_runs
         go_to_batch_checkbox.enabled = not active_running and not coordinated_active

@@ -566,10 +566,10 @@ class ProcessTrainingRoutingTests(unittest.TestCase):
             ProcessTrainingSession,
         )
 
-    def test_auto_and_gpu_keep_thread_session(self):
+    def test_auto_uses_cpu_process_and_gpu_keeps_thread_session(self):
         self.assertIs(
             train_ai.independent_session_class(torch_backend.DEVICE_AUTO),
-            train_ai.TrainingSession,
+            ProcessTrainingSession,
         )
         self.assertIs(
             train_ai.independent_session_class(torch_backend.DEVICE_GPU),

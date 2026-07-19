@@ -89,8 +89,8 @@ def training_device_key(choice: str | None = DEVICE_AUTO) -> str:
 
 
 def training_device_selector_visible() -> bool:
-    """Return whether CPU/GPU selection should be offered to the user."""
-    return cuda_available()
+    """Return whether PyTorch device selection should be offered to the user."""
+    return get_torch() is not None
 
 
 def move_optimizer_state_to_device(optimizer, device) -> None:
