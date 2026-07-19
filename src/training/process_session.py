@@ -715,6 +715,9 @@ class ProcessTrainingSession:
             epsilon_decay=float(config.epsilon_decay),
             gamma=float(config.gamma),
         )
+        self._completed_batches_at_run_start = self._status.completed_batches
+        self._elapsed_anchor_seconds = 0.0
+        self._elapsed_anchor_at = time.perf_counter()
         self._history = tuple(initial_history)
         self._log_lines = tuple(initial_log_lines)
         self._process = None
@@ -724,8 +727,6 @@ class ProcessTrainingSession:
     @property
     def status(self) -> TrainingSessionStatus:
         self._drain_messages()
-        with self._lock:
-            status = replace(self._status)
         process = self._process
         if (
             process is not None
@@ -733,7 +734,9 @@ class ProcessTrainingSession:
         ):
             self._drain_messages()
             with self._lock:
-                if self._status.running:
+                if self._status.running or self._status.stopping:
+                    now = time.perf_counter()
+                    self._reanchor_elapsed_locked(now)
                     error = self._status.error
                     if not error and process.exitcode not in (None, 0):
                         error = f"CPU training worker exited with code {process.exitcode}"
@@ -743,7 +746,6 @@ class ProcessTrainingSession:
                         stopping=False,
                         error=error,
                     )
-                status = replace(self._status)
             self._deactivate_batch_pacing()
             try:
                 process.join(0)
@@ -751,7 +753,36 @@ class ProcessTrainingSession:
             finally:
                 self._process = None
                 self._release_display_memory()
-        return status
+        with self._lock:
+            return self._projected_status_locked(time.perf_counter())
+
+    def _projected_elapsed_locked(self, now: float) -> float:
+        elapsed = self._elapsed_anchor_seconds
+        if self._status.running or self._status.stopping:
+            elapsed += max(0.0, float(now) - self._elapsed_anchor_at)
+        return max(0.0, elapsed)
+
+    def _reanchor_elapsed_locked(self, now: float) -> None:
+        self._elapsed_anchor_seconds = self._projected_elapsed_locked(now)
+        self._elapsed_anchor_at = float(now)
+
+    def _projected_status_locked(self, now: float) -> TrainingSessionStatus:
+        elapsed = self._projected_elapsed_locked(now)
+        completed_this_run = max(
+            0,
+            int(self._status.completed_batches)
+            - int(self._completed_batches_at_run_start),
+        )
+        batches_per_hour = (
+            completed_this_run * 3600.0 / elapsed
+            if completed_this_run > 0 and elapsed > 0.0
+            else 0.0
+        )
+        return replace(
+            self._status,
+            elapsed_training_seconds=elapsed,
+            batches_per_hour=batches_per_hour,
+        )
 
     @property
     def history(self) -> tuple[BatchMetrics, ...]:
@@ -771,6 +802,9 @@ class ProcessTrainingSession:
         if self._display_event.is_set():
             self._ensure_display_memory()
         with self._lock:
+            self._completed_batches_at_run_start = self._status.completed_batches
+            self._elapsed_anchor_seconds = 0.0
+            self._elapsed_anchor_at = time.perf_counter()
             self._status = replace(
                 self._status,
                 running=True,
@@ -809,6 +843,7 @@ class ProcessTrainingSession:
             self._deactivate_batch_pacing()
             self._process = None
             with self._lock:
+                self._reanchor_elapsed_locked(time.perf_counter())
                 self._status = replace(self._status, running=False)
             self._release_display_memory()
             raise
@@ -817,7 +852,13 @@ class ProcessTrainingSession:
         self._deactivate_batch_pacing()
         self._stop_event.set()
         with self._lock:
-            self._status = replace(self._status, stopping=True)
+            now = time.perf_counter()
+            self._reanchor_elapsed_locked(now)
+            self._status = replace(
+                self._status,
+                stopping=True,
+                simulation_speed_multiplier=0.0,
+            )
 
     def set_display_on(self, enabled: bool) -> None:
         enabled = bool(enabled)
@@ -895,7 +936,18 @@ class ProcessTrainingSession:
             # reports stopping=False.  Keep the parent-side request authoritative
             # until the worker publishes its final running=False status.
             if self._status.stopping and status.running:
-                status = replace(status, stopping=True)
+                status = replace(
+                    status,
+                    stopping=True,
+                    simulation_speed_multiplier=0.0,
+                )
+            now = time.perf_counter()
+            projected_elapsed = self._projected_elapsed_locked(now)
+            self._elapsed_anchor_seconds = max(
+                projected_elapsed,
+                max(0.0, float(status.elapsed_training_seconds)),
+            )
+            self._elapsed_anchor_at = now
             self._status = status
             self.slot = payload.get("slot") or self.slot
             if payload.get("history") is not None:

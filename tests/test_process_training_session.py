@@ -434,6 +434,142 @@ class ProcessTrainingSessionTests(unittest.TestCase):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")
 
+    def _make_session(self, root: Path) -> ProcessTrainingSession:
+        repository = TrainingModelRepository(root / "bundled", root / "user")
+        metadata = metadata_from_state(
+            ship="Earthling",
+            slot=1,
+            description="Process test",
+            architecture=model_architecture_metadata(8, 1),
+            training={},
+        )
+        slot = repository.create_or_update_user_model(metadata)
+        return ProcessTrainingSession(
+            repository=repository,
+            slot=slot,
+            metadata=metadata,
+            config=TrainingOrchestrationConfig(
+                trainee_ship="Earthling",
+                training_device="cpu",
+            ),
+            batch_grouping=1,
+            save_coordinator=ProcessModelSaveCoordinator(),
+        )
+
+    def test_cached_running_status_projects_elapsed_time_and_throughput(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = self._make_session(Path(directory))
+            session._status = TrainingSessionStatus(
+                ship="Earthling",
+                running=True,
+                completed_batches=12,
+                elapsed_training_seconds=20.0,
+                batches_per_hour=360.0,
+                display_message="Waiting for synchronized CPU runs",
+            )
+            session._completed_batches_at_run_start = 10
+            session._elapsed_anchor_seconds = 20.0
+            session._elapsed_anchor_at = 100.0
+
+            with (
+                mock.patch.object(session, "_drain_messages"),
+                mock.patch(
+                    "src.training.process_session.time.perf_counter",
+                    return_value=110.0,
+                ),
+            ):
+                status = session.status
+
+            self.assertEqual(status.elapsed_training_seconds, 30.0)
+            self.assertEqual(status.batches_per_hour, 240.0)
+
+    def test_stopping_status_keeps_time_running_and_zeros_speed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = self._make_session(Path(directory))
+            session._status = TrainingSessionStatus(
+                ship="Earthling",
+                running=True,
+                completed_batches=11,
+                simulation_speed_multiplier=8.0,
+            )
+            session._completed_batches_at_run_start = 10
+            session._elapsed_anchor_seconds = 20.0
+            session._elapsed_anchor_at = 100.0
+
+            with mock.patch(
+                "src.training.process_session.time.perf_counter",
+                return_value=110.0,
+            ):
+                session.request_stop()
+            with mock.patch(
+                "src.training.process_session.time.perf_counter",
+                return_value=112.0,
+            ):
+                session._accept_status(
+                    {
+                        "status": TrainingSessionStatus(
+                            ship="Earthling",
+                            running=True,
+                            completed_batches=11,
+                            elapsed_training_seconds=25.0,
+                            simulation_speed_multiplier=9.0,
+                        )
+                    }
+                )
+            with (
+                mock.patch.object(session, "_drain_messages"),
+                mock.patch(
+                    "src.training.process_session.time.perf_counter",
+                    return_value=115.0,
+                ),
+            ):
+                status = session.status
+
+            self.assertTrue(status.stopping)
+            self.assertEqual(status.elapsed_training_seconds, 35.0)
+            self.assertEqual(status.batches_per_hour, 3600.0 / 35.0)
+            self.assertEqual(status.simulation_speed_multiplier, 0.0)
+
+    def test_final_stopped_status_freezes_projected_elapsed_time(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = self._make_session(Path(directory))
+            session._status = TrainingSessionStatus(
+                ship="Earthling",
+                running=True,
+                completed_batches=11,
+            )
+            session._completed_batches_at_run_start = 10
+            session._elapsed_anchor_seconds = 20.0
+            session._elapsed_anchor_at = 100.0
+
+            with mock.patch(
+                "src.training.process_session.time.perf_counter",
+                return_value=112.0,
+            ):
+                session._accept_status(
+                    {
+                        "status": TrainingSessionStatus(
+                            ship="Earthling",
+                            running=False,
+                            completed_batches=11,
+                            elapsed_training_seconds=25.0,
+                        )
+                    }
+                )
+            with (
+                mock.patch.object(session, "_drain_messages"),
+                mock.patch(
+                    "src.training.process_session.time.perf_counter",
+                    return_value=200.0,
+                ),
+            ):
+                status = session.status
+
+            self.assertFalse(status.running)
+            self.assertFalse(status.stopping)
+            self.assertEqual(status.elapsed_training_seconds, 32.0)
+            self.assertEqual(status.batches_per_hour, 112.5)
+
     def test_running_worker_status_does_not_clear_parent_stop_request(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
