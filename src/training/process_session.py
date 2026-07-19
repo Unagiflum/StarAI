@@ -891,6 +891,11 @@ class ProcessTrainingSession:
                     battle_view = self._status.battle_view
             status = replace(status, battle_view=battle_view)
         with self._lock:
+            # A worker snapshot already in flight when stop is requested still
+            # reports stopping=False.  Keep the parent-side request authoritative
+            # until the worker publishes its final running=False status.
+            if self._status.stopping and status.running:
+                status = replace(status, stopping=True)
             self._status = status
             self.slot = payload.get("slot") or self.slot
             if payload.get("history") is not None:

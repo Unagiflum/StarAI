@@ -434,6 +434,58 @@ class ProcessTrainingSessionTests(unittest.TestCase):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")
 
+    def test_running_worker_status_does_not_clear_parent_stop_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Process test",
+                architecture=model_architecture_metadata(8, 1),
+                training={},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            session = ProcessTrainingSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    training_device="cpu",
+                ),
+                batch_grouping=1,
+                save_coordinator=ProcessModelSaveCoordinator(),
+            )
+            session._status = TrainingSessionStatus(ship="Earthling", running=True)
+
+            session.request_stop()
+            session._accept_status(
+                {
+                    "status": TrainingSessionStatus(
+                        ship="Earthling",
+                        running=True,
+                        stopping=False,
+                    )
+                }
+            )
+
+            self.assertTrue(session.status.running)
+            self.assertTrue(session.status.stopping)
+
+            session._accept_status(
+                {
+                    "status": TrainingSessionStatus(
+                        ship="Earthling",
+                        running=False,
+                        stopping=False,
+                    )
+                }
+            )
+
+            self.assertFalse(session.status.running)
+            self.assertFalse(session.status.stopping)
+
     def test_cpu_session_reuses_spawn_worker_past_first_batch(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
