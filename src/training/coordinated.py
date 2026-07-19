@@ -1243,6 +1243,8 @@ class CoordinatedTrainingSession:
                     time.sleep(self._idle_sleep_seconds)
                 return
             while not self._stop_requested.is_set():
+                if self._configured_batch_target_reached():
+                    break
                 ran_batch = self._run_one_coordinated_batch()
                 if ran_batch and self._configured_stop_target_reached():
                     break

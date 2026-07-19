@@ -90,6 +90,7 @@ from src.Menus.train_ai import (
     _training_settings_match,
     _wheel_step,
     _progress_for_model_update,
+    batch_target_reached,
     normalize_go_to_batch_number,
     normalize_go_to_epsilon_value,
     stop_at_batch_for_state,
@@ -140,19 +141,40 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(restored.active_state.go_to_batch_number, 999999)
         self.assertEqual(normalize_go_to_batch_number("1000"), 1000)
 
-    def test_go_to_batch_at_or_below_progress_becomes_indefinite(self):
+    def test_go_to_batch_at_or_below_progress_remains_absolute_target(self):
         state = TrainingUIState(
             go_to_batch_enabled=True,
             go_to_batch_number=30,
         )
 
-        target = stop_at_batch_for_state(
-            state,
-            {"progress": {"completed_batches": 30}},
+        target = stop_at_batch_for_state(state)
+
+        self.assertEqual(target, 30)
+        self.assertEqual(state.go_to_batch_number, 30)
+        self.assertTrue(
+            batch_target_reached(
+                {"progress": {"completed_batches": 30}},
+                target,
+            )
+        )
+        self.assertTrue(
+            batch_target_reached(
+                {"progress": {"completed_batches": 31}},
+                target,
+            )
         )
 
-        self.assertIsNone(target)
-        self.assertEqual(state.go_to_batch_number, 0)
+    def test_go_to_batch_zero_or_unchecked_is_indefinite(self):
+        for enabled, number in ((True, 0), (False, 30)):
+            with self.subTest(enabled=enabled, number=number):
+                state = TrainingUIState(
+                    go_to_batch_enabled=enabled,
+                    go_to_batch_number=number,
+                )
+
+                target = stop_at_batch_for_state(state)
+
+                self.assertIsNone(target)
 
     def test_go_to_batch_above_progress_sets_absolute_target(self):
         state = TrainingUIState(
@@ -160,10 +182,7 @@ class TrainingUIStateTests(unittest.TestCase):
             go_to_batch_number=1000,
         )
 
-        target = stop_at_batch_for_state(
-            state,
-            {"progress": {"completed_batches": 450}},
-        )
+        target = stop_at_batch_for_state(state)
 
         self.assertEqual(target, 1000)
 

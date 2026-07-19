@@ -171,6 +171,24 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
         session._states[1].status.completed_batches = 10
         self.assertTrue(session._configured_batch_target_reached())
 
+    def test_reached_absolute_batch_target_prevents_first_synced_batch(self):
+        built = []
+        session = CoordinatedTrainingSession(
+            (
+                replace(_record(1, "Earthling"), stop_at_batch=10),
+                replace(_record(2, "Androsynth"), stop_at_batch=None),
+            ),
+            component_builder=self._component_builder(built),
+            run_batches=True,
+        )
+        session._states[1].status.completed_batches = 10
+
+        with mock.patch.object(session, "_run_one_coordinated_batch") as run_batch:
+            session._run_worker()
+
+        self.assertEqual(built, [1, 2])
+        run_batch.assert_not_called()
+
     def test_first_configured_epsilon_target_stops_synced_run(self):
         session = CoordinatedTrainingSession(
             (

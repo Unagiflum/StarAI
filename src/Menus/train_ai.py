@@ -401,21 +401,29 @@ def normalize_go_to_batch_number(value) -> int:
     return min(MAX_GO_TO_BATCH, number)
 
 
-def stop_at_batch_for_state(state: TrainingUIState, metadata) -> int | None:
+def stop_at_batch_for_state(state: TrainingUIState) -> int | None:
     """Resolve and normalize one UI state's optional absolute batch target."""
 
     target = normalize_go_to_batch_number(state.go_to_batch_number)
+    if not state.go_to_batch_enabled:
+        return None
+    state.go_to_batch_number = target
+    if target <= 0:
+        return None
+    return target
+
+
+def batch_target_reached(metadata, stop_at_batch: int | None) -> bool:
+    """Return whether saved progress is already at an absolute batch target."""
+
+    if stop_at_batch is None:
+        return False
     progress = metadata.get("progress", {}) if isinstance(metadata, Mapping) else {}
     try:
         completed_batches = max(0, int(progress.get("completed_batches", 0)))
     except (TypeError, ValueError):
         completed_batches = 0
-    if not state.go_to_batch_enabled or target <= completed_batches:
-        if state.go_to_batch_enabled and target <= completed_batches:
-            state.go_to_batch_number = 0
-        return None
-    state.go_to_batch_number = target
-    return target
+    return completed_batches >= int(stop_at_batch)
 
 
 def normalize_go_to_epsilon_value(value) -> float:
@@ -4829,6 +4837,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if report.warnings:
             show_notice(report.warnings[0])
 
+        stop_at_batch = stop_at_batch_for_state(state)
+        go_to_batch_field.set_value(state.go_to_batch_number)
+        if batch_target_reached(metadata, stop_at_batch):
+            show_notice(f"Batch target #{stop_at_batch} has already been reached")
+            return
+
         active_instance = instance_manager.active_instance
         if not instance_manager.reserve_writer(
             active_instance,
@@ -4859,7 +4873,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 initial_log_lines=initial_log_lines,
                 opponent_model_cache=opponent_model_cache,
                 save_coordinator=save_coordinator,
-                stop_at_batch=stop_at_batch_for_state(state, metadata),
+                stop_at_batch=stop_at_batch,
                 stop_at_epsilon=stop_at_epsilon_for_state(
                     state,
                     state.current_epsilon,
@@ -4908,6 +4922,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             reset_checkpoint = bool(
                 model_checkpoint_reset_reasons(model_slot, architecture)
             )
+            target_metadata = (
+                {"progress": {"completed_batches": 0}}
+                if reset_checkpoint
+                else model_slot.metadata
+            )
+            stop_at_batch = stop_at_batch_for_state(instance_state)
+            if batch_target_reached(target_metadata, stop_at_batch):
+                skipped_count += 1
+                continue
             new_training = training_metadata_for(
                 instance_state,
                 reset_checkpoint=reset_checkpoint,
@@ -5042,10 +5065,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     initial_log_lines=initial_log_lines,
                     opponent_model_cache=opponent_model_cache,
                     save_coordinator=save_coordinator,
-                    stop_at_batch=stop_at_batch_for_state(
-                        instance_state,
-                        metadata,
-                    ),
+                    stop_at_batch=stop_at_batch_for_state(instance_state),
                     stop_at_epsilon=stop_at_epsilon_for_state(
                         instance_state,
                         instance_state.current_epsilon,
@@ -5295,6 +5315,19 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
             for instance in validation.included_instances
         ]
+        for instance, model_slot in instance_slots:
+            metadata = metadata_for_coordinated_instance(
+                instance,
+                model_slot,
+                reset_checkpoint=instance.instance_id in reset_instance_ids,
+            )
+            stop_at_batch = stop_at_batch_for_state(instance.state)
+            if batch_target_reached(metadata, stop_at_batch):
+                show_notice(
+                    f"{describe_model(model_slot)} has already reached batch "
+                    f"target #{stop_at_batch}"
+                )
+                return
         if not instance_manager.reserve_writers_for_slots(instance_slots):
             show_notice("One or more selected models are already training")
             return
@@ -5341,10 +5374,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     batch_grouping=instance.state.batch_grouping,
                     initial_history=initial_history,
                     initial_log_lines=initial_log_lines,
-                    stop_at_batch=stop_at_batch_for_state(
-                        instance.state,
-                        metadata,
-                    ),
+                    stop_at_batch=stop_at_batch_for_state(instance.state),
                     stop_at_epsilon=stop_at_epsilon_for_state(
                         instance.state,
                         shared_current_epsilon,
