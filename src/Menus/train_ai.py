@@ -3069,9 +3069,20 @@ def _format_training_duration(seconds):
     return f"{hours:d}h:{minutes:02d}m:{seconds:02d}s"
 
 
-def _selected_model_progress_lines(model_slot):
+def _selected_model_progress_lines(model_slot, live_status=None):
     if model_slot is None or not model_slot.exists:
         return ()
+    if live_status is not None:
+        try:
+            completed_batches = max(0, int(live_status.completed_batches))
+            current_epsilon = float(live_status.current_epsilon)
+        except (AttributeError, TypeError, ValueError):
+            pass
+        else:
+            return (
+                f"Last batch done: #{completed_batches}",
+                f"Current epsilon: {current_epsilon:.3f}",
+            )
     metadata = model_slot.metadata
     if not isinstance(metadata, Mapping):
         return ()
@@ -6208,7 +6219,19 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 device_selector.draw(content, body_font, content_mouse_pos)
             cpu_sync_checkbox.draw(content, body_font, content_mouse_pos)
             progress_y = cpu_sync_checkbox.rect.bottom + 4
-            for line in _selected_model_progress_lines(selected_slot):
+            selected_progress_status = None
+            active_session_slot = getattr(active_session, "slot", None)
+            if (
+                session_status is not None
+                and selected_slot is not None
+                and getattr(active_session_slot, "ship", None) == selected_slot.ship
+                and getattr(active_session_slot, "slot", None) == selected_slot.slot
+            ):
+                selected_progress_status = session_status
+            for line in _selected_model_progress_lines(
+                selected_slot,
+                selected_progress_status,
+            ):
                 rendered = small_font.render(line, True, ui.LIGHT_GREY)
                 content.blit(rendered, (cpu_sync_checkbox.rect.x, progress_y))
                 progress_y += rendered.get_height() + 2

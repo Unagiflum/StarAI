@@ -4101,6 +4101,32 @@ class TrainingConsoleTests(unittest.TestCase):
             ("Last batch done: #432", "Current epsilon: 0.112"),
         )
 
+    def test_selected_model_progress_prefers_live_batch_and_epsilon(self):
+        metadata = metadata_from_state(
+            ship="Earthling",
+            slot=1,
+            description="Training",
+            architecture=model_architecture_metadata(256, 2),
+            training={"regimen": {"current_epsilon": 0.112}},
+            progress={"completed_batches": 432},
+        )
+        slot = TrainingModelSlot(
+            "Earthling",
+            1,
+            SLOT_USER,
+            description="Training",
+            metadata=metadata,
+        )
+        live_status = TrainingSessionStatus(
+            completed_batches=433,
+            current_epsilon=0.111,
+        )
+
+        self.assertEqual(
+            train_ai._selected_model_progress_lines(slot, live_status),
+            ("Last batch done: #433", "Current epsilon: 0.111"),
+        )
+
     def test_display_off_console_assigns_requested_section_colors(self):
         status = self._status()
         history = ("Batch      1 | first", "Batch      2 | second")
