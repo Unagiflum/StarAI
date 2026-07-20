@@ -94,7 +94,7 @@ TRAINING_DEVICE_LABELS = (
     (torch_backend.DEVICE_CPU, "CPU"),
     (torch_backend.DEVICE_GPU, "GPU"),
 )
-MAX_GO_TO_BATCH = 999999
+MAX_GO_TO_BATCH = 99_999_999
 
 
 def default_training_device() -> str:
@@ -2522,7 +2522,7 @@ class PositiveIntegerField(TextField):
 
     def __init__(self, rect, value=0, *, maximum=MAX_GO_TO_BATCH):
         self.maximum = max(1, int(maximum))
-        super().__init__(rect, str(normalize_go_to_batch_number(value)), max_length=6)
+        super().__init__(rect, str(normalize_go_to_batch_number(value)), max_length=8)
 
     def handle_event(self, event):
         previous = self.text

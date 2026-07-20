@@ -233,7 +233,7 @@ class TrainingMetricsTests(unittest.TestCase):
 
         self.assertEqual(
             format_batch_summary_line(metrics, rolling),
-            "#     86 |    2 K (   2.31),    4 D (   3.62) | "
+            "#       86 |    2 K (   2.31),    4 D (   3.62) | "
             "Score:   0.809 (  0.819) | Epsilon: 0.26545 | "
             "LR: 0.00030 | Loss:  1.2658 ( 1.2658) |   0h:30m:04s",
         )

@@ -310,7 +310,7 @@ def format_batch_duration(seconds: float) -> str:
 
 def format_batch_summary_line(metrics: BatchMetrics, rolling: BatchMetrics) -> str:
     return (
-        f"# {metrics.batch:6d} | "
+        f"# {metrics.batch:8d} | "
         f"{metrics.kills:4d} K ({rolling.average_kills:7.2f}), "
         f"{metrics.deaths:4d} D ({rolling.average_deaths:7.2f}) | "
         f"Score: {metrics.average_match_score:7.3f} ({rolling.average_match_score:7.3f}) | "

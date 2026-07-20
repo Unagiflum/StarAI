@@ -122,24 +122,32 @@ from src.UI.ui_button import Checkbox
 
 class ReplayBufferSizeHintTests(unittest.TestCase):
     def test_hint_uses_packed_replay_payload_size(self):
-        self.assertEqual(_format_replay_buffer_size(20_000), "~46MB")
-        self.assertEqual(_format_replay_buffer_size(30_000), "~69MB")
-        self.assertEqual(_format_replay_buffer_size(250_000), "~572MB")
+        self.assertEqual(_format_replay_buffer_size(20_000), "~50MB")
+        self.assertEqual(_format_replay_buffer_size(30_000), "~75MB")
+        self.assertEqual(_format_replay_buffer_size(250_000), "~622MB")
 
 
 class TrainingUIStateTests(unittest.TestCase):
     def test_go_to_batch_target_is_bounded_and_persisted(self):
         manager = TrainingInstanceManager()
         manager.active_state.go_to_batch_enabled = True
-        manager.active_state.go_to_batch_number = 1_500_000
+        manager.active_state.go_to_batch_number = 150_000_000
 
         restored = training_instance_manager_from_json(
             training_instance_manager_to_json(manager)
         )
 
         self.assertTrue(restored.active_state.go_to_batch_enabled)
-        self.assertEqual(restored.active_state.go_to_batch_number, 999999)
+        self.assertEqual(restored.active_state.go_to_batch_number, 99_999_999)
         self.assertEqual(normalize_go_to_batch_number("1000"), 1000)
+        self.assertEqual(normalize_go_to_batch_number("12345678"), 12_345_678)
+
+        field = train_ai.PositiveIntegerField(
+            pygame.Rect(0, 0, 100, 20),
+            12_345_678,
+        )
+        self.assertEqual(field.max_length, 8)
+        self.assertEqual(field.value, 12_345_678)
 
     def test_go_to_batch_at_or_below_progress_remains_absolute_target(self):
         state = TrainingUIState(
