@@ -3761,9 +3761,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     go_to_batch_field = PositiveIntegerField(
         (
-            go_to_batch_rect.right - 96,
+            go_to_batch_rect.right - 128,
             go_to_batch_rect.y + 5,
-            88,
+            120,
             go_to_batch_rect.height - 10,
         ),
         state.go_to_batch_number,
