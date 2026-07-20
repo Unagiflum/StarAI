@@ -39,6 +39,7 @@ def _ship(name="Earthling", **overrides):
         "thrust_timer": 3,
         "turn_wait": 2,
         "turn_timer": 1,
+        "max_thrust": 40,
         "thrust_increment": 5,
         "a1_wait": 6,
         "action1_timer": 5,
@@ -245,6 +246,7 @@ class TrainingObservationTests(unittest.TestCase):
             thrust_timer=12,
             turn_wait=3,
             turn_timer=9,
+            max_thrust=50,
             thrust_increment=7,
             rotation=450,
             velocity=[60, 80],
@@ -262,11 +264,37 @@ class TrainingObservationTests(unittest.TestCase):
         self.assertEqual(observation[_field("self", "thrust_timer")], 12 / const.FPS)
         self.assertEqual(observation[_field("self", "turn_wait")], 3 / const.FPS)
         self.assertEqual(observation[_field("self", "turn_timer")], 9 / const.FPS)
+        self.assertEqual(
+            observation[_field("self", "maximum_thrust")],
+            50 / const.SPEED_LIMIT,
+        )
         self.assertEqual(observation[_field("self", "thrust_increment")], 0.7)
-        self.assertEqual(observation[_field("self", "absolute_angle")], 0.25)
-        self.assertEqual(observation[_field("self", "absolute_speed")], 1.0)
-        self.assertEqual(observation[_field("self", "absolute_x_velocity")], 0.6)
-        self.assertEqual(observation[_field("self", "absolute_y_velocity")], 0.8)
+        self.assertEqual(observation[_field("self", "absolute_heading_sine")], 1.0)
+        self.assertAlmostEqual(
+            observation[_field("self", "absolute_heading_cosine")],
+            0.0,
+            places=12,
+        )
+        self.assertEqual(
+            observation[_field("self", "absolute_speed")],
+            100 / const.SPEED_LIMIT,
+        )
+        self.assertEqual(
+            observation[_field("self", "absolute_x_velocity")],
+            60 / const.SPEED_LIMIT,
+        )
+        self.assertEqual(
+            observation[_field("self", "absolute_y_velocity")],
+            80 / const.SPEED_LIMIT,
+        )
+        self.assertAlmostEqual(
+            observation[_field("self", "local_forward_velocity")],
+            60 / const.SPEED_LIMIT,
+        )
+        self.assertAlmostEqual(
+            observation[_field("self", "local_right_velocity")],
+            80 / const.SPEED_LIMIT,
+        )
         self.assertEqual(observation[_field("self", "trackable")], 0.0)
 
     def test_held_flags_disambiguate_zero_repeat_countdown(self):
@@ -356,11 +384,36 @@ class TrainingObservationTests(unittest.TestCase):
         )
         self.assertEqual(observation[_object_field("enemy_ship", 0, "inverse_distance")], 5.0)
         self.assertAlmostEqual(
-            observation[_object_field("enemy_ship", 0, "relative_velocity_sine")],
+            observation[_object_field("enemy_ship", 0, "relative_forward_velocity")],
             0.0,
         )
         self.assertAlmostEqual(
-            observation[_object_field("enemy_ship", 0, "relative_velocity_cosine")],
+            observation[_object_field("enemy_ship", 0, "relative_right_velocity")],
+            5 / const.SPEED_LIMIT,
+        )
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_ship", 0, "relative_closing_speed")],
+            0.0,
+        )
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_ship", 0, "relative_lateral_velocity")],
+            5 / const.SPEED_LIMIT,
+        )
+        self.assertAlmostEqual(
+            observation[_field("self", "opponent_bearing_sine")],
+            0.0,
+        )
+        self.assertAlmostEqual(
+            observation[_field("self", "opponent_bearing_cosine")],
+            1.0,
+        )
+        self.assertAlmostEqual(
+            observation[_field("enemy", "opponent_bearing_sine")],
+            0.0,
+            places=12,
+        )
+        self.assertAlmostEqual(
+            observation[_field("enemy", "opponent_bearing_cosine")],
             -1.0,
         )
         self.assertEqual(observation[_object_field("planet", 0, "present")], 1.0)
@@ -479,28 +532,42 @@ class TrainingObservationTests(unittest.TestCase):
 
         self.assertEqual(observation[_object_field("enemy_non_a1", 0, "present")], 1.0)
         self.assertAlmostEqual(
-            observation[_object_field("enemy_non_a1", 0, "relative_velocity_sine")],
-            0.6,
+            observation[_object_field("enemy_non_a1", 0, "relative_forward_velocity")],
+            3 / const.SPEED_LIMIT,
         )
         self.assertAlmostEqual(
-            observation[_object_field("enemy_non_a1", 0, "relative_velocity_cosine")],
-            -0.8,
+            observation[_object_field("enemy_non_a1", 0, "relative_right_velocity")],
+            4 / const.SPEED_LIMIT,
         )
-        self.assertEqual(observation[_object_field("enemy_non_a1", 0, "relative_speed")], 0.05)
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_non_a1", 0, "relative_closing_speed")],
+            -3 / const.SPEED_LIMIT,
+        )
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_non_a1", 0, "relative_lateral_velocity")],
+            4 / const.SPEED_LIMIT,
+        )
         self.assertEqual(observation[_object_field("enemy_non_a1", 0, "current_hit_points")], 0.14)
         self.assertEqual(observation[_object_field("enemy_non_a1", 1, "present")], 1.0)
         self.assertEqual(observation[_object_field("enemy_non_a1", 1, "expected_crew_effect")], -0.2)
         self.assertEqual(observation[_object_field("enemy_non_a1", 2, "present")], 0.0)
         self.assertEqual(observation[_object_field("friendly_non_a1", 0, "present")], 1.0)
         self.assertAlmostEqual(
-            observation[_object_field("friendly_non_a1", 0, "relative_velocity_sine")],
-            -0.6,
+            observation[_object_field("friendly_non_a1", 0, "relative_forward_velocity")],
+            -3 / const.SPEED_LIMIT,
         )
         self.assertAlmostEqual(
-            observation[_object_field("friendly_non_a1", 0, "relative_velocity_cosine")],
-            -0.8,
+            observation[_object_field("friendly_non_a1", 0, "relative_right_velocity")],
+            4 / const.SPEED_LIMIT,
         )
-        self.assertEqual(observation[_object_field("friendly_non_a1", 0, "relative_speed")], 0.05)
+        self.assertAlmostEqual(
+            observation[_object_field("friendly_non_a1", 0, "relative_closing_speed")],
+            4 / const.SPEED_LIMIT,
+        )
+        self.assertAlmostEqual(
+            observation[_object_field("friendly_non_a1", 0, "relative_lateral_velocity")],
+            -3 / const.SPEED_LIMIT,
+        )
         self.assertEqual(observation[_object_field("friendly_non_a1", 0, "current_hit_points")], 0.08)
         self.assertEqual(observation[_object_field("syreen_crew", 0, "present")], 1.0)
         self.assertEqual(observation[_object_field("syreen_crew", 0, "expected_crew_effect")], 0.1)
@@ -530,17 +597,22 @@ class TrainingObservationTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(
-            observation[_object_field("enemy_non_a1", 0, "relative_velocity_sine")],
-            1.0,
+            observation[_object_field("enemy_non_a1", 0, "relative_forward_velocity")],
+            5 / const.SPEED_LIMIT,
         )
         self.assertAlmostEqual(
-            observation[_object_field("enemy_non_a1", 0, "relative_velocity_cosine")],
+            observation[_object_field("enemy_non_a1", 0, "relative_right_velocity")],
             0.0,
             places=12,
         )
-        self.assertEqual(
-            observation[_object_field("enemy_non_a1", 0, "relative_speed")],
-            0.05,
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_non_a1", 0, "relative_closing_speed")],
+            -5 / const.SPEED_LIMIT,
+        )
+        self.assertAlmostEqual(
+            observation[_object_field("enemy_non_a1", 0, "relative_lateral_velocity")],
+            0.0,
+            places=12,
         )
 
     def test_ship_specific_live_counts_use_world_objects(self):

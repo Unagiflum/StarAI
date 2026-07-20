@@ -155,6 +155,14 @@ def _ship_block(
     velocity = _vector(ship, "velocity")
     speed = math.hypot(velocity[0], velocity[1])
     rotation = _rotation_degrees(ship)
+    rotation_radians = math.radians(rotation)
+    forward_unit, right_unit = _ship_axes(rotation_radians)
+    velocity_scale = _velocity_scale()
+    opponent_bearing_sine, opponent_bearing_cosine = _opponent_bearing_components(
+        ship,
+        opponent,
+        rotation,
+    )
     repeat_countdowns = [
         _repeat_countdown(ship, control_name, frame_id=frame_id)
         for control_name in _CONTROL_REPEAT_FIELDS
@@ -170,6 +178,7 @@ def _ship_block(
         _number(ship, "thrust_timer") / const.FPS,
         _number(ship, "turn_wait") / const.FPS,
         _number(ship, "turn_timer") / const.FPS,
+        _number(ship, "max_thrust") / velocity_scale,
         _number(ship, "thrust_increment") / 10.0,
         _number(ship, "a1_wait") / const.FPS,
         _number(ship, "action1_timer") / const.FPS,
@@ -178,10 +187,15 @@ def _ship_block(
         _number(ship, "a3_wait") / const.FPS,
         _number(ship, "action3_timer") / const.FPS,
         _number(ship, "energy_timer") / const.FPS,
-        (rotation % 360.0) / 360.0,
-        speed / 100.0,
-        velocity[0] / 100.0,
-        velocity[1] / 100.0,
+        math.sin(rotation_radians),
+        math.cos(rotation_radians),
+        speed / velocity_scale,
+        velocity[0] / velocity_scale,
+        velocity[1] / velocity_scale,
+        _dot(velocity, forward_unit) / velocity_scale,
+        _dot(velocity, right_unit) / velocity_scale,
+        opponent_bearing_sine,
+        opponent_bearing_cosine,
         *repeat_countdowns,
         _flag(getattr(ship, "trackable", True)),
         *(_flag(_control_held(ship, control_name)) for control_name in _CONTROL_REPEAT_FIELDS),
@@ -342,14 +356,26 @@ def _encode_object_slot(
         object_velocity[0] - self_velocity[0],
         object_velocity[1] - self_velocity[1],
     )
-    relative_speed = math.hypot(relative_velocity[0], relative_velocity[1])
-    if relative_speed > 0:
-        velocity_angle = math.radians(_vector_angle(*relative_velocity))
-        velocity_sin = math.sin(velocity_angle)
-        velocity_cos = math.cos(velocity_angle)
+    # Ship-local components make steering effects direct: positive values mean
+    # forward and right relative to the observing ship. Line-of-sight components
+    # make interception direct: closing is positive toward the ship and lateral
+    # is positive in the direction of increasing clockwise bearing.
+    rotation_radians = math.radians(self_rotation)
+    forward_unit, right_unit = _ship_axes(rotation_radians)
+    relative_forward_velocity = _dot(relative_velocity, forward_unit)
+    relative_right_velocity = _dot(relative_velocity, right_unit)
+    if distance > 0.0:
+        radial_unit = (dx / distance, dy / distance)
+        clockwise_tangent_unit = (-radial_unit[1], radial_unit[0])
+        relative_closing_speed = -_dot(relative_velocity, radial_unit)
+        relative_lateral_velocity = _dot(
+            relative_velocity,
+            clockwise_tangent_unit,
+        )
     else:
-        velocity_sin = 0.0
-        velocity_cos = 0.0
+        relative_closing_speed = 0.0
+        relative_lateral_velocity = 0.0
+    velocity_scale = _velocity_scale()
 
     expires = _object_expires(obj)
     crew_effect, battery_effect = _expected_contact_effects(
@@ -364,9 +390,10 @@ def _encode_object_slot(
         math.sin(relative_bearing),
         math.cos(relative_bearing),
         5.0 if distance <= 0 else min(5.0, 100.0 / distance),
-        velocity_sin,
-        velocity_cos,
-        relative_speed / 100.0,
+        relative_forward_velocity / velocity_scale,
+        relative_right_velocity / velocity_scale,
+        relative_closing_speed / velocity_scale,
+        relative_lateral_velocity / velocity_scale,
         crew_effect / 10.0,
         battery_effect / 10.0,
         _number(obj, "current_hp", 0.0) / 50.0,
@@ -475,6 +502,41 @@ def _vector_angle(dx: float, dy: float) -> float:
     if dx == 0 and dy == 0:
         return 0.0
     return math.degrees(math.atan2(dx, -dy)) % 360.0
+
+
+def _ship_axes(
+    rotation_radians: float,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    return (
+        (math.sin(rotation_radians), -math.cos(rotation_radians)),
+        (math.cos(rotation_radians), math.sin(rotation_radians)),
+    )
+
+
+def _velocity_scale() -> float:
+    scale = float(const.SPEED_LIMIT)
+    return scale if scale > 0.0 else 1.0
+
+
+def _opponent_bearing_components(
+    ship,
+    opponent,
+    ship_rotation: float,
+) -> tuple[float, float]:
+    if not _has_position(ship) or not _has_position(opponent):
+        return 0.0, 0.0
+    dx, dy = wrapped_delta(
+        _vector(ship, "position"),
+        _vector(opponent, "position"),
+    )
+    if dx == 0.0 and dy == 0.0:
+        return 0.0, 0.0
+    bearing = math.radians((_vector_angle(dx, dy) - ship_rotation) % 360.0)
+    return math.sin(bearing), math.cos(bearing)
+
+
+def _dot(left: tuple[float, float], right: tuple[float, float]) -> float:
+    return left[0] * right[0] + left[1] * right[1]
 
 
 def _object_expires(obj) -> bool:

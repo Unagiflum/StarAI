@@ -752,11 +752,11 @@ consistently without claiming they are sampleable replay entries.
 
 ## Memory And Performance Requirements
 
-`OBSERVATION_INPUT_SIZE` is currently 571. Approximate packed observation
+`OBSERVATION_INPUT_SIZE` is currently 621. Approximate packed observation
 storage is:
 
-- about 2.7 MB for 1,200 frames;
-- about 27.4 MB for 12,000 frames.
+- about 2.8 MiB for 1,200 frames;
+- about 28.4 MiB for 12,000 frames.
 
 Actions, component vectors, indexes, Python/container overhead, IPC copies, and
 multiple workers add to those figures.

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS
 
 
-OBSERVATION_SCHEMA_VERSION = 3
-OBSERVATION_INPUT_SIZE = 571
+OBSERVATION_SCHEMA_VERSION = 5
+OBSERVATION_INPUT_SIZE = 621
 
 ACTION_SCHEMA_VERSION = 1
 ACTION_OUTPUT_SIZE = 24
@@ -19,8 +19,8 @@ REFLECTION_AUGMENTATION_MODE = "original_plus_mirror"
 CONTROL_ORDER = ("thrust", "turn_left", "turn_right", "a1", "a2")
 SHIP_TYPE_CATALOG_ORDER = tuple(SHIP_DEFINITIONS.keys())
 SHIP_TYPE_COUNT = 25
-SHIP_BLOCK_SIZE = 45
-OBJECT_SLOT_SIZE = 12
+SHIP_BLOCK_SIZE = 51
+OBJECT_SLOT_SIZE = 13
 OBJECT_SLOT_COUNT = 38
 ENEMY_SHIP_TYPE_OFFSET = 0
 SELF_SHIP_BLOCK_OFFSET = SHIP_TYPE_COUNT
@@ -36,6 +36,7 @@ SHIP_BLOCK_FIELDS = (
     "thrust_timer",
     "turn_wait",
     "turn_timer",
+    "maximum_thrust",
     "thrust_increment",
     "a1_wait",
     "a1_timer",
@@ -44,10 +45,15 @@ SHIP_BLOCK_FIELDS = (
     "a3_wait",
     "a3_timer",
     "energy_wait_timer",
-    "absolute_angle",
+    "absolute_heading_sine",
+    "absolute_heading_cosine",
     "absolute_speed",
     "absolute_x_velocity",
     "absolute_y_velocity",
+    "local_forward_velocity",
+    "local_right_velocity",
+    "opponent_bearing_sine",
+    "opponent_bearing_cosine",
     "thrust_repeat_countdown",
     "left_repeat_countdown",
     "right_repeat_countdown",
@@ -82,9 +88,10 @@ OBJECT_SLOT_FIELDS = (
     "relative_bearing_sine",
     "relative_bearing_cosine",
     "inverse_distance",
-    "relative_velocity_sine",
-    "relative_velocity_cosine",
-    "relative_speed",
+    "relative_forward_velocity",
+    "relative_right_velocity",
+    "relative_closing_speed",
+    "relative_lateral_velocity",
     "expected_crew_effect",
     "expected_battery_effect",
     "current_hit_points",
@@ -120,13 +127,19 @@ def _observation_field_names() -> tuple[str, ...]:
 OBSERVATION_FIELD_NAMES = _observation_field_names()
 
 if len(SHIP_BLOCK_FIELDS) != SHIP_BLOCK_SIZE:
-    raise RuntimeError("SHIP_BLOCK_FIELDS must define exactly 45 fields")
+    raise RuntimeError(
+        f"SHIP_BLOCK_FIELDS must define exactly {SHIP_BLOCK_SIZE} fields"
+    )
 if len(OBJECT_SLOT_FIELDS) != OBJECT_SLOT_SIZE:
-    raise RuntimeError("OBJECT_SLOT_FIELDS must define exactly 12 fields")
+    raise RuntimeError(
+        f"OBJECT_SLOT_FIELDS must define exactly {OBJECT_SLOT_SIZE} fields"
+    )
 if sum(count for _, count in OBJECT_SLOT_GROUPS) != OBJECT_SLOT_COUNT:
     raise RuntimeError("OBJECT_SLOT_GROUPS must define exactly 38 slots")
 if len(OBSERVATION_FIELD_NAMES) != OBSERVATION_INPUT_SIZE:
-    raise RuntimeError("OBSERVATION_FIELD_NAMES must define exactly 571 fields")
+    raise RuntimeError(
+        f"OBSERVATION_FIELD_NAMES must define exactly {OBSERVATION_INPUT_SIZE} fields"
+    )
 
 
 @dataclass(frozen=True)

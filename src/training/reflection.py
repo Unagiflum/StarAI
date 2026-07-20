@@ -16,17 +16,16 @@ _FIELD_INDEX = {
     field_name: index
     for index, field_name in enumerate(OBSERVATION_FIELD_NAMES)
 }
-_ANGLE_INDICES = tuple(
-    _FIELD_INDEX[f"{ship_role}.absolute_angle"]
-    for ship_role in ("self", "enemy")
-)
 _NEGATED_INDICES = tuple(
     [
         *(
             _FIELD_INDEX[f"{ship_role}.{field_name}"]
             for ship_role in ("self", "enemy")
             for field_name in (
+                "absolute_heading_sine",
                 "absolute_x_velocity",
+                "local_right_velocity",
+                "opponent_bearing_sine",
                 "orz_turret_relative_sine",
             )
         ),
@@ -35,7 +34,11 @@ _NEGATED_INDICES = tuple(
             for index, field_name in enumerate(OBSERVATION_FIELD_NAMES)
             if field_name.startswith("object.")
             and field_name.endswith(
-                (".relative_bearing_sine", ".relative_velocity_sine")
+                (
+                    ".relative_bearing_sine",
+                    ".relative_right_velocity",
+                    ".relative_lateral_velocity",
+                )
             )
         ),
     ]
@@ -91,7 +94,6 @@ def reflect_observations(observations):
         )
 
     mirrored = _copy_values(values)
-    mirrored[..., _ANGLE_INDICES] = (-values[..., _ANGLE_INDICES]) % 1.0
     mirrored[..., _NEGATED_INDICES] = -values[..., _NEGATED_INDICES]
     for left_index, right_index in _SWAPPED_INDEX_PAIRS:
         mirrored[..., left_index] = values[..., right_index]

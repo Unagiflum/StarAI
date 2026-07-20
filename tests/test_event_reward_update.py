@@ -46,6 +46,7 @@ from src.training.rewards import (
 )
 from src.training.cpu_contracts import OpponentSpec
 from src.training.cpu_contracts import TrainingOrchestrationConfig
+from src.training.contracts import OBSERVATION_INPUT_SIZE
 from src.training.episode_metrics import PendingCombatEpisode, finalize_pending_episodes
 
 
@@ -182,13 +183,13 @@ class StagedTrajectoryParityTests(unittest.TestCase):
 
     def test_staging_storage_is_packed_and_reports_peak_bytes(self):
         pipeline = StagedTrajectoryPipeline(gamma=0.99, mode="causal")
-        observation = tuple(float(index) for index in range(571))
+        observation = tuple(float(index) for index in range(OBSERVATION_INPUT_SIZE))
         for frame_id in range(1, 11):
             pipeline.stage_decision(
                 RewardDecisionFrame(frame_id, observation, frame_id % 16),
                 trajectory_id="trajectory",
             )
-        expected_bytes = 10 * (571 * 4 + 4 + 8 + 19 * 8)
+        expected_bytes = 10 * (OBSERVATION_INPUT_SIZE * 4 + 4 + 8 + 19 * 8)
         self.assertEqual(pipeline.staged_storage_bytes, expected_bytes)
         self.assertEqual(pipeline.peak_staged_frames, 10)
         self.assertEqual(pipeline.peak_staged_bytes, expected_bytes)
@@ -201,7 +202,7 @@ class StagedTrajectoryParityTests(unittest.TestCase):
                 RewardDecisionFrame(frame_id, observation, frame_id % 16),
                 trajectory_id="trajectory",
             )
-        shadow_bytes = 10 * (571 * 4 + 4 + 8 + 38 * 8)
+        shadow_bytes = 10 * (OBSERVATION_INPUT_SIZE * 4 + 4 + 8 + 38 * 8)
         self.assertEqual(shadow.staged_storage_bytes, shadow_bytes)
         self.assertEqual(shadow.peak_staged_bytes, shadow_bytes)
 

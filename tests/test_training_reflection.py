@@ -25,10 +25,16 @@ class TrainingReflectionTests(unittest.TestCase):
     def test_reflection_transforms_every_directional_field_family(self):
         observation = np.zeros((1, OBSERVATION_INPUT_SIZE), dtype=np.float32)
         assignments = {
-            "self.absolute_angle": 0.25,
-            "enemy.absolute_angle": 0.75,
+            "self.absolute_heading_sine": 0.6,
+            "self.absolute_heading_cosine": -0.8,
+            "enemy.absolute_heading_sine": -0.3,
+            "enemy.absolute_heading_cosine": 0.95,
             "self.absolute_x_velocity": 0.4,
             "self.absolute_y_velocity": -0.3,
+            "self.local_forward_velocity": 0.25,
+            "self.local_right_velocity": -0.5,
+            "enemy.opponent_bearing_sine": 0.75,
+            "enemy.opponent_bearing_cosine": -0.25,
             "enemy.orz_turret_relative_sine": 0.6,
             "enemy.orz_turret_relative_cosine": -0.8,
             "self.left_repeat_countdown": 0.1,
@@ -37,8 +43,10 @@ class TrainingReflectionTests(unittest.TestCase):
             "enemy.right_held": 0.0,
             "object.planet.0.relative_bearing_sine": 0.7,
             "object.planet.0.relative_bearing_cosine": -0.4,
-            "object.asteroid.3.relative_velocity_sine": -0.9,
-            "object.asteroid.3.relative_velocity_cosine": 0.3,
+            "object.asteroid.3.relative_forward_velocity": 0.2,
+            "object.asteroid.3.relative_right_velocity": -0.9,
+            "object.asteroid.3.relative_closing_speed": 0.3,
+            "object.asteroid.3.relative_lateral_velocity": -0.7,
         }
         for field_name, value in assignments.items():
             observation[0, _FIELD_INDEX[field_name]] = value
@@ -46,10 +54,16 @@ class TrainingReflectionTests(unittest.TestCase):
         mirrored = reflect_observations(observation)
 
         expected = {
-            "self.absolute_angle": 0.75,
-            "enemy.absolute_angle": 0.25,
+            "self.absolute_heading_sine": -0.6,
+            "self.absolute_heading_cosine": -0.8,
+            "enemy.absolute_heading_sine": 0.3,
+            "enemy.absolute_heading_cosine": 0.95,
             "self.absolute_x_velocity": -0.4,
             "self.absolute_y_velocity": -0.3,
+            "self.local_forward_velocity": 0.25,
+            "self.local_right_velocity": 0.5,
+            "enemy.opponent_bearing_sine": -0.75,
+            "enemy.opponent_bearing_cosine": -0.25,
             "enemy.orz_turret_relative_sine": -0.6,
             "enemy.orz_turret_relative_cosine": -0.8,
             "self.left_repeat_countdown": 0.2,
@@ -58,8 +72,10 @@ class TrainingReflectionTests(unittest.TestCase):
             "enemy.right_held": 1.0,
             "object.planet.0.relative_bearing_sine": -0.7,
             "object.planet.0.relative_bearing_cosine": -0.4,
-            "object.asteroid.3.relative_velocity_sine": 0.9,
-            "object.asteroid.3.relative_velocity_cosine": 0.3,
+            "object.asteroid.3.relative_forward_velocity": 0.2,
+            "object.asteroid.3.relative_right_velocity": 0.9,
+            "object.asteroid.3.relative_closing_speed": 0.3,
+            "object.asteroid.3.relative_lateral_velocity": 0.7,
         }
         for field_name, value in expected.items():
             with self.subTest(field=field_name):
@@ -76,13 +92,6 @@ class TrainingReflectionTests(unittest.TestCase):
             1.0,
             size=(2, 3, OBSERVATION_INPUT_SIZE),
         ).astype(np.float32)
-        for field_name in ("self.absolute_angle", "enemy.absolute_angle"):
-            observations[..., _FIELD_INDEX[field_name]] = rng.uniform(
-                0.0,
-                1.0,
-                size=(2, 3),
-            )
-
         restored = reflect_observations(reflect_observations(observations))
 
         np.testing.assert_allclose(restored, observations, rtol=0.0, atol=1e-7)
