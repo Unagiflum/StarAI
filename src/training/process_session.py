@@ -874,11 +874,17 @@ class ProcessTrainingSession:
 
     def set_starting_epsilon(self, value: float) -> None:
         epsilon = max(0.0, min(1.0, float(value)))
-        self.config = replace(
-            self.config,
-            starting_epsilon=epsilon,
-            epsilon=max(float(self.config.epsilon_floor), epsilon),
-        )
+        with self._lock:
+            current_epsilon = max(float(self.config.epsilon_floor), epsilon)
+            self.config = replace(
+                self.config,
+                starting_epsilon=epsilon,
+                epsilon=current_epsilon,
+            )
+            self._status = replace(
+                self._status,
+                current_epsilon=current_epsilon,
+            )
         self._controls.put((_CONTROL_STARTING_EPSILON, epsilon))
 
     def join(self, timeout: float | None = None) -> None:

@@ -1,4 +1,5 @@
 import multiprocessing
+from dataclasses import replace
 from pathlib import Path
 import queue
 import tempfile
@@ -482,6 +483,21 @@ class ProcessTrainingSessionTests(unittest.TestCase):
 
             self.assertEqual(status.elapsed_training_seconds, 30.0)
             self.assertEqual(status.batches_per_hour, 240.0)
+
+    def test_starting_epsilon_reset_updates_cached_stopped_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = self._make_session(Path(directory))
+            session._status = replace(
+                session._status,
+                running=False,
+                current_epsilon=0.125,
+            )
+
+            session.set_starting_epsilon(0.3)
+
+            self.assertEqual(session.config.starting_epsilon, 0.3)
+            self.assertEqual(session.config.epsilon, 0.3)
+            self.assertEqual(session.status.current_epsilon, 0.3)
 
     def test_stopping_status_keeps_time_running_and_zeros_speed(self):
         with tempfile.TemporaryDirectory() as directory:
