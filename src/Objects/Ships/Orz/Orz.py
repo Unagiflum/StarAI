@@ -1,3 +1,4 @@
+import src.const as const
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.Orz.A1.OrzA1 import OrzA1
 from src.Objects.Ships.Orz.A2.OrzA2 import OrzA2
@@ -14,6 +15,9 @@ class Orz(SpaceShip):
         self.turret = OrzA2(self)
         self._turret_composites = {}
         self.active_marines = []
+        self._marine_trajectory_state = None
+        self._marine_trajectory_horizon = 0
+        self._marine_target_trajectory = ()
 
     @property
     def turret_heading(self):
@@ -22,6 +26,73 @@ class Orz(SpaceShip):
     def initialize_in_battle(self, position, heading):
         super().initialize_in_battle(position, heading)
         self.turret.reset()
+        self._clear_marine_trajectory_cache()
+
+    def predict_marine_target_trajectory(self, target, frames):
+        """Share one immutable target trajectory among this ship's marines.
+
+        Preserved abilities can update on either side of ships in the world's
+        stable order.  Keying by the target's prediction-relevant state, rather
+        than only the battle frame, prevents reuse across a mid-frame target
+        update while still allowing every marine seeing the same state to share
+        the result.
+        """
+        frames = int(frames)
+        if frames <= 0:
+            return ()
+
+        state = self._marine_target_prediction_state(target)
+        if (
+            state == self._marine_trajectory_state
+            and self._marine_trajectory_horizon >= frames
+        ):
+            return self._marine_target_trajectory[:frames]
+
+        trajectory = target.predict_unhindered_trajectory(frames=frames)
+        immutable_trajectory = tuple(tuple(position) for position in trajectory)
+        self._marine_trajectory_state = state
+        self._marine_trajectory_horizon = frames
+        self._marine_target_trajectory = immutable_trajectory
+        return immutable_trajectory
+
+    @staticmethod
+    def _marine_target_prediction_state(target):
+        planet = getattr(target, "planet", None)
+        bound_predictor = getattr(target, "predict_unhindered_trajectory", None)
+        predictor = getattr(bound_predictor, "__func__", bound_predictor)
+
+        def vector(name):
+            value = getattr(target, name, None)
+            return None if value is None else tuple(value)
+
+        return (
+            id(target),
+            predictor,
+            vector("position"),
+            vector("velocity"),
+            vector("accumulated_impulses"),
+            vector("collision_velocity"),
+            getattr(target, "inertia", None),
+            getattr(target, "heading", None),
+            getattr(target, "max_thrust", None),
+            getattr(target, "can_expire", None),
+            getattr(target, "expiration_timer", None),
+            id(planet) if planet is not None else None,
+            tuple(planet.position) if planet is not None else None,
+            getattr(planet, "gravity", None),
+            getattr(planet, "diameter", None),
+            const.ARENA_SIZE,
+            const.SPEED_SCALE,
+            const.SPEED_LIMIT,
+            const.GRAVITY_RANGE,
+            const.GRAVITY_MULTIPLIER,
+            const.TURN_ANGLE,
+        )
+
+    def _clear_marine_trajectory_cache(self):
+        self._marine_trajectory_state = None
+        self._marine_trajectory_horizon = 0
+        self._marine_target_trajectory = ()
 
     def plan_action1(self):
         if self.action2_active:

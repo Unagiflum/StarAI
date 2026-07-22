@@ -1,5 +1,6 @@
 """Shared geometry for parent-mounted ability emitters."""
 
+from functools import lru_cache
 import math
 
 import src.const as const
@@ -67,7 +68,7 @@ def anchored_sprite_position(
     ]
 
 
-def mask_projection_bounds(mask, direction):
+def _compute_mask_projection_bounds(mask, direction):
     """Project opaque pixel centers onto a world-space firing direction."""
     width, height = mask.get_size()
     center_x = (width - 1) / 2
@@ -89,6 +90,21 @@ def mask_projection_bounds(mask, direction):
     if minimum is None:
         return 0.0, 0.0
     return minimum, maximum
+
+
+@lru_cache(maxsize=2048)
+def _cached_mask_projection_bounds(mask, direction):
+    return _compute_mask_projection_bounds(mask, direction)
+
+
+def mask_projection_bounds(mask, direction):
+    """Return cached opaque-mask bounds for a world-space direction.
+
+    Collision masks loaded from immutable resource assets are reused by every
+    instance of an ability.  Normalizing the direction also lets equivalent
+    angles such as 0 and 360 share the same cached projection.
+    """
+    return _cached_mask_projection_bounds(mask, direction % 360.0)
 
 
 def launch_mask(ability, direction):

@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest import mock
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
@@ -17,6 +18,7 @@ from src.Objects.Ships.Pkunk.A1.PkunkA1 import PkunkA1
 from src.Objects.Ships.Spathi.A2.SpathiA2 import SpathiA2
 from src.Objects.Ships.ability import Ability
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships import launch_geometry
 from src.Objects.Ships.launch_geometry import (
     direction_vector,
     gun_world_position,
@@ -36,6 +38,37 @@ class LaunchGeometryTests(unittest.TestCase):
 
     def tearDown(self):
         Ability.sound_enabled = self.sound_enabled
+        launch_geometry._cached_mask_projection_bounds.cache_clear()
+
+    def test_mask_projection_bounds_reuses_mask_and_normalized_direction(self):
+        mask = pygame.mask.Mask((8, 8), fill=True)
+        launch_geometry._cached_mask_projection_bounds.cache_clear()
+
+        with mock.patch.object(
+            launch_geometry,
+            "_compute_mask_projection_bounds",
+            wraps=launch_geometry._compute_mask_projection_bounds,
+        ) as compute:
+            first = mask_projection_bounds(mask, 0)
+            second = mask_projection_bounds(mask, 360)
+
+        self.assertEqual(first, second)
+        compute.assert_called_once_with(mask, 0.0)
+
+    def test_mask_projection_bounds_caches_directions_independently(self):
+        mask = pygame.mask.Mask((8, 8), fill=True)
+        launch_geometry._cached_mask_projection_bounds.cache_clear()
+
+        with mock.patch.object(
+            launch_geometry,
+            "_compute_mask_projection_bounds",
+            wraps=launch_geometry._compute_mask_projection_bounds,
+        ) as compute:
+            mask_projection_bounds(mask, 0)
+            mask_projection_bounds(mask, 90)
+            mask_projection_bounds(mask, 90)
+
+        self.assertEqual(compute.call_count, 2)
 
     def assert_rear_gap(self, projectile, location, direction, expected_gap):
         muzzle = gun_world_position(projectile.parent, location)

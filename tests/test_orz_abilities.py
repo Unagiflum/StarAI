@@ -1,5 +1,6 @@
 import math
 import os
+import random
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -26,6 +27,7 @@ from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 from src.Objects.Ships.registry import create_ability, create_ship
 from src.Objects.Ships.Orz.A3.OrzA3 import OrzA3
 from src.resources import AssetManager
+from src.toroidal import wrapped_delta
 from src.training.event_ledger import (
     BattleEventLedger,
     EVENT_CREW_CHANGED,
@@ -34,6 +36,111 @@ from src.training.event_ledger import (
 
 
 class OrzAbilityTests(unittest.TestCase):
+    @staticmethod
+    def legacy_predict_planet_collision(obj, frames=60, margin=0):
+        if not obj.planet:
+            return None
+
+        position = list(obj.position)
+        velocity = list(obj.velocity)
+        for frame in range(frames):
+            dx, dy = wrapped_delta(position, obj.planet.position)
+            distance = math.hypot(dx, dy)
+            if distance < (obj.planet.diameter / 2) + margin:
+                return frame
+            if distance < const.GRAVITY_RANGE:
+                gravity_force = const.GRAVITY_MULTIPLIER * obj.planet.gravity
+                if distance > 0:
+                    velocity[0] += gravity_force * dx / distance
+                    velocity[1] += gravity_force * dy / distance
+
+            speed = math.hypot(velocity[0], velocity[1])
+            if speed > const.SPEED_LIMIT:
+                scale = const.SPEED_LIMIT / speed
+                velocity[0] *= scale
+                velocity[1] *= scale
+
+            position[0] = (
+                position[0] + velocity[0] * const.SPEED_SCALE
+            ) % const.ARENA_SIZE
+            position[1] = (
+                position[1] + velocity[1] * const.SPEED_SCALE
+            ) % const.ARENA_SIZE
+        return None
+
+    @staticmethod
+    def legacy_predict_target_interception(
+        marine,
+        target,
+        trajectory,
+        frames=90,
+    ):
+        marine_position = list(marine.position)
+        marine_velocity = list(marine.velocity)
+
+        for frame in range(frames):
+            if frame >= len(trajectory):
+                break
+            target_position = trajectory[frame]
+            dx, dy = wrapped_delta(marine_position, target_position)
+            distance = math.hypot(dx, dy)
+            if distance < (marine.size[0] + target.size[0]) / 2:
+                return frame
+
+            if distance > 0:
+                direction_x = dx / distance
+                direction_y = dy / distance
+                marine_velocity[0] += direction_x * marine.thrust_increment
+                marine_velocity[1] += direction_y * marine.thrust_increment
+
+                speed = math.hypot(marine_velocity[0], marine_velocity[1])
+                if speed > marine.max_thrust:
+                    marine_velocity[0] = (
+                        marine_velocity[0] * marine.max_thrust / speed
+                    )
+                    marine_velocity[1] = (
+                        marine_velocity[1] * marine.max_thrust / speed
+                    )
+
+            if marine.planet:
+                planet_x, planet_y = wrapped_delta(
+                    marine_position,
+                    marine.planet.position,
+                )
+                planet_distance = math.hypot(planet_x, planet_y)
+                if (
+                    planet_distance < const.GRAVITY_RANGE
+                    and planet_distance > marine.planet.diameter / 2
+                ):
+                    gravity_force = (
+                        const.GRAVITY_MULTIPLIER * marine.planet.gravity
+                    )
+                    if planet_distance > 0:
+                        marine_velocity[0] += (
+                            gravity_force * planet_x / planet_distance
+                        )
+                        marine_velocity[1] += (
+                            gravity_force * planet_y / planet_distance
+                        )
+
+            speed = math.hypot(marine_velocity[0], marine_velocity[1])
+            if speed > const.SPEED_LIMIT:
+                marine_velocity[0] = (
+                    marine_velocity[0] * const.SPEED_LIMIT / speed
+                )
+                marine_velocity[1] = (
+                    marine_velocity[1] * const.SPEED_LIMIT / speed
+                )
+
+            marine_position[0] = (
+                marine_position[0] + marine_velocity[0] * const.SPEED_SCALE
+            ) % const.ARENA_SIZE
+            marine_position[1] = (
+                marine_position[1] + marine_velocity[1] * const.SPEED_SCALE
+            ) % const.ARENA_SIZE
+
+        return None
+
     def resolve_collision(self, first, second, effects, ships=None):
         context = CollisionContext(
             effects,
@@ -489,6 +596,182 @@ class OrzAbilityTests(unittest.TestCase):
 
         self.assertEqual(len(markers), 1)
         self.assertIsInstance(markers[0], ThrustMarker)
+
+    def test_headless_a3_accelerates_without_emitting_thrust_markers(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+        self.ship.visual_effects_enabled = False
+        marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
+
+        marine.update()
+
+        self.assertEqual(marine.drain_spawned_objects(), [])
+        self.assertNotEqual(marine.velocity, [0.0, 0.0])
+
+    def test_a3_marines_share_target_trajectory_until_target_state_changes(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+
+        original_predict = enemy.predict_unhindered_trajectory
+        with mock.patch.object(
+            enemy,
+            "predict_unhindered_trajectory",
+            wraps=original_predict,
+        ) as predict:
+            first = self.ship.predict_marine_target_trajectory(enemy, 15)
+            second = self.ship.predict_marine_target_trajectory(enemy, 15)
+            long = self.ship.predict_marine_target_trajectory(enemy, 90)
+            prefix = self.ship.predict_marine_target_trajectory(enemy, 15)
+
+            self.assertEqual(first, second)
+            self.assertEqual(prefix, long[:15])
+            self.assertEqual(predict.call_count, 2)
+
+            enemy.position[0] += 1
+            changed = self.ship.predict_marine_target_trajectory(enemy, 15)
+
+        self.assertEqual(predict.call_count, 3)
+        self.assertNotEqual(changed, prefix)
+
+    def test_a3_trajectory_cache_tracks_slylandro_heading_state(self):
+        enemy = create_ship("Slylandro", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        enemy.velocity = [0.0, 0.0]
+        enemy.collision_velocity = [0.0, 0.0]
+        enemy.accumulated_impulses = [0.0, 0.0]
+
+        original_predict = enemy.predict_unhindered_trajectory
+        with mock.patch.object(
+            enemy,
+            "predict_unhindered_trajectory",
+            wraps=original_predict,
+        ) as predict:
+            first = self.ship.predict_marine_target_trajectory(enemy, 15)
+            enemy.heading = 1
+            second = self.ship.predict_marine_target_trajectory(enemy, 15)
+
+        self.assertEqual(predict.call_count, 2)
+        self.assertNotEqual(first, second)
+
+    def test_optimized_planet_prediction_matches_legacy_randomized_states(self):
+        rng = random.Random(8128)
+        marine = OrzA3(self.ship)
+        marine.planet = SimpleNamespace(
+            position=[0.0, 0.0],
+            diameter=300.0,
+            gravity=1.0,
+        )
+        horizons = (0, 1, 15, 45, 90)
+        margins = (-200.0, 0.0, float(marine.size[1]), 900.0, 1200.0)
+
+        boundary_states = (
+            ([4150.0, 4000.0], [0.0, 0.0]),
+            ([4150.0 + marine.size[1], 4000.0], [0.0, 0.0]),
+            ([5020.0, 4000.0], [-32.0, 0.0]),
+            ([0.0, 4000.0], [200.0, 0.0]),
+        )
+        for position, velocity in boundary_states:
+            marine.planet.position = [4000.0, 4000.0]
+            marine.position = list(position)
+            marine.velocity = list(velocity)
+            for frames in horizons:
+                for margin in margins:
+                    self.assertEqual(
+                        marine.predict_planet_collision(frames, margin),
+                        self.legacy_predict_planet_collision(
+                            marine,
+                            frames,
+                            margin,
+                        ),
+                    )
+
+        for _ in range(500):
+            marine.position = [
+                rng.uniform(0, const.ARENA_SIZE),
+                rng.uniform(0, const.ARENA_SIZE),
+            ]
+            marine.velocity = [
+                rng.uniform(-250, 250),
+                rng.uniform(-250, 250),
+            ]
+            marine.planet.position = [
+                rng.uniform(0, const.ARENA_SIZE),
+                rng.uniform(0, const.ARENA_SIZE),
+            ]
+            marine.planet.diameter = rng.choice((100.0, 300.0, 600.0))
+            marine.planet.gravity = rng.choice((-2.0, 0.0, 1.0, 50.0))
+            frames = rng.choice(horizons)
+            margin = rng.choice(margins)
+
+            self.assertEqual(
+                marine.predict_planet_collision(frames, margin),
+                self.legacy_predict_planet_collision(marine, frames, margin),
+            )
+
+    def test_optimized_interception_matches_legacy_randomized_states(self):
+        rng = random.Random(16384)
+        marine = OrzA3(self.ship)
+        enemy = create_ship("Earthling", 2)
+        planet = SimpleNamespace(
+            position=[0.0, 0.0],
+            diameter=300.0,
+            gravity=1.0,
+        )
+        marine.planet = planet
+        enemy.planet = planet
+        horizons = (0, 1, 15, 45, 90)
+
+        for _ in range(500):
+            marine.position = [
+                rng.uniform(0, const.ARENA_SIZE),
+                rng.uniform(0, const.ARENA_SIZE),
+            ]
+            marine.velocity = [
+                rng.uniform(-250, 250),
+                rng.uniform(-250, 250),
+            ]
+            marine.max_thrust = rng.choice((0.0, 32.0, 200.0, 260.0))
+            marine.thrust_increment = rng.choice((0.0, 8.0, 40.0))
+            enemy.position = [
+                rng.uniform(0, const.ARENA_SIZE),
+                rng.uniform(0, const.ARENA_SIZE),
+            ]
+            enemy.velocity = [
+                rng.uniform(-250, 250),
+                rng.uniform(-250, 250),
+            ]
+            enemy.accumulated_impulses = [
+                rng.uniform(-10, 10),
+                rng.uniform(-10, 10),
+            ]
+            enemy.collision_velocity = [
+                rng.uniform(-250, 250),
+                rng.uniform(-250, 250),
+            ]
+            enemy.inertia = rng.choice((False, True))
+            planet.position = [
+                rng.uniform(0, const.ARENA_SIZE),
+                rng.uniform(0, const.ARENA_SIZE),
+            ]
+            planet.gravity = rng.choice((-2.0, 0.0, 1.0, 300.0))
+            frames = rng.choice(horizons)
+            trajectory = enemy.predict_unhindered_trajectory(frames=frames)
+
+            expected = self.legacy_predict_target_interception(
+                marine,
+                enemy,
+                trajectory,
+                frames,
+            )
+            actual = marine.predict_target_interception(
+                enemy,
+                frames,
+                target_trajectory=tuple(tuple(point) for point in trajectory),
+            )
+            self.assertEqual(actual, expected)
 
     def test_a3_equal_planet_avoidance_uses_persistent_instance_direction(self):
         marine = OrzA3(self.ship)

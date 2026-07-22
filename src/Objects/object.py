@@ -243,27 +243,59 @@ class PlayerObject(Object):
         if not self.planet:
             return None
 
-        pos = list(self.position)
-        vel = list(self.velocity)
-        for f in range(frames):
-            dx, dy = wrapped_delta(pos, self.planet.position)
-            dist = math.hypot(dx, dy)
-            if dist < (self.planet.diameter / 2) + margin:
-                return f
-            if dist < Const.GRAVITY_RANGE:
-                gf = Const.GRAVITY_MULTIPLIER * self.planet.gravity
-                if dist > 0:
-                    vel[0] += gf * dx / dist
-                    vel[1] += gf * dy / dist
+        planet = self.planet
+        position_x, position_y = self.position
+        velocity_x, velocity_y = self.velocity
+        arena_size = Const.ARENA_SIZE
+        half_arena = arena_size / 2
+        gravity_range = Const.GRAVITY_RANGE
+        collision_distance = (planet.diameter / 2) + margin
+        exact_distance_range = max(gravity_range, collision_distance)
+        exact_distance_range_squared = exact_distance_range * exact_distance_range
+        speed_limit = Const.SPEED_LIMIT
+        speed_limit_squared = speed_limit * speed_limit
+        speed_scale = Const.SPEED_SCALE
 
-            speed = math.hypot(vel[0], vel[1])
-            if speed > Const.SPEED_LIMIT:
-                scale = Const.SPEED_LIMIT / speed
-                vel[0] *= scale
-                vel[1] *= scale
+        initial_dx = planet.position[0] - position_x
+        initial_dy = planet.position[1] - position_y
+        if abs(initial_dx) > half_arena:
+            initial_dx += -arena_size if initial_dx > 0 else arena_size
+        if abs(initial_dy) > half_arena:
+            initial_dy += -arena_size if initial_dy > 0 else arena_size
+        initial_distance = math.hypot(initial_dx, initial_dy)
+        initial_speed = min(math.hypot(velocity_x, velocity_y), speed_limit)
+        frame_range = range(frames)
+        maximum_approach = max(0, frames) * initial_speed * speed_scale
+        if initial_distance > exact_distance_range + maximum_approach:
+            return None
 
-            pos[0] = (pos[0] + vel[0] * Const.SPEED_SCALE) % Const.ARENA_SIZE
-            pos[1] = (pos[1] + vel[1] * Const.SPEED_SCALE) % Const.ARENA_SIZE
+        gravity_force = Const.GRAVITY_MULTIPLIER * planet.gravity
+        for frame in frame_range:
+            dx = planet.position[0] - position_x
+            dy = planet.position[1] - position_y
+            if abs(dx) > half_arena:
+                dx += -arena_size if dx > 0 else arena_size
+            if abs(dy) > half_arena:
+                dy += -arena_size if dy > 0 else arena_size
+            distance_squared = dx * dx + dy * dy
+            if distance_squared < exact_distance_range_squared:
+                distance = math.hypot(dx, dy)
+                if distance < collision_distance:
+                    return frame
+                if distance < gravity_range and distance > 0:
+                    velocity_x += gravity_force * dx / distance
+                    velocity_y += gravity_force * dy / distance
+
+            speed_squared = velocity_x * velocity_x + velocity_y * velocity_y
+            if speed_squared > speed_limit_squared:
+                speed = math.hypot(velocity_x, velocity_y)
+                if speed > speed_limit:
+                    scale = speed_limit / speed
+                    velocity_x *= scale
+                    velocity_y *= scale
+
+            position_x = (position_x + velocity_x * speed_scale) % arena_size
+            position_y = (position_y + velocity_y * speed_scale) % arena_size
         return None
 
     def add_impulse(self, dx, dy):

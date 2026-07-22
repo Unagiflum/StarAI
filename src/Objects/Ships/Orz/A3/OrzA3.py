@@ -170,10 +170,15 @@ class OrzA3(Ability):
             self.update_physics()
             return True
 
-        destination = self._flight_destination()
+        target = self._live_trackable_opponent() if self.mode == self.OUTBOUND else None
+        target_trajectory = (
+            self.parent.predict_marine_target_trajectory(target, self.look_ahead)
+            if target is not None
+            else ()
+        )
+        destination = self._flight_destination(target, target_trajectory)
 
         avoid = False
-        target = self._live_trackable_opponent() if self.mode == self.OUTBOUND else None
 
         margin = self.size[1]
         t_planet = self.predict_planet_collision(frames=90, margin=margin)
@@ -181,7 +186,14 @@ class OrzA3(Ability):
         if t_planet is not None:
             t_target = None
             if target:
-                t_target = self.predict_target_interception(target, frames=90)
+                avoidance_trajectory = self.parent.predict_marine_target_trajectory(
+                    target, 90
+                )
+                t_target = self.predict_target_interception(
+                    target,
+                    frames=90,
+                    target_trajectory=avoidance_trajectory,
+                )
 
             if t_target is None or t_planet < t_target:
                 avoid = True
@@ -224,24 +236,24 @@ class OrzA3(Ability):
                 self._leave_ship()
         return self.currently_alive
 
-    def _flight_destination(self):
+    def _flight_destination(self, target, target_trajectory):
         if self.mode == self.OUTBOUND:
-            target = self._live_trackable_opponent()
             if target is not None:
                 intercept_frame = self.predict_target_interception(
-                    target, frames=self.look_ahead
+                    target,
+                    frames=self.look_ahead,
+                    target_trajectory=target_trajectory,
                 )
-                t_traj = target.predict_unhindered_trajectory(frames=self.look_ahead)
 
                 if intercept_frame is None or intercept_frame >= self.look_ahead:
-                    if len(t_traj) > 0:
-                        return t_traj[-1]
+                    if len(target_trajectory) > 0:
+                        return list(target_trajectory[-1])
                     return target.position
                 else:
-                    if intercept_frame < len(t_traj):
-                        return t_traj[intercept_frame]
-                    elif len(t_traj) > 0:
-                        return t_traj[-1]
+                    if intercept_frame < len(target_trajectory):
+                        return list(target_trajectory[intercept_frame])
+                    elif len(target_trajectory) > 0:
+                        return list(target_trajectory[-1])
                     return target.position
             self._begin_return()
         return self.parent.position if self._parent_alive() else None
@@ -303,54 +315,95 @@ class OrzA3(Ability):
             return
 
         if self.thrust_timer <= 0:
-            marker = self.apply_thrust(self.max_thrust, self.thrust_increment, 0, True)
+            marker = self.apply_thrust(
+                self.max_thrust,
+                self.thrust_increment,
+                0,
+                self._thrust_markers_enabled(),
+            )
             if marker:
                 self.spawned_objects.append(marker)
             self.thrust_timer = self.thrust_wait
         else:
             self.thrust_timer -= 1
 
-    def predict_target_interception(self, target, frames=90):
-        m_pos = list(self.position)
-        m_vel = list(self.velocity)
-        t_traj = target.predict_unhindered_trajectory(frames=frames)
+    def predict_target_interception(
+        self,
+        target,
+        frames=90,
+        *,
+        target_trajectory=None,
+    ):
+        marine_x, marine_y = self.position
+        velocity_x, velocity_y = self.velocity
+        trajectory = (
+            target.predict_unhindered_trajectory(frames=frames)
+            if target_trajectory is None
+            else target_trajectory
+        )
+        arena_size = const.ARENA_SIZE
+        half_arena = arena_size / 2
+        speed_scale = const.SPEED_SCALE
+        speed_limit = const.SPEED_LIMIT
+        max_thrust = self.max_thrust
+        thrust_increment = self.thrust_increment
+        collision_distance = (self.size[0] + target.size[0]) / 2
+        planet = self.planet
+        gravity_range = const.GRAVITY_RANGE
 
-        for f in range(frames):
-            if f >= len(t_traj):
+        for frame in range(frames):
+            if frame >= len(trajectory):
                 break
-            t_pos = t_traj[f]
-            dx, dy = wrapped_delta(m_pos, t_pos)
+            target_position = trajectory[frame]
+            dx = target_position[0] - marine_x
+            dy = target_position[1] - marine_y
+            if abs(dx) > half_arena:
+                dx += -arena_size if dx > 0 else arena_size
+            if abs(dy) > half_arena:
+                dy += -arena_size if dy > 0 else arena_size
             dist = math.hypot(dx, dy)
-            if dist < (self.size[0] + target.size[0]) / 2:
-                return f
+            if dist < collision_distance:
+                return frame
 
             if dist > 0:
                 dir_x = dx / dist
                 dir_y = dy / dist
-                m_vel[0] += dir_x * self.thrust_increment
-                m_vel[1] += dir_y * self.thrust_increment
+                velocity_x += dir_x * thrust_increment
+                velocity_y += dir_y * thrust_increment
 
-                speed = math.hypot(m_vel[0], m_vel[1])
-                if speed > self.max_thrust:
-                    m_vel[0] = m_vel[0] * self.max_thrust / speed
-                    m_vel[1] = m_vel[1] * self.max_thrust / speed
+                speed = math.hypot(velocity_x, velocity_y)
+                if speed > max_thrust:
+                    velocity_x = velocity_x * max_thrust / speed
+                    velocity_y = velocity_y * max_thrust / speed
 
-            if self.planet:
-                px, py = wrapped_delta(m_pos, self.planet.position)
+            gravity_applied = False
+            gravity_force = 0.0
+            if planet:
+                px = planet.position[0] - marine_x
+                py = planet.position[1] - marine_y
+                if abs(px) > half_arena:
+                    px += -arena_size if px > 0 else arena_size
+                if abs(py) > half_arena:
+                    py += -arena_size if py > 0 else arena_size
                 p_dist = math.hypot(px, py)
-                if p_dist < const.GRAVITY_RANGE and p_dist > self.planet.diameter / 2:
-                    gf = const.GRAVITY_MULTIPLIER * self.planet.gravity
+                if p_dist < gravity_range and p_dist > planet.diameter / 2:
+                    gravity_force = const.GRAVITY_MULTIPLIER * planet.gravity
                     if p_dist > 0:
-                        m_vel[0] += gf * px / p_dist
-                        m_vel[1] += gf * py / p_dist
+                        velocity_x += gravity_force * px / p_dist
+                        velocity_y += gravity_force * py / p_dist
+                        gravity_applied = True
 
-            speed = math.hypot(m_vel[0], m_vel[1])
-            if speed > const.SPEED_LIMIT:
-                m_vel[0] = m_vel[0] * const.SPEED_LIMIT / speed
-                m_vel[1] = m_vel[1] * const.SPEED_LIMIT / speed
+            if max_thrust > speed_limit or (
+                gravity_applied
+                and max_thrust + abs(gravity_force) > speed_limit
+            ):
+                speed = math.hypot(velocity_x, velocity_y)
+                if speed > speed_limit:
+                    velocity_x = velocity_x * speed_limit / speed
+                    velocity_y = velocity_y * speed_limit / speed
 
-            m_pos[0] = (m_pos[0] + m_vel[0] * const.SPEED_SCALE) % const.ARENA_SIZE
-            m_pos[1] = (m_pos[1] + m_vel[1] * const.SPEED_SCALE) % const.ARENA_SIZE
+            marine_x = (marine_x + velocity_x * speed_scale) % arena_size
+            marine_y = (marine_y + velocity_y * speed_scale) % arena_size
 
         return None
 
@@ -383,13 +436,19 @@ class OrzA3(Ability):
             self.rotation = round(desired_angle / angle_step) * angle_step % 360
             if self.thrust_timer <= 0:
                 marker = self.apply_thrust(
-                    self.max_thrust, self.thrust_increment, 0, True
+                    self.max_thrust,
+                    self.thrust_increment,
+                    0,
+                    self._thrust_markers_enabled(),
                 )
                 if marker:
                     self.spawned_objects.append(marker)
                 self.thrust_timer = self.thrust_wait
             else:
                 self.thrust_timer -= 1
+
+    def _thrust_markers_enabled(self):
+        return bool(getattr(self.parent, "visual_effects_enabled", True))
 
     def _coast(self):
         self.position[0] = (
