@@ -235,6 +235,7 @@ class AbilityDefinition(_DefinitionMapping):
     thrust_increment: float | None = None
     thrust_wait: float | None = None
     look_ahead: int | None = None
+    planet_look_ahead: int | None = None
     fade_duration: int | None = None
     max_marines: int | None = None
     spiral_distance: float | None = None
@@ -340,6 +341,7 @@ class AbilityDefinition(_DefinitionMapping):
         "thrust_increment": "thrust_increment",
         "thrust_wait": "thrust_wait",
         "look_ahead": "look_ahead",
+        "planet_look_ahead": "planet_look_ahead",
         "fade_duration": "fade_duration",
         "max_marines": "max_marines",
         "spiral_distance": "spiral_distance",
@@ -786,6 +788,7 @@ def parse_ability_definition(name, data):
         "thrust_increment",
         "thrust_wait",
         "look_ahead",
+        "planet_look_ahead",
         "fade_duration",
         "max_marines",
         "spiral_distance",
@@ -900,6 +903,7 @@ def parse_ability_definition(name, data):
         "thrust_increment": ("thrust_increment", float),
         "thrust_wait": ("thrust_wait", float),
         "look_ahead": ("look_ahead", int),
+        "planet_look_ahead": ("planet_look_ahead", int),
         "fade_duration": ("fade_duration", int),
         "max_marines": ("max_marines", int),
         "spiral_distance": ("spiral_distance", float),

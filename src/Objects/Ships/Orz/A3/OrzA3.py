@@ -83,6 +83,11 @@ class OrzA3(Ability):
         self.look_ahead = (
             ability_def.look_ahead if ability_def.look_ahead is not None else 15
         )
+        self.planet_look_ahead = (
+            ability_def.planet_look_ahead
+            if ability_def.planet_look_ahead is not None
+            else 90
+        )
         self.thrust_timer = 0
         self.steering_tie_direction = self.rng.choice((-1, 1))
 
@@ -181,17 +186,20 @@ class OrzA3(Ability):
         avoid = False
 
         margin = self.size[1]
-        t_planet = self.predict_planet_collision(frames=90, margin=margin)
+        t_planet = self.predict_planet_collision(
+            frames=self.planet_look_ahead,
+            margin=margin,
+        )
 
         if t_planet is not None:
             t_target = None
             if target:
                 avoidance_trajectory = self.parent.predict_marine_target_trajectory(
-                    target, 90
+                    target, self.planet_look_ahead
                 )
                 t_target = self.predict_target_interception(
                     target,
-                    frames=90,
+                    frames=self.planet_look_ahead,
                     target_trajectory=avoidance_trajectory,
                 )
 

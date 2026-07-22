@@ -597,6 +597,26 @@ class OrzAbilityTests(unittest.TestCase):
         self.assertEqual(len(markers), 1)
         self.assertIsInstance(markers[0], ThrustMarker)
 
+    def test_a3_uses_configured_planet_look_ahead(self):
+        enemy = create_ship("Earthling", 2)
+        enemy.initialize_in_battle([700, 500], 0)
+        self.ship.opponent = enemy
+        marine, _ = self.ship.perform_action3()
+        marine.mode = OrzA3.OUTBOUND
+
+        with mock.patch.object(
+            marine,
+            "predict_planet_collision",
+            return_value=None,
+        ) as predict_planet_collision:
+            marine.update()
+
+        self.assertEqual(marine.planet_look_ahead, 45)
+        predict_planet_collision.assert_called_once_with(
+            frames=45,
+            margin=marine.size[1],
+        )
+
     def test_headless_a3_accelerates_without_emitting_thrust_markers(self):
         enemy = create_ship("Earthling", 2)
         enemy.initialize_in_battle([700, 500], 0)

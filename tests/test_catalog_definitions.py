@@ -129,6 +129,7 @@ class CatalogDefinitionTests(unittest.TestCase):
         self.assertFalse(ABILITY_DEFINITIONS["VuxA2"].damage_projectiles)
         self.assertTrue(ABILITY_DEFINITIONS["OrzA3"].collide_asteroids)
         self.assertFalse(ABILITY_DEFINITIONS["OrzA3"].damage_asteroids)
+        self.assertEqual(ABILITY_DEFINITIONS["OrzA3"].planet_look_ahead, 45)
 
     def test_missing_unknown_and_wrongly_typed_fields_are_rejected(self):
         cases = []
