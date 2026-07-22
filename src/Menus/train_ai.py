@@ -80,8 +80,11 @@ REWARD_VALUES = tuple(
 )
 
 REWARD_LABELS = REWARD_COMPONENTS
-SPEEDOMETER_WIDTH = 80
 SPEEDOMETER_CELLS_PER_REAL_TIME = 2
+SPEEDOMETER_MAX_REAL_TIME = 60
+SPEEDOMETER_WIDTH = (
+    SPEEDOMETER_MAX_REAL_TIME * SPEEDOMETER_CELLS_PER_REAL_TIME
+)
 TRAINING_LOG_HEADING_COLOR = (255, 255, 255)
 TRAINING_LOG_ODD_ROW_COLOR = (155, 255, 155)
 TRAINING_LOG_EVEN_ROW_COLOR = (155, 155, 255)
@@ -3235,7 +3238,8 @@ def _speedometer_console_lines(status):
     bar = "]" * filled + "-" * (SPEEDOMETER_WIDTH - filled)
     return (
         f"|{bar}| {speed:5.2f}x Real time",
-        "0         5        10        15        20        25        30        35        40",
+        "0         5        10        15        20        25        30        35        40"
+        "        45        50        55        60",
     )
 
 

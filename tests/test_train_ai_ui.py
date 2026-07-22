@@ -4031,9 +4031,7 @@ class TrainingConsoleTests(unittest.TestCase):
         )
         self.assertEqual(
             lines[lines.index("Batch      1 | summary") + 2],
-            "|]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
-            "----------------------------------------| "
-            "20.25x Real time",
+            f"|{']' * 40}{'-' * 80}| 20.25x Real time",
         )
         current_batch_index = lines.index("Current batch")
         self.assertEqual(
@@ -4199,17 +4197,15 @@ class TrainingConsoleTests(unittest.TestCase):
         self.assertEqual(TRAINING_BATCH_LOG_FONT_SIZE, 11)
 
     def test_speedometer_caps_bar_without_capping_speed_label(self):
+        speed_line, scale_line = _speedometer_console_lines(
+            self._status(simulation_speed_multiplier=65.125)
+        )
+
+        self.assertEqual(speed_line, f"|{']' * 120}| 65.12x Real time")
         self.assertEqual(
-            _speedometer_console_lines(
-                self._status(simulation_speed_multiplier=45.125)
-            ),
-            (
-                "|]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
-                "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]| "
-                "45.12x Real time",
-                "0         5        10        15        20        25        30"
-                "        35        40",
-            ),
+            scale_line,
+            "0         5        10        15        20        25        30"
+            "        35        40        45        50        55        60",
         )
 
     def test_speedometer_aligns_single_digit_speed_at_decimal(self):
