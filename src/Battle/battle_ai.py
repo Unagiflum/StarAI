@@ -9,6 +9,10 @@ import random
 from typing import Any
 
 import src.const as const
+from src.Battle.computer_control import (
+    guard_computer_controls,
+    prepare_computer_controlled_ship,
+)
 from src.toroidal import wrapped_delta
 from src.training.contracts import action_for_index
 from src.training.model_loader import (
@@ -123,6 +127,7 @@ class BattleAIManager:
             if not self.is_ai_player(player):
                 continue
             ship, _ = _ships_for_player(simulation, player)
+            prepare_computer_controlled_ship(ship)
             loaded, failures = self._resolve_model(str(getattr(ship, "name", "")))
             self.load_failures[player] = tuple(failures)
             if loaded is None:
@@ -136,12 +141,14 @@ class BattleAIManager:
         actions = {}
         for player, controller in self._controllers.items():
             try:
-                actions[player] = controller.actions_for_frame(simulation)
+                controls = controller.actions_for_frame(simulation)
             except Exception:
                 fallback = FallbackController(player, rng=self.rng)
                 self._controllers[player] = fallback
                 self._labels[player] = "None found"
-                actions[player] = fallback.actions_for_frame(simulation)
+                controls = fallback.actions_for_frame(simulation)
+            ship, enemy = _ships_for_player(simulation, player)
+            actions[player] = guard_computer_controls(controls, ship, enemy)
         return actions
 
     def is_ai_player(self, player: int) -> bool:

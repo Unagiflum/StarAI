@@ -242,8 +242,30 @@ class CoordinatedSimulationWorker:
         self._simple_opponent_controls: dict[str, bool] | None = None
         self._display_memory: shared_memory.SharedMemory | None = None
         self._display_surface: pygame.Surface | None = None
+        self._display_pixels: bytearray | None = None
         self._display_renderer: BattleDrawController | None = None
         self._display_star_field: DisplayStarField | None = None
+
+    def prepare_display(self, width: int | None = None, height: int | None = None) -> None:
+        """Initialize display-only resources before a display request arrives."""
+
+        width = const.SCREEN_WIDTH if width is None else int(width)
+        height = const.SCREEN_HEIGHT if height is None else int(height)
+        if (
+            self._display_surface is not None
+            and self._display_surface.get_size() == (width, height)
+        ):
+            return
+        if not pygame.font.get_init():
+            pygame.font.init()
+        self._display_pixels = bytearray(width * height * 3)
+        self._display_surface = pygame.image.frombuffer(
+            self._display_pixels,
+            (width, height),
+            "RGB",
+        )
+        self._display_renderer = BattleDrawController()
+        self._display_star_field = DisplayStarField(resources=self._resources)
 
     def handle(self, command: Any) -> Any:
         name = getattr(command, "name", "")
@@ -510,15 +532,7 @@ class CoordinatedSimulationWorker:
             self._display_memory = shared_memory.SharedMemory(name=spec.name)
         if self._display_memory.size < required_bytes:
             raise ValueError("coordinated display buffer is too small")
-        if (
-            self._display_surface is None
-            or self._display_surface.get_size() != (width, height)
-        ):
-            if not pygame.font.get_init():
-                pygame.font.init()
-            self._display_surface = pygame.Surface((width, height))
-            self._display_renderer = BattleDrawController()
-            self._display_star_field = DisplayStarField(resources=self._resources)
+        self.prepare_display(width, height)
 
         surface = self._display_surface
         renderer = self._display_renderer
@@ -533,11 +547,12 @@ class CoordinatedSimulationWorker:
         )
         layout = create_play_battle_layout(native_arena)
         simulation = runtime.simulation
+        game_objects = simulation.world.snapshot()
         for index in range(frame_count):
             surface.fill((0, 0, 0))
             renderer.draw(
                 surface,
-                simulation.world.snapshot(),
+                game_objects,
                 layout,
                 simulation.border_color,
                 star_field,
@@ -549,7 +564,9 @@ class CoordinatedSimulationWorker:
                     interp_t=index / frame_count,
                 ),
             )
-            pixels = pygame.image.tobytes(surface, "RGB")
+            pixels = self._display_pixels
+            if pixels is None:
+                pixels = pygame.image.tobytes(surface, "RGB")
             offset = index * frame_bytes
             self._display_memory.buf[offset : offset + frame_bytes] = pixels
         return frame_count
@@ -700,6 +717,7 @@ def worker_process_main(connection) -> None:
 
     _set_worker_process_below_normal_priority()
     worker = CoordinatedSimulationWorker()
+    worker.prepare_display()
     timing_enabled = False
     transport_timing = TransportTimingAccumulator()
     last_window_transport_metrics: Mapping[str, float | int] = {}

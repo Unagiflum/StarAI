@@ -3353,6 +3353,30 @@ def _rendered_training_frame(battle_view, interp_t):
     return frames[index]
 
 
+def _draw_training_phase_message(screen, rect, status, font=None):
+    message = str(getattr(status, "display_message", "") or "").strip()
+    if not message:
+        return
+    font = font or pygame.font.SysFont(None, 24)
+    rendered = font.render(message, True, ui.WHITE)
+    padding_x = 14
+    padding_y = 8
+    panel = pygame.Surface(
+        (
+            min(pygame.Rect(rect).width, rendered.get_width() + 2 * padding_x),
+            rendered.get_height() + 2 * padding_y,
+        ),
+        pygame.SRCALPHA,
+    )
+    panel.fill((0, 0, 0, 190))
+    pygame.draw.rect(panel, ui.LIGHT_GREY, panel.get_rect(), 1)
+    panel.blit(rendered, rendered.get_rect(center=panel.get_rect().center))
+    target = panel.get_rect(
+        midtop=(pygame.Rect(rect).centerx, pygame.Rect(rect).top + 12)
+    )
+    screen.blit(panel, target)
+
+
 def _draw_training_battle(
     screen,
     rect,
@@ -3386,6 +3410,7 @@ def _draw_training_battle(
                 pygame.transform.smoothscale(arena, pygame.Rect(rect).size),
                 rect,
             )
+        _draw_training_phase_message(screen, rect, status, status_small_font)
         return
     controller = battle_draw_controller or BattleDrawController()
     controller.draw(
@@ -3404,6 +3429,7 @@ def _draw_training_battle(
         original_ships=battle_view.get("original_ships"),
         options=BattleDrawOptions(draw_huds=False, interp_t=interp_t),
     )
+    _draw_training_phase_message(screen, rect, status, status_small_font)
 
 
 def _draw_training_huds(

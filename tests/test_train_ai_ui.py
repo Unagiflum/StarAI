@@ -4501,6 +4501,26 @@ class TrainingBattleDisplayTests(unittest.TestCase):
             (12, 34, 56),
         )
 
+    def test_phase_message_overlays_retained_worker_frame(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        frame = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        status = SimpleNamespace(
+            display_message="Waiting for synchronized CPU runs",
+            battle_view={"frame_id": 1, "rendered_frames": (frame,)},
+        )
+
+        with mock.patch(
+            "src.Menus.train_ai._draw_training_phase_message"
+        ) as draw_message:
+            _draw_training_battle(
+                screen,
+                training_layout().arena_rect,
+                status,
+                object(),
+            )
+
+        draw_message.assert_called_once()
+
     def test_worker_rendered_huds_crop_native_panel_height_before_scaling(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         frame = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))

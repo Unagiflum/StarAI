@@ -11,9 +11,11 @@ from typing import Any
 
 import src.const as const
 from src.Battle.battle import BattleSimulation
+from src.Battle.computer_control import guard_computer_controls
 from src.Objects.Ships.registry import create_ship
 from src.toroidal import wrapped_delta
 from src.training import event_ledger
+from src.training.action_safety import guard_training_selection
 from src.training.causal_credit import REWARD_MODE_LEGACY
 from src.training.contracts import TrainingAction, action_for_index
 from src.training.coordinated_contracts import (
@@ -117,7 +119,11 @@ class SimpleOpponentController:
             | (8 if self.action1_held else 0)
             | (16 if self.action2_held else 0)
         )
-        return TrainingAction.from_mask(mask)
+        return guard_computer_controls(
+            TrainingAction.from_mask(mask),
+            simulation.player2,
+            simulation.player1,
+        )
 
     def _next_key_state(self, held: bool, activity: float) -> bool:
         probability = _activity_probability(activity)
@@ -265,6 +271,12 @@ def advance_coordinated_window_frame(
     simulation = runtime.simulation
     self_ship = simulation.player1
     enemy_ship = simulation.player2
+    selection = guard_training_selection(selection, self_ship, enemy_ship)
+    opponent_controls = guard_computer_controls(
+        opponent_controls,
+        enemy_ship,
+        self_ship,
+    )
     reward_decision_started_at = timing_started_at(timing_seconds)
     decision = decision_frame_from_battle_state(
         frame_id=simulation.frame_id + 1,

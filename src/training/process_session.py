@@ -52,6 +52,7 @@ from src.training.session import (
 
 
 _DISPLAY_SEQUENCE_BYTES = 8
+_DISPLAY_BUFFER_COUNT = 2
 _MESSAGE_STATUS = "status"
 _MESSAGE_SAVED = "saved"
 _MESSAGE_AUDIO = "audio"
@@ -226,10 +227,29 @@ class _SharedDisplayRenderer:
         self._memory_name: str | None = None
         self._sequence = 0
         self._surface: pygame.Surface | None = None
+        self._surface_pixels: bytearray | None = None
         self._renderer: BattleDrawController | None = None
         self._star_field: DisplayStarField | None = None
         self._resources = HeadlessAssetManager()
         self._frame_count = max(1, int(frame_count))
+
+    def prepare(self) -> None:
+        """Initialize display-only worker resources before the first visible frame."""
+
+        width = const.SCREEN_WIDTH
+        height = const.SCREEN_HEIGHT
+        if self._surface is not None and self._surface.get_size() == (width, height):
+            return
+        if not pygame.font.get_init():
+            pygame.font.init()
+        self._surface_pixels = bytearray(width * height * 3)
+        self._surface = pygame.image.frombuffer(
+            self._surface_pixels,
+            (width, height),
+            "RGB",
+        )
+        self._renderer = BattleDrawController()
+        self._star_field = DisplayStarField(resources=self._resources)
 
     def attach(self, name: str | None) -> None:
         normalized = str(name) if name else None
@@ -248,24 +268,23 @@ class _SharedDisplayRenderer:
         height = const.SCREEN_HEIGHT
         frame_count = self._frame_count
         frame_bytes = width * height * 3
-        required = _DISPLAY_SEQUENCE_BYTES + frame_count * frame_bytes
+        frame_set_bytes = frame_count * frame_bytes
+        required = (
+            _DISPLAY_SEQUENCE_BYTES
+            + _DISPLAY_BUFFER_COUNT * frame_set_bytes
+        )
         if memory.size < required:
             raise ValueError("independent display buffer is too small")
-        if self._surface is None:
-            if not pygame.font.get_init():
-                pygame.font.init()
-            self._surface = pygame.Surface((width, height))
-            self._renderer = BattleDrawController()
-            self._star_field = DisplayStarField(resources=self._resources)
+        self.prepare()
         renderer = self._renderer
         star_field = self._star_field
         surface = self._surface
         if renderer is None or star_field is None:
             return None
 
-        self._sequence += 2
-        committed_sequence = self._sequence
-        struct.pack_into("<Q", memory.buf, 0, committed_sequence - 1)
+        committed_sequence = self._sequence + 1
+        buffer_index = committed_sequence % _DISPLAY_BUFFER_COUNT
+        buffer_offset = _DISPLAY_SEQUENCE_BYTES + buffer_index * frame_set_bytes
         layout = create_play_battle_layout(
             pygame.Rect(const.SCREEN_LEFT, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT)
         )
@@ -286,9 +305,12 @@ class _SharedDisplayRenderer:
                     interp_t=index / frame_count,
                 ),
             )
-            pixels = pygame.image.tobytes(surface, "RGB")
-            offset = _DISPLAY_SEQUENCE_BYTES + index * frame_bytes
+            pixels = self._surface_pixels
+            if pixels is None:
+                pixels = pygame.image.tobytes(surface, "RGB")
+            offset = buffer_offset + index * frame_bytes
             memory.buf[offset : offset + frame_bytes] = pixels
+        self._sequence = committed_sequence
         struct.pack_into("<Q", memory.buf, 0, committed_sequence)
         return {
             "frame_id": int(battle_view.get("frame_id", 0)),
@@ -312,6 +334,9 @@ class _ProcessPublisher:
 
     def bind_audio(self, audio: RecordingAudioService) -> None:
         self._recording_audio = audio
+
+    def prepare_display(self) -> None:
+        self._renderer.prepare()
 
     def apply_controls(self, session: TrainingSession) -> None:
         while True:
@@ -408,9 +433,17 @@ class _ProcessTrainingEngine(TrainingSession):
             else time.perf_counter()
         )
         self._pending_paced_batch_number: int | None = None
-        super().__init__(save_coordinator=save_coordinator, **kwargs)
+        super().__init__(
+            save_coordinator=save_coordinator,
+            display_event=display_event,
+            **kwargs,
+        )
         self._stop_requested = stop_event
-        self._display_on = display_event
+
+    def _battle_view_for_display(self, battle_view: Mapping[str, Any]):
+        # The process renders this synchronously before simulation can mutate
+        # the objects; only pixels cross the process boundary.
+        return battle_view
 
     def _on_progress(self, payload: Mapping[str, Any]) -> None:
         self._publisher.apply_controls(self)
@@ -467,7 +500,6 @@ class _ProcessTrainingEngine(TrainingSession):
         )
         with self._lock:
             self._status.display_message = "Waiting for synchronized CPU runs"
-            self._status.battle_view = None
             self._status.simulation_speed_multiplier = 0.0
         self._publisher.publish_status(self, include_continuity=True)
         self._batch_pacing_group.wait_after_batch(
@@ -518,7 +550,6 @@ class _ProcessTrainingEngine(TrainingSession):
             if not refresh:
                 return cached
             self._status.display_message = "Loading AI opponents"
-            self._status.battle_view = None
 
         visible_repository = _SavingAwareRepository(self.repository, saving_keys)
         discovered = discover_existing_ai_opponents(
@@ -584,6 +615,7 @@ def independent_training_process_main(
         control_queue,
         display_frame_count=display_frame_count,
     )
+    publisher.prepare_display()
     recording_audio = RecordingAudioService()
     publisher.bind_audio(recording_audio)
     repository = TrainingModelRepository(bundled_dir, user_dir)
@@ -863,12 +895,16 @@ class ProcessTrainingSession:
     def set_display_on(self, enabled: bool) -> None:
         enabled = bool(enabled)
         if enabled:
+            was_enabled = self._display_event.is_set()
             self._ensure_display_memory()
             self._display_event.set()
-            self.audio_service.start_battle_music()
+            if not was_enabled:
+                self.audio_service.start_battle_music()
         else:
+            was_enabled = self._display_event.is_set()
             self._display_event.clear()
-            self.audio_service.stop_music()
+            if was_enabled:
+                self.audio_service.stop_music()
             with self._lock:
                 self._status = replace(self._status, battle_view=None)
 
@@ -900,9 +936,10 @@ class ProcessTrainingSession:
     def _ensure_display_memory(self) -> None:
         if self._display_memory is None:
             frame_bytes = const.SCREEN_WIDTH * const.SCREEN_HEIGHT * 3
+            frame_set_bytes = frame_bytes * self._display_frame_count
             size = (
                 _DISPLAY_SEQUENCE_BYTES
-                + frame_bytes * self._display_frame_count
+                + _DISPLAY_BUFFER_COUNT * frame_set_bytes
             )
             self._display_memory = shared_memory.SharedMemory(create=True, size=size)
             struct.pack_into("<Q", self._display_memory.buf, 0, 0)
@@ -937,6 +974,14 @@ class ProcessTrainingSession:
                 with self._lock:
                     battle_view = self._status.battle_view
             status = replace(status, battle_view=battle_view)
+        elif battle_view is None and self._display_event.is_set():
+            # Phase-only worker statuses carry no new frame. Keep the last
+            # successfully transferred frame until display is explicitly
+            # disabled or a newer frame arrives.
+            with self._lock:
+                battle_view = self._status.battle_view
+            if battle_view is not None:
+                status = replace(status, battle_view=battle_view)
         with self._lock:
             # A worker snapshot already in flight when stop is requested still
             # reports stopping=False.  Keep the parent-side request authoritative
@@ -976,16 +1021,20 @@ class ProcessTrainingSession:
             return None
         expected = int(metadata["shared_sequence"])
         sequence_before = struct.unpack_from("<Q", memory.buf, 0)[0]
-        if sequence_before != expected or sequence_before % 2:
+        if sequence_before != expected:
             return None
         width = const.SCREEN_WIDTH
         height = const.SCREEN_HEIGHT
         frame_bytes = width * height * 3
+        frame_count = int(metadata["shared_frame_count"])
+        frame_set_bytes = frame_count * frame_bytes
+        buffer_index = expected % _DISPLAY_BUFFER_COUNT
+        buffer_offset = _DISPLAY_SEQUENCE_BYTES + buffer_index * frame_set_bytes
         frames = []
-        for index in range(int(metadata["shared_frame_count"])):
-            offset = _DISPLAY_SEQUENCE_BYTES + index * frame_bytes
+        for index in range(frame_count):
+            offset = buffer_offset + index * frame_bytes
             pixels = bytes(memory.buf[offset : offset + frame_bytes])
-            frames.append(pygame.image.frombytes(pixels, (width, height), "RGB"))
+            frames.append(pygame.image.frombuffer(pixels, (width, height), "RGB"))
         sequence_after = struct.unpack_from("<Q", memory.buf, 0)[0]
         if sequence_after != expected:
             return None

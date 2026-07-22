@@ -12,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import pygame
+
 import src.const as const
 from src.audio import RecordingAudioService
 from src.training import torch_backend
@@ -412,6 +414,63 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
         wait.assert_called_once()
         self.assertAlmostEqual(wait.call_args.args[0], 1.0 / 24.0)
 
+    def test_display_pacing_keeps_deadline_after_small_wakeup_delay(self):
+        session = self._session()
+        session.proxies[1].set_display_on(True)
+        session._display_changed.clear()
+        session._next_display_frame_time = 100.0
+        delayed_now = 100.0 + 1.0 / const.FPS + 0.005
+
+        with (
+            mock.patch(
+                "src.training.coordinated.time.perf_counter",
+                return_value=delayed_now,
+            ),
+            mock.patch.object(session._display_changed, "wait") as wait,
+        ):
+            session._throttle_display_frame()
+
+        wait.assert_not_called()
+        self.assertAlmostEqual(
+            session._next_display_frame_time,
+            100.0 + 1.0 / const.FPS,
+        )
+
+    def test_display_buffer_frames_wrap_copied_pixels_without_second_copy(self):
+        session = self._session()
+        width = 4
+        height = 2
+        frame_bytes = width * height * 3
+        memory = shared_memory.SharedMemory(create=True, size=frame_bytes)
+        memory.buf[:] = b"\x11" * frame_bytes
+        session._display_memory = memory
+
+        try:
+            original_frombuffer = pygame.image.frombuffer
+            with (
+                mock.patch.object(const, "SCREEN_WIDTH", width),
+                mock.patch.object(const, "SCREEN_HEIGHT", height),
+                mock.patch(
+                    "src.training.coordinated.pygame.image.frombuffer",
+                    wraps=original_frombuffer,
+                ) as frombuffer,
+                mock.patch(
+                    "src.training.coordinated.pygame.image.frombytes",
+                    side_effect=AssertionError("copied frame pixels twice"),
+                ),
+            ):
+                view = session._battle_view_from_display_buffer(7, 1)
+
+            frombuffer.assert_called_once()
+            self.assertEqual(
+                view["rendered_frames"][0].get_at((0, 0))[:3],
+                (17, 17, 17),
+            )
+        finally:
+            session._display_memory = None
+            memory.close()
+            memory.unlink()
+
     def test_coordinator_yields_once_every_configured_frame_interval(self):
         session = self._session()
 
@@ -440,6 +499,7 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
         session = self._session()
         session.set_display_on(1, True)
         rendered_frames = (object(),)
+        session._states[1].status.display_message = "Preparing coordinated run"
 
         session._on_record_progress(
             session._states[1],
@@ -457,6 +517,28 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
         status = session.status_for_instance(1)
         self.assertEqual(status.current_frame, 1)
         self.assertIs(status.battle_view["rendered_frames"], rendered_frames)
+        self.assertEqual(status.display_message, "")
+
+    def test_coordinated_start_retains_last_frame_until_new_progress(self):
+        session = self._session()
+        last_view = {"frame_id": 7, "rendered_frames": (object(),)}
+        session._states[1].status.battle_view = last_view
+
+        session.start()
+        try:
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                if (
+                    session.status_for_instance(1).display_message
+                    == "Coordinated scheduler idle"
+                ):
+                    break
+                time.sleep(0.001)
+
+            self.assertIs(session.status_for_instance(1).battle_view, last_view)
+        finally:
+            session.request_stop()
+            session.join(1.0)
 
     def test_display_starts_and_stops_coordinated_music_once(self):
         audio = RecordingAudioService()

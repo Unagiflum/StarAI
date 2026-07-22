@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import src.const as const
 from src.training import torch_backend
 from src.audio import RecordingAudioService
 from src.training.contracts import OBSERVATION_SCHEMA_VERSION
@@ -582,6 +583,39 @@ class TrainingSessionDisplayTests(unittest.TestCase):
 
         sleep.assert_called_once()
 
+    def test_display_pacing_keeps_deadline_after_small_wakeup_delay(self):
+        session = TrainingSession.__new__(TrainingSession)
+        session._next_display_frame_time = 100.0
+        delayed_now = 100.0 + 1.0 / const.FPS + 0.005
+
+        with (
+            mock.patch(
+                "src.training.session.time.perf_counter",
+                return_value=delayed_now,
+            ),
+            mock.patch("src.training.session.time.sleep") as sleep,
+        ):
+            session._throttle_display_frame()
+
+        sleep.assert_not_called()
+        self.assertAlmostEqual(
+            session._next_display_frame_time,
+            100.0 + 1.0 / const.FPS,
+        )
+
+    def test_display_pacing_reanchors_after_long_non_simulation_pause(self):
+        session = TrainingSession.__new__(TrainingSession)
+        session._next_display_frame_time = 100.0
+
+        with (
+            mock.patch("src.training.session.time.perf_counter", return_value=101.0),
+            mock.patch("src.training.session.time.sleep") as sleep,
+        ):
+            session._throttle_display_frame()
+
+        sleep.assert_not_called()
+        self.assertEqual(session._next_display_frame_time, 101.0)
+
     def test_headless_frame_progress_updates_live_status_every_100_frames(self):
         session = TrainingSession.__new__(TrainingSession)
         session._lock = threading.Lock()
@@ -679,11 +713,12 @@ class TrainingSessionDisplayTests(unittest.TestCase):
         self.assertIs(session.status.battle_view, frozen_view)
         self.assertEqual(session.status.current_frame, 1)
 
-    def test_batch_optimization_progress_shows_display_message_and_clears_view(self):
+    def test_batch_optimization_progress_retains_last_display_frame(self):
         session = TrainingSession.__new__(TrainingSession)
         session._lock = threading.Lock()
+        last_view = {"game_objects": ("last-frame",)}
         session._status = TrainingSessionStatus(
-            battle_view={"game_objects": ("last-frame",)},
+            battle_view=last_view,
             simulation_speed_multiplier=12.5,
         )
         session._display_on = threading.Event()
@@ -692,8 +727,23 @@ class TrainingSessionDisplayTests(unittest.TestCase):
         session._on_progress({"event": "batch_optimization_start"})
 
         self.assertEqual(session.status.display_message, "Applying gradient descent")
-        self.assertIsNone(session.status.battle_view)
+        self.assertIs(session.status.battle_view, last_view)
         self.assertEqual(session.status.simulation_speed_multiplier, 0.0)
+
+    def test_round_start_retains_last_display_frame_until_replacement(self):
+        session = TrainingSession.__new__(TrainingSession)
+        session._lock = threading.Lock()
+        last_view = {"game_objects": ("last-frame",)}
+        session._status = TrainingSessionStatus(battle_view=last_view)
+        session._display_on = threading.Event()
+        session._display_on.set()
+
+        session._on_progress(
+            {"event": "round_start", "round_index": 2, "total_rounds": 4}
+        )
+
+        self.assertIs(session.status.battle_view, last_view)
+        self.assertEqual(session.status.current_round, 2)
 
     def test_live_display_toggle_starts_and_stops_training_audio(self):
         session = TrainingSession.__new__(TrainingSession)

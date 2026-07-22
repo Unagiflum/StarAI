@@ -19,10 +19,12 @@ import pygame
 
 import src.const as const
 from src.Battle.battle import BattleSimulation
+from src.Battle.computer_control import guard_computer_controls
 from src.Objects.Ships.registry import create_ship
 from src.audio import DisplayGatedAudioService, NullAudioService
 from src.training import torch_backend
 from src.training import event_ledger
+from src.training.action_safety import guard_training_selection
 from src.training.causal_credit import REWARD_MODE_LEGACY
 from src.training.batched_value_network import (
     BatchedValueNetworkParameterCache,
@@ -102,6 +104,7 @@ from src.training.session import (
     RECENT_BATCH_METRICS_KEY,
     SimulationSpeedTracker,
     TrainingSessionStatus,
+    advance_display_frame_deadline,
     append_grouped_metrics_csv,
     batch_metrics_to_metadata,
     batch_metrics_history_from_metadata,
@@ -1111,7 +1114,6 @@ class CoordinatedTrainingSession:
                 state.status.stopping = False
                 state.status.error = ""
                 state.status.display_message = "Preparing coordinated run"
-                state.status.battle_view = None
                 state.status.simulation_speed_multiplier = 0.0
         self._thread = threading.Thread(
             target=self._run_worker,
@@ -1336,7 +1338,6 @@ class CoordinatedTrainingSession:
             self._current_batch_started_at = batch_started_at
             for instance_id, state in self._states.items():
                 state.status.display_message = ""
-                state.status.battle_view = None
                 state.status.total_rounds = len(schedules[instance_id])
                 state.status.current_round = 0
                 state.status.current_frame = 0
@@ -1499,7 +1500,6 @@ class CoordinatedTrainingSession:
         with self._lock:
             for state in self._states.values():
                 state.status.display_message = "Applying gradient descent"
-                state.status.battle_view = None
                 state.status.simulation_speed_multiplier = 0.0
 
         _synchronize_cuda_for_timing(timing_seconds)
@@ -1645,7 +1645,6 @@ class CoordinatedTrainingSession:
                 self._current_batch_started_at = batch_started_at
                 for instance_id, state in self._states.items():
                     state.status.display_message = "Running coordinated CPU workers"
-                    state.status.battle_view = None
                     state.status.total_rounds = len(schedules[instance_id])
                     state.status.current_round = 0
                     state.status.current_frame = 0
@@ -1937,14 +1936,16 @@ class CoordinatedTrainingSession:
                             timing_seconds,
                             drain_timing(),
                         )
-            self._release_display_buffer()
+            with self._lock:
+                display_active = self._display_instance_id is not None
+            if not display_active:
+                self._release_display_buffer()
             with self._lock:
                 self._current_batch_started_at = None
 
         with self._lock:
             for state in self._states.values():
                 state.status.display_message = "Applying gradient descent"
-                state.status.battle_view = None
                 state.status.simulation_speed_multiplier = 0.0
 
         _synchronize_cuda_for_timing(timing_seconds)
@@ -2572,6 +2573,7 @@ class CoordinatedTrainingSession:
                 and self._display_instance_id == state.record.instance_id
             ):
                 state.status.battle_view = battle_view
+                state.status.display_message = ""
 
     def _on_in_process_window_progress(
         self,
@@ -2616,15 +2618,16 @@ class CoordinatedTrainingSession:
             if self._display_instance_id is None:
                 self._next_display_frame_time = time.perf_counter()
                 return
-            self._next_display_frame_time += 1.0 / const.FPS
-            sleep_seconds = self._next_display_frame_time - time.perf_counter()
+            self._next_display_frame_time, sleep_seconds = (
+                advance_display_frame_deadline(
+                    self._next_display_frame_time,
+                    now=time.perf_counter(),
+                )
+            )
         if sleep_seconds > 0:
             if self._display_changed.wait(sleep_seconds):
                 with self._lock:
                     self._next_display_frame_time = time.perf_counter()
-        else:
-            with self._lock:
-                self._next_display_frame_time = time.perf_counter()
 
     def _yield_after_coordinated_frame(self, frame_count: int) -> None:
         interval = int(const.COORDINATED_TRAINING_YIELD_INTERVAL_FRAMES)
@@ -2669,7 +2672,7 @@ class CoordinatedTrainingSession:
         for index in range(max(0, int(frame_count))):
             offset = index * frame_bytes
             pixels = bytes(self._display_memory.buf[offset : offset + frame_bytes])
-            frames.append(pygame.image.frombytes(pixels, (width, height), "RGB"))
+            frames.append(pygame.image.frombuffer(pixels, (width, height), "RGB"))
         return {
             "rendered_frames": tuple(frames),
             "frame_id": int(frame_id),
@@ -2807,7 +2810,11 @@ def run_coordinated_fixed_frame_window(
             frame_id=simulation.frame_id,
             game_objects=simulation.world,
         )
-        selection = _select_policy_action(trainee_policy, observation)
+        selection = guard_training_selection(
+            _select_policy_action(trainee_policy, observation),
+            self_ship,
+            enemy_ship,
+        )
         decision = decision_frame_from_battle_state(
             frame_id=simulation.frame_id + 1,
             observation=observation,
@@ -3820,6 +3827,7 @@ def _advance_coordinated_window_frame(
                 ),
             )
         ).selections[state.record.instance_id]
+    selection = guard_training_selection(selection, self_ship, enemy_ship)
     reward_decision_started_at = _timing_started_at(timing_seconds)
     decision = decision_frame_from_battle_state(
         frame_id=simulation.frame_id + 1,
@@ -3859,6 +3867,11 @@ def _advance_coordinated_window_frame(
             "opponent_inference",
             opponent_started_at,
         )
+    opponent_controls = guard_computer_controls(
+        opponent_controls,
+        enemy_ship,
+        self_ship,
+    )
     simulation_started_at = _timing_started_at(timing_seconds)
     step_state = _step_simulation_with_optional_timing(
         simulation,

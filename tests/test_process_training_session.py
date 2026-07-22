@@ -1,13 +1,19 @@
 import multiprocessing
+from multiprocessing import shared_memory
 from dataclasses import replace
 from pathlib import Path
 import queue
+import struct
 import tempfile
 import threading
 import time
 import unittest
 from unittest import mock
 
+import pygame
+
+import src.const as const
+from src.audio import RecordingAudioService
 from src.Menus import train_ai
 from src.training import torch_backend
 from src.training.cpu_contracts import TrainingOrchestrationConfig
@@ -23,7 +29,10 @@ from src.training.process_session import (
     CpuBatchPacingGroup,
     ProcessModelSaveCoordinator,
     ProcessTrainingSession,
+    _DISPLAY_BUFFER_COUNT,
+    _DISPLAY_SEQUENCE_BYTES,
     _ProcessTrainingEngine,
+    _SharedDisplayRenderer,
 )
 
 
@@ -176,6 +185,123 @@ class ProcessModelSaveCoordinatorTests(unittest.TestCase):
         self.assertEqual(failed_generations, generations)
 
 
+class SharedDisplayRendererTests(unittest.TestCase):
+    def test_prepared_renderer_writes_rgb_backing_buffer_without_reencoding(self):
+        width = 4
+        height = 2
+        frame_count = 1
+        frame_bytes = width * height * 3
+        memory = shared_memory.SharedMemory(
+            create=True,
+            size=(
+                _DISPLAY_SEQUENCE_BYTES
+                + _DISPLAY_BUFFER_COUNT * frame_bytes
+            ),
+        )
+        renderer = _SharedDisplayRenderer(frame_count)
+
+        try:
+            with (
+                mock.patch.object(const, "SCREEN_WIDTH", width),
+                mock.patch.object(const, "SCREEN_HEIGHT", height),
+                mock.patch.object(const, "SCREEN_LEFT", 1),
+                mock.patch(
+                    "src.training.process_session.DisplayStarField",
+                    return_value=object(),
+                ),
+            ):
+                renderer.prepare()
+                renderer._renderer = mock.Mock()
+                renderer._renderer.draw.side_effect = (
+                    lambda surface, *_args, **_kwargs: surface.fill((17, 17, 17))
+                )
+                renderer.attach(memory.name)
+                with mock.patch(
+                    "src.training.process_session.pygame.image.tobytes",
+                    side_effect=AssertionError("RGB render target was reencoded"),
+                ):
+                    metadata = renderer.render({"frame_id": 1})
+
+            buffer_index = metadata["shared_sequence"] % _DISPLAY_BUFFER_COUNT
+            offset = _DISPLAY_SEQUENCE_BYTES + buffer_index * frame_bytes
+            self.assertEqual(
+                bytes(memory.buf[offset : offset + frame_bytes]),
+                b"\x11" * frame_bytes,
+            )
+        finally:
+            renderer.close()
+            memory.close()
+            memory.unlink()
+
+    def test_reader_keeps_committed_frames_while_worker_writes_inactive_buffer(self):
+        width = 4
+        height = 2
+        frame_count = 1
+        frame_bytes = width * height * 3
+        frame_set_bytes = frame_count * frame_bytes
+        memory = shared_memory.SharedMemory(
+            create=True,
+            size=(
+                _DISPLAY_SEQUENCE_BYTES
+                + _DISPLAY_BUFFER_COUNT * frame_set_bytes
+            ),
+        )
+        renderer = _SharedDisplayRenderer(frame_count)
+        renderer._memory = memory
+        renderer._memory_name = memory.name
+        renderer._surface = pygame.Surface((width, height))
+        renderer._renderer = mock.Mock()
+        renderer._star_field = object()
+        reader = object.__new__(ProcessTrainingSession)
+        reader._display_memory = memory
+        battle_view = {"frame_id": 7}
+
+        try:
+            with (
+                mock.patch.object(const, "SCREEN_WIDTH", width),
+                mock.patch.object(const, "SCREEN_HEIGHT", height),
+                mock.patch.object(const, "SCREEN_LEFT", 1),
+                mock.patch(
+                    "src.training.process_session.pygame.image.tobytes",
+                    return_value=b"\x11" * frame_bytes,
+                ),
+            ):
+                metadata = renderer.render(battle_view)
+
+                self.assertEqual(metadata["shared_sequence"], 1)
+                self.assertEqual(
+                    struct.unpack_from("<Q", memory.buf, 0)[0],
+                    1,
+                )
+
+                # Simulate the worker beginning its next render in the other
+                # slot without committing it yet. The published slot remains
+                # stable and readable throughout that write.
+                memory.buf[
+                    _DISPLAY_SEQUENCE_BYTES:
+                    _DISPLAY_SEQUENCE_BYTES + frame_set_bytes
+                ] = b"\x22" * frame_set_bytes
+                original_frombuffer = pygame.image.frombuffer
+                with (
+                    mock.patch(
+                        "src.training.process_session.pygame.image.frombuffer",
+                        wraps=original_frombuffer,
+                    ) as frombuffer,
+                    mock.patch(
+                        "src.training.process_session.pygame.image.frombytes",
+                        side_effect=AssertionError("copied frame pixels twice"),
+                    ),
+                ):
+                    frames = reader._read_display_frames(metadata)
+
+            self.assertIsNotNone(frames)
+            frombuffer.assert_called_once()
+            self.assertEqual(frames[0].get_at((0, 0))[:3], (17, 17, 17))
+        finally:
+            renderer.close()
+            memory.unlink()
+
+
 class ProcessOpponentDiscoveryTests(unittest.TestCase):
     def test_cached_saving_opponent_is_retained_then_reloaded_next_batch(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -247,6 +373,58 @@ class ProcessOpponentDiscoveryTests(unittest.TestCase):
 
 
 class ProcessTrainingResourceTests(unittest.TestCase):
+    def test_process_worker_renders_live_view_without_redundant_object_clone(self):
+        engine = object.__new__(_ProcessTrainingEngine)
+        battle_view = {"game_objects": (object(),)}
+
+        self.assertIs(engine._battle_view_for_display(battle_view), battle_view)
+
+    def test_worker_sound_effect_gate_follows_shared_display_event(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Audio gate test",
+                architecture=model_architecture_metadata(8, 1),
+                training={},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            context = multiprocessing.get_context("spawn")
+            display_event = context.Event()
+            audio = RecordingAudioService()
+            engine = _ProcessTrainingEngine(
+                publisher=_PublisherStub(),
+                stop_event=context.Event(),
+                display_event=display_event,
+                save_coordinator=ProcessModelSaveCoordinator(),
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    training_device="cpu",
+                    display_on=False,
+                ),
+                batch_grouping=1,
+                audio_service=audio,
+            )
+            effect = engine.audio_service.load_effect(Path("effect.wav"), 0.25)
+
+            effect.play()
+            display_event.set()
+            effect.play()
+            display_event.clear()
+            effect.play()
+
+        self.assertEqual(
+            audio.operations,
+            [("play_effect", Path("effect.wav"), 0.25)],
+        )
+
     def test_worker_engine_supplies_display_free_assets_to_batch_runner(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -293,6 +471,7 @@ class ProcessTrainingResourceTests(unittest.TestCase):
 
     def test_worker_reports_run_relative_batches_to_pacing_group(self):
         waiting_messages = []
+        waiting_views = []
 
         class PacingStub:
             def __init__(self):
@@ -309,6 +488,7 @@ class ProcessTrainingResourceTests(unittest.TestCase):
                     (participant_index, completed_batches, stop_requested())
                 )
                 waiting_messages.append(engine._status.display_message)
+                waiting_views.append(engine._status.battle_view)
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -344,6 +524,8 @@ class ProcessTrainingResourceTests(unittest.TestCase):
             )
             engine._completed_batches_at_run_start = 40
             engine._batch_accounting_started_at = 10.0
+            last_view = {"game_objects": ("last-frame",)}
+            engine._status.battle_view = last_view
 
             with (
                 mock.patch(
@@ -364,6 +546,8 @@ class ProcessTrainingResourceTests(unittest.TestCase):
         self.assertEqual(batch_number, 43)
         self.assertEqual(pacing.calls, [(1, 3, False)])
         self.assertEqual(waiting_messages, ["Waiting for synchronized CPU runs"])
+        self.assertEqual(waiting_views, [last_view])
+        self.assertIs(engine._status.battle_view, last_view)
         finalize.assert_called_once_with(batch_number=43, batch_seconds=5.0)
 
     def test_grouped_pacing_barrier_runs_after_save(self):
@@ -435,7 +619,12 @@ class ProcessTrainingSessionTests(unittest.TestCase):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")
 
-    def _make_session(self, root: Path) -> ProcessTrainingSession:
+    def _make_session(
+        self,
+        root: Path,
+        *,
+        audio_service=None,
+    ) -> ProcessTrainingSession:
         repository = TrainingModelRepository(root / "bundled", root / "user")
         metadata = metadata_from_state(
             ship="Earthling",
@@ -454,7 +643,32 @@ class ProcessTrainingSessionTests(unittest.TestCase):
                 training_device="cpu",
             ),
             batch_grouping=1,
+            audio_service=audio_service,
             save_coordinator=ProcessModelSaveCoordinator(),
+        )
+
+    def test_hidden_process_session_cannot_stop_watched_session_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            audio = RecordingAudioService()
+            watched = self._make_session(root, audio_service=audio)
+            hidden = self._make_session(root, audio_service=audio)
+
+            with (
+                mock.patch.object(watched, "_ensure_display_memory"),
+                mock.patch.object(hidden, "_ensure_display_memory"),
+            ):
+                watched.set_display_on(True)
+                hidden.set_display_on(False)
+
+                self.assertEqual(audio.operations, [("start_battle_music",)])
+
+                watched.set_display_on(False)
+                hidden.set_display_on(False)
+
+        self.assertEqual(
+            audio.operations,
+            [("start_battle_music",), ("stop_music",)],
         )
 
     def test_cached_running_status_projects_elapsed_time_and_throughput(self):
@@ -481,8 +695,39 @@ class ProcessTrainingSessionTests(unittest.TestCase):
             ):
                 status = session.status
 
-            self.assertEqual(status.elapsed_training_seconds, 30.0)
-            self.assertEqual(status.batches_per_hour, 240.0)
+        self.assertEqual(status.elapsed_training_seconds, 30.0)
+        self.assertEqual(status.batches_per_hour, 240.0)
+
+    def test_phase_only_worker_status_retains_last_transferred_frame(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = self._make_session(Path(directory))
+            last_view = {
+                "frame_id": 7,
+                "rendered_frames": (object(),),
+            }
+            session._status = TrainingSessionStatus(
+                ship="Earthling",
+                running=True,
+                battle_view=last_view,
+            )
+            session._display_event.set()
+
+            session._accept_status(
+                {
+                    "status": TrainingSessionStatus(
+                        ship="Earthling",
+                        running=True,
+                        display_message="Waiting for synchronized CPU runs",
+                    ),
+                    "slot": session.slot,
+                }
+            )
+
+        self.assertIs(session.status.battle_view, last_view)
+        self.assertEqual(
+            session.status.display_message,
+            "Waiting for synchronized CPU runs",
+        )
 
     def test_starting_epsilon_reset_updates_cached_stopped_status(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -767,7 +1012,7 @@ class ProcessTrainingSessionTests(unittest.TestCase):
                     session.request_stop()
                     session.join(5.0)
 
-    def test_display_frames_are_rendered_in_worker_shared_memory(self):
+    def test_display_frames_advance_continuously_in_worker_shared_memory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repository = TrainingModelRepository(root / "bundled", root / "user")
@@ -786,7 +1031,7 @@ class ProcessTrainingSessionTests(unittest.TestCase):
                 config=TrainingOrchestrationConfig(
                     trainee_ship="Earthling",
                     rounds_per_batch=1,
-                    match_time_limit=20,
+                    match_time_limit=120,
                     replay_updates_per_batch=0,
                     hidden_layer_width=8,
                     hidden_layer_count=1,
@@ -795,26 +1040,31 @@ class ProcessTrainingSessionTests(unittest.TestCase):
                 ),
                 batch_grouping=1,
                 save_coordinator=ProcessModelSaveCoordinator(),
-                display_frame_count=1,
             )
             try:
                 session.start()
                 deadline = time.monotonic() + 30.0
                 battle_view = None
+                frame_ids = set()
                 while time.monotonic() < deadline:
                     status = session.status
                     if status.error:
                         self.fail(status.error)
                     battle_view = status.battle_view
                     if battle_view and battle_view.get("rendered_frames"):
+                        frame_ids.add(int(battle_view["frame_id"]))
+                    if len(frame_ids) >= 6:
                         break
                     time.sleep(0.02)
                 else:
-                    self.fail("CPU process did not publish a rendered frame")
+                    self.fail(
+                        "CPU process did not publish six distinct display frames; "
+                        f"received {sorted(frame_ids)}"
+                    )
 
                 self.assertEqual(
                     len(battle_view["rendered_frames"]),
-                    1,
+                    const.VIDEO_FPS_MULTIPLIER,
                 )
             finally:
                 session.request_stop()

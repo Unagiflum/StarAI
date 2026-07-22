@@ -409,6 +409,23 @@ def should_update_live_frame_status(frame: int, *, display_on: bool = False) -> 
     return frame > 0 and frame % LIVE_STATUS_FRAME_INTERVAL == 0
 
 
+_DISPLAY_PACING_MAX_CATCH_UP_FRAMES = 5
+
+
+def advance_display_frame_deadline(
+    next_frame_time: float,
+    *,
+    now: float,
+) -> tuple[float, float]:
+    """Advance a real-time display deadline without accumulating small delays."""
+
+    frame_seconds = 1.0 / const.FPS
+    deadline = float(next_frame_time) + frame_seconds
+    if float(now) - deadline > frame_seconds * _DISPLAY_PACING_MAX_CATCH_UP_FRAMES:
+        deadline = float(now)
+    return deadline, max(0.0, deadline - float(now))
+
+
 @dataclass
 class SimulationSpeedTracker:
     """Measure recent simulation speed at live-status frame intervals."""
@@ -461,6 +478,7 @@ class TrainingSession:
         initial_log_lines: tuple[str, ...] = (),
         opponent_model_cache: Any | None = None,
         save_coordinator: Any | None = None,
+        display_event: Any | None = None,
         stop_at_batch: int | None = None,
         stop_at_epsilon: float | None = None,
     ):
@@ -504,9 +522,11 @@ class TrainingSession:
         self._log_lines: list[str] = list(initial_log_lines)[-MAX_BATCH_LOG_LINES:]
         self._lock = threading.Lock()
         self._stop_requested = threading.Event()
-        self._display_on = threading.Event()
-        if config.display_on:
-            self._display_on.set()
+        if display_event is None:
+            display_event = threading.Event()
+            if config.display_on:
+                display_event.set()
+        self._display_on = display_event
         self.audio_service = DisplayGatedAudioService(
             audio_service or NullAudioService(),
             self._display_on.is_set,
@@ -699,7 +719,6 @@ class TrainingSession:
             discovered_opponents = self._existing_ai_opponents_for_batch()
             with self._lock:
                 self._status.display_message = "Preparing new batch"
-                self._status.battle_view = None
                 self._status.simulation_speed_multiplier = 0.0
                 batch_config = replace(
                     self.config,
@@ -767,7 +786,6 @@ class TrainingSession:
         if self.opponent_model_cache is not None:
             with self._lock:
                 self._status.display_message = "Loading AI opponents"
-                self._status.battle_view = None
                 self._status.simulation_speed_multiplier = 0.0
             self.opponent_model_cache.load_initial(
                 self.repository,
@@ -796,7 +814,6 @@ class TrainingSession:
             if not refresh:
                 return cached
             self._status.display_message = "Loading AI opponents"
-            self._status.battle_view = None
             self._status.simulation_speed_multiplier = 0.0
 
         discovery = discover_existing_ai_opponents(
@@ -1107,7 +1124,6 @@ class TrainingSession:
         with self._lock:
             if event == "round_start":
                 self._status.display_message = ""
-                self._status.battle_view = None
                 self._status.current_round = int(payload.get("round_index", 0))
                 self._status.total_rounds = int(payload.get("total_rounds", 0))
                 self._status.current_opponent = opponent_label
@@ -1116,7 +1132,6 @@ class TrainingSession:
                 self._status.weighted_total_return = 0.0
             if event == "batch_optimization_start":
                 self._status.display_message = "Applying gradient descent"
-                self._status.battle_view = None
                 self._status.simulation_speed_multiplier = 0.0
             if event == "round_end":
                 self._status.simulation_speed_multiplier = 0.0
@@ -1127,7 +1142,7 @@ class TrainingSession:
                 self._status.previous_opponent = opponent_label
             if "battle_view" in payload and display_on:
                 self._status.battle_view = (
-                    freeze_battle_view(payload["battle_view"])
+                    self._battle_view_for_display(payload["battle_view"])
                 )
             if event == "frame" and update_frame_status:
                 self._status.current_frame = frame
@@ -1144,10 +1159,13 @@ class TrainingSession:
         if event == "frame" and display_on:
             self._throttle_display_frame()
 
+    def _battle_view_for_display(self, battle_view: Mapping[str, Any]):
+        return freeze_battle_view(battle_view)
+
     def _throttle_display_frame(self) -> None:
-        self._next_display_frame_time += 1.0 / const.FPS
-        sleep_seconds = self._next_display_frame_time - time.perf_counter()
+        self._next_display_frame_time, sleep_seconds = advance_display_frame_deadline(
+            self._next_display_frame_time,
+            now=time.perf_counter(),
+        )
         if sleep_seconds > 0:
             time.sleep(sleep_seconds)
-        else:
-            self._next_display_frame_time = time.perf_counter()

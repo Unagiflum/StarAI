@@ -11,10 +11,12 @@ from typing import Any
 
 import src.const as const
 from src.Battle.battle import BattleSimulation
+from src.Battle.computer_control import guard_computer_controls
 from src.Objects.Ships.registry import create_ship
 from src.audio import NullAudioService
 from src.toroidal import wrapped_delta
 from src.training import event_ledger, torch_backend
+from src.training.action_safety import guard_training_selection
 from src.training.contracts import (
     ACTION_OUTPUT_SIZE,
     SHIP_TYPE_CATALOG_ORDER,
@@ -459,7 +461,11 @@ def run_training_round(
             frame_id=simulation.frame_id,
             game_objects=simulation.world,
         )
-        selection = _select_policy_action(trainee_policy, observation)
+        selection = guard_training_selection(
+            _select_policy_action(trainee_policy, observation),
+            self_ship,
+            enemy_ship,
+        )
         decision = decision_frame_from_battle_state(
             frame_id=simulation.frame_id + 1,
             observation=observation,
@@ -751,7 +757,11 @@ class SimpleOpponentController:
             | (8 if self.action1_held else 0)
             | (16 if self.action2_held else 0)
         )
-        return TrainingAction.from_mask(mask)
+        return guard_computer_controls(
+            TrainingAction.from_mask(mask),
+            simulation.player2,
+            simulation.player1,
+        )
 
     def _next_key_state(self, held: bool, activity: float) -> bool:
         probability = _activity_probability(activity)
@@ -829,20 +839,26 @@ def _opponent_direct_controls(
     simple_controller: SimpleOpponentController,
 ) -> TrainingAction:
     if opponent.model is None:
-        return simple_controller.direct_controls_for_frame(simulation)
-    observation = encode_observation(
+        controls = simple_controller.direct_controls_for_frame(simulation)
+    else:
+        observation = encode_observation(
+            simulation.player2,
+            simulation.player1,
+            frame_id=simulation.frame_id,
+            game_objects=simulation.world,
+        )
+        selection = select_action_epsilon_greedy(
+            opponent.model,
+            observation,
+            epsilon=0.0,
+            value_predictor=predict_action_values_read_only,
+        )
+        controls = direct_controls_for_action_index(selection.action_index)
+    return guard_computer_controls(
+        controls,
         simulation.player2,
         simulation.player1,
-        frame_id=simulation.frame_id,
-        game_objects=simulation.world,
     )
-    selection = select_action_epsilon_greedy(
-        opponent.model,
-        observation,
-        epsilon=0.0,
-        value_predictor=predict_action_values_read_only,
-    )
-    return direct_controls_for_action_index(selection.action_index)
 
 
 def _turn_toward_target(ship, target) -> tuple[bool, bool]:
