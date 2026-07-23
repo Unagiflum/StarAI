@@ -966,6 +966,36 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(validation.included_instances, (first, second))
         self.assertAlmostEqual(validation.shared_current_epsilon, 0.4)
 
+    def test_cpu_pacing_validation_refreshes_every_retained_session_epsilon(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        second = manager.add_instance()
+        for instance, ship in ((first, "Earthling"), (second, "Androsynth")):
+            instance.state.selected_ship = ship
+            instance.state.selected_slot = 1
+            instance.state.training_device = torch_backend.DEVICE_CPU
+            instance.state.synchronize_cpu_runs = True
+            instance.state.current_epsilon = 0.75
+            instance.session = SimpleNamespace(
+                status=TrainingSessionStatus(
+                    ship=ship,
+                    current_epsilon=0.55,
+                )
+            )
+        slots = tuple(
+            (
+                instance,
+                TrainingModelSlot(instance.state.selected_ship, 1, SLOT_USER),
+            )
+            for instance in (first, second)
+        )
+
+        validation = validate_independent_cpu_pacing_start(slots)
+
+        self.assertAlmostEqual(validation.shared_current_epsilon, 0.55)
+        self.assertAlmostEqual(first.state.current_epsilon, 0.55)
+        self.assertAlmostEqual(second.state.current_epsilon, 0.55)
+
     def test_cpu_pacing_validation_includes_auto_instances(self):
         manager = TrainingInstanceManager()
         first = manager.active_instance

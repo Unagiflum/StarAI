@@ -516,6 +516,20 @@ def instances_have_matching_batch_settings(instances) -> bool:
     )
 
 
+def _sync_instance_current_epsilon(instance, status=None) -> float:
+    """Refresh one UI state's current epsilon from its retained session."""
+
+    if status is None and instance.session is not None:
+        status = instance.session.status
+    current_epsilon = float(instance.state.current_epsilon)
+    if status is not None:
+        current_epsilon = float(
+            getattr(status, "current_epsilon", current_epsilon)
+        )
+        instance.state.current_epsilon = current_epsilon
+    return current_epsilon
+
+
 def coordinated_architecture_signature(architecture) -> tuple[tuple[str, object], ...]:
     normalized = normalize_architecture_metadata(architecture or {})
     return tuple((key, normalized.get(key)) for key in COORDINATED_ARCHITECTURE_KEYS)
@@ -610,7 +624,7 @@ def validate_independent_cpu_pacing_start(
         min(
             1.0,
             sum(
-                float(instance.state.current_epsilon)
+                _sync_instance_current_epsilon(instance)
                 for instance, _slot in resolved
             )
             / len(resolved),
@@ -5882,10 +5896,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 continue
 
             instance.state.running = status.running
+            _sync_instance_current_epsilon(instance, status)
             if instance.instance_id == instance_manager.active_instance_id:
-                state.current_epsilon = float(
-                    getattr(status, "current_epsilon", state.current_epsilon)
-                )
                 console_lines, console_colors = _display_off_console_content(
                     status,
                     session.log_lines,
