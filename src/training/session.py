@@ -171,6 +171,8 @@ class TrainingSessionStatus:
     current_round: int = 0
     total_rounds: int = 0
     current_opponent: str = ""
+    current_opponent_mode: str = ""
+    current_opponent_slot: int | None = None
     previous_opponent: str = ""
     current_frame: int = 0
     current_frame_limit: int = 0
@@ -596,6 +598,8 @@ class TrainingSession:
                 current_round=self._status.current_round,
                 total_rounds=self._status.total_rounds,
                 current_opponent=self._status.current_opponent,
+                current_opponent_mode=self._status.current_opponent_mode,
+                current_opponent_slot=self._status.current_opponent_slot,
                 previous_opponent=self._status.previous_opponent,
                 current_frame=self._status.current_frame,
                 current_frame_limit=self._status.current_frame_limit,
@@ -1125,6 +1129,14 @@ class TrainingSession:
         event = payload.get("event")
         opponent = payload.get("opponent")
         opponent_label = getattr(opponent, "ship", "") if opponent is not None else ""
+        opponent_mode = (
+            getattr(opponent, "mode", "") if opponent is not None else ""
+        )
+        opponent_slot = (
+            getattr(opponent, "slot", None) if opponent is not None else None
+        )
+        if opponent_slot is not None:
+            opponent_slot = int(opponent_slot)
         display_on = self._display_on.is_set()
         frame = int(payload.get("frame", 0))
         update_frame_status = event != "frame" or should_update_live_frame_status(
@@ -1146,6 +1158,8 @@ class TrainingSession:
                 self._status.current_round = int(payload.get("round_index", 0))
                 self._status.total_rounds = int(payload.get("total_rounds", 0))
                 self._status.current_opponent = opponent_label
+                self._status.current_opponent_mode = opponent_mode
+                self._status.current_opponent_slot = opponent_slot
                 self._status.current_frame = 0
                 self._status.simulation_speed_multiplier = 0.0
                 self._status.weighted_total_return = 0.0
@@ -1168,6 +1182,8 @@ class TrainingSession:
                 if speed_multiplier is not None:
                     self._status.simulation_speed_multiplier = speed_multiplier
                 self._status.current_opponent = opponent_label
+                self._status.current_opponent_mode = opponent_mode
+                self._status.current_opponent_slot = opponent_slot
                 self._status.replay_size = int(payload.get("replay_size", 0))
                 self._status.last_action_exploratory = bool(
                     payload.get("exploratory", False)

@@ -36,6 +36,12 @@ class BattleAIModel:
     label: str
 
 
+@dataclass(frozen=True)
+class BattleControllerStatus:
+    kind: str
+    slot: int | None = None
+
+
 class ModelLoadFailure(RuntimeError):
     """Raised when a stored battle AI model cannot be loaded."""
 
@@ -117,11 +123,13 @@ class BattleAIManager:
         self.model_cache = model_cache or InferenceModelCache()
         self._controllers: dict[int, Any] = {}
         self._labels: dict[int, str] = {}
+        self._statuses: dict[int, BattleControllerStatus] = {}
         self.load_failures: dict[int, tuple[str, ...]] = {}
 
     def bind_round(self, simulation) -> None:
         self._controllers.clear()
         self._labels.clear()
+        self._statuses.clear()
         self.load_failures.clear()
         for player in (1, 2):
             if not self.is_ai_player(player):
@@ -133,9 +141,14 @@ class BattleAIManager:
             if loaded is None:
                 self._controllers[player] = FallbackController(player, rng=self.rng)
                 self._labels[player] = "None found"
+                self._statuses[player] = BattleControllerStatus("simple")
             else:
                 self._controllers[player] = TrainedModelController(player, loaded.model)
                 self._labels[player] = loaded.label
+                self._statuses[player] = BattleControllerStatus(
+                    "ai",
+                    int(loaded.slot.slot),
+                )
 
     def actions_for_frame(self, simulation) -> dict[int, dict[str, bool]]:
         actions = {}
@@ -146,6 +159,7 @@ class BattleAIManager:
                 fallback = FallbackController(player, rng=self.rng)
                 self._controllers[player] = fallback
                 self._labels[player] = "None found"
+                self._statuses[player] = BattleControllerStatus("simple")
                 controls = fallback.actions_for_frame(simulation)
             ship, enemy = _ships_for_player(simulation, player)
             actions[player] = guard_computer_controls(controls, ship, enemy)
@@ -156,6 +170,12 @@ class BattleAIManager:
 
     def label_for_player(self, player: int) -> str | None:
         return self._labels.get(int(player)) if self.is_ai_player(int(player)) else None
+
+    def status_for_player(self, player: int) -> BattleControllerStatus:
+        player = int(player)
+        if not self.is_ai_player(player):
+            return BattleControllerStatus("human")
+        return self._statuses.get(player, BattleControllerStatus("simple"))
 
     def _resolve_model(self, ship_name: str) -> tuple[BattleAIModel | None, list[str]]:
         slots = self.repository.slots_for_ship(ship_name)

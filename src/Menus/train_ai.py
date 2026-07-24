@@ -20,8 +20,10 @@ from src.Battle.battle_draw import (
     BattleDrawOptions,
     DisplayStarField,
     HUD_BOTTOM_PADDING,
+    HudBadge,
     MARINE_REGION_HEIGHT,
     VIEWPORT_SIZE,
+    draw_hud_badge,
 )
 from src.Menus.pick_fleet import (
     MODAL_SHADE_ALPHA,
@@ -54,7 +56,10 @@ from src.training.contracts import (
     REFLECTION_AUGMENTATION_METADATA_KEY,
     REFLECTION_AUGMENTATION_MODE,
 )
-from src.training.orchestration import TrainingOrchestrationConfig
+from src.training.orchestration import (
+    OPPONENT_MODE_EXISTING_AI,
+    TrainingOrchestrationConfig,
+)
 from src.training.opponent_cache import OpponentModelCache
 from src.training.rewards import (
     LEGACY_REWARD_ALIASES,
@@ -3635,6 +3640,7 @@ def _draw_training_huds(
                 pygame.transform.smoothscale(panel, pygame.Rect(target).size),
                 target,
             )
+        _draw_training_hud_badges(screen, hud_rects, status)
         return
     controller = battle_draw_controller or BattleDrawController()
     controller.draw(
@@ -3653,6 +3659,49 @@ def _draw_training_huds(
         original_ships=battle_view.get("original_ships"),
         options=BattleDrawOptions(draw_arena=False, interp_t=interp_t),
     )
+    _draw_training_hud_badges(screen, hud_rects, status)
+
+
+def _training_hud_badges(status):
+    if (
+        status is None
+        or not bool(getattr(status, "running", False))
+        or int(getattr(status, "current_round", 0)) <= 0
+    ):
+        return {}
+
+    frame_limit = max(0, int(getattr(status, "current_frame_limit", 0)))
+    current_frame = max(0, int(getattr(status, "current_frame", 0)))
+    remaining_frames = max(0, frame_limit - current_frame)
+    remaining_seconds = int(
+        math.ceil(remaining_frames / max(1.0, float(const.FPS)))
+    )
+
+    opponent_mode = str(getattr(status, "current_opponent_mode", ""))
+    opponent_slot = getattr(status, "current_opponent_slot", None)
+    opponent_badge = (
+        HudBadge("ai", int(opponent_slot))
+        if (
+            opponent_mode == OPPONENT_MODE_EXISTING_AI
+            and opponent_slot is not None
+        )
+        else HudBadge("simple")
+    )
+    return {
+        1: HudBadge("countdown", remaining_seconds),
+        2: opponent_badge,
+    }
+
+
+def _draw_training_hud_badges(screen, hud_rects, status):
+    badges = _training_hud_badges(status)
+    for player_id, hud_rect in zip((1, 2), hud_rects):
+        draw_hud_badge(
+            screen,
+            pygame.Rect(hud_rect),
+            player_id,
+            badges.get(player_id),
+        )
 
 
 def _draw_hud_placeholders(screen, hud_rects, font):

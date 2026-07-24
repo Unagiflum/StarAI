@@ -705,6 +705,11 @@ class TrainingSessionDisplayTests(unittest.TestCase):
                 {
                     "event": "frame",
                     "frame": 1,
+                    "opponent": OpponentSpec(
+                        "Earthling",
+                        mode=OPPONENT_MODE_EXISTING_AI,
+                        slot=2,
+                    ),
                     "battle_view": {"game_objects": ("live",)},
                 }
             )
@@ -712,6 +717,11 @@ class TrainingSessionDisplayTests(unittest.TestCase):
         freeze.assert_called_once()
         self.assertIs(session.status.battle_view, frozen_view)
         self.assertEqual(session.status.current_frame, 1)
+        self.assertEqual(
+            session.status.current_opponent_mode,
+            OPPONENT_MODE_EXISTING_AI,
+        )
+        self.assertEqual(session.status.current_opponent_slot, 2)
 
     def test_batch_optimization_progress_retains_last_display_frame(self):
         session = TrainingSession.__new__(TrainingSession)

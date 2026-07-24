@@ -717,6 +717,8 @@ class ProcessTrainingSessionTests(unittest.TestCase):
                     "status": TrainingSessionStatus(
                         ship="Earthling",
                         running=True,
+                        current_opponent_mode="all",
+                        current_opponent_slot=4,
                         display_message="Waiting for synchronized CPU runs",
                     ),
                     "slot": session.slot,
@@ -728,6 +730,8 @@ class ProcessTrainingSessionTests(unittest.TestCase):
             session.status.display_message,
             "Waiting for synchronized CPU runs",
         )
+        self.assertEqual(session.status.current_opponent_mode, "all")
+        self.assertEqual(session.status.current_opponent_slot, 4)
 
     def test_starting_epsilon_reset_updates_cached_stopped_status(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -10,6 +10,7 @@ from src.Battle.battle import (
 )
 from src.Battle.battle_ai import (
     BattleAIManager,
+    BattleControllerStatus,
     FallbackController,
     controls_for_action_index,
     load_battle_ai_model,
@@ -124,6 +125,10 @@ class BattleAIModelResolutionTests(unittest.TestCase):
             manager.bind_round(simulation)
 
         self.assertEqual(manager.label_for_player(1), "Earthling-02")
+        self.assertEqual(
+            manager.status_for_player(1),
+            BattleControllerStatus("ai", 2),
+        )
 
     def test_default_load_failure_falls_back_to_first_loadable_model(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -172,6 +177,10 @@ class BattleAIModelResolutionTests(unittest.TestCase):
 
         self.assertEqual(manager.label_for_player(1), "None found")
         self.assertEqual(
+            manager.status_for_player(1),
+            BattleControllerStatus("simple"),
+        )
+        self.assertEqual(
             set(manager.actions_for_frame(simulation)[1]),
             {"forward", "left", "right", "action1", "action2"},
         )
@@ -203,6 +212,10 @@ class BattleAIModelResolutionTests(unittest.TestCase):
         manager = BattleAIManager({1: False, 2: True})
 
         self.assertIsNone(manager.label_for_player(1))
+        self.assertEqual(
+            manager.status_for_player(1),
+            BattleControllerStatus("human"),
+        )
 
     def _write_user_slot(self, repository, ship, slot, description):
         metadata = metadata_from_state(

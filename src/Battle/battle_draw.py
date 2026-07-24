@@ -1,4 +1,5 @@
 import pygame
+import pygame.gfxdraw
 import math
 import random
 from collections.abc import Mapping
@@ -39,8 +40,12 @@ HUD_BOTTOM_PADDING = 20
 MARINE_REGION_HEIGHT = HUD_BOTTOM_PADDING
 HUD_INSTRUCTION_FONT_SIZE = 30
 HUD_INSTRUCTION_MARGIN = 20
-HUD_AI_LABEL_FONT_SIZE = 24
-HUD_AI_LABEL_GAP = 6
+HUD_BADGE_SIZE = 35
+HUD_BADGE_GAP = 3
+HUD_BADGE_BORDER_WIDTH = 2
+HUD_BADGE_FONT_SIZE = 18
+HUD_BADGE_MIN_FONT_SIZE = 8
+HUD_BADGE_TEXT_PADDING = 4
 
 # Derived layout — constant once the screen geometry is set.
 _TOTAL_WIDTH = (BAR_WIDTH * 2) + VIEWPORT_COLUMN_WIDTH
@@ -125,6 +130,12 @@ class BattleDrawLayout:
 
 
 @dataclass(frozen=True)
+class HudBadge:
+    kind: str
+    value: int | None = None
+
+
+@dataclass(frozen=True)
 class BattleDrawOptions:
     draw_arena: bool = True
     draw_huds: bool = True
@@ -132,7 +143,7 @@ class BattleDrawOptions:
     is_paused: bool = False
     show_entry_trails: bool = True
     interp_t: float = 0.0
-    ai_labels: Mapping[int, str] | None = None
+    hud_badges: Mapping[int, HudBadge] | None = None
 
 
 def create_play_battle_layout(arena_rect):
@@ -484,7 +495,7 @@ def _draw_play_huds(
     original_ships=None,
     interp_t=0.0,
     midpoint=None,
-    ai_labels=None,
+    hud_badges=None,
 ):
     # Draw status bars and viewports for both players.
     global _viewport_surface
@@ -516,7 +527,7 @@ def _draw_play_huds(
             original_ships=original_ships,
             interp_t=interp_t,
             midpoint=midpoint,
-            ai_label=(ai_labels or {}).get(player_id),
+            hud_badge=(hud_badges or {}).get(player_id),
         )
 
 
@@ -532,7 +543,7 @@ def _draw_player_hud(
     original_ships=None,
     interp_t=0.0,
     midpoint=None,
-    ai_label=None,
+    hud_badge=None,
 ):
     if hud_rect.width <= 0 or hud_rect.height <= 0:
         return
@@ -679,26 +690,105 @@ def _draw_player_hud(
     previous_clip = screen.get_clip()
     screen.set_clip(hud_rect)
     screen.blit(panel_surface, hud_rect.topleft)
-    _draw_ai_status_label(screen, hud_rect, panel_h, ai_label)
+    draw_hud_badge(screen, hud_rect, player_id, hud_badge)
     screen.set_clip(previous_clip)
 
 
-def _format_ai_status_label(label):
-    if label is None:
+def _hud_badge_text(badge):
+    if badge is None:
         return None
-    return f"AI: {label}"
+    if badge.kind == "simple":
+        return "S"
+    if badge.kind == "ai" and badge.value is not None:
+        return f"AI#{int(badge.value)}"
+    if badge.kind == "countdown" and badge.value is not None:
+        return str(max(0, int(badge.value)))
+    return None
 
 
-def _draw_ai_status_label(screen, hud_rect, panel_height, label):
-    text = _format_ai_status_label(label)
+def _render_hud_badge_text(text, color):
+    max_width = HUD_BADGE_SIZE - 2 * HUD_BADGE_TEXT_PADDING
+    max_height = HUD_BADGE_SIZE - 2 * HUD_BADGE_TEXT_PADDING
+    for size in range(HUD_BADGE_FONT_SIZE, HUD_BADGE_MIN_FONT_SIZE - 1, -1):
+        rendered = pygame.font.SysFont(None, size).render(text, True, color)
+        if rendered.get_width() <= max_width and rendered.get_height() <= max_height:
+            return rendered
+    return pygame.font.SysFont(None, HUD_BADGE_MIN_FONT_SIZE).render(
+        text,
+        True,
+        color,
+    )
+
+
+def _draw_human_badge_icon(screen, center):
+    head_radius = 4
+    pygame.gfxdraw.filled_circle(
+        screen,
+        center[0],
+        center[1] - 5,
+        head_radius,
+        ui.WHITE,
+    )
+    pygame.gfxdraw.aacircle(
+        screen,
+        center[0],
+        center[1] - 5,
+        head_radius,
+        ui.WHITE,
+    )
+    shoulders = pygame.Rect(center[0] - 9, center[1] + 2, 18, 10)
+    pygame.draw.ellipse(screen, ui.WHITE, shoulders)
+
+
+def draw_hud_badge(screen, hud_rect, player_id, badge):
+    if badge is None or badge.kind not in {"countdown", "simple", "ai", "human"}:
+        return
+
+    radius = HUD_BADGE_SIZE // 2
+    center = (
+        int(hud_rect.right - HUD_BADGE_GAP - radius),
+        int(hud_rect.top + HUD_BADGE_GAP + radius),
+    )
+    border_color = const.P1_COLOR if int(player_id) == 1 else const.P2_COLOR
+    pygame.gfxdraw.filled_circle(
+        screen,
+        center[0],
+        center[1],
+        radius,
+        border_color,
+    )
+    pygame.gfxdraw.aacircle(
+        screen,
+        center[0],
+        center[1],
+        radius,
+        border_color,
+    )
+    inner_radius = max(1, radius - HUD_BADGE_BORDER_WIDTH)
+    pygame.gfxdraw.filled_circle(
+        screen,
+        center[0],
+        center[1],
+        inner_radius,
+        HUD_FILL,
+    )
+    pygame.gfxdraw.aacircle(
+        screen,
+        center[0],
+        center[1],
+        inner_radius,
+        HUD_FILL,
+    )
+
+    if badge.kind == "human":
+        _draw_human_badge_icon(screen, center)
+        return
+
+    text = _hud_badge_text(badge)
     if not text:
         return
-    font = pygame.font.SysFont(None, HUD_AI_LABEL_FONT_SIZE)
-    rendered = font.render(text, True, ui.WHITE)
-    label_rect = rendered.get_rect(
-        midtop=(hud_rect.centerx, hud_rect.top + panel_height + HUD_AI_LABEL_GAP)
-    )
-    screen.blit(rendered, label_rect)
+    rendered = _render_hud_badge_text(text, ui.WHITE)
+    screen.blit(rendered, rendered.get_rect(center=center))
 
 
 def _draw_battle_instructions(screen):
@@ -864,7 +954,7 @@ class BattleDrawController:
                 original_ships=original_ships,
                 interp_t=options.interp_t,
                 midpoint=midpoint,
-                ai_labels=options.ai_labels,
+                hud_badges=options.hud_badges,
             )
 
         if options.draw_instructions:
@@ -917,7 +1007,7 @@ def draw_battle(
     original_ships=None,
     is_paused=False,
     interp_t=0.0,
-    ai_labels=None,
+    hud_badges=None,
 ):
     screen.fill(ui.BLACK)
     BattleDrawController().draw(
@@ -934,7 +1024,7 @@ def draw_battle(
             draw_instructions=True,
             is_paused=is_paused,
             interp_t=interp_t,
-            ai_labels=ai_labels,
+            hud_badges=hud_badges,
         ),
     )
 

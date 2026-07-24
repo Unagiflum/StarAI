@@ -17,7 +17,7 @@ from src.Battle.battle_init import (
     initialize_battle,
 )
 from src.Battle.collisions import CollisionMetrics, handle_collisions
-from src.Battle.battle_draw import DisplayStarField, draw_battle
+from src.Battle.battle_draw import DisplayStarField, HudBadge, draw_battle
 from src.Battle.battle_entry import (
     EntryState,
     entry_complete,
@@ -60,6 +60,14 @@ SHIP_CONTROL_NAMES = {
     "Action 1": "action1",
     "Action 2": "action2",
 }
+
+
+def _controller_hud_badges(ai_manager):
+    badges = {}
+    for player in (1, 2):
+        status = ai_manager.status_for_player(player)
+        badges[player] = HudBadge(status.kind, status.slot)
+    return badges
 
 
 def _add_battle_timing_seconds(timing_seconds, bucket, started_at):
@@ -1032,11 +1040,7 @@ def run(
                 original_ships=(simulation.player1, simulation.player2),
                 is_paused=is_paused,
                 interp_t=interp_t,
-                ai_labels={
-                    player: label
-                    for player in (1, 2)
-                    if (label := ai_manager.label_for_player(player)) is not None
-                },
+                hud_badges=_controller_hud_badges(ai_manager),
             )
 
         if resume_countdown_pending:

@@ -14,6 +14,7 @@ pygame.font.init()
 
 import src.const as const
 import src.Menus.train_ai as train_ai
+from src.Battle.battle_draw import HudBadge
 from src.UI import ui, ui_slider
 from src.training import torch_backend
 from src.training.contracts import (
@@ -88,6 +89,7 @@ from src.Menus.train_ai import (
     _instance_row_parts,
     _instance_status_text,
     _training_settings_match,
+    _training_hud_badges,
     _wheel_step,
     _progress_for_model_update,
     batch_target_reached,
@@ -3790,6 +3792,70 @@ class TrainingLayoutTests(unittest.TestCase):
             self.assertFalse(layout.arena_rect.colliderect(hud_rect))
 
 
+class TrainingHudBadgeTests(unittest.TestCase):
+    def test_countdown_uses_ceiling_seconds_and_reaches_zero(self):
+        status = TrainingSessionStatus(
+            running=True,
+            current_round=1,
+            current_frame=0,
+            current_frame_limit=3600,
+        )
+
+        self.assertEqual(
+            _training_hud_badges(status),
+            {
+                1: HudBadge("countdown", 150),
+                2: HudBadge("simple"),
+            },
+        )
+
+        status.current_frame = 1
+        self.assertEqual(
+            _training_hud_badges(status)[1],
+            HudBadge("countdown", 150),
+        )
+
+        status.current_frame = const.FPS
+        self.assertEqual(
+            _training_hud_badges(status)[1],
+            HudBadge("countdown", 149),
+        )
+
+        status.current_frame = 3600
+        self.assertEqual(
+            _training_hud_badges(status)[1],
+            HudBadge("countdown", 0),
+        )
+
+    def test_opponent_ai_badge_uses_current_slot(self):
+        status = TrainingSessionStatus(
+            running=True,
+            current_round=1,
+            current_frame_limit=1200,
+            current_opponent_mode="all",
+            current_opponent_slot=2,
+        )
+
+        self.assertEqual(
+            _training_hud_badges(status)[2],
+            HudBadge("ai", 2),
+        )
+
+    def test_badges_are_hidden_without_an_active_training_round(self):
+        self.assertEqual(
+            _training_hud_badges(
+                TrainingSessionStatus(running=True, current_round=0)
+            ),
+            {},
+        )
+        self.assertEqual(
+            _training_hud_badges(
+                TrainingSessionStatus(running=False, current_round=1)
+            ),
+            {},
+        )
+
+
 class RewardSliderTests(unittest.TestCase):
     def test_reward_scale_has_all_27_doubling_values(self):
         self.assertEqual(len(REWARD_VALUES), 27)
@@ -4865,6 +4931,34 @@ class TrainingBattleDisplayTests(unittest.TestCase):
         self.assertLess(left_color[2], 5)
         self.assertGreater(right_color[1], 240)
         self.assertLess(right_color[2], 5)
+
+    def test_worker_rendered_huds_receive_live_training_badge_overlay(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        frame = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        hud_rects = training_layout().hud_rects
+        status = TrainingSessionStatus(
+            running=True,
+            current_round=1,
+            current_frame=24,
+            current_frame_limit=3600,
+            current_opponent_mode="all",
+            current_opponent_slot=2,
+            battle_view={"frame_id": 24, "rendered_frames": (frame,)},
+        )
+
+        with mock.patch("src.Menus.train_ai.draw_hud_badge") as draw_badge:
+            _draw_training_huds(
+                screen,
+                hud_rects,
+                status,
+                object(),
+                mock.Mock(),
+            )
+
+        self.assertEqual(
+            [call.args[3] for call in draw_badge.call_args_list],
+            [HudBadge("countdown", 149), HudBadge("ai", 2)],
+        )
 
     def test_display_on_huds_use_shared_controller_with_training_rects(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))

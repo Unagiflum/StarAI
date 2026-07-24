@@ -19,7 +19,9 @@ from src.Battle.battle_draw import (
     BattleDrawLayout,
     BattleDrawController,
     BattleDrawOptions,
-    HUD_AI_LABEL_FONT_SIZE,
+    HUD_BADGE_GAP,
+    HUD_BADGE_SIZE,
+    HudBadge,
     MARINE_REGION_HEIGHT,
     RenderSnapshot,
     VIEWPORT_COLUMN_WIDTH,
@@ -399,25 +401,21 @@ class BattleHudLayoutTests(unittest.TestCase):
         sys_font.assert_called_once_with(None, 30)
         self.assertEqual(rendered_text, ["Press F1 to Pause", "Press Esc to Exit"])
 
-    def test_ai_label_renders_below_player_hud(self):
+    def test_simple_badge_renders_in_player_hud_top_right(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
-        rendered_text = []
         hud_rect = pygame.Rect(40, 50, 320, 320)
         layout = BattleDrawLayout(
             arena_rect=pygame.Rect(0, 0, 1, 1),
             player1_hud_rect=hud_rect,
             player2_hud_rect=None,
         )
-
-        class RecordingFont:
-            def render(self, text, antialias, color):
-                rendered_text.append(text)
-                return pygame.Surface((180, 24), pygame.SRCALPHA)
+        rendered = pygame.Surface((5, 5), pygame.SRCALPHA)
+        rendered.fill((255, 255, 255, 255))
 
         with mock.patch(
-            "src.Battle.battle_draw.pygame.font.SysFont",
-            return_value=RecordingFont(),
-        ) as sys_font:
+            "src.Battle.battle_draw._render_hud_badge_text",
+            return_value=rendered,
+        ) as render_text:
             BattleDrawController().draw(
                 screen,
                 self._empty_snapshot(),
@@ -426,16 +424,21 @@ class BattleHudLayoutTests(unittest.TestCase):
                 mock.Mock(),
                 options=BattleDrawOptions(
                     draw_arena=False,
-                    ai_labels={1: "None found"},
+                    hud_badges={1: HudBadge("simple")},
                 ),
             )
 
-        sys_font.assert_called_once_with(None, HUD_AI_LABEL_FONT_SIZE)
-        self.assertEqual(rendered_text, ["AI: None found"])
+        render_text.assert_called_once_with("S", (255, 255, 255))
+        radius = HUD_BADGE_SIZE // 2
+        center = (
+            hud_rect.right - HUD_BADGE_GAP - radius,
+            hud_rect.top + HUD_BADGE_GAP + radius,
+        )
+        self.assertEqual(screen.get_at((center[0] + radius - 1, center[1]))[:3], const.P1_COLOR)
 
 
 class BattleResumeFlowTests(unittest.TestCase):
-    def test_ai_labels_are_passed_to_battle_draw(self):
+    def test_controller_badges_are_passed_to_battle_draw(self):
         screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
         simulation = mock.Mock()
         simulation.world = []
@@ -456,9 +459,9 @@ class BattleResumeFlowTests(unittest.TestCase):
         )
         manager = mock.Mock()
         manager.actions_for_frame.return_value = {}
-        manager.label_for_player.side_effect = lambda player: {
-            1: "Earthling-01",
-            2: "None found",
+        manager.status_for_player.side_effect = lambda player: {
+            1: SimpleNamespace(kind="ai", slot=1),
+            2: SimpleNamespace(kind="simple", slot=None),
         }[player]
         repository = mock.Mock()
         model_cache = mock.Mock()
@@ -487,9 +490,9 @@ class BattleResumeFlowTests(unittest.TestCase):
         ):
             battle.run(screen, mock.Mock(), mock.Mock(), player1_ai=True, player2_ai=True)
 
-        self.assertEqual(draw.call_args.kwargs["ai_labels"], {
-            1: "Earthling-01",
-            2: "None found",
+        self.assertEqual(draw.call_args.kwargs["hud_badges"], {
+            1: HudBadge("ai", 1),
+            2: HudBadge("simple"),
         })
         model_cache.load_initial.assert_called_once_with(repository)
         self.assertIs(

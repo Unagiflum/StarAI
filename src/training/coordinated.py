@@ -1187,6 +1187,8 @@ class CoordinatedTrainingSession:
                 current_round=status.current_round,
                 total_rounds=status.total_rounds,
                 current_opponent=status.current_opponent,
+                current_opponent_mode=status.current_opponent_mode,
+                current_opponent_slot=status.current_opponent_slot,
                 previous_opponent=status.previous_opponent,
                 current_frame=status.current_frame,
                 current_frame_limit=status.current_frame_limit,
@@ -1375,6 +1377,8 @@ class CoordinatedTrainingSession:
                         state.status.current_round = round_index
                         state.status.total_rounds = len(schedule)
                         state.status.current_opponent = opponent.ship
+                        state.status.current_opponent_mode = opponent.mode
+                        state.status.current_opponent_slot = opponent.slot
                         state.status.current_frame = 0
                         state.status.simulation_speed_multiplier = 0.0
                         state.simulation_speed_tracker.reset()
@@ -1678,6 +1682,8 @@ class CoordinatedTrainingSession:
                         state.status.current_round = round_index
                         state.status.total_rounds = len(schedule)
                         state.status.current_opponent = opponent.ship
+                        state.status.current_opponent_mode = opponent.mode
+                        state.status.current_opponent_slot = opponent.slot
                         state.status.current_frame = 0
                         state.status.simulation_speed_multiplier = 0.0
                         state.simulation_speed_tracker.reset()
@@ -2558,6 +2564,14 @@ class CoordinatedTrainingSession:
         speed_multiplier = state.simulation_speed_tracker.sample(frame)
         opponent = payload.get("opponent")
         opponent_label = getattr(opponent, "ship", "") if opponent is not None else ""
+        opponent_mode = (
+            getattr(opponent, "mode", "") if opponent is not None else ""
+        )
+        opponent_slot = (
+            getattr(opponent, "slot", None) if opponent is not None else None
+        )
+        if opponent_slot is not None:
+            opponent_slot = int(opponent_slot)
         battle_view = payload.get("battle_view") if display_on else None
         if battle_view is not None and "rendered_frames" not in battle_view:
             battle_view = freeze_battle_view(battle_view)
@@ -2566,6 +2580,8 @@ class CoordinatedTrainingSession:
             if speed_multiplier is not None:
                 state.status.simulation_speed_multiplier = speed_multiplier
             state.status.current_opponent = opponent_label
+            state.status.current_opponent_mode = opponent_mode
+            state.status.current_opponent_slot = opponent_slot
             state.status.replay_size = int(payload.get("replay_size", 0))
             state.status.last_action_exploratory = bool(
                 payload.get("exploratory", False)

@@ -83,6 +83,7 @@ from src.training.model_registry import (
     model_architecture_metadata,
 )
 from src.training.orchestration import (
+    OPPONENT_MODE_EXISTING_AI,
     TrainingOrchestrationConfig,
     build_deterministic_opponent_plan,
 )
@@ -454,7 +455,11 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
                 {
                     "event": "frame",
                     "frame": 100,
-                    "opponent": OpponentSpec("Earthling"),
+                    "opponent": OpponentSpec(
+                        "Earthling",
+                        mode=OPPONENT_MODE_EXISTING_AI,
+                        slot=3,
+                    ),
                     "replay_size": 100,
                     "weighted_total_return": 10.0,
                 },
@@ -464,6 +469,8 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
         self.assertEqual(status.current_frame, 100)
         self.assertEqual(status.replay_size, 100)
         self.assertEqual(status.weighted_total_return, 10.0)
+        self.assertEqual(status.current_opponent_mode, OPPONENT_MODE_EXISTING_AI)
+        self.assertEqual(status.current_opponent_slot, 3)
         self.assertAlmostEqual(
             status.simulation_speed_multiplier,
             100 / 0.25 / 24,
