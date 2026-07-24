@@ -528,6 +528,7 @@ class OrzA3(Ability):
             self.area_damage_capabilities,
             targetable=False,
         )
+        event_ledger.bind_hostile_boarding(self, ship)
         if self not in ship.boarded_marines:
             ship.boarded_marines.append(self)
             event_ledger.record_debuff_applied(

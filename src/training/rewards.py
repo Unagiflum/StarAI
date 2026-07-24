@@ -26,6 +26,7 @@ from src.training.event_ledger import (
     EVENT_OBJECT_HP_CHANGED,
     EVENT_OBJECT_SPAWNED,
     EVENT_SHIP_DIED,
+    LAUNCHED_CREW_LOSS_TIMER_EXPIRATION,
     TrainingBattleEvent,
 )
 
@@ -99,6 +100,7 @@ _CAUSAL_REWARD_COMPONENTS = frozenset(
         REWARD_DEBUFF_ENEMY,
         REWARD_KILL_ENEMY_OBJECT,
         REWARD_LOSE_CREW,
+        REWARD_DIE,
     }
 )
 
@@ -1185,7 +1187,7 @@ def _route_causal_event_components(
             or not _same_entity(source_owner, decision.self_ship)
         ):
             continue
-        contributions = _routeable_positive_event_components(decision, event)
+        contributions = _routeable_causal_event_components(decision, event)
         for component, amount in contributions.items():
             if (
                 component not in pipeline.enabled_reward_components
@@ -1279,18 +1281,24 @@ def _route_own_launched_crew_loss(
         ledger.diagnostics.launched_crew_loss_routes["missing_origin_frame"] += 1
         return
 
+    relocation_fraction = _own_launched_crew_loss_relocation_fraction(event)
+    relocated_amount = amount * relocation_fraction
     _adjust_effect_component(
         pipeline,
         decision.frame_id,
         REWARD_LOSE_CREW,
-        -amount,
+        -relocated_amount,
     )
     for credit, destination_weight in destinations:
         for origin in credit.origins:
             pipeline.add_component_at_frame(
                 origin.frame_index,
                 REWARD_LOSE_CREW,
-                amount * float(destination_weight) * float(origin.weight),
+                (
+                    relocated_amount
+                    * float(destination_weight)
+                    * float(origin.weight)
+                ),
             )
 
 
@@ -1320,6 +1328,12 @@ def _own_launched_crew_loss_destinations(
     )
 
     route_key = "natural" if source is unit else "external"
+    if (
+        unit_ability == "KzerZaA2"
+        and metadata.get("launched_crew_loss_reason")
+        == LAUNCHED_CREW_LOSS_TIMER_EXPIRATION
+    ):
+        route_key = "timer_expiration_split"
     destinations: tuple[tuple[AbilityRewardCredit, float], ...] = (
         (unit_credit, 1.0),
     )
@@ -1374,6 +1388,19 @@ def _spawn_stamp_from_metadata(value) -> tuple[int, int] | None:
     return None
 
 
+def _own_launched_crew_loss_relocation_fraction(
+    event: TrainingBattleEvent,
+) -> float:
+    metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
+    if (
+        metadata.get("launched_unit_ability_name") == "KzerZaA2"
+        and metadata.get("launched_crew_loss_reason")
+        == LAUNCHED_CREW_LOSS_TIMER_EXPIRATION
+    ):
+        return 0.5
+    return 1.0
+
+
 def _adjust_effect_component(
     pipeline: StagedTrajectoryPipeline,
     frame_id: int,
@@ -1385,7 +1412,7 @@ def _adjust_effect_component(
     pipeline._components[offset] += float(amount)
 
 
-def _routeable_positive_event_components(
+def _routeable_causal_event_components(
     decision: RewardDecisionFrame,
     event: TrainingBattleEvent,
 ) -> dict[str, float]:
@@ -1397,6 +1424,12 @@ def _routeable_positive_event_components(
             contributions[REWARD_ENEMY_LOSES_CREW] = (
                 -float(event.magnitude) * _source_reward_credit(event)
             )
+        elif (
+            _same_entity(event.target, self_ship)
+            and event.magnitude < 0
+            and _has_hostile_boarding_origin(event)
+        ):
+            contributions[REWARD_LOSE_CREW] = -float(event.magnitude)
     elif event.event_type == EVENT_DEBUFF_APPLIED:
         if _same_entity(event.target, enemy_ship) and event.magnitude > 0:
             contributions[REWARD_DEBUFF_ENEMY] = float(event.magnitude)
@@ -1422,6 +1455,11 @@ def _routeable_positive_event_components(
     elif event.event_type == EVENT_SHIP_DIED:
         if _same_entity(event.target, enemy_ship):
             contributions[REWARD_KILL_ENEMY] = _enemy_death_reward_credit(event)
+        elif (
+            _same_entity(event.target, self_ship)
+            and _has_hostile_boarding_origin(event)
+        ):
+            contributions[REWARD_DIE] = 1.0
     return contributions
 
 
@@ -1682,6 +1720,11 @@ def _object_removed_by_owner_weapon(
     if not _same_entity(metadata.get("source_owner"), source_owner):
         return False
     return metadata.get("source_type") in {"projectile", "special_object", "laser"}
+
+
+def _has_hostile_boarding_origin(event: TrainingBattleEvent) -> bool:
+    metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
+    return bool(metadata.get("hostile_boarding_origin"))
 
 
 def _is_chmmr_satellite_event(event: TrainingBattleEvent) -> bool:

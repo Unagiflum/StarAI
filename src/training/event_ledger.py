@@ -10,11 +10,14 @@ from src.training.causal_credit import (
     AbilityRewardCredit,
     CausalRewardDiagnostics,
     ORIGIN_KIND_AUTONOMOUS_FIRE,
+    ORIGIN_KIND_BOARDING,
     ORIGIN_KIND_LAUNCH,
     ORIGIN_KIND_PRESS,
     REWARD_MODE_LEGACY,
     REWARD_MODES,
+    bind_boarding_reward_credit,
     bind_reward_credit,
+    boarding_reward_credit_for,
     full_weight_credit,
     inherit_reward_credit,
     new_trajectory_id,
@@ -34,6 +37,8 @@ EVENT_DEBUFF_APPLIED = "debuff_applied"
 EVENT_SHIP_DIED = "ship_died"
 EVENT_REBIRTH_ATTEMPT = "rebirth_attempt"
 EVENT_REBIRTH_COMPLETED = "rebirth_completed"
+
+LAUNCHED_CREW_LOSS_TIMER_EXPIRATION = "timer_expiration"
 
 DEBUFF_LIMPET = "limpet"
 DEBUFF_BOARDING_MARINE = "boarding_marine"
@@ -161,6 +166,32 @@ class BattleEventLedger:
                 self._next_spawn_stamp(self.current_decision_frame),
             )
             obj._training_origin_enemy_death_count = self.enemy_death_count
+        return bound
+
+    def bind_hostile_boarding(
+        self,
+        marine,
+        boarded_ship,
+    ) -> AbilityRewardCredit | None:
+        """Anchor hostile onboard effects when the trainee is boarded."""
+
+        if (
+            boarded_ship is not self.trainee_ship
+            or _root_owner(marine) is self.trainee_ship
+            or self.active_trajectory_id is None
+            or self.current_decision_frame is None
+        ):
+            return None
+        credit = full_weight_credit(
+            self.active_trajectory_id,
+            self.current_decision_frame,
+            kind=ORIGIN_KIND_BOARDING,
+        )
+        bound = bind_boarding_reward_credit(marine, credit)
+        if bound is not None:
+            marine._training_boarding_origin_enemy_death_count = (
+                self.enemy_death_count
+            )
         return bound
 
     def _next_spawn_stamp(self, frame_index: int | None = None) -> tuple[int, int]:
@@ -427,13 +458,24 @@ class BattleEventLedger:
 
     def _source_metadata(self, source, source_owner) -> dict[str, Any]:
         metadata = _removal_source_metadata(source, source_owner)
-        credit = reward_credit_for(source)
+        boarding_credit = boarding_reward_credit_for(source)
+        credit = boarding_credit or reward_credit_for(source)
         if credit is not None:
             metadata["reward_credit"] = credit
             metadata["source_origin_enemy_death_count"] = int(
-                getattr(source, "_training_origin_enemy_death_count", 0)
+                getattr(
+                    source,
+                    (
+                        "_training_boarding_origin_enemy_death_count"
+                        if boarding_credit is not None
+                        else "_training_origin_enemy_death_count"
+                    ),
+                    0,
+                )
             )
             metadata["effect_enemy_death_count"] = self.enemy_death_count
+        if boarding_credit is not None:
+            metadata["hostile_boarding_origin"] = True
         stamp = spawn_stamp_for(source)
         if stamp is not None:
             metadata["source_spawn_stamp"] = stamp
@@ -508,6 +550,13 @@ def bind_autonomous_fire(obj, root_parent) -> AbilityRewardCredit | None:
     return ledger.bind_autonomous_fire(obj, root_parent)
 
 
+def bind_hostile_boarding(marine, boarded_ship) -> AbilityRewardCredit | None:
+    ledger = ledger_for(marine) or ledger_for(boarded_ship)
+    if ledger is None:
+        return None
+    return ledger.bind_hostile_boarding(marine, boarded_ship)
+
+
 def record_spawned(obj) -> None:
     ledger = ledger_for(obj)
     if ledger is not None:
@@ -572,6 +621,7 @@ def record_launched_crew_lost(
     actor=None,
     source=None,
     magnitude: float = 1.0,
+    loss_reason: str | None = None,
 ) -> None:
     parent = getattr(unit, "parent", None)
     if parent is None:
@@ -579,18 +629,25 @@ def record_launched_crew_lost(
     ledger = ledger_for(unit) or ledger_for(parent)
     if ledger is None:
         return
+    metadata = {
+        "launched_crew_loss": True,
+        "launched_unit": unit,
+        "launched_unit_ability_name": _ability_name(unit),
+        "launched_unit_credit": reward_credit_for(unit),
+        "launched_unit_spawn_stamp": spawn_stamp_for(unit),
+    }
+    if loss_reason is not None:
+        metadata["launched_crew_loss_reason"] = str(loss_reason)
+    if boarding_reward_credit_for(unit) is not None:
+        metadata["source_credit"] = (
+            const.HOSTILE_BOARDED_MARINE_CREW_LOSS_REWARD_FACTOR
+        )
     ledger.record_crew_changed(
         parent,
         -abs(float(magnitude)),
         actor=actor,
         source=source if source is not None else unit,
-        metadata={
-            "launched_crew_loss": True,
-            "launched_unit": unit,
-            "launched_unit_ability_name": _ability_name(unit),
-            "launched_unit_credit": reward_credit_for(unit),
-            "launched_unit_spawn_stamp": spawn_stamp_for(unit),
-        },
+        metadata=metadata,
     )
 
 

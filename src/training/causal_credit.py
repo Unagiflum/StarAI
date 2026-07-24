@@ -20,9 +20,11 @@ ORIGIN_KIND_PRESS = "press"
 ORIGIN_KIND_RELEASE = "release"
 ORIGIN_KIND_LAUNCH = "launch"
 ORIGIN_KIND_AUTONOMOUS_FIRE = "autonomous_fire"
+ORIGIN_KIND_BOARDING = "boarding"
 
 _WEIGHT_TOLERANCE = 1e-6
 _CREDIT_ATTRIBUTE = "_training_reward_credit"
+_BOARDING_CREDIT_ATTRIBUTE = "_training_boarding_reward_credit"
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,15 @@ def reward_credit_for(obj: Any | None) -> AbilityRewardCredit | None:
     return credit if isinstance(credit, AbilityRewardCredit) else None
 
 
+def boarding_reward_credit_for(
+    obj: Any | None,
+) -> AbilityRewardCredit | None:
+    if obj is None:
+        return None
+    credit = getattr(obj, _BOARDING_CREDIT_ATTRIBUTE, None)
+    return credit if isinstance(credit, AbilityRewardCredit) else None
+
+
 def bind_reward_credit(
     obj: Any | None,
     credit: AbilityRewardCredit | None,
@@ -127,6 +138,19 @@ def bind_reward_credit(
         return None
     try:
         setattr(obj, _CREDIT_ATTRIBUTE, credit)
+    except Exception:
+        return None
+    return credit
+
+
+def bind_boarding_reward_credit(
+    obj: Any | None,
+    credit: AbilityRewardCredit | None,
+) -> AbilityRewardCredit | None:
+    if obj is None or credit is None:
+        return None
+    try:
+        setattr(obj, _BOARDING_CREDIT_ATTRIBUTE, credit)
     except Exception:
         return None
     return credit

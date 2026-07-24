@@ -89,8 +89,14 @@ class KzerZaA2(Ability):
         if not self.currently_alive:
             return False
 
-        if self.expiration_timer <= 0 or self.current_hp <= 0:
+        if self.current_hp <= 0:
             self._record_crew_loss()
+            self.currently_alive = False
+            return False
+        if self.expiration_timer <= 0:
+            self._record_crew_loss(
+                loss_reason=event_ledger.LAUNCHED_CREW_LOSS_TIMER_EXPIRATION,
+            )
             self.currently_alive = False
             return False
         self.previous_position = self.position.copy()
@@ -319,7 +325,13 @@ class KzerZaA2(Ability):
     def on_destroyed(self):
         self._record_crew_loss()
 
-    def _record_crew_loss(self, *, actor=None, source=None):
+    def _record_crew_loss(
+        self,
+        *,
+        actor=None,
+        source=None,
+        loss_reason=None,
+    ):
         if self._crew_loss_recorded or self._crew_recovered:
             return
         self._crew_loss_recorded = True
@@ -328,6 +340,7 @@ class KzerZaA2(Ability):
             self,
             actor=actor,
             source=destroying_source if destroying_source is not None else self,
+            loss_reason=loss_reason,
         )
 
     def _load_fighter_sounds(self, file_path):

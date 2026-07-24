@@ -10,6 +10,7 @@ import pygame
 pygame.init()
 pygame.display.set_mode((1, 1))
 
+import src.const as const
 from src.Battle import collision_responses
 from src.Objects.Ships.Chenjesu.A1.ChenjesuA1 import ChenjesuA1Shard
 from src.Objects.Ships.Chmmr.A3.ChmmrSatellite import ChmmrSatellite
@@ -23,10 +24,12 @@ from src.training import event_ledger
 from src.training.causal_credit import (
     AbilityRewardCredit,
     ORIGIN_KIND_AUTONOMOUS_FIRE,
+    ORIGIN_KIND_BOARDING,
     ORIGIN_KIND_LAUNCH,
     ORIGIN_KIND_PRESS,
     ORIGIN_KIND_RELEASE,
     RewardOrigin,
+    boarding_reward_credit_for,
     full_weight_credit,
     reward_credit_for,
 )
@@ -34,6 +37,7 @@ from src.training.rewards import (
     REWARD_DIE,
     REWARD_DEBUFF_ENEMY,
     REWARD_ENEMY_LOSES_CREW,
+    REWARD_GET_DEBUFFED,
     REWARD_KILL_ENEMY,
     REWARD_KILL_ENEMY_OBJECT,
     REWARD_LOSE_CREW,
@@ -451,6 +455,117 @@ class LongLivedAbilityRoutingTests(unittest.TestCase):
         self.assertEqual(effect[REWARD_ENEMY_LOSES_CREW], 0.0)
         self.assertEqual(effect[REWARD_KILL_ENEMY], 0.0)
 
+    def test_hostile_marine_effects_and_death_share_boarding_origin(self):
+        marine = SimpleNamespace(
+            name="OrzA3",
+            type="special_object",
+            parent=self.enemy,
+        )
+        event_ledger.bind_ledger(marine, self.ledger)
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
+
+        before = self.decision(1)
+        self.ledger.begin_decision(self.trainee, 1, before.action_index)
+        pipeline.stage_decision(before, trajectory_id="trajectory")
+        pipeline.add_frame(
+            before,
+            RewardFrameOutcome(1),
+            ledger=self.ledger,
+        )
+
+        boarding = self.decision(2)
+        self.ledger.current_frame = 2
+        self.ledger.begin_decision(self.trainee, 2, boarding.action_index)
+        pipeline.stage_decision(boarding, trajectory_id="trajectory")
+        credit = self.ledger.bind_hostile_boarding(marine, self.trainee)
+        self.trainee.current_hp = 2
+        debuff = self.ledger.record_debuff_applied(
+            self.trainee,
+            event_ledger.DEBUFF_BOARDING_MARINE,
+            source=marine,
+        )
+        initial_loss = self.ledger.record_crew_changed(
+            self.trainee,
+            -1,
+            source=marine,
+        )
+        pipeline.add_frame(
+            boarding,
+            RewardFrameOutcome(2, events=(debuff, initial_loss)),
+            ledger=self.ledger,
+        )
+
+        later = self.decision(3)
+        self.ledger.current_frame = 3
+        self.ledger.begin_decision(self.trainee, 3, later.action_index)
+        pipeline.stage_decision(later, trajectory_id="trajectory")
+        self.trainee.current_hp = 0
+        later_loss = self.ledger.record_crew_changed(
+            self.trainee,
+            -1,
+            source=marine,
+        )
+        later_events = tuple(
+            event for event in self.ledger.events if event.frame_id == 3
+        )
+        pipeline.add_frame(
+            later,
+            RewardFrameOutcome(3, events=later_events),
+            ledger=self.ledger,
+        )
+
+        marine_death = self.decision(4)
+        self.ledger.current_frame = 4
+        self.ledger.begin_decision(
+            self.trainee,
+            4,
+            marine_death.action_index,
+        )
+        pipeline.stage_decision(marine_death, trajectory_id="trajectory")
+        event_ledger.record_launched_crew_lost(marine, source=marine)
+        death_events = tuple(
+            event for event in self.ledger.events if event.frame_id == 4
+        )
+        pipeline.add_frame(
+            marine_death,
+            RewardFrameOutcome(4, events=death_events),
+            ledger=self.ledger,
+        )
+
+        self.assertIs(credit, boarding_reward_credit_for(marine))
+        self.assertEqual(
+            [(origin.frame_index, origin.kind) for origin in credit.origins],
+            [(2, ORIGIN_KIND_BOARDING)],
+        )
+        origin = pipeline.immediate_components_for_frame(2)
+        self.assertEqual(origin[REWARD_GET_DEBUFFED], 1.0)
+        self.assertEqual(origin[REWARD_LOSE_CREW], 2.0)
+        self.assertEqual(origin[REWARD_DIE], 1.0)
+        self.assertEqual(origin[REWARD_KILL_ENEMY_OBJECT], 0.0)
+        self.assertEqual(origin[REWARD_ENEMY_LOSES_CREW], 0.5)
+        for frame_id in (3, 4):
+            effect = pipeline.immediate_components_for_frame(frame_id)
+            self.assertEqual(effect[REWARD_LOSE_CREW], 0.0)
+            self.assertEqual(effect[REWARD_DIE], 0.0)
+            self.assertEqual(effect[REWARD_KILL_ENEMY_OBJECT], 0.0)
+            self.assertEqual(effect[REWARD_ENEMY_LOSES_CREW], 0.0)
+
+    def test_trainee_marine_does_not_receive_hostile_boarding_origin(self):
+        marine = SimpleNamespace(
+            name="OrzA3",
+            type="special_object",
+            parent=self.trainee,
+        )
+        launch_credit = full_weight_credit("trajectory", 1)
+        event_ledger.bind_reward_credit(marine, launch_credit)
+        self.ledger.begin_decision(self.trainee, 2, 0)
+
+        self.assertIsNone(
+            self.ledger.bind_hostile_boarding(marine, self.enemy)
+        )
+        self.assertIsNone(boarding_reward_credit_for(marine))
+        self.assertIs(reward_credit_for(marine), launch_credit)
+
     def test_shadow_mode_keeps_legacy_effect_sample_and_computes_origin(self):
         source = SimpleNamespace(name="ChenjesuA2", parent=self.trainee)
         pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="shadow")
@@ -660,7 +775,15 @@ class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
             ledger=self.ledger,
         )
 
-    def add_loss(self, pipeline, unit, frame_id, *, source=None):
+    def add_loss(
+        self,
+        pipeline,
+        unit,
+        frame_id,
+        *,
+        source=None,
+        loss_reason=None,
+    ):
         decision = self.decision(frame_id)
         self.ledger.current_frame = frame_id
         self.ledger.begin_decision(
@@ -672,6 +795,7 @@ class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
         event_ledger.record_launched_crew_lost(
             unit,
             source=unit if source is None else source,
+            loss_reason=loss_reason,
         )
         event = self.ledger.events[-1]
         pipeline.stage_decision(decision, trajectory_id="trajectory")
@@ -702,6 +826,36 @@ class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
         )
         self.assertEqual(
             self.ledger.diagnostics.launched_crew_loss_routes["natural"],
+            1,
+        )
+
+    def test_timer_expiration_splits_fighter_loss_between_launch_and_expiry(self):
+        fighter = SimpleNamespace(
+            name="KzerZaA2",
+            type="special_object",
+            parent=self.trainee,
+        )
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
+        self.launch(pipeline, fighter, 1, 2)
+        self.add_loss(
+            pipeline,
+            fighter,
+            2,
+            loss_reason=event_ledger.LAUNCHED_CREW_LOSS_TIMER_EXPIRATION,
+        )
+
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            0.5,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
+            0.5,
+        )
+        self.assertEqual(
+            self.ledger.diagnostics.launched_crew_loss_routes[
+                "timer_expiration_split"
+            ],
             1,
         )
 
@@ -1285,6 +1439,69 @@ class BuiltInProvenanceTests(unittest.TestCase):
         self.assertTrue(all(isinstance(shard, ChenjesuA1Shard) for shard in shards))
         self.assertTrue(all(reward_credit_for(shard) == reward_credit_for(crystal) for shard in shards))
         self.assertEqual(reward_credit_for(shards[0]).origins[0].kind, ORIGIN_KIND_PRESS)
+
+    def test_real_kzerza_fighter_marks_timer_expiration_loss(self):
+        ship = self.make_ship("KzerZa")
+        fighter = create_ability("KzerZaA2", ship)
+        ledger = event_ledger.BattleEventLedger()
+        for obj in (ship, fighter):
+            event_ledger.bind_ledger(obj, ledger)
+        ledger.current_frame = 6
+        fighter.expiration_timer = 0
+
+        self.assertFalse(fighter.update())
+
+        crew_loss = next(
+            event
+            for event in ledger.events
+            if event.event_type == event_ledger.EVENT_CREW_CHANGED
+        )
+        self.assertEqual(
+            crew_loss.metadata["launched_crew_loss_reason"],
+            event_ledger.LAUNCHED_CREW_LOSS_TIMER_EXPIRATION,
+        )
+
+    def test_real_hostile_marine_death_records_half_crew_credit(self):
+        trainee = self.make_ship("Earthling", player=1)
+        enemy = self.make_ship("Orz", player=2)
+        trainee.opponent = enemy
+        enemy.opponent = trainee
+        marine = create_ability("OrzA3", enemy)
+        marine.mode = marine.OUTBOUND
+        ledger = event_ledger.BattleEventLedger()
+        for obj in (trainee, enemy, marine):
+            event_ledger.bind_ledger(obj, ledger)
+        ledger.start_reward_trajectory(trainee, trajectory_id="trajectory")
+        ledger.current_frame = 7
+        ledger.begin_decision(trainee, 7, 0, reward_mode="causal")
+
+        marine.handle_ship_contact(trainee)
+
+        credit = boarding_reward_credit_for(marine)
+        self.assertIsNotNone(credit)
+        self.assertEqual(
+            [(origin.frame_index, origin.kind) for origin in credit.origins],
+            [(7, ORIGIN_KIND_BOARDING)],
+        )
+
+        ledger.current_frame = 8
+        ledger.begin_decision(trainee, 8, 0, reward_mode="causal")
+        marine.rng = SimpleNamespace(randrange=lambda _limit: 0)
+        marine.boarding_timer = 1
+        self.assertFalse(marine.update())
+
+        crew_losses = [
+            event
+            for event in ledger.events
+            if event.event_type == event_ledger.EVENT_CREW_CHANGED
+            and event.target is enemy
+        ]
+        self.assertEqual(len(crew_losses), 1)
+        self.assertEqual(
+            crew_losses[0].metadata["source_credit"],
+            const.HOSTILE_BOARDED_MARINE_CREW_LOSS_REWARD_FACTOR,
+        )
+        self.assertIs(crew_losses[0].metadata["reward_credit"], credit)
 
     def test_chenjesu_and_melnorme_release_hooks_report_only_live_abilities(self):
         for ship_name in ("Chenjesu", "Melnorme"):
