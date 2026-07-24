@@ -428,7 +428,11 @@ class BattleHudLayoutTests(unittest.TestCase):
                 ),
             )
 
-        render_text.assert_called_once_with("S", (255, 255, 255))
+        render_text.assert_called_once_with(
+            "S",
+            (255, 255, 255),
+            max_font_size=30,
+        )
         radius = HUD_BADGE_SIZE // 2
         center = (
             hud_rect.right - HUD_BADGE_GAP - radius,
@@ -437,9 +441,30 @@ class BattleHudLayoutTests(unittest.TestCase):
         self.assertEqual(screen.get_at((center[0] + radius - 1, center[1]))[:3], const.P1_COLOR)
 
     def test_ai_badge_uses_only_the_slot_number(self):
-        from src.Battle.battle_draw import _hud_badge_text
+        from src.Battle.battle_draw import (
+            HUD_BADGE_CONTROLLER_FONT_SIZE,
+            _hud_badge_text,
+            draw_hud_badge,
+        )
 
         self.assertEqual(_hud_badge_text(HudBadge("ai", 1)), "1")
+        screen = pygame.Surface((100, 100))
+        with mock.patch(
+            "src.Battle.battle_draw._render_hud_badge_text",
+            return_value=pygame.Surface((1, 1), pygame.SRCALPHA),
+        ) as render_text:
+            draw_hud_badge(
+                screen,
+                pygame.Rect(0, 0, 100, 100),
+                1,
+                HudBadge("ai", 1),
+            )
+
+        render_text.assert_called_once_with(
+            "1",
+            (255, 255, 255),
+            max_font_size=HUD_BADGE_CONTROLLER_FONT_SIZE,
+        )
 
 
 class BattleResumeFlowTests(unittest.TestCase):

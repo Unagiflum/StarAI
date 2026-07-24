@@ -44,6 +44,7 @@ HUD_BADGE_SIZE = 35
 HUD_BADGE_GAP = 3
 HUD_BADGE_BORDER_WIDTH = 2
 HUD_BADGE_FONT_SIZE = 18
+HUD_BADGE_CONTROLLER_FONT_SIZE = 30
 HUD_BADGE_MIN_FONT_SIZE = 8
 HUD_BADGE_TEXT_PADDING = 4
 
@@ -706,10 +707,10 @@ def _hud_badge_text(badge):
     return None
 
 
-def _render_hud_badge_text(text, color):
+def _render_hud_badge_text(text, color, max_font_size=HUD_BADGE_FONT_SIZE):
     max_width = HUD_BADGE_SIZE - 2 * HUD_BADGE_TEXT_PADDING
     max_height = HUD_BADGE_SIZE - 2 * HUD_BADGE_TEXT_PADDING
-    for size in range(HUD_BADGE_FONT_SIZE, HUD_BADGE_MIN_FONT_SIZE - 1, -1):
+    for size in range(int(max_font_size), HUD_BADGE_MIN_FONT_SIZE - 1, -1):
         rendered = pygame.font.SysFont(None, size).render(text, True, color)
         if rendered.get_width() <= max_width and rendered.get_height() <= max_height:
             return rendered
@@ -787,7 +788,16 @@ def draw_hud_badge(screen, hud_rect, player_id, badge):
     text = _hud_badge_text(badge)
     if not text:
         return
-    rendered = _render_hud_badge_text(text, ui.WHITE)
+    max_font_size = (
+        HUD_BADGE_CONTROLLER_FONT_SIZE
+        if badge.kind in {"ai", "simple"}
+        else HUD_BADGE_FONT_SIZE
+    )
+    rendered = _render_hud_badge_text(
+        text,
+        ui.WHITE,
+        max_font_size=max_font_size,
+    )
     screen.blit(rendered, rendered.get_rect(center=center))
 
 
