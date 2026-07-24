@@ -644,6 +644,82 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertIn("Earthling-01", prefix)
         self.assertEqual(_instance_status_text(manager.active_instance), "Running")
 
+    def test_instance_status_uses_the_same_training_phases_as_the_log(self):
+        manager = TrainingInstanceManager()
+        instance = manager.active_instance
+        cases = (
+            ({"running": True, "display_message": "Starting training"}, "Starting"),
+            ({"running": True, "display_message": ""}, "Running"),
+            (
+                {"running": True, "display_message": "Loading AI opponents"},
+                "Waiting",
+            ),
+            (
+                {"running": True, "display_message": "Applying gradient descent"},
+                "Optimizing",
+            ),
+            ({"running": True, "stopping": True}, "Stopping"),
+            ({"running": False}, "Stopped"),
+        )
+
+        for overrides, expected in cases:
+            with self.subTest(expected=expected):
+                status = TrainingSessionStatus(ship="Earthling", **overrides)
+                instance.session = SimpleNamespace(status=status)
+                self.assertEqual(_instance_status_text(instance), expected)
+
+        instance.starting = True
+        self.assertEqual(_instance_status_text(instance), "Starting")
+        instance.starting = False
+        instance.session.status.error = "failed"
+        self.assertEqual(_instance_status_text(instance), "Error")
+
+    def test_instance_status_colors_keep_waiting_yellow_and_errors_red(self):
+        self.assertEqual(train_ai._instance_status_color("Waiting"), (255, 255, 0))
+        self.assertEqual(
+            train_ai._instance_status_color("Stopped"),
+            (255, 80, 80),
+        )
+        self.assertEqual(
+            train_ai._instance_status_color("Error"),
+            (255, 80, 80),
+        )
+        for status in ("Starting", "Running", "Optimizing", "Stopping"):
+            with self.subTest(status=status):
+                self.assertEqual(
+                    train_ai._instance_status_color(status),
+                    ui.BRIGHT_GREEN,
+                )
+
+    def test_run_indicator_reports_count_mode_and_mixed_runs(self):
+        manager = TrainingInstanceManager()
+        first = manager.active_instance
+        first.starting = True
+        first.run_mode = "CPU Sync"
+
+        self.assertEqual(manager.run_indicator_text(), "01 CPU Sync")
+        self.assertEqual(manager.back_action(), "blocked")
+
+        second = manager.add_instance()
+        second.starting = True
+        second.run_mode = "CPU Sync"
+        self.assertEqual(manager.run_indicator_text(), "02 CPU Sync")
+
+        second.run_mode = "GPU Async"
+        self.assertEqual(manager.run_indicator_text(), "02 Mixed")
+
+        first.starting = False
+        second.starting = False
+        self.assertEqual(manager.run_indicator_text(), "")
+        self.assertEqual(manager.back_action(), "exit")
+
+    def test_unmarked_independent_run_defaults_to_resolved_device_and_async(self):
+        manager = TrainingInstanceManager()
+        manager.active_state.training_device = torch_backend.DEVICE_GPU
+        manager.active_instance.session = self.FakeSession(running=True)
+
+        self.assertEqual(manager.run_indicator_text(), "01 GPU Async")
+
     def test_writer_reservation_blocks_same_running_slot(self):
         manager = TrainingInstanceManager()
         first = manager.active_instance
@@ -2549,16 +2625,16 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             [("Display", True), ("Starting", False), ("Back", True)],
         )
         self.assertEqual(
-            footer_states[3:9],
-            2 * [("Display", False), ("Starting", False), ("Back", False)],
+            footer_states[3:7],
+            2 * [("Display", False), ("Starting", False)],
         )
         self.assertEqual(
-            footer_states[9:15],
-            2 * [("Display", True), ("Stop synced", True), ("Back", False)],
+            footer_states[7:11],
+            2 * [("Display", True), ("Stop synced", True)],
         )
         self.assertEqual(
-            footer_states[-3:],
-            [("Display", True), ("Stopping synced", False), ("Back", False)],
+            footer_states[-2:],
+            [("Display", True), ("Stopping synced", False)],
         )
 
     def test_background_individual_run_keeps_selected_instance_start_available(self):
@@ -2627,7 +2703,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Stop all", True), ("Back", False)],
+            [("Display", True), ("Stop all", True)],
         )
         self.assertEqual(trainee_action_states, [("Start", True)])
         self.assertEqual(close_states, [("Close", True)])
@@ -2697,7 +2773,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertEqual(manager.active_tab, "opponent")
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Stop all", True), ("Back", False)],
+            [("Display", True), ("Stop all", True)],
         )
         self.assertTrue(manager.active_session.status.stopping)
 
@@ -2769,7 +2845,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertEqual(trainee_action_states, [("Stop all", True)])
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Stop all", False), ("Back", False)],
+            [("Display", True), ("Stop all", False)],
         )
         self.assertEqual(
             scope_states,
@@ -3138,7 +3214,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Stopping all", False), ("Back", False)],
+            [("Display", True), ("Stopping all", False)],
         )
         self.assertEqual(trainee_action_states, [("Stopping", False)])
 
@@ -3251,6 +3327,83 @@ class TrainingStartAllStyleTests(unittest.TestCase):
 
 
 class TrainingLayoutTests(unittest.TestCase):
+    def test_footer_widths_fit_middle_actions_and_run_indicator_labels(self):
+        total_width = (
+            train_ai.FOOTER_DISPLAY_WIDTH
+            + train_ai.FOOTER_SYNCED_ACTION_WIDTH
+            + train_ai.FOOTER_RUN_INDICATOR_WIDTH
+            + 2 * train_ai.FOOTER_ACTION_GAP
+            + 2 * train_ai.TAB_MARGIN
+        )
+        self.assertEqual(total_width, train_ai.CONTROL_WIDTH)
+
+        action_font = train_ai.largest_fitting_font(
+            (
+                "Start synced",
+                "Stop synced",
+                "Stopping synced",
+                "Stop all",
+                "Stopping all",
+                "Starting",
+            ),
+            train_ai.FOOTER_SYNCED_ACTION_WIDTH - 12,
+            max_height=FOOTER_CONTROL_HEIGHT - 4,
+            maximum=32,
+        )
+        indicator_font = train_ai.largest_fitting_font(
+            (
+                "25 CPU Sync",
+                "25 GPU Sync",
+                "25 CPU Async",
+                "25 GPU Async",
+                "25 Mixed",
+            ),
+            train_ai.FOOTER_RUN_INDICATOR_WIDTH - 43,
+            max_height=FOOTER_CONTROL_HEIGHT - 4,
+            maximum=32,
+        )
+
+        self.assertLessEqual(
+            max(action_font.size(label)[0] for label in ("Stopping synced", "Stopping all")),
+            train_ai.FOOTER_SYNCED_ACTION_WIDTH - 12,
+        )
+        self.assertLessEqual(
+            max(
+                indicator_font.size(label)[0]
+                for label in ("25 CPU Async", "25 GPU Async", "25 Mixed")
+            ),
+            train_ai.FOOTER_RUN_INDICATOR_WIDTH - 43,
+        )
+
+    def test_run_indicator_is_noninteractive_and_blinks_only_play_icon(self):
+        manager = TrainingInstanceManager()
+        manager.active_instance.starting = True
+        manager.active_instance.run_mode = "CPU Async"
+        indicator = train_ai.RunIndicator(
+            pygame.Rect(0, 0, train_ai.FOOTER_RUN_INDICATOR_WIDTH, 30),
+            manager,
+        )
+        font = pygame.font.SysFont(None, 28)
+        bright = pygame.Surface(indicator.rect.size, pygame.SRCALPHA)
+        dim = pygame.Surface(indicator.rect.size, pygame.SRCALPHA)
+
+        with mock.patch("pygame.time.get_ticks", return_value=0):
+            indicator.draw(bright, font)
+        with mock.patch(
+            "pygame.time.get_ticks",
+            return_value=indicator.BLINK_HALF_PERIOD_MS,
+        ):
+            indicator.draw(dim, font)
+
+        self.assertFalse(hasattr(indicator, "handle_event"))
+        border_point = (indicator.rect.centerx, 1)
+        self.assertEqual(bright.get_at(border_point)[:3], ui.BRIGHT_GREEN)
+        self.assertEqual(dim.get_at(border_point)[:3], ui.BRIGHT_GREEN)
+        self.assertNotEqual(
+            bright.get_at((14, indicator.rect.centery))[:3],
+            dim.get_at((14, indicator.rect.centery))[:3],
+        )
+
     def test_typed_delete_prompt_has_three_character_field_and_cursor(self):
         confirmed = []
         prompt = train_ai.TypedDeleteConfirmationPrompt(

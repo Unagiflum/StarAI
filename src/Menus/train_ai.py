@@ -232,6 +232,16 @@ TAB_COLOR_HI = (155, 0, 105, 255)
 TAB_HEADER_COLOR = (100, 100, 100)
 CONTENT_TOP = UI_TOP_MARGIN + TAB_HEIGHT + TAB_GAP
 FOOTER_CONTROL_HEIGHT = 30
+FOOTER_ACTION_GAP = 10
+FOOTER_DISPLAY_WIDTH = 140
+FOOTER_SYNCED_ACTION_WIDTH = 195
+FOOTER_RUN_INDICATOR_WIDTH = (
+    CONTROL_WIDTH
+    - 2 * TAB_MARGIN
+    - 2 * FOOTER_ACTION_GAP
+    - FOOTER_DISPLAY_WIDTH
+    - FOOTER_SYNCED_ACTION_WIDTH
+)
 ACTION_TOP = 684
 DISPLAY_TOP = ACTION_TOP
 TRAINING_HUD_HEIGHT = MARINE_REGION_HEIGHT + VIEWPORT_SIZE + HUD_BOTTOM_PADDING
@@ -323,6 +333,8 @@ class TrainingInstance:
     pending_removal: bool = False
     last_running: bool = False
     writer_key: tuple[str, int] | None = None
+    starting: bool = False
+    run_mode: str = ""
 
 
 @dataclass
@@ -832,6 +844,7 @@ class TrainingInstanceManager:
             self.release_writer(instance)
         instance.session = None
         instance.last_running = False
+        instance.starting = False
 
     def add_instance(self):
         if not self.can_add_instance():
@@ -954,6 +967,25 @@ class TrainingInstanceManager:
             if self.is_running_or_stopping(instance)
         ]
 
+    def active_run_instances(self):
+        return [
+            instance
+            for instance in self.instances
+            if instance.starting or self.is_running_or_stopping(instance)
+        ]
+
+    def run_indicator_text(self):
+        active_instances = self.active_run_instances()
+        if not active_instances:
+            return ""
+        run_modes = {
+            instance.run_mode or _default_independent_run_mode(instance)
+            for instance in active_instances
+        }
+        run_mode = next(iter(run_modes)) if len(run_modes) == 1 else "Mixed"
+        width = max(2, len(str(len(self.instances))))
+        return f"{len(active_instances):0{width}d} {run_mode}"
+
     def non_active_running_instances(self):
         return [
             instance
@@ -962,7 +994,7 @@ class TrainingInstanceManager:
         ]
 
     def back_action(self):
-        if self.any_instance_running():
+        if self.active_run_instances():
             return "blocked"
         return "exit"
 
@@ -1192,6 +1224,8 @@ class TrainingInstanceManager:
                 instance.last_running = False
                 instance.state.running = True
                 instance.state.display_on = False
+                instance.starting = False
+                instance.run_mode = "GPU Sync"
         scheduler.start()
         self._set_instance_display(self.active_instance, self.display_on)
 
@@ -1403,17 +1437,20 @@ def load_training_ui_session(path=TRAIN_AI_SESSION_PATH):
     return training_instance_manager_from_json(payload)
 
 
+def _default_independent_run_mode(instance):
+    device = independent_training_device(instance.state.training_device).upper()
+    return f"{device} Async"
+
+
 def _instance_status_text(instance):
+    if instance.starting:
+        return "Starting"
     status = instance.session.status if instance.session is not None else None
     if status is None:
         return "Stopped"
     if getattr(status, "error", None):
         return "Error"
-    if getattr(status, "stopping", False):
-        return "Stopping"
-    if getattr(status, "running", False):
-        return "Running"
-    return "Stopped"
+    return _current_batch_status_label(status)
 
 
 def _instance_model_text(instance):
@@ -1556,11 +1593,11 @@ def _instance_row_parts(position, instance):
 
 
 def _instance_status_color(status):
-    if status == "Running":
-        return ui.BRIGHT_GREEN
     if status in {"Stopped", "Error"}:
         return (255, 80, 80)
-    return (255, 255, 0)
+    if status == "Waiting":
+        return (255, 255, 0)
+    return ui.BRIGHT_GREEN
 
 
 def _wheel_step(value):
@@ -1731,6 +1768,61 @@ class TabScopeCheckbox(ui_button.Checkbox):
                 ],
                 3,
             )
+
+
+class RunIndicator:
+    """Noninteractive footer status shown while training is active."""
+
+    BLINK_HALF_PERIOD_MS = 400
+
+    def __init__(self, rect, manager):
+        self.rect = pygame.Rect(rect)
+        self.manager = manager
+
+    @property
+    def text(self):
+        return self.manager.run_indicator_text()
+
+    @property
+    def visible(self):
+        return bool(self.text)
+
+    def draw(self, surface, font):
+        if not self.visible:
+            return
+        indicator_surface = pygame.Surface(self.rect.size, pygame.SRCALPHA)
+        indicator_surface.fill((*ui.BLACK, 255))
+        pygame.draw.rect(
+            indicator_surface,
+            ui.BRIGHT_GREEN,
+            indicator_surface.get_rect(),
+            INSTANCE_BORDER_WIDTH,
+            border_radius=5,
+        )
+
+        triangle_left = 12
+        triangle_half_height = 7
+        triangle_width = 11
+        triangle_color = (
+            ui.BRIGHT_GREEN
+            if (pygame.time.get_ticks() // self.BLINK_HALF_PERIOD_MS) % 2 == 0
+            else ui.BLACK
+        )
+        pygame.draw.polygon(
+            indicator_surface,
+            triangle_color,
+            (
+                (triangle_left, self.rect.height // 2 - triangle_half_height),
+                (triangle_left, self.rect.height // 2 + triangle_half_height),
+                (triangle_left + triangle_width, self.rect.height // 2),
+            ),
+        )
+        rendered = font.render(self.text, True, ui.BRIGHT_GREEN)
+        text_rect = rendered.get_rect(
+            midleft=(triangle_left + triangle_width + 9, self.rect.height // 2)
+        )
+        indicator_surface.blit(rendered, text_rect)
+        surface.blit(indicator_surface, self.rect)
 
 
 class InstanceDropdown:
@@ -3681,6 +3773,34 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         max_height=APPLY_ALL_STRIP_HEIGHT - 6,
         maximum=22,
     )
+    footer_action_font = largest_fitting_font(
+        (
+            "Display",
+            "Start synced",
+            "Stop synced",
+            "Stopping synced",
+            "Stop all",
+            "Stopping all",
+            "Starting",
+            "Closing",
+            "Back",
+        ),
+        FOOTER_SYNCED_ACTION_WIDTH - 12,
+        max_height=FOOTER_CONTROL_HEIGHT - 4,
+        maximum=32,
+    )
+    run_indicator_font = largest_fitting_font(
+        (
+            "25 CPU Sync",
+            "25 GPU Sync",
+            "25 CPU Async",
+            "25 GPU Async",
+            "25 Mixed",
+        ),
+        FOOTER_RUN_INDICATOR_WIDTH - 43,
+        max_height=FOOTER_CONTROL_HEIGHT - 4,
+        maximum=32,
+    )
     small_font = pygame.font.SysFont(None, 24)
     instance_font = pygame.font.SysFont("Consolas", 19)
     arena_font = pygame.font.SysFont(None, 32)
@@ -4898,6 +5018,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
             return
 
+        active_instance.starting = True
+        active_instance.run_mode = _default_independent_run_mode(active_instance)
         try:
             initial_history, initial_log_lines = session_continuity_for(model_slot)
             session_class = independent_session_class(state.training_device)
@@ -4937,8 +5059,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
             show_notice(f"Training {describe_model(model_slot)}")
         except (TrainingSessionError, RuntimeError, ValueError) as exc:
+            state.running = False
             instance_manager.release_writer(active_instance)
             show_notice(str(exc))
+        finally:
+            active_instance.starting = False
 
     def eligible_independent_start_specs():
         specs = []
@@ -5061,6 +5186,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             for instance in pacing_validation.included_instances:
                 instance.state.current_epsilon = shared_current_epsilon
 
+        for instance, _model_slot, _reset_checkpoint, _changed in specs:
+            instance.starting = True
+            instance.run_mode = (
+                "CPU Sync"
+                if instance.instance_id in pacing_indexes
+                else _default_independent_run_mode(instance)
+            )
+
         started_count = [0]
         failures = []
 
@@ -5163,6 +5296,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 instance_state.running = False
                 instance_manager.release_writer(instance)
                 failures.append(str(exc))
+            finally:
+                instance.starting = False
 
         def deactivate_inactive_pacing_members():
             if pacing_group is None:
@@ -5175,6 +5310,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     pacing_group.deactivate(pacing_index)
 
         def finish_start():
+            for instance, _slot, _reset, _changed in specs:
+                instance.starting = False
             refresh_slot_controls()
             go_to_batch_field.set_value(state.go_to_batch_number)
             go_to_epsilon_field.set_value(state.go_to_epsilon_value)
@@ -5189,6 +5326,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             show_notice(message)
 
         def abort_start(exc=None):
+            for instance, _slot, _reset, _changed in specs:
+                instance.starting = False
             deactivate_inactive_pacing_members()
             instance_manager.release_stopped_writers()
             if exc is not None:
@@ -5403,6 +5542,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if not instance_manager.reserve_writers_for_slots(instance_slots):
             show_notice("One or more selected models are already training")
             return
+        for instance, _slot in instance_slots:
+            instance.starting = True
+            instance.run_mode = "GPU Sync"
         records = []
 
         def prepare_record(index):
@@ -5478,6 +5620,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         def abort_start(exc=None):
             for instance, _slot in instance_slots:
+                instance.starting = False
                 instance_manager.release_writer(instance)
             if exc is not None:
                 show_notice(str(exc))
@@ -5555,23 +5698,19 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             start_selected_model()
 
-    action_gap = 10
-    action_available_width = CONTROL_WIDTH - 2 * TAB_MARGIN - 2 * action_gap
-    synced_action_width = min(240, action_available_width)
-    side_action_width = (action_available_width - synced_action_width) // 2
     display_checkbox = ui_button.Checkbox(
         TAB_MARGIN,
         ACTION_TOP,
-        side_action_width,
+        FOOTER_DISPLAY_WIDTH,
         FOOTER_CONTROL_HEIGHT,
         "Display",
         text_offset=(10, 0),
         box_offset=(0, -2),
     )
     batch_start_all_button = ui_button.Button(
-        display_checkbox.rect.right + action_gap,
+        display_checkbox.rect.right + FOOTER_ACTION_GAP,
         ACTION_TOP,
-        synced_action_width,
+        FOOTER_SYNCED_ACTION_WIDTH,
         FOOTER_CONTROL_HEIGHT,
         "Start synced",
         request_synced_start_stop,
@@ -5579,15 +5718,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         START_ALL_GREEN_HI,
     )
     back_button = ui_button.Button(
-        batch_start_all_button.rect.right + action_gap,
+        batch_start_all_button.rect.right + FOOTER_ACTION_GAP,
         ACTION_TOP,
-        side_action_width,
+        FOOTER_RUN_INDICATOR_WIDTH,
         FOOTER_CONTROL_HEIGHT,
         "Back",
         request_back,
         ui.CAN_RED,
         ui.CAN_RED_HI,
     )
+    run_indicator = RunIndicator(back_button.rect, instance_manager)
     instance_summary_rect = pygame.Rect(
         TAB_MARGIN,
         INSTANCE_TOP,
@@ -5772,7 +5912,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_tab.handle_event(event, menu_sound_manager)
             display_checkbox.handle_event(event, menu_sound_manager)
             batch_start_all_button.handle_event(event, menu_sound_manager)
-            back_button.handle_event(event, menu_sound_manager)
+            if not instance_manager.active_run_instances():
+                back_button.handle_event(event, menu_sound_manager)
             if not display_checkbox.value:
                 batch_log_box.handle_event(event, layout.arena_rect, log_font)
 
@@ -6060,7 +6201,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             else:
                 delete_button.enabled = model_slot.is_user
         back_button.text = "Back"
-        back_button.enabled = not any_running
+        back_button.enabled = not instance_manager.active_run_instances()
         back_button.bg_color = ui.CAN_RED
         back_button.hover_color = ui.CAN_RED_HI
         close_instance_button.enabled = (
@@ -6501,9 +6642,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             INSTANCE_SEPARATOR_HEIGHT,
         )
 
-        display_checkbox.draw(screen, body_font)
-        batch_start_all_button.draw(screen, body_font)
-        back_button.draw(screen, body_font)
+        display_checkbox.draw(screen, footer_action_font)
+        batch_start_all_button.draw(screen, footer_action_font)
+        if application_close_requested[0] or not run_indicator.visible:
+            back_button.draw(screen, footer_action_font)
+        else:
+            run_indicator.draw(screen, run_indicator_font)
         if state.display_on and session_status is not None:
             _draw_training_huds(
                 screen,
