@@ -674,7 +674,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         instance.session.status.error = "failed"
         self.assertEqual(_instance_status_text(instance), "Error")
 
-    def test_instance_status_colors_keep_waiting_yellow_and_errors_red(self):
+    def test_instance_status_colors_pulse_transitions_and_keep_errors_red(self):
         self.assertEqual(train_ai._instance_status_color("Waiting"), (255, 255, 0))
         self.assertEqual(
             train_ai._instance_status_color("Stopped"),
@@ -684,12 +684,26 @@ class TrainingInstanceManagerTests(unittest.TestCase):
             train_ai._instance_status_color("Error"),
             (255, 80, 80),
         )
-        for status in ("Starting", "Running", "Optimizing", "Stopping"):
+        for status in ("Starting", "Stopping"):
             with self.subTest(status=status):
-                self.assertEqual(
-                    train_ai._instance_status_color(status),
-                    ui.BRIGHT_GREEN,
-                )
+                with mock.patch("pygame.time.get_ticks", return_value=0):
+                    self.assertEqual(
+                        train_ai._instance_status_color(status),
+                        train_ai.RunIndicator.TRANSITION_COLOR,
+                    )
+                with mock.patch(
+                    "pygame.time.get_ticks",
+                    return_value=train_ai.RunIndicator.BLINK_HALF_PERIOD_MS,
+                ):
+                    self.assertEqual(
+                        train_ai._instance_status_color(status),
+                        train_ai.RunIndicator.TRANSITION_DIM_COLOR,
+                    )
+        for status in ("Running", "Optimizing"):
+            self.assertEqual(
+                train_ai._instance_status_color(status),
+                ui.BRIGHT_GREEN,
+            )
 
     def test_run_indicator_reports_count_mode_and_mixed_runs(self):
         manager = TrainingInstanceManager()
@@ -2000,7 +2014,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertIs(cache._save_coordinator, coordinator)
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Starting", False), ("Back", True)],
+            [("Display", False), ("Starting", False)],
         )
         self.assertEqual(trainee_action_states, [("Starting", False)])
         self.assertEqual(close_states, [("Close", False)])
@@ -2358,6 +2372,52 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 {"button": 1, "pos": start_all_pos},
             ),
         ]
+        tab_width = (
+            train_ai.CONTROL_WIDTH
+            - 2 * train_ai.TAB_MARGIN
+            - 3 * train_ai.TAB_GAP
+        ) // 4
+        opponent_tab_pos = (
+            train_ai.TAB_MARGIN
+            + tab_width
+            + train_ai.TAB_GAP
+            + tab_width // 2,
+            train_ai.UI_TOP_MARGIN + (train_ai.TAB_HEIGHT + train_ai.TAB_GAP) // 2,
+        )
+        dropdown_rect = pygame.Rect(
+            train_ai.TAB_MARGIN
+            + train_ai.INSTANCE_SUMMARY_WIDTH
+            + train_ai.INSTANCE_GAP,
+            train_ai.INSTANCE_TOP,
+            train_ai.CONTROL_WIDTH
+            - 2 * train_ai.TAB_MARGIN
+            - train_ai.INSTANCE_SUMMARY_WIDTH
+            - train_ai.INSTANCE_CLOSE_WIDTH
+            - train_ai.INSTANCE_ADD_WIDTH
+            - 3 * train_ai.INSTANCE_GAP,
+            train_ai.INSTANCE_CONTROL_HEIGHT,
+        )
+        open_dropdown = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": dropdown_rect.center},
+        )
+        choose_second_instance = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {
+                "button": 1,
+                "pos": (
+                    dropdown_rect.centerx,
+                    dropdown_rect.bottom
+                    + 4
+                    + train_ai.INSTANCE_CONTROL_HEIGHT
+                    + train_ai.INSTANCE_CONTROL_HEIGHT // 2,
+                ),
+            },
+        )
+        choose_opponent_tab = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": opponent_tab_pos},
+        )
         sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
 
         with (
@@ -2397,7 +2457,12 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
             mock.patch(
                 "pygame.event.get",
-                side_effect=[events, [], [], []],
+                side_effect=[
+                    events,
+                    [choose_opponent_tab, open_dropdown],
+                    [choose_second_instance],
+                    [],
+                ],
             ),
             mock.patch(
                 "pygame.display.flip",
@@ -2413,6 +2478,8 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertTrue(
             created.kwargs["coordinated_cpu_workers_enabled"]
         )
+        self.assertEqual(manager.active_tab, "opponent")
+        self.assertIs(manager.active_instance, second)
         self.assertTrue(
             any(
                 any(
@@ -2621,20 +2688,16 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 train_ai.run(screen)
 
         self.assertEqual(
-            footer_states[:3],
-            [("Display", True), ("Starting", False), ("Back", True)],
+            footer_states[:6],
+            3 * [("Display", False), ("Starting", False)],
         )
         self.assertEqual(
-            footer_states[3:7],
-            2 * [("Display", False), ("Starting", False)],
-        )
-        self.assertEqual(
-            footer_states[7:11],
+            footer_states[6:10],
             2 * [("Display", True), ("Stop synced", True)],
         )
         self.assertEqual(
             footer_states[-2:],
-            [("Display", True), ("Stopping synced", False)],
+            [("Display", False), ("Stopping synced", False)],
         )
 
     def test_background_individual_run_keeps_selected_instance_start_available(self):
@@ -3214,7 +3277,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
 
         self.assertEqual(
             footer_states,
-            [("Display", True), ("Stopping all", False)],
+            [("Display", False), ("Stopping all", False)],
         )
         self.assertEqual(trainee_action_states, [("Stopping", False)])
 
@@ -3352,6 +3415,8 @@ class TrainingLayoutTests(unittest.TestCase):
         )
         indicator_font = train_ai.largest_fitting_font(
             (
+                "25 Starting",
+                "25 Stopping",
                 "25 CPU Sync",
                 "25 GPU Sync",
                 "25 CPU Async",
@@ -3370,12 +3435,18 @@ class TrainingLayoutTests(unittest.TestCase):
         self.assertLessEqual(
             max(
                 indicator_font.size(label)[0]
-                for label in ("25 CPU Async", "25 GPU Async", "25 Mixed")
+                for label in (
+                    "25 Starting",
+                    "25 Stopping",
+                    "25 CPU Async",
+                    "25 GPU Async",
+                    "25 Mixed",
+                )
             ),
             train_ai.FOOTER_RUN_INDICATOR_WIDTH - 43,
         )
 
-    def test_run_indicator_is_noninteractive_and_blinks_only_play_icon(self):
+    def test_transition_indicator_pulses_text_with_fixed_border_and_no_play_icon(self):
         manager = TrainingInstanceManager()
         manager.active_instance.starting = True
         manager.active_instance.run_mode = "CPU Async"
@@ -3396,6 +3467,51 @@ class TrainingLayoutTests(unittest.TestCase):
             indicator.draw(dim, font)
 
         self.assertFalse(hasattr(indicator, "handle_event"))
+        self.assertEqual(indicator.text, "01 Starting")
+        border_point = (indicator.rect.centerx, 1)
+        self.assertEqual(
+            bright.get_at(border_point)[:3],
+            train_ai.RunIndicator.TRANSITION_COLOR,
+        )
+        self.assertEqual(
+            dim.get_at(border_point)[:3],
+            train_ai.RunIndicator.TRANSITION_COLOR,
+        )
+        self.assertEqual(bright.get_at((14, indicator.rect.centery))[:3], ui.BLACK)
+        self.assertEqual(dim.get_at((14, indicator.rect.centery))[:3], ui.BLACK)
+        self.assertNotEqual(
+            pygame.image.tobytes(bright, "RGBA"),
+            pygame.image.tobytes(dim, "RGBA"),
+        )
+        stopping_indicator = train_ai.RunIndicator(
+            indicator.rect,
+            manager,
+            lambda: ("Stopping", 25),
+        )
+        self.assertEqual(stopping_indicator.text, "25 Stopping")
+
+    def test_running_indicator_keeps_green_blinking_play_icon(self):
+        manager = TrainingInstanceManager()
+        manager.active_instance.session = SimpleNamespace(
+            status=SimpleNamespace(running=True, stopping=False)
+        )
+        manager.active_instance.run_mode = "CPU Async"
+        indicator = train_ai.RunIndicator(
+            pygame.Rect(0, 0, train_ai.FOOTER_RUN_INDICATOR_WIDTH, 30),
+            manager,
+        )
+        font = pygame.font.SysFont(None, 28)
+        bright = pygame.Surface(indicator.rect.size, pygame.SRCALPHA)
+        dim = pygame.Surface(indicator.rect.size, pygame.SRCALPHA)
+
+        with mock.patch("pygame.time.get_ticks", return_value=0):
+            indicator.draw(bright, font)
+        with mock.patch(
+            "pygame.time.get_ticks",
+            return_value=indicator.BLINK_HALF_PERIOD_MS,
+        ):
+            indicator.draw(dim, font)
+
         border_point = (indicator.rect.centerx, 1)
         self.assertEqual(bright.get_at(border_point)[:3], ui.BRIGHT_GREEN)
         self.assertEqual(dim.get_at(border_point)[:3], ui.BRIGHT_GREEN)

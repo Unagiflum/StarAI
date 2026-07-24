@@ -1595,6 +1595,12 @@ def _instance_row_parts(position, instance):
 def _instance_status_color(status):
     if status in {"Stopped", "Error"}:
         return (255, 80, 80)
+    if status in {"Starting", "Stopping"}:
+        return (
+            (255, 255, 0)
+            if (pygame.time.get_ticks() // RunIndicator.BLINK_HALF_PERIOD_MS) % 2 == 0
+            else (135, 135, 0)
+        )
     if status == "Waiting":
         return (255, 255, 0)
     return ui.BRIGHT_GREEN
@@ -1774,13 +1780,36 @@ class RunIndicator:
     """Noninteractive footer status shown while training is active."""
 
     BLINK_HALF_PERIOD_MS = 400
+    TRANSITION_COLOR = (255, 255, 0)
+    TRANSITION_DIM_COLOR = (135, 135, 0)
 
-    def __init__(self, rect, manager):
+    def __init__(self, rect, manager, transition_provider=None):
         self.rect = pygame.Rect(rect)
         self.manager = manager
+        self.transition_provider = transition_provider
+
+    @property
+    def transition(self):
+        if self.transition_provider is not None:
+            transition = self.transition_provider()
+            if transition is not None:
+                return transition
+        starting = tuple(
+            instance
+            for instance in self.manager.active_run_instances()
+            if instance.starting
+        )
+        if not starting:
+            return None
+        return "Starting", len(starting)
 
     @property
     def text(self):
+        transition = self.transition
+        if transition is not None:
+            phase, count = transition
+            width = max(2, len(str(len(self.manager.instances))))
+            return f"{int(count):0{width}d} {phase}"
         return self.manager.run_indicator_text()
 
     @property
@@ -1790,37 +1819,51 @@ class RunIndicator:
     def draw(self, surface, font):
         if not self.visible:
             return
+        transition = self.transition
+        transition_active = transition is not None
+        border_color = (
+            self.TRANSITION_COLOR if transition_active else ui.BRIGHT_GREEN
+        )
         indicator_surface = pygame.Surface(self.rect.size, pygame.SRCALPHA)
         indicator_surface.fill((*ui.BLACK, 255))
         pygame.draw.rect(
             indicator_surface,
-            ui.BRIGHT_GREEN,
+            border_color,
             indicator_surface.get_rect(),
             INSTANCE_BORDER_WIDTH,
             border_radius=5,
         )
 
-        triangle_left = 12
-        triangle_half_height = 7
-        triangle_width = 11
-        triangle_color = (
-            ui.BRIGHT_GREEN
-            if (pygame.time.get_ticks() // self.BLINK_HALF_PERIOD_MS) % 2 == 0
-            else ui.BLACK
-        )
-        pygame.draw.polygon(
-            indicator_surface,
-            triangle_color,
-            (
-                (triangle_left, self.rect.height // 2 - triangle_half_height),
-                (triangle_left, self.rect.height // 2 + triangle_half_height),
-                (triangle_left + triangle_width, self.rect.height // 2),
-            ),
-        )
-        rendered = font.render(self.text, True, ui.BRIGHT_GREEN)
-        text_rect = rendered.get_rect(
-            midleft=(triangle_left + triangle_width + 9, self.rect.height // 2)
-        )
+        if transition_active:
+            text_color = (
+                self.TRANSITION_COLOR
+                if (pygame.time.get_ticks() // self.BLINK_HALF_PERIOD_MS) % 2 == 0
+                else self.TRANSITION_DIM_COLOR
+            )
+            rendered = font.render(self.text, True, text_color)
+            text_rect = rendered.get_rect(center=indicator_surface.get_rect().center)
+        else:
+            triangle_left = 12
+            triangle_half_height = 7
+            triangle_width = 11
+            triangle_color = (
+                ui.BRIGHT_GREEN
+                if (pygame.time.get_ticks() // self.BLINK_HALF_PERIOD_MS) % 2 == 0
+                else ui.BLACK
+            )
+            pygame.draw.polygon(
+                indicator_surface,
+                triangle_color,
+                (
+                    (triangle_left, self.rect.height // 2 - triangle_half_height),
+                    (triangle_left, self.rect.height // 2 + triangle_half_height),
+                    (triangle_left + triangle_width, self.rect.height // 2),
+                ),
+            )
+            rendered = font.render(self.text, True, ui.BRIGHT_GREEN)
+            text_rect = rendered.get_rect(
+                midleft=(triangle_left + triangle_width + 9, self.rect.height // 2)
+            )
         indicator_surface.blit(rendered, text_rect)
         surface.blit(indicator_surface, self.rect)
 
@@ -1830,6 +1873,7 @@ class InstanceDropdown:
         self.rect = pygame.Rect(rect)
         self.manager = manager
         self.callback = callback
+        self.enabled = True
         self.expanded = False
         self.scroll_index = 0
         self.row_height = INSTANCE_CONTROL_HEIGHT
@@ -1876,6 +1920,9 @@ class InstanceDropdown:
         return False
 
     def handle_event(self, event, sound_manager=None):
+        if not self.enabled:
+            self.expanded = False
+            return False
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.rect.collidepoint(event.pos):
                 self.expanded = not self.expanded
@@ -1917,20 +1964,35 @@ class InstanceDropdown:
     def draw(self, surface, font, mouse_pos=None, *, draw_list=True):
         if mouse_pos is None:
             mouse_pos = pygame.mouse.get_pos()
-        bg_color = (
-            INSTANCE_DROPDOWN_HOVER_COLOR
-            if self.rect.collidepoint(mouse_pos)
-            else INSTANCE_DROPDOWN_COLOR
-        )
+        if self.enabled:
+            bg_color = (
+                INSTANCE_DROPDOWN_HOVER_COLOR
+                if self.rect.collidepoint(mouse_pos)
+                else INSTANCE_DROPDOWN_COLOR
+            )
+        else:
+            bg_color = ui.DARK_GREY
         pygame.draw.rect(surface, bg_color, self.rect, border_radius=5)
-        pygame.draw.rect(surface, INSTANCE_BORDER_COLOR, self.rect, INSTANCE_BORDER_WIDTH, border_radius=5)
+        border_color = INSTANCE_BORDER_COLOR if self.enabled else ui.GREY
+        pygame.draw.rect(surface, border_color, self.rect, INSTANCE_BORDER_WIDTH, border_radius=5)
         active_position = self.manager.active_index + 1
         prefix, status = _instance_row_parts(
             active_position,
             self.manager.active_instance,
         )
-        self._draw_row_text(surface, font, self.rect.inflate(-6, -4), prefix, status)
-        arrow = font.render("^" if self.expanded else "v", True, ui.WHITE)
+        self._draw_row_text(
+            surface,
+            font,
+            self.rect.inflate(-6, -4),
+            prefix,
+            status,
+            enabled=self.enabled,
+        )
+        arrow = font.render(
+            "^" if self.expanded else "v",
+            True,
+            ui.WHITE if self.enabled else ui.GREY,
+        )
         surface.blit(arrow, arrow.get_rect(midright=(self.rect.right - 8, self.rect.centery)))
 
         if not self.expanded or not draw_list:
@@ -1976,8 +2038,9 @@ class InstanceDropdown:
                 thumb_y += int((track.height - thumb_h) * (self.scroll_index / max_scroll))
             pygame.draw.rect(surface, ui.LIGHT_GREY, pygame.Rect(track.x, thumb_y, track.width, thumb_h))
 
-    def _draw_row_text(self, surface, font, rect, prefix, status):
-        status_surf = font.render(status, True, _instance_status_color(status))
+    def _draw_row_text(self, surface, font, rect, prefix, status, *, enabled=True):
+        status_color = _instance_status_color(status) if enabled else ui.GREY
+        status_surf = font.render(status, True, status_color)
         status_right = rect.right - 28
         status_rect = status_surf.get_rect(midright=(status_right, rect.centery))
         text_clip = pygame.Rect(
@@ -1988,7 +2051,7 @@ class InstanceDropdown:
         )
         old_clip = surface.get_clip()
         surface.set_clip(text_clip.clip(old_clip))
-        prefix_surf = font.render(prefix, True, ui.WHITE)
+        prefix_surf = font.render(prefix, True, ui.WHITE if enabled else ui.GREY)
         x = rect.x + 8
         surface.blit(prefix_surf, prefix_surf.get_rect(midleft=(x, rect.centery)))
         surface.set_clip(old_clip)
@@ -3707,7 +3770,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     ]
     confirmation_prompt = [None]
     pending_start_action = [None]
+    pending_start_count = [0]
     startup_job = [None]
+    stopping_instance_ids = [()]
     frame_in_progress = [False]
     notice = [None]
     background = ui.load_background(
@@ -3791,6 +3856,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     run_indicator_font = largest_fitting_font(
         (
+            "25 Starting",
+            "25 Stopping",
             "25 CPU Sync",
             "25 GPU Sync",
             "25 CPU Async",
@@ -3873,7 +3940,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else {torch_backend.DEVICE_GPU}
     )
 
-    def defer_start_action(callback):
+    def defer_start_action(callback, *, count=1):
         """Run startup after one disabled-button frame has been presented."""
 
         if not frame_in_progress[0]:
@@ -3882,6 +3949,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if pending_start_action[0] is not None:
             return False
         pending_start_action[0] = callback
+        pending_start_count[0] = max(1, int(count))
         return True
 
     def begin_incremental_start(job):
@@ -3895,6 +3963,42 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 if job.advance():
                     startup_job[0] = None
         return True
+
+    def begin_stopping_transition(instances):
+        stopping_instance_ids[0] = tuple(
+            instance.instance_id for instance in instances
+        )
+
+    def refresh_stopping_transition():
+        target_ids = stopping_instance_ids[0]
+        if target_ids:
+            active_target_ids = {
+                instance.instance_id
+                for instance in instance_manager.instances
+                if (
+                    instance.instance_id in target_ids
+                    and instance_manager.is_running_or_stopping(instance)
+                )
+            }
+            if not active_target_ids:
+                stopping_instance_ids[0] = ()
+            return
+        stopping_instance_ids[0] = tuple(
+            instance.instance_id
+            for instance in instance_manager.instances
+            if bool(
+                getattr(instance_manager.status_for(instance), "stopping", False)
+            )
+        )
+
+    def footer_transition():
+        if startup_job[0] is not None:
+            return "Starting", startup_job[0].total
+        if pending_start_action[0] is not None:
+            return "Starting", pending_start_count[0]
+        if stopping_instance_ids[0]:
+            return "Stopping", len(stopping_instance_ids[0])
+        return None
     device_selector.visible = torch_backend.training_device_selector_visible()
     cpu_sync_checkbox = ui_button.Checkbox(
         device_selector_rect.x,
@@ -4443,6 +4547,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         close_instance()
 
     def stop_active_training_instance():
+        begin_stopping_transition((instance_manager.active_instance,))
         instance_manager.request_stop_active()
         display_checkbox.is_checked = False
         show_notice("Training pausing; current batch will be abandoned")
@@ -5365,7 +5470,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     f"{'s' if reset_count != 1 else ''}, including checkpoint, replay "
                     "data, and progress."
                 ),
-                lambda: defer_start_action(launch),
+                lambda: defer_start_action(launch, count=len(specs)),
             )
         elif changed_count:
             confirmation_prompt[0] = ConfirmationPrompt(
@@ -5374,13 +5479,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     f"settings for {changed_count} model"
                     f"{'s' if changed_count != 1 else ''}?"
                 ),
-                lambda: defer_start_action(launch),
+                lambda: defer_start_action(launch, count=len(specs)),
             )
         else:
             launch()
 
     def confirm_stop_all_independent_training():
         def stop_all_training():
+            begin_stopping_transition(tuple(instance_manager.running_instances()))
             instance_manager.request_stop_all_running()
             display_checkbox.is_checked = False
             show_notice("Stopping all running training instances")
@@ -5638,6 +5744,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     def start_synced_models():
         if instance_manager.coordinated_run_active():
             def stop_synced_training():
+                begin_stopping_transition(
+                    tuple(instance_manager.running_instances())
+                )
                 instance_manager.batch_scheduling.coordinated_session.request_stop()
                 display_checkbox.is_checked = False
                 show_notice("Stopping synced training")
@@ -5662,7 +5771,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     validation.reset_required_instances,
                 ),
                 lambda: defer_start_action(
-                    lambda: start_coordinated_run(validation)
+                    lambda: start_coordinated_run(validation),
+                    count=len(validation.included_instances),
                 ),
             )
             return
@@ -5673,7 +5783,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             not instance_manager.coordinated_run_active()
             and not instance_manager.any_instance_running()
         ):
-            defer_start_action(start_synced_models)
+            defer_start_action(
+                start_synced_models,
+                count=len(instance_manager.instances),
+            )
         else:
             start_synced_models()
 
@@ -5694,7 +5807,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
         )
         if starting:
-            defer_start_action(start_selected_model)
+            defer_start_action(
+                start_selected_model,
+                count=len(instance_manager.instances) if apply_to_all else 1,
+            )
         else:
             start_selected_model()
 
@@ -5727,7 +5843,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ui.CAN_RED,
         ui.CAN_RED_HI,
     )
-    run_indicator = RunIndicator(back_button.rect, instance_manager)
+    run_indicator = RunIndicator(
+        back_button.rect,
+        instance_manager,
+        footer_transition,
+    )
     instance_summary_rect = pygame.Rect(
         TAB_MARGIN,
         INSTANCE_TOP,
@@ -5803,6 +5923,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             clock,
             display_on=display_checkbox.value,
         )
+        refresh_stopping_transition()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 if not application_close_requested[0]:
@@ -5823,11 +5944,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 confirmation_prompt[0].handle_event(event, menu_sound_manager)
                 if confirmation_prompt[0].done:
                     confirmation_prompt[0] = None
-                continue
-
-            if startup_job[0] is not None:
-                if not display_checkbox.value:
-                    batch_log_box.handle_event(event, layout.arena_rect, log_font)
                 continue
 
             if ship_picker is not None:
@@ -5887,6 +6003,60 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 delta = -1 if event.button == 4 else 1
                 if select_relative_training_instance(delta):
                     continue
+
+            trainee_tab.handle_event(event, menu_sound_manager)
+            opponent_tab.handle_event(event, menu_sound_manager)
+            rewards_tab.handle_event(event, menu_sound_manager)
+            regimen_tab.handle_event(event, menu_sound_manager)
+
+            transition_input_locked = bool(
+                pending_start_action[0] is not None
+                or startup_job[0] is not None
+                or stopping_instance_ids[0]
+            )
+            if transition_input_locked:
+                if (
+                    startup_job[0] is not None
+                    or not display_checkbox.value
+                ):
+                    batch_log_box.handle_event(
+                        event,
+                        layout.arena_rect,
+                        log_font,
+                    )
+                if (
+                    event.type == pygame.MOUSEBUTTONDOWN
+                    and event.button in (4, 5)
+                    and layout.content_rect.collidepoint(event.pos)
+                    and instance_manager.active_tab in {"rewards", "regimen"}
+                ):
+                    direction = -1 if event.button == 4 else 1
+                    if instance_manager.active_tab == "rewards":
+                        max_scroll = max(
+                            0,
+                            rewards_content_height - layout.content_rect.height,
+                        )
+                        rewards_scroll_y = max(
+                            0,
+                            min(
+                                max_scroll,
+                                rewards_scroll_y + direction * 54,
+                            ),
+                        )
+                    else:
+                        max_scroll = max(
+                            0,
+                            regimen_content_height - layout.content_rect.height,
+                        )
+                        regimen_scroll_y = max(
+                            0,
+                            min(
+                                max_scroll,
+                                regimen_scroll_y + direction * 54,
+                            ),
+                        )
+                continue
+
             close_instance_button.handle_event(event, menu_sound_manager)
             add_instance_button.handle_event(event, menu_sound_manager)
 
@@ -5906,10 +6076,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 )
                 continue
 
-            trainee_tab.handle_event(event, menu_sound_manager)
-            opponent_tab.handle_event(event, menu_sound_manager)
-            rewards_tab.handle_event(event, menu_sound_manager)
-            regimen_tab.handle_event(event, menu_sound_manager)
             display_checkbox.handle_event(event, menu_sound_manager)
             batch_start_all_button.handle_event(event, menu_sound_manager)
             if not instance_manager.active_run_instances():
@@ -6097,6 +6263,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         instance_manager.cleanup_coordinated_session()
         instance_manager.cleanup_stopped_pending_removals()
+        refresh_stopping_transition()
         if instance_manager.active_instance_id != previous_active_id:
             state = instance_manager.active_state
             apply_state_to_ui()
@@ -6126,12 +6293,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         starting_in_progress = (
             pending_start_action[0] is not None or startup_job[0] is not None
         )
+        stopping_in_progress = bool(stopping_instance_ids[0])
+        transition_in_progress = starting_in_progress or stopping_in_progress
         batch_validation = validate_start_all()
         apply_to_all = (
             instance_manager.batch_scheduling.apply_to_all_open_instances
         )
         apply_all_checkbox.is_checked = apply_to_all
-        apply_all_checkbox.enabled = not coordinated_active
+        apply_all_checkbox.enabled = (
+            not coordinated_active and not transition_in_progress
+        )
         if coordinated_stopping:
             batch_start_all_button.text = "Stopping synced"
             batch_start_all_button.enabled = False
@@ -6157,7 +6328,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             batch_start_all_button.bg_color = START_ALL_GREEN
             batch_start_all_button.hover_color = START_ALL_GREEN_HI
         for slider in regimen_sliders:
-            slider.enabled = not active_running and not coordinated_active
+            slider.enabled = (
+                not active_running
+                and not coordinated_active
+                and not transition_in_progress
+            )
         device_selector.visible = torch_backend.training_device_selector_visible()
         device_selector.disabled_values = (
             set()
@@ -6165,25 +6340,44 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             else {torch_backend.DEVICE_GPU}
         )
         device_selector.selected = state.training_device
-        device_selector.enabled = not active_running and not coordinated_active
+        device_selector.enabled = (
+            not active_running
+            and not coordinated_active
+            and not transition_in_progress
+        )
         cpu_sync_checkbox.enabled = bool(
             not active_running
             and not coordinated_active
+            and not transition_in_progress
             and independent_training_device(state.training_device)
             == torch_backend.DEVICE_CPU
         )
         cpu_sync_checkbox.is_checked = state.synchronize_cpu_runs
-        go_to_batch_checkbox.enabled = not active_running and not coordinated_active
+        go_to_batch_checkbox.enabled = (
+            not active_running
+            and not coordinated_active
+            and not transition_in_progress
+        )
         go_to_batch_checkbox.is_checked = state.go_to_batch_enabled
         go_to_batch_field.enabled = go_to_batch_checkbox.enabled
         go_to_epsilon_checkbox.enabled = (
-            not active_running and not coordinated_active
+            not active_running
+            and not coordinated_active
+            and not transition_in_progress
         )
         go_to_epsilon_checkbox.is_checked = state.go_to_epsilon_enabled
         go_to_epsilon_field.enabled = go_to_epsilon_checkbox.enabled
 
         update_field_colors()
         selected_slot = selected_model_slot()
+        for field, model_slot in zip(slot_fields, slot_models):
+            field.enabled = bool(
+                state.selected_ship is not None
+                and not model_slot.is_bundled
+                and not active_running
+                and not coordinated_active
+                and not transition_in_progress
+            )
         for slot_number, (delete_button, model_slot) in enumerate(
             zip(delete_buttons, slot_models),
             start=1,
@@ -6207,10 +6401,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         close_instance_button.enabled = (
             not coordinated_active
             and not active_running
+            and not transition_in_progress
             and len(instance_manager.instances) > 1
         )
         add_instance_button.enabled = (
-            not coordinated_active and instance_manager.can_add_instance()
+            not coordinated_active
+            and not transition_in_progress
+            and instance_manager.can_add_instance()
         )
         is_currently_loaded = (
             state.loaded_ship == state.selected_ship
@@ -6250,7 +6447,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     and not coordinated_active
                 )
 
-        display_checkbox.enabled = True
+        display_checkbox.enabled = not transition_in_progress
 
         if coordinated_active:
             start_stop_button.text = (
@@ -6326,9 +6523,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             batch_start_all_button.text = "Starting"
             batch_start_all_button.enabled = False
 
-        if startup_job[0] is not None:
+        if transition_in_progress:
             apply_all_checkbox.enabled = False
             device_selector.enabled = False
+            cpu_sync_checkbox.enabled = False
             go_to_batch_checkbox.enabled = False
             go_to_batch_field.enabled = False
             go_to_epsilon_checkbox.enabled = False
@@ -6338,6 +6536,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             close_instance_button.enabled = False
             add_instance_button.enabled = False
             load_button.enabled = False
+            for field in slot_fields:
+                field.enabled = False
             for delete_button in delete_buttons:
                 delete_button.enabled = False
             for slider in (
@@ -6347,6 +6547,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             ):
                 slider.enabled = False
 
+        if startup_job[0] is not None:
             job = startup_job[0]
             startup_status = TrainingSessionStatus(
                 ship=state.selected_ship or "",
@@ -6367,8 +6568,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             batch_log_box.set_lines(console_lines, console_colors)
 
         if application_close_requested[0]:
+            trainee_tab.enabled = False
+            opponent_tab.enabled = False
+            rewards_tab.enabled = False
+            regimen_tab.enabled = False
+            instance_dropdown.enabled = False
             apply_all_checkbox.enabled = False
             device_selector.enabled = False
+            cpu_sync_checkbox.enabled = False
             go_to_batch_checkbox.enabled = False
             go_to_batch_field.enabled = False
             go_to_epsilon_checkbox.enabled = False
@@ -6382,12 +6589,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             close_instance_button.enabled = False
             add_instance_button.enabled = False
             load_button.enabled = False
+            for field in slot_fields:
+                field.enabled = False
+            for delete_button in delete_buttons:
+                delete_button.enabled = False
             for slider in (
                 *reward_sliders,
                 *grouped_controls,
                 *regimen_sliders,
             ):
                 slider.enabled = False
+        else:
+            trainee_tab.enabled = True
+            opponent_tab.enabled = True
+            rewards_tab.enabled = True
+            regimen_tab.enabled = True
+            instance_dropdown.enabled = True
 
         if notice[0] is not None:
             notice[0].remaining_seconds -= elapsed_seconds
@@ -6437,7 +6654,17 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             heading = body_font.render("Trainee Ship", True, ui.WHITE)
             content.blit(heading, heading.get_rect(center=(ship_tile.centerx, 25)))
             pygame.draw.rect(content, const.SHIP_PANEL_BACKGROUND_COLOR, ship_tile)
-            pygame.draw.rect(content, const.P1_COLOR if not state.running else ui.DARK_GREY, ship_tile, 3)
+            trainee_selection_enabled = bool(
+                not active_running
+                and not coordinated_active
+                and not transition_in_progress
+            )
+            pygame.draw.rect(
+                content,
+                const.P1_COLOR if trainee_selection_enabled else ui.DARK_GREY,
+                ship_tile,
+                3,
+            )
             if state.selected_ship is None:
                 prompt = body_font.render("Select Ship", True, ui.LIGHT_GREY)
                 content.blit(prompt, prompt.get_rect(center=ship_tile.center))
@@ -6485,7 +6712,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             content.blit(slot_heading, (slot_rows[0].x, slot_rows[0].y - 30))
             
             for index, (row, field) in enumerate(zip(slot_rows, slot_fields)):
-                enabled = state.selected_ship is not None and not state.running
+                enabled = bool(
+                    state.selected_ship is not None
+                    and trainee_selection_enabled
+                )
                 pygame.draw.rect(content, ui.SLIDER_BG if enabled else ui.DARK_GREY, row)
                 circle_center = (row.x + 18, row.centery)
                 circle_color = ui.WHITE if enabled else ui.GREY
@@ -6547,7 +6777,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
             for i, panel in enumerate(opponent_panels):
                 hovered = panel.collidepoint(content_mouse_pos)
-                enabled = not state.running
+                enabled = bool(
+                    not active_running
+                    and not coordinated_active
+                    and not transition_in_progress
+                )
                 _draw_group_panel(content, panel, hovered, enabled)
             ai_opponent_slider.draw(content, opponent_font)
             for slider in simple_activity_sliders:
@@ -6598,7 +6832,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if rewards_tab.active: rewards_tab.draw(screen, tab_font)
         if regimen_tab.active: regimen_tab.draw(screen, tab_font)
 
-        running_color = ui.BRIGHT_GREEN
+        running_color = (
+            RunIndicator.TRANSITION_COLOR
+            if transition_in_progress
+            else ui.BRIGHT_GREEN
+        )
         pygame.draw.rect(screen, ui.BLACK, instance_summary_rect, border_radius=5)
         pygame.draw.rect(
             screen,
