@@ -700,7 +700,7 @@ def _hud_badge_text(badge):
     if badge.kind == "simple":
         return "S"
     if badge.kind == "ai" and badge.value is not None:
-        return f"AI#{int(badge.value)}"
+        return str(int(badge.value))
     if badge.kind == "countdown" and badge.value is not None:
         return str(max(0, int(badge.value)))
     return None

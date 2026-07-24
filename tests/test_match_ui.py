@@ -436,6 +436,11 @@ class BattleHudLayoutTests(unittest.TestCase):
         )
         self.assertEqual(screen.get_at((center[0] + radius - 1, center[1]))[:3], const.P1_COLOR)
 
+    def test_ai_badge_uses_only_the_slot_number(self):
+        from src.Battle.battle_draw import _hud_badge_text
+
+        self.assertEqual(_hud_badge_text(HudBadge("ai", 1)), "1")
+
 
 class BattleResumeFlowTests(unittest.TestCase):
     def test_controller_badges_are_passed_to_battle_draw(self):
