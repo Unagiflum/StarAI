@@ -39,6 +39,7 @@ from src.training.observation import build_observation_context, encode_observati
 from src.training.cpu_contracts import (
     OPPONENT_MODE_EXISTING_AI,
     OpponentSpec,
+    single_controller_opponent_plan,
 )
 from src.training.observation_transfer import PackedObservation, pack_observation
 from src.training.replay_contracts import (
@@ -345,6 +346,13 @@ class CoordinatedSimulationWorker:
             ledger=ledger,
             pipeline=pipeline,
             simple_controller=simple_controller,
+            opponent_plan=(
+                command.opponent_plan
+                or single_controller_opponent_plan(
+                    command.opponent,
+                    config.match_time_limit,
+                )
+            ),
             component_sums={component: 0.0 for component in REWARD_COMPONENTS},
             episode_component_sums={
                 component: 0.0
@@ -659,6 +667,7 @@ class CoordinatedSimulationWorker:
         if runtime.complete:
             self._clear_decision_state()
             return
+        runtime.activate_opponent()
         simulation = runtime.simulation
         context = build_observation_context(
             simulation.player1,

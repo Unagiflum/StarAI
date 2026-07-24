@@ -68,6 +68,7 @@ class CpuBatchPacingGroup:
         participant_count: int,
         *,
         max_batch_lead: int = 0,
+        opponent_batch_anchor: int = 0,
         context: multiprocessing.context.BaseContext | None = None,
     ) -> None:
         participant_count = int(participant_count)
@@ -75,6 +76,7 @@ class CpuBatchPacingGroup:
             raise ValueError("CPU pacing requires at least two participants")
         self.participant_count = participant_count
         self.max_batch_lead = max(0, int(max_batch_lead))
+        self.opponent_batch_anchor = max(0, int(opponent_batch_anchor))
         process_context = context or multiprocessing.get_context("spawn")
         self._completed = process_context.Array(
             "Q", participant_count, lock=False
@@ -433,6 +435,17 @@ class _ProcessTrainingEngine(TrainingSession):
             else time.perf_counter()
         )
         self._pending_paced_batch_number: int | None = None
+        if batch_pacing_group is not None:
+            opponent_batch_anchor = getattr(
+                batch_pacing_group,
+                "opponent_batch_anchor",
+                None,
+            )
+            if opponent_batch_anchor is not None:
+                kwargs.setdefault(
+                    "opponent_batch_anchor",
+                    opponent_batch_anchor,
+                )
         super().__init__(
             save_coordinator=save_coordinator,
             display_event=display_event,

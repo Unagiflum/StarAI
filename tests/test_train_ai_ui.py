@@ -2930,6 +2930,12 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         manager.select_instance(first.instance_id)
         manager.set_apply_future_changes_to_all(True)
         repository = self.FakeCoordinatedRepository()
+        repository.slots[("Earthling", 1)].metadata["progress"][
+            "completed_batches"
+        ] = 7
+        repository.slots[("Androsynth", 1)].metadata["progress"][
+            "completed_batches"
+        ] = 2
         self.FakeSession.created = []
         start_event = pygame.event.Event(
             pygame.MOUSEBUTTONDOWN,
@@ -2992,6 +2998,12 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         manager.select_instance(first.instance_id)
         manager.set_apply_future_changes_to_all(True)
         repository = self.FakeCoordinatedRepository()
+        repository.slots[("Earthling", 1)].metadata["progress"][
+            "completed_batches"
+        ] = 7
+        repository.slots[("Androsynth", 1)].metadata["progress"][
+            "completed_batches"
+        ] = 2
         self.FakeSession.created = []
 
         class FakePacingGroup:
@@ -3050,6 +3062,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         self.assertEqual(len(FakePacingGroup.created), 1)
         pacing_group = FakePacingGroup.created[0]
         self.assertEqual(pacing_group.participant_count, 2)
+        self.assertEqual(pacing_group.opponent_batch_anchor, 7)
         self.assertEqual(len(self.FakeSession.created), 2)
         for index, session in enumerate(self.FakeSession.created):
             self.assertIs(session.kwargs["batch_pacing_group"], pacing_group)

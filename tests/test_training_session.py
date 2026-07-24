@@ -763,6 +763,48 @@ class TrainingSessionDisplayTests(unittest.TestCase):
 
 
 class TrainingSessionTests(unittest.TestCase):
+    def test_session_supplies_predictable_opponent_batch_numbers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = TrainingModelRepository(root / "bundled", root / "user")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Opponent schedule anchor",
+                architecture=model_architecture_metadata(8, 1),
+                training={},
+                progress={"completed_batches": 40},
+            )
+            slot = repository.create_or_update_user_model(metadata)
+            seen = []
+
+            def batch_runner(**kwargs):
+                seen.append(kwargs["opponent_batch_number"])
+                return TrainingBatchResult(
+                    completed_rounds=1,
+                    replay_size=0,
+                    optimization_losses=(),
+                    round_results=(_round_result(),),
+                )
+
+            session = _NoSaveSession(
+                repository=repository,
+                slot=slot,
+                metadata=metadata,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    hidden_layer_width=8,
+                    hidden_layer_count=1,
+                    epsilon_decay=1.0,
+                ),
+                batch_grouping=99,
+                batch_runner=batch_runner,
+                opponent_batch_anchor=7,
+            )
+            session.run_synchronously(max_batches=2)
+
+        self.assertEqual(seen, [7, 8])
+
     def setUp(self):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")

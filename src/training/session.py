@@ -481,6 +481,7 @@ class TrainingSession:
         display_event: Any | None = None,
         stop_at_batch: int | None = None,
         stop_at_epsilon: float | None = None,
+        opponent_batch_anchor: int | None = None,
     ):
         if slot.is_bundled:
             raise TrainingSessionError("Bundled training models are read-only")
@@ -514,6 +515,12 @@ class TrainingSession:
             current_epsilon=self._current_epsilon,
             epsilon_decay=float(config.epsilon_decay),
             gamma=float(config.gamma),
+        )
+        self._opponent_batch_origin_completed = self._status.completed_batches
+        self._configured_opponent_batch_anchor = (
+            max(0, int(opponent_batch_anchor))
+            if opponent_batch_anchor is not None
+            else None
         )
         self._history: list[BatchMetrics] = list(
             initial_history or batch_metrics_history_from_metadata(self.metadata)
@@ -718,6 +725,15 @@ class TrainingSession:
         ):
             discovered_opponents = self._existing_ai_opponents_for_batch()
             with self._lock:
+                opponent_batch_anchor = (
+                    self._status.completed_batches
+                    if self._configured_opponent_batch_anchor is None
+                    else (
+                        self._configured_opponent_batch_anchor
+                        + self._status.completed_batches
+                        - self._opponent_batch_origin_completed
+                    )
+                )
                 self._status.display_message = "Preparing new batch"
                 self._status.simulation_speed_multiplier = 0.0
                 batch_config = replace(
@@ -740,6 +756,7 @@ class TrainingSession:
                     progress_callback=self._on_progress,
                     stop_requested=self._stop_requested.is_set,
                     battle_view_enabled=self._display_on.is_set,
+                    opponent_batch_number=opponent_batch_anchor,
                 )
             except TrainingBatchAborted:
                 break

@@ -8,7 +8,11 @@ from typing import Any
 
 import src.const as const
 from src.training.coordinated_contracts import CoordinatedFixedFrameWindowResult
-from src.training.cpu_contracts import OpponentSpec, TrainingOrchestrationConfig
+from src.training.cpu_contracts import (
+    OpponentControllerPlan,
+    OpponentSpec,
+    TrainingOrchestrationConfig,
+)
 from src.training.observation_transfer import PackedObservation
 from src.training.replay_contracts import ReplayTransferChunk, ReplayTransferSample
 
@@ -51,11 +55,17 @@ class StartWindowCommand:
     opponent: OpponentSpec
     rng_seed: int
     frame_limit: int | None = None
+    opponent_plan: OpponentControllerPlan | None = None
     name: str = COMMAND_START_WINDOW
 
     def __post_init__(self) -> None:
         if self.opponent.model is not None:
             raise ValueError("worker window commands must not include model objects")
+        if self.opponent_plan is not None and any(
+            segment.opponent.model is not None
+            for segment in self.opponent_plan.segments
+        ):
+            raise ValueError("worker opponent plans must not include model objects")
 
 
 @dataclass(frozen=True)

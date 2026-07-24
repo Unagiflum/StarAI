@@ -36,8 +36,11 @@ from src.training.batched_value_network import (
 from src.training.contracts import (
     ACTION_OUTPUT_SIZE,
     OBSERVATION_INPUT_SIZE,
-    SHIP_TYPE_CATALOG_ORDER,
     TrainingAction,
+)
+from src.training.cpu_contracts import (
+    OpponentControllerPlan,
+    single_controller_opponent_plan,
 )
 from src.training.coordinated_contracts import (
     CoordinatedFixedFrameWindowResult,
@@ -78,6 +81,7 @@ from src.training.orchestration import (
     _raise_if_stop_requested,
     _select_policy_action,
     controls_for_action_index,
+    deterministic_opponent_plan_schedule,
     direct_controls_for_action_index,
     _battle_view_from_simulation,
     simple_opponent_schedule,
@@ -550,6 +554,7 @@ class _CoordinatedRecordState:
 class _WorkerWindowRuntime:
     state: _CoordinatedRecordState
     client: Any
+    opponent_plan: OpponentControllerPlan
     opponent: OpponentSpec
     policy: Any
     round_index: int
@@ -1359,7 +1364,8 @@ class CoordinatedTrainingSession:
                     components = state.components
                     if components is None:
                         raise RuntimeError("coordinated components were not loaded")
-                    opponent = schedule[round_index - 1]
+                    opponent_plan = schedule[round_index - 1]
+                    opponent = opponent_plan.initial_opponent
                     with self._lock:
                         state.status.current_round = round_index
                         state.status.total_rounds = len(schedule)
@@ -1376,6 +1382,7 @@ class CoordinatedTrainingSession:
                         _create_coordinated_window_runtime(
                             state=state,
                             opponent=opponent,
+                            opponent_plan=opponent_plan,
                             policy=policy,
                             rng=self._rng,
                             simulation_factory=self._simulation_factory,
@@ -1660,7 +1667,8 @@ class CoordinatedTrainingSession:
                     components = state.components
                     if components is None:
                         raise RuntimeError("coordinated components were not loaded")
-                    opponent = schedule[round_index - 1]
+                    opponent_plan = schedule[round_index - 1]
+                    opponent = opponent_plan.initial_opponent
                     with self._lock:
                         state.status.current_round = round_index
                         state.status.total_rounds = len(schedule)
@@ -1676,6 +1684,7 @@ class CoordinatedTrainingSession:
                     window = _WorkerWindowRuntime(
                         state=state,
                         client=workers[instance_id],
+                        opponent_plan=opponent_plan,
                         opponent=opponent,
                         policy=policy,
                         round_index=round_index,
@@ -1686,6 +1695,7 @@ class CoordinatedTrainingSession:
                             round_index=round_index,
                             config=state.record.config,
                             opponent=replace(opponent, model=None),
+                            opponent_plan=opponent_plan.without_models(),
                             rng_seed=self._worker_window_seed(
                                 instance_id,
                                 round_index,
@@ -2174,56 +2184,47 @@ class CoordinatedTrainingSession:
             self._timing_completed_batches += max(0, int(completed_batches))
             self._timing_frame_count += max(0, int(frame_count))
 
-    def _opponent_schedules_for_batch(self) -> dict[int, tuple[OpponentSpec, ...]]:
-        """Choose one live coordinated controller per ship for the whole batch."""
+    def _opponent_schedules_for_batch(
+        self,
+    ) -> dict[int, tuple[OpponentControllerPlan, ...]]:
+        """Build shared plans using only live coordinated opponent models."""
 
-        first_state = next(iter(self._states.values()))
-        config = first_state.record.config
+        anchor_id = min(self._states)
+        anchor_state = self._states[anchor_id]
+        config = anchor_state.record.config
+        batch_number = int(anchor_state.status.completed_batches)
         if config.opponent_mode != OPPONENT_MODE_EXISTING_AI:
-            schedule = simple_opponent_schedule(config.rounds_per_batch)
+            schedule = tuple(
+                single_controller_opponent_plan(
+                    opponent,
+                    config.match_time_limit,
+                )
+                for opponent in simple_opponent_schedule(config.rounds_per_batch)
+            )
             return {instance_id: schedule for instance_id in self._states}
-        ai_probability = max(
-            0.0,
-            min(1.0, float(config.ai_opponent_chance) / 100.0),
-        )
-        trained_by_ship: dict[str, _CoordinatedRecordState] = {}
+        live_opponents = []
         for state in self._states.values():
             if state.components is None:
                 raise RuntimeError("coordinated components were not loaded")
             set_eval = getattr(state.components.model, "eval", None)
             if callable(set_eval):
                 set_eval()
-            trained_by_ship[str(state.record.slot.ship)] = state
-
-        selected_by_ship: dict[str, OpponentSpec] = {}
-        for ship_name in SHIP_TYPE_CATALOG_ORDER:
-            trained_state = trained_by_ship.get(ship_name)
-            use_ai = (
-                config.opponent_mode == OPPONENT_MODE_EXISTING_AI
-                and trained_state is not None
-                and (
-                    ai_probability >= 1.0
-                    or (
-                        ai_probability > 0.0
-                        and self._rng.random() < ai_probability
-                    )
+            live_opponents.append(
+                OpponentSpec(
+                    ship=str(state.record.slot.ship),
+                    mode=OPPONENT_MODE_EXISTING_AI,
+                    slot=int(state.record.slot.slot),
+                    model=state.components.model,
+                    description=state.record.slot.description,
                 )
             )
-            if use_ai:
-                selected_by_ship[ship_name] = OpponentSpec(
-                    ship=ship_name,
-                    mode=OPPONENT_MODE_EXISTING_AI,
-                    slot=int(trained_state.record.slot.slot),
-                    model=trained_state.components.model,
-                    description=trained_state.record.slot.description,
-                )
-            else:
-                selected_by_ship[ship_name] = OpponentSpec(ship=ship_name)
 
-        schedule = tuple(
-            selected_by_ship[ship_name]
-            for _ in range(int(config.rounds_per_batch))
-            for ship_name in SHIP_TYPE_CATALOG_ORDER
+        schedule = deterministic_opponent_plan_schedule(
+            config.rounds_per_batch,
+            config.match_time_limit,
+            tuple(live_opponents),
+            ai_opponent_chance=config.ai_opponent_chance,
+            batch_number=batch_number,
         )
         return {instance_id: schedule for instance_id in self._states}
 
@@ -3328,6 +3329,9 @@ def select_opponent_controls_for_windows(
     controls: dict[int, Any] = {}
     ai_requests: list[tuple[_CoordinatedWindowRuntime, tuple[float, ...]]] = []
     for window in windows:
+        activate_opponent = getattr(window, "activate_opponent", None)
+        if callable(activate_opponent):
+            activate_opponent()
         simulation = window.simulation
         if window.opponent.model is None:
             controls[id(window)] = (
@@ -3436,6 +3440,10 @@ def _retain_worker_decision_state(
     trainee_observation: Any,
     opponent_observation: Any | None,
 ) -> None:
+    if not window.complete:
+        window.opponent = window.opponent_plan.opponent_for_frame(
+            window.frame_count
+        )
     if trainee_observation is None:
         raise _WorkerRuntimeError(
             f"worker {window.state.record.instance_id} omitted a trainee observation"

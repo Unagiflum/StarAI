@@ -36,9 +36,10 @@ from src.training.orchestration import (
     _opponent_controls,
     _randomize_training_start_hp,
     _round_terminal_state,
+    build_deterministic_opponent_plan,
     controls_for_action_index,
+    deterministic_opponent_plan_schedule,
     discover_existing_ai_opponents,
-    existing_ai_opponent_schedule,
     run_training_batch,
     run_training_round,
     simple_opponent_schedule,
@@ -139,11 +140,6 @@ class SequenceRng:
         return self.values.pop(0)
 
 
-class PreferTrainedOpponentRng:
-    def choice(self, values):
-        return values[-1]
-
-
 class SpanRng:
     def __init__(self, random_values=(), randrange_values=()):
         self.random_values = list(random_values)
@@ -193,75 +189,256 @@ class TrainingScheduleTests(unittest.TestCase):
             },
         )
 
-    def test_existing_ai_mode_selects_one_controller_per_ship_type(self):
-        earthling_model = object()
-        schedule = existing_ai_opponent_schedule(
-            2,
-            (
-                OpponentSpec(
-                    ship="Earthling",
-                    mode=OPPONENT_MODE_EXISTING_AI,
-                    slot=1,
-                    model=earthling_model,
-                ),
-            ),
-            rng=PreferTrainedOpponentRng(),
+class DeterministicOpponentPlanTests(unittest.TestCase):
+    @staticmethod
+    def trained(slot, *, ship="Earthling"):
+        return OpponentSpec(
+            ship=ship,
+            mode=OPPONENT_MODE_EXISTING_AI,
+            slot=slot,
+            model=object(),
         )
 
-        self.assertEqual(len(schedule), 2 * len(SHIP_TYPE_CATALOG_ORDER))
-        earthling_rounds = [
-            opponent for opponent in schedule if opponent.ship == "Earthling"
-        ]
-        self.assertEqual(len(earthling_rounds), 2)
-        self.assertTrue(all(opponent.slot == 1 for opponent in earthling_rounds))
-        self.assertTrue(
-            all(
-                opponent.mode == OPPONENT_MODE_SIMPLE
-                for opponent in schedule
-                if opponent.ship != "Earthling"
-            )
-        )
-
-    def test_existing_ai_mode_with_zero_percent_uses_simple_controllers(self):
-        schedule = existing_ai_opponent_schedule(
-            1,
-            (
-                OpponentSpec(
-                    ship="Earthling",
-                    mode=OPPONENT_MODE_EXISTING_AI,
-                    slot=1,
-                    model=object(),
-                ),
-            ),
-            ai_opponent_chance=0.0,
-            rng=PreferTrainedOpponentRng(),
-        )
-
-        self.assertTrue(
-            all(opponent.mode == OPPONENT_MODE_SIMPLE for opponent in schedule)
-        )
-
-    def test_existing_ai_mode_rolls_ai_probability_once_per_available_ship(self):
-        schedule = existing_ai_opponent_schedule(
-            1,
-            (
-                OpponentSpec(
-                    ship="Earthling",
-                    mode=OPPONENT_MODE_EXISTING_AI,
-                    slot=1,
-                    model=object(),
-                ),
-            ),
+    def test_plan_allocates_simple_then_slots_in_numeric_order(self):
+        plan = build_deterministic_opponent_plan(
+            "Earthling",
+            1200,
+            (self.trained(3), self.trained(1)),
             ai_opponent_chance=50.0,
-            rng=SequenceRng([0.49, 0.0]),
+            batch_number=0,
         )
 
-        earthling_rounds = [
-            opponent for opponent in schedule if opponent.ship == "Earthling"
+        self.assertEqual(
+            [
+                (segment.opponent.mode, segment.opponent.slot, segment.frame_count)
+                for segment in plan.segments
+            ],
+            [
+                (OPPONENT_MODE_SIMPLE, None, 600),
+                (OPPONENT_MODE_EXISTING_AI, 1, 300),
+                (OPPONENT_MODE_EXISTING_AI, 3, 300),
+            ],
+        )
+        self.assertEqual(plan.opponent_for_frame(0).mode, OPPONENT_MODE_SIMPLE)
+        self.assertEqual(plan.opponent_for_frame(599).mode, OPPONENT_MODE_SIMPLE)
+        self.assertEqual(plan.opponent_for_frame(600).slot, 1)
+        self.assertEqual(plan.opponent_for_frame(899).slot, 1)
+        self.assertEqual(plan.opponent_for_frame(900).slot, 3)
+        self.assertEqual(plan.opponent_for_frame(1199).slot, 3)
+
+    def test_plan_rotates_all_nonempty_controller_blocks_by_batch(self):
+        options = (self.trained(1), self.trained(2))
+
+        orders = []
+        for batch_number in range(4):
+            plan = build_deterministic_opponent_plan(
+                "Earthling",
+                1200,
+                options,
+                ai_opponent_chance=50.0,
+                batch_number=batch_number,
+            )
+            orders.append(
+                tuple(
+                    "simple" if segment.opponent.slot is None
+                    else f"slot-{segment.opponent.slot}"
+                    for segment in plan.segments
+                )
+            )
+
+        self.assertEqual(
+            orders,
+            [
+                ("simple", "slot-1", "slot-2"),
+                ("slot-1", "slot-2", "simple"),
+                ("slot-2", "simple", "slot-1"),
+                ("simple", "slot-1", "slot-2"),
+            ],
+        )
+
+    def test_plan_uses_half_up_rounding_and_preserves_allocations_when_rotated(self):
+        options = (self.trained(1), self.trained(2))
+        first = build_deterministic_opponent_plan(
+            "Earthling",
+            11,
+            options,
+            ai_opponent_chance=50.0,
+            batch_number=0,
+        )
+        rotated = build_deterministic_opponent_plan(
+            "Earthling",
+            11,
+            options,
+            ai_opponent_chance=50.0,
+            batch_number=1,
+        )
+
+        self.assertEqual(
+            [
+                (segment.opponent.slot, segment.frame_count)
+                for segment in first.segments
+            ],
+            [(None, 6), (1, 3), (2, 2)],
+        )
+        self.assertEqual(
+            [
+                (segment.opponent.slot, segment.frame_count)
+                for segment in rotated.segments
+            ],
+            [(1, 3), (2, 2), (None, 6)],
+        )
+
+    def test_plan_falls_back_to_simple_when_no_trained_model_is_available(self):
+        plan = build_deterministic_opponent_plan(
+            "Earthling",
+            17,
+            (),
+            ai_opponent_chance=100.0,
+            batch_number=99,
+        )
+
+        self.assertEqual(len(plan.segments), 1)
+        self.assertEqual(plan.segments[0].opponent.mode, OPPONENT_MODE_SIMPLE)
+        self.assertEqual(plan.segments[0].frame_count, 17)
+
+    def test_zero_and_full_ai_percent_omit_zero_length_controller_blocks(self):
+        option = self.trained(2)
+        simple = build_deterministic_opponent_plan(
+            "Earthling",
+            12,
+            (option,),
+            ai_opponent_chance=0.0,
+        )
+        trained = build_deterministic_opponent_plan(
+            "Earthling",
+            12,
+            (option,),
+            ai_opponent_chance=100.0,
+        )
+
+        self.assertEqual(
+            [segment.opponent.mode for segment in simple.segments],
+            [OPPONENT_MODE_SIMPLE],
+        )
+        self.assertEqual(
+            [segment.opponent.slot for segment in trained.segments],
+            [2],
+        )
+
+    def test_batch_schedule_reuses_one_plan_per_ship_for_every_round(self):
+        plans = deterministic_opponent_plan_schedule(
+            2,
+            1200,
+            (self.trained(1),),
+            ai_opponent_chance=50.0,
+            batch_number=1,
+        )
+
+        self.assertEqual(len(plans), 2 * len(SHIP_TYPE_CATALOG_ORDER))
+        first_earthling = plans[SHIP_TYPE_CATALOG_ORDER.index("Earthling")]
+        second_earthling = plans[
+            len(SHIP_TYPE_CATALOG_ORDER)
+            + SHIP_TYPE_CATALOG_ORDER.index("Earthling")
         ]
-        self.assertEqual(len(earthling_rounds), 1)
-        self.assertEqual(earthling_rounds[0].mode, OPPONENT_MODE_EXISTING_AI)
-        self.assertEqual(earthling_rounds[0].slot, 1)
+        self.assertIs(first_earthling, second_earthling)
+        self.assertEqual(first_earthling.segments[0].opponent.slot, 1)
+
+    def test_plan_without_models_preserves_controller_identity_and_boundaries(self):
+        plan = build_deterministic_opponent_plan(
+            "Earthling",
+            12,
+            (self.trained(1),),
+            ai_opponent_chance=50.0,
+        )
+
+        stripped = plan.without_models()
+
+        self.assertEqual(
+            [
+                (
+                    segment.opponent.mode,
+                    segment.opponent.slot,
+                    segment.start_frame,
+                    segment.end_frame,
+                )
+                for segment in stripped.segments
+            ],
+            [
+                (
+                    segment.opponent.mode,
+                    segment.opponent.slot,
+                    segment.start_frame,
+                    segment.end_frame,
+                )
+                for segment in plan.segments
+            ],
+        )
+        self.assertTrue(
+            all(segment.opponent.model is None for segment in stripped.segments)
+        )
+
+    def test_frame_lookup_rejects_frames_outside_the_match(self):
+        plan = build_deterministic_opponent_plan(
+            "Earthling",
+            12,
+            (),
+        )
+
+        with self.assertRaises(IndexError):
+            plan.opponent_for_frame(-1)
+        with self.assertRaises(IndexError):
+            plan.opponent_for_frame(12)
+
+    def test_round_switches_controller_only_at_scheduled_match_frames(self):
+        plan = build_deterministic_opponent_plan(
+            "Earthling",
+            6,
+            (self.trained(1),),
+            ai_opponent_chance=50.0,
+            batch_number=0,
+        )
+        seen = []
+
+        def controls(opponent, simulation, *_args):
+            seen.append(
+                (
+                    simulation.frame_id,
+                    opponent.mode,
+                    opponent.slot,
+                )
+            )
+            return {}
+
+        with mock.patch(
+            "src.training.orchestration._opponent_direct_controls",
+            side_effect=controls,
+        ):
+            run_training_round(
+                opponent=plan.initial_opponent,
+                opponent_plan=plan,
+                trainee_policy=FixedPolicy(0),
+                replay_buffer=TrainingReplayBuffer(16),
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    gamma=0.0,
+                    match_time_limit=6,
+                ),
+                rng=random.Random(10),
+                simulation_factory=RespawningOutcomeSimulation,
+                battle_view_enabled=lambda: False,
+            )
+
+        self.assertEqual(
+            seen,
+            [
+                (0, OPPONENT_MODE_SIMPLE, None),
+                (1, OPPONENT_MODE_SIMPLE, None),
+                (2, OPPONENT_MODE_SIMPLE, None),
+                (3, OPPONENT_MODE_EXISTING_AI, 1),
+                (4, OPPONENT_MODE_EXISTING_AI, 1),
+                (5, OPPONENT_MODE_EXISTING_AI, 1),
+            ],
+        )
 
 
 class ValueNetworkPolicyTests(unittest.TestCase):

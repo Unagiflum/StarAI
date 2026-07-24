@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal, ROUND_HALF_UP
 import math
 import random
 import time
@@ -30,9 +31,12 @@ from src.training.cpu_contracts import (
     DEFAULT_REPLAY_UPDATES_PER_BATCH,
     OPPONENT_MODE_EXISTING_AI,
     OPPONENT_MODE_SIMPLE,
+    OpponentControllerPlan,
+    OpponentControllerSegment,
     OpponentSpec,
     TrainingBatchAborted,
     TrainingOrchestrationConfig,
+    single_controller_opponent_plan,
 )
 from src.training.model_registry import (
     MODEL_SLOT_COUNT,
@@ -200,43 +204,123 @@ def simple_opponent_schedule(rounds_per_batch: int) -> tuple[OpponentSpec, ...]:
     return tuple(opponents)
 
 
-def existing_ai_opponent_schedule(
+def build_deterministic_opponent_plan(
+    ship_name: str,
+    frame_limit: int,
+    trained_options: Sequence[OpponentSpec],
+    *,
+    ai_opponent_chance: float = 100.0,
+    batch_number: int = 0,
+) -> OpponentControllerPlan:
+    """Build one predictable, rotating controller plan for a ship match.
+
+    ``batch_number`` is the zero-based count of successfully completed batches
+    before this batch. Frame allocations are calculated before rotation so each
+    controller retains the same number of frames in every ordering.
+    """
+
+    frame_limit = int(frame_limit)
+    if frame_limit <= 0:
+        raise ValueError("frame_limit must be positive")
+    ai_percent = max(
+        Decimal("0"),
+        min(Decimal("100"), Decimal(str(ai_opponent_chance))),
+    )
+    trained_by_slot: dict[int, OpponentSpec] = {}
+    for opponent in trained_options:
+        if opponent.ship != ship_name or opponent.slot is None:
+            continue
+        trained_by_slot.setdefault(int(opponent.slot), opponent)
+    trained = tuple(trained_by_slot[slot] for slot in sorted(trained_by_slot))
+
+    simple = OpponentSpec(ship=ship_name, mode=OPPONENT_MODE_SIMPLE)
+    if not trained or ai_percent <= 0:
+        return single_controller_opponent_plan(simple, frame_limit)
+
+    simple_frames = _round_half_up(
+        Decimal(frame_limit) * (Decimal("100") - ai_percent) / Decimal("100")
+    )
+    ai_frames = frame_limit - simple_frames
+    if ai_frames <= 0:
+        return single_controller_opponent_plan(simple, frame_limit)
+
+    controllers_with_lengths: list[tuple[OpponentSpec, int]] = []
+    if simple_frames > 0:
+        controllers_with_lengths.append((simple, simple_frames))
+    previous_boundary = 0
+    for index, opponent in enumerate(trained, start=1):
+        boundary = _round_half_up(
+            Decimal(ai_frames) * Decimal(index) / Decimal(len(trained))
+        )
+        controller_frames = boundary - previous_boundary
+        previous_boundary = boundary
+        if controller_frames > 0:
+            controllers_with_lengths.append((opponent, controller_frames))
+
+    if not controllers_with_lengths:
+        return single_controller_opponent_plan(simple, frame_limit)
+    rotation = max(0, int(batch_number)) % len(controllers_with_lengths)
+    ordered = (
+        controllers_with_lengths[rotation:]
+        + controllers_with_lengths[:rotation]
+    )
+    segments = []
+    start_frame = 0
+    for opponent, controller_frames in ordered:
+        end_frame = start_frame + int(controller_frames)
+        segments.append(
+            OpponentControllerSegment(
+                opponent=opponent,
+                start_frame=start_frame,
+                end_frame=end_frame,
+            )
+        )
+        start_frame = end_frame
+    return OpponentControllerPlan(
+        ship=ship_name,
+        frame_limit=frame_limit,
+        segments=tuple(segments),
+    )
+
+
+def deterministic_opponent_plan_schedule(
     rounds_per_batch: int,
+    frame_limit: int,
     discovered_opponents: Sequence[OpponentSpec],
     *,
     ai_opponent_chance: float = 100.0,
-    rng: Any | None = None,
-) -> tuple[OpponentSpec, ...]:
-    """Return one batch schedule with one selected controller per ship type."""
+    batch_number: int = 0,
+) -> tuple[OpponentControllerPlan, ...]:
+    """Return the deterministic match plans for one training batch."""
 
     if int(rounds_per_batch) <= 0:
         raise ValueError("rounds_per_batch must be positive")
-    ai_probability = _activity_probability(ai_opponent_chance)
-    rng = rng or random
     by_ship: dict[str, list[OpponentSpec]] = {
         ship_name: []
         for ship_name in SHIP_TYPE_CATALOG_ORDER
     }
     for opponent in discovered_opponents:
-        if opponent.ship not in by_ship:
-            continue
-        by_ship[opponent.ship].append(opponent)
-
-    selected_by_ship = {
-        ship_name: _choose_opponent_controller(
+        if opponent.ship in by_ship:
+            by_ship[opponent.ship].append(opponent)
+    plans_by_ship = {
+        ship_name: build_deterministic_opponent_plan(
             ship_name,
-            trained_options,
-            ai_probability=ai_probability,
-            rng=rng,
+            frame_limit,
+            by_ship[ship_name],
+            ai_opponent_chance=ai_opponent_chance,
+            batch_number=batch_number,
         )
-        for ship_name, trained_options in by_ship.items()
+        for ship_name in SHIP_TYPE_CATALOG_ORDER
     }
-    opponents: list[OpponentSpec] = []
-    for _ in range(int(rounds_per_batch)):
-        opponents.extend(
-            selected_by_ship[ship_name] for ship_name in SHIP_TYPE_CATALOG_ORDER
-        )
-    return tuple(opponents)
+    return tuple(
+        plans_by_ship[ship_name]
+        for _ in range(int(rounds_per_batch))
+        for ship_name in SHIP_TYPE_CATALOG_ORDER
+    )
+
+
+def _round_half_up(value: Decimal) -> int:
+    return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def discover_existing_ai_opponents(
@@ -288,12 +372,14 @@ def run_training_batch(
     progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
     battle_view_enabled: Callable[[], bool] | None = None,
+    opponent_batch_number: int = 0,
 ) -> TrainingBatchResult:
     """Run one complete Phase 7 batch and perform end-of-batch replay updates."""
 
     rng = rng or random.Random()
     if config.opponent_mode == OPPONENT_MODE_SIMPLE:
-        opponents = simple_opponent_schedule(config.rounds_per_batch)
+        discovered_opponents = ()
+        ai_opponent_chance = 0.0
     else:
         if discovered_opponents is None:
             if model_repository is None:
@@ -302,12 +388,14 @@ def run_training_batch(
                 model_repository,
                 device_choice=config.training_device,
             ).opponents
-        opponents = existing_ai_opponent_schedule(
-            config.rounds_per_batch,
-            discovered_opponents,
-            ai_opponent_chance=config.ai_opponent_chance,
-            rng=rng,
-        )
+        ai_opponent_chance = config.ai_opponent_chance
+    opponent_plans = deterministic_opponent_plan_schedule(
+        config.rounds_per_batch,
+        config.match_time_limit,
+        discovered_opponents,
+        ai_opponent_chance=ai_opponent_chance,
+        batch_number=opponent_batch_number,
+    )
 
     trainee_policy = ValueNetworkPolicy(
         model,
@@ -316,8 +404,9 @@ def run_training_batch(
         rng=rng,
     )
     round_results: list[TrainingRoundResult] = []
-    total_rounds = len(opponents)
-    for index, opponent in enumerate(opponents, start=1):
+    total_rounds = len(opponent_plans)
+    for index, opponent_plan in enumerate(opponent_plans, start=1):
+        opponent = opponent_plan.initial_opponent
         _raise_if_stop_requested(stop_requested)
         _emit_progress(
             progress_callback,
@@ -328,6 +417,7 @@ def run_training_batch(
         )
         result = run_training_round(
             opponent=opponent,
+            opponent_plan=opponent_plan,
             trainee_policy=trainee_policy,
             replay_buffer=replay_buffer,
             config=config,
@@ -382,6 +472,7 @@ def run_training_batch(
 def run_training_round(
     *,
     opponent: OpponentSpec,
+    opponent_plan: OpponentControllerPlan | None = None,
     trainee_policy,
     replay_buffer: TrainingReplayBuffer,
     config: TrainingOrchestrationConfig,
@@ -398,6 +489,15 @@ def run_training_round(
     ship_kwargs = {"audio_service": audio}
     if resources is not None:
         ship_kwargs["resources"] = resources
+    opponent_plan = opponent_plan or single_controller_opponent_plan(
+        opponent,
+        config.match_time_limit,
+    )
+    if int(opponent_plan.frame_limit) != int(config.match_time_limit):
+        raise ValueError("opponent plan frame_limit must match match_time_limit")
+    if opponent_plan.ship != opponent.ship:
+        raise ValueError("opponent plan ship must match the round opponent")
+
     trainee = create_ship(config.trainee_ship, 1, **ship_kwargs)
     opponent_ship = create_ship(opponent.ship, 2, **ship_kwargs)
     ledger = event_ledger.BattleEventLedger()
@@ -451,8 +551,9 @@ def run_training_round(
     next_display_frame_time = time.perf_counter()
     simple_opponent_controller = SimpleOpponentController(config, rng=rng)
 
-    for _ in range(config.match_time_limit):
+    for match_frame in range(config.match_time_limit):
         abort_if_requested()
+        active_opponent = opponent_plan.opponent_for_frame(match_frame)
         self_ship = simulation.player1
         enemy_ship = simulation.player2
         observation = encode_observation(
@@ -489,7 +590,7 @@ def run_training_round(
         actions = {
             1: direct_controls_for_action_index(selection.action_index),
             2: _opponent_direct_controls(
-                opponent,
+                active_opponent,
                 simulation,
                 config,
                 simple_opponent_controller,
@@ -535,7 +636,7 @@ def run_training_round(
         progress_payload = {
             "event": "frame",
             "frame": state["frame_id"],
-            "opponent": opponent,
+            "opponent": active_opponent,
             "action_index": selection.action_index,
             "exploratory": selection.exploratory,
             "replay_size": len(replay_buffer),
@@ -873,31 +974,6 @@ def _turn_toward_target(ship, target) -> tuple[bool, bool]:
 
 def _activity_probability(activity: float) -> float:
     return max(0.0, min(1.0, float(activity) / 100.0))
-
-
-def _choose_from_sequence(values: Sequence[Any], *, rng: Any) -> Any:
-    if not values:
-        raise ValueError("cannot choose from an empty sequence")
-    chooser = getattr(rng, "choice", None)
-    if callable(chooser):
-        return chooser(values)
-    index = int(float(rng.random()) * len(values))
-    return values[min(index, len(values) - 1)]
-
-
-def _choose_opponent_controller(
-    ship_name: str,
-    trained_options: Sequence[OpponentSpec],
-    *,
-    ai_probability: float,
-    rng: Any,
-) -> OpponentSpec:
-    simple = OpponentSpec(ship=ship_name, mode=OPPONENT_MODE_SIMPLE)
-    if not trained_options or ai_probability <= 0.0:
-        return simple
-    if ai_probability < 1.0 and float(rng.random()) >= ai_probability:
-        return simple
-    return _choose_from_sequence(trained_options, rng=rng)
 
 
 def _round_terminal_state(simulation, *, elapsed_frames: int, frame_limit: int):

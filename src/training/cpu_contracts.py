@@ -104,5 +104,103 @@ class OpponentSpec:
     description: str = ""
 
 
+@dataclass(frozen=True)
+class OpponentControllerSegment:
+    """One controller's deterministic half-open frame range in a match."""
+
+    opponent: OpponentSpec
+    start_frame: int
+    end_frame: int
+
+    def __post_init__(self) -> None:
+        if int(self.start_frame) < 0:
+            raise ValueError("opponent segment start_frame cannot be negative")
+        if int(self.end_frame) <= int(self.start_frame):
+            raise ValueError("opponent segment must contain at least one frame")
+
+    @property
+    def frame_count(self) -> int:
+        return int(self.end_frame) - int(self.start_frame)
+
+
+@dataclass(frozen=True)
+class OpponentControllerPlan:
+    """The fixed, event-independent controller schedule for one match."""
+
+    ship: str
+    frame_limit: int
+    segments: tuple[OpponentControllerSegment, ...]
+
+    def __post_init__(self) -> None:
+        frame_limit = int(self.frame_limit)
+        if frame_limit <= 0:
+            raise ValueError("opponent plan frame_limit must be positive")
+        if not self.segments:
+            raise ValueError("opponent plan must contain at least one segment")
+        expected_start = 0
+        for segment in self.segments:
+            if segment.opponent.ship != self.ship:
+                raise ValueError("all opponent plan segments must use the plan ship")
+            if int(segment.start_frame) != expected_start:
+                raise ValueError("opponent plan segments must be contiguous")
+            expected_start = int(segment.end_frame)
+        if expected_start != frame_limit:
+            raise ValueError("opponent plan segments must cover the full match")
+
+    @property
+    def initial_opponent(self) -> OpponentSpec:
+        return self.segments[0].opponent
+
+    def opponent_for_frame(self, frame: int) -> OpponentSpec:
+        frame = int(frame)
+        if not 0 <= frame < int(self.frame_limit):
+            raise IndexError(
+                f"opponent plan frame {frame} is outside [0, {self.frame_limit})"
+            )
+        for segment in self.segments:
+            if frame < int(segment.end_frame):
+                return segment.opponent
+        raise RuntimeError("opponent plan does not cover the requested frame")
+
+    def without_models(self) -> "OpponentControllerPlan":
+        return OpponentControllerPlan(
+            ship=self.ship,
+            frame_limit=self.frame_limit,
+            segments=tuple(
+                OpponentControllerSegment(
+                    opponent=OpponentSpec(
+                        ship=segment.opponent.ship,
+                        mode=segment.opponent.mode,
+                        slot=segment.opponent.slot,
+                        description=segment.opponent.description,
+                    ),
+                    start_frame=segment.start_frame,
+                    end_frame=segment.end_frame,
+                )
+                for segment in self.segments
+            ),
+        )
+
+
+def single_controller_opponent_plan(
+    opponent: OpponentSpec,
+    frame_limit: int,
+) -> OpponentControllerPlan:
+    """Wrap a legacy fixed controller in the deterministic plan contract."""
+
+    frame_limit = int(frame_limit)
+    return OpponentControllerPlan(
+        ship=opponent.ship,
+        frame_limit=frame_limit,
+        segments=(
+            OpponentControllerSegment(
+                opponent=opponent,
+                start_frame=0,
+                end_frame=frame_limit,
+            ),
+        ),
+    )
+
+
 class TrainingBatchAborted(RuntimeError):
     """Raised when a requested stop abandons the active training batch."""

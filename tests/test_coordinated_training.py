@@ -82,7 +82,10 @@ from src.training.model_registry import (
     metadata_from_state,
     model_architecture_metadata,
 )
-from src.training.orchestration import TrainingOrchestrationConfig
+from src.training.orchestration import (
+    TrainingOrchestrationConfig,
+    build_deterministic_opponent_plan,
+)
 from src.training.orchestration import OpponentSpec
 from src.training.orchestration import TrainingBatchAborted
 from src.training.orchestration import ValueNetworkPolicy
@@ -242,9 +245,76 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
         missing = first[SHIP_TYPE_CATALOG_ORDER.index("Arilou")]
 
         self.assertIs(first, second)
-        self.assertIs(earthling.model, earthling_model)
-        self.assertIs(androsynth.model, androsynth_model)
-        self.assertIsNone(missing.model)
+        self.assertIs(
+            earthling.initial_opponent.model,
+            earthling_model,
+        )
+        self.assertIs(
+            androsynth.initial_opponent.model,
+            androsynth_model,
+        )
+        self.assertIsNone(missing.initial_opponent.model)
+        self.assertEqual(len(earthling.segments), 1)
+        self.assertEqual(len(androsynth.segments), 1)
+        self.assertEqual(len(missing.segments), 1)
+
+    def test_opponent_rotation_uses_lowest_instance_batch_as_shared_anchor(self):
+        first = _record(
+            10,
+            "Earthling",
+            opponent_mode="all",
+            ai_opponent_chance=50.0,
+            match_time_limit=12,
+        )
+        second = _record(
+            2,
+            "Androsynth",
+            opponent_mode="all",
+            ai_opponent_chance=50.0,
+            match_time_limit=12,
+        )
+        first = replace(
+            first,
+            metadata={
+                **first.metadata,
+                "progress": {"completed_batches": 0},
+            },
+        )
+        second = replace(
+            second,
+            metadata={
+                **second.metadata,
+                "progress": {"completed_batches": 3},
+            },
+        )
+        session = CoordinatedTrainingSession(
+            (first, second),
+            run_batches=False,
+        )
+        earthling_model = object()
+        androsynth_model = object()
+        session._states[10].components = CoordinatedRuntimeComponents(
+            earthling_model,
+            object(),
+            TrainingReplayBuffer(4),
+        )
+        session._states[2].components = CoordinatedRuntimeComponents(
+            androsynth_model,
+            object(),
+            TrainingReplayBuffer(4),
+        )
+
+        schedule = next(iter(session._opponent_schedules_for_batch().values()))
+        earthling = schedule[SHIP_TYPE_CATALOG_ORDER.index("Earthling")]
+
+        self.assertEqual(
+            [
+                (segment.opponent.slot, segment.frame_count)
+                for segment in earthling.segments
+            ],
+            [(1, 6), (None, 6)],
+        )
+        self.assertIs(earthling.segments[0].opponent.model, earthling_model)
 
     def test_start_builds_records_and_stop_all_marks_every_proxy_stopped(self):
         built = []
@@ -966,6 +1036,18 @@ class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):
             config=config,
             opponent=OpponentSpec("Androsynth"),
             rng_seed=123,
+            opponent_plan=build_deterministic_opponent_plan(
+                "Androsynth",
+                3,
+                (
+                    OpponentSpec(
+                        "Androsynth",
+                        mode="all",
+                        slot=1,
+                    ),
+                ),
+                ai_opponent_chance=50.0,
+            ).without_models(),
         )
         result = WindowObservationResult(
             record_id=1,
@@ -1084,7 +1166,15 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
             ship_factory=fake_ship,
         )
 
-    def _start_window(self, worker, *, config=None, opponent=None, rng_seed=123):
+    def _start_window(
+        self,
+        worker,
+        *,
+        config=None,
+        opponent=None,
+        opponent_plan=None,
+        rng_seed=123,
+    ):
         config = config or TrainingOrchestrationConfig(
             trainee_ship="Earthling",
             match_time_limit=3,
@@ -1097,6 +1187,7 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
                 round_index=1,
                 config=config,
                 opponent=opponent or OpponentSpec("Androsynth"),
+                opponent_plan=opponent_plan,
                 rng_seed=rng_seed,
             )
         )
@@ -1240,6 +1331,64 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
         self.assertIsNotNone(first.next_opponent_observation)
         self.assertIsNone(second.next_opponent_observation)
         self.assertEqual(encode.call_count, 4)
+
+    def test_worker_switches_simple_to_model_decision_state_at_plan_boundary(self):
+        worker = self._worker()
+        trained = OpponentSpec(
+            "Androsynth",
+            mode="all",
+            slot=1,
+            model=object(),
+        )
+        plan = build_deterministic_opponent_plan(
+            "Androsynth",
+            4,
+            (trained,),
+            ai_opponent_chance=50.0,
+            batch_number=0,
+        )
+        worker_plan = plan.without_models()
+        with mock.patch(
+            "src.training.process_worker.encode_observation",
+            return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+        ):
+            started = self._start_window(
+                worker,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    match_time_limit=4,
+                    gamma=0.0,
+                ),
+                opponent=worker_plan.initial_opponent,
+                opponent_plan=worker_plan,
+            )
+            first = worker.handle(StepFrameCommand(9, 1, 0, False))
+            second = worker.handle(StepFrameCommand(9, 1, 0, False))
+            third = worker.handle(
+                StepFrameCommand(
+                    9,
+                    1,
+                    0,
+                    False,
+                    opponent_controls={},
+                )
+            )
+            fourth = worker.handle(
+                StepFrameCommand(
+                    9,
+                    1,
+                    0,
+                    False,
+                    opponent_controls={},
+                )
+            )
+
+        self.assertIsNotNone(started.simple_opponent_controls)
+        self.assertIsNone(first.next_opponent_observation)
+        self.assertIsNotNone(second.next_opponent_observation)
+        self.assertIsNotNone(third.next_opponent_observation)
+        self.assertTrue(fourth.complete)
+        self.assertIsNone(fourth.next_opponent_observation)
 
     def test_terminal_reset_returns_first_observation_of_new_battle(self):
         factory = ScriptedSimulationFactory(({"terminal_after": 1}, {}))

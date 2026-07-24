@@ -23,9 +23,11 @@ from src.training.coordinated_contracts import (
     TrainingEpisodeResult,
 )
 from src.training.cpu_contracts import (
+    OpponentControllerPlan,
     OpponentSpec,
     TrainingBatchAborted,
     TrainingOrchestrationConfig,
+    single_controller_opponent_plan,
 )
 from src.training.episode_metrics import PendingCombatEpisode, finalize_pending_episodes
 from src.training.replay_contracts import ActionSelection
@@ -47,6 +49,7 @@ class CoordinatedWindowRuntime:
     ledger: Any
     pipeline: StagedTrajectoryPipeline
     simple_controller: "SimpleOpponentController"
+    opponent_plan: OpponentControllerPlan | None = None
     frames_consumed: int = 0
     total_mature_count: int = 0
     return_sum: float = 0.0
@@ -59,6 +62,18 @@ class CoordinatedWindowRuntime:
     episode_component_sums: dict[str, float] = field(default_factory=dict)
     episode_needs_timeout: bool = True
 
+    def __post_init__(self) -> None:
+        if self.opponent_plan is None:
+            self.opponent_plan = single_controller_opponent_plan(
+                self.opponent,
+                self.frame_limit,
+            )
+        if int(self.opponent_plan.frame_limit) != self.frame_limit:
+            raise ValueError("opponent plan frame_limit must match the window")
+        if self.opponent_plan.ship != self.opponent.ship:
+            raise ValueError("opponent plan ship must match the window opponent")
+        self.activate_opponent()
+
     @property
     def frame_limit(self) -> int:
         return int(self.state.record.config.match_time_limit)
@@ -66,6 +81,16 @@ class CoordinatedWindowRuntime:
     @property
     def complete(self) -> bool:
         return self.frames_consumed >= self.frame_limit
+
+    def activate_opponent(self) -> OpponentSpec:
+        if self.complete:
+            return self.opponent
+        if self.opponent_plan is None:
+            raise RuntimeError("coordinated window has no opponent plan")
+        self.opponent = self.opponent_plan.opponent_for_frame(
+            self.frames_consumed
+        )
+        return self.opponent
 
 
 def direct_controls_for_action_index(action_index: int) -> TrainingAction:
@@ -223,6 +248,7 @@ def create_coordinated_window_runtime(
     rng: Any,
     simulation_factory: Callable[..., BattleSimulation],
     audio_service: Any,
+    opponent_plan: OpponentControllerPlan | None = None,
     ship_factory: Callable[..., Any] = create_ship,
 ) -> CoordinatedWindowRuntime:
     simulation, ledger, pipeline, simple_controller = new_coordinated_battle(
@@ -241,6 +267,7 @@ def create_coordinated_window_runtime(
         ledger=ledger,
         pipeline=pipeline,
         simple_controller=simple_controller,
+        opponent_plan=opponent_plan,
         component_sums={component: 0.0 for component in REWARD_COMPONENTS},
         episode_component_sums={component: 0.0 for component in REWARD_COMPONENTS},
     )
@@ -263,6 +290,7 @@ def advance_coordinated_window_frame(
 ) -> None:
     if runtime.complete:
         return
+    runtime.activate_opponent()
     raise_if_stop_requested(stop_requested)
     components = runtime.state.components
     if components is None:

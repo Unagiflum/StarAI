@@ -5013,9 +5013,37 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if len(pacing_validation.included_instances) >= 2:
             from src.training.process_session import CpuBatchPacingGroup
 
+            anchor_instance = min(
+                pacing_validation.included_instances,
+                key=lambda item: int(item.instance_id),
+            )
+            anchor_spec = next(
+                spec for spec in specs if spec[0] is anchor_instance
+            )
+            anchor_slot = anchor_spec[1]
+            anchor_reset_checkpoint = bool(anchor_spec[2])
+            anchor_metadata = (
+                {}
+                if anchor_reset_checkpoint
+                else (
+                    anchor_slot.metadata
+                    if isinstance(anchor_slot.metadata, dict)
+                    else {}
+                )
+            )
+            opponent_batch_anchor = max(
+                0,
+                int(
+                    anchor_metadata.get("progress", {}).get(
+                        "completed_batches",
+                        0,
+                    )
+                ),
+            )
             pacing_group = CpuBatchPacingGroup(
                 len(pacing_validation.included_instances)
             )
+            pacing_group.opponent_batch_anchor = opponent_batch_anchor
             pacing_indexes = {
                 instance.instance_id: index
                 for index, instance in enumerate(
