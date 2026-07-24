@@ -130,6 +130,7 @@ from src.training.worker_transport import (
     receive_timed,
     send_timed,
 )
+from src.training.windows_qos import training_high_qos
 
 
 TRAINEE_PARAMETER_CACHE_MAX_ENTRIES = 1
@@ -1231,6 +1232,10 @@ class CoordinatedTrainingSession:
 
     def _run_worker(self) -> None:
         _set_current_thread_below_normal_priority()
+        with training_high_qos():
+            self._run_worker_high_qos()
+
+    def _run_worker_high_qos(self) -> None:
         try:
             for state in self._states.values():
                 if self._stop_requested.is_set():

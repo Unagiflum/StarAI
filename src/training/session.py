@@ -51,6 +51,7 @@ from src.training.value_network import (
     build_optimizer,
     build_value_network,
 )
+from src.training.windows_qos import training_high_qos
 
 
 MAX_BATCH_LOG_LINES = 1000
@@ -686,13 +687,14 @@ class TrainingSession:
             self._mark_stopped()
 
     def _run_worker(self) -> None:
-        try:
-            self._run_loop()
-        except Exception as exc:
-            with self._lock:
-                self._status.error = str(exc)
-        finally:
-            self._mark_stopped()
+        with training_high_qos():
+            try:
+                self._run_loop()
+            except Exception as exc:
+                with self._lock:
+                    self._status.error = str(exc)
+            finally:
+                self._mark_stopped()
 
     def _run_loop(self, *, max_batches: int | None = None) -> None:
         model, optimizer, replay_buffer = self._build_components()

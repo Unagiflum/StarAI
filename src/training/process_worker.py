@@ -79,6 +79,10 @@ from src.training.worker_transport import (
     receive_timed,
     send_timed,
 )
+from src.training.windows_qos import (
+    request_current_process_high_qos,
+    request_current_thread_high_qos,
+)
 
 
 _BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
@@ -725,6 +729,8 @@ def worker_process_main(connection) -> None:
     """Run the request/response worker loop for one multiprocessing connection."""
 
     _set_worker_process_below_normal_priority()
+    request_current_process_high_qos()
+    request_current_thread_high_qos()
     worker = CoordinatedSimulationWorker()
     worker.prepare_display()
     timing_enabled = False

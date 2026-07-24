@@ -49,6 +49,10 @@ from src.training.session import (
     TrainingSession,
     TrainingSessionStatus,
 )
+from src.training.windows_qos import (
+    request_current_process_high_qos,
+    request_current_thread_high_qos,
+)
 
 
 _DISPLAY_SEQUENCE_BYTES = 8
@@ -616,6 +620,8 @@ def independent_training_process_main(
 ) -> None:
     process_started_at = time.perf_counter()
     _set_worker_process_below_normal_priority()
+    request_current_process_high_qos()
+    request_current_thread_high_qos()
     torch = torch_backend.get_torch()
     if torch is not None:
         try:
