@@ -22,7 +22,10 @@ from src.training.model_loader import (
     InferenceModelKey,
     validate_schema_metadata,
 )
-from src.training.contracts import OBSERVATION_SCHEMA_VERSION
+from src.training.contracts import (
+    COMPATIBLE_OBSERVATION_SCHEMA_VERSIONS,
+    OBSERVATION_SCHEMA_VERSION,
+)
 from src.training.model_registry import (
     TrainingModelRepository,
     metadata_from_state,
@@ -76,7 +79,7 @@ class BattleAIModelResolutionTests(unittest.TestCase):
             validate_schema_metadata(
                 {
                     "observation_schema_version": (
-                        OBSERVATION_SCHEMA_VERSION - 2
+                        min(COMPATIBLE_OBSERVATION_SCHEMA_VERSIONS) - 1
                     ),
                 }
             )

@@ -20,6 +20,7 @@ from src.training.causal_credit import (
 )
 from src.training.event_ledger import (
     EVENT_ACTION_USED,
+    EVENT_BATTERY_CHANGED,
     EVENT_CREW_CHANGED,
     EVENT_DEBUFF_APPLIED,
     EVENT_OBJECT_REMOVED,
@@ -91,6 +92,8 @@ _EVENT_REWARD_COMPONENTS = frozenset(
         REWARD_GET_DEBUFFED,
         REWARD_LOSE_CREW,
         REWARD_DIE,
+        REWARD_GAIN_BATTERY,
+        REWARD_LOSE_BATTERY,
     }
 )
 _CAUSAL_REWARD_COMPONENTS = frozenset(
@@ -102,6 +105,7 @@ _CAUSAL_REWARD_COMPONENTS = frozenset(
         REWARD_DESTROY_OWN_OBJECT,
         REWARD_LOSE_CREW,
         REWARD_DIE,
+        REWARD_GAIN_BATTERY,
     }
 )
 
@@ -1030,12 +1034,6 @@ def _calculate_immediate_reward_component_vector(
             outcome.self_speed - outcome.self_max_thrust
         ) / outcome.self_max_thrust * frame_seconds
 
-    if REWARD_GAIN_BATTERY in enabled or REWARD_LOSE_BATTERY in enabled:
-        battery_delta = outcome.self_battery - decision.self_battery
-        if battery_delta > 0 and REWARD_GAIN_BATTERY in enabled:
-            components[_REWARD_COMPONENT_INDEX[REWARD_GAIN_BATTERY]] = battery_delta
-        elif battery_delta < 0 and REWARD_LOSE_BATTERY in enabled:
-            components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_BATTERY]] = -battery_delta
     if REWARD_BATTERY_AT_ZERO in enabled and outcome.self_battery <= 0:
         components[_REWARD_COMPONENT_INDEX[REWARD_BATTERY_AT_ZERO]] = frame_seconds
 
@@ -1062,6 +1060,17 @@ def _calculate_immediate_reward_component_vector(
                 and _is_a2_use_event(event)
             ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_SPAWN_A2]] = 1.0
+        elif event.event_type == EVENT_BATTERY_CHANGED:
+            if not _same_entity(event.target, self_ship):
+                continue
+            if REWARD_GAIN_BATTERY in enabled and event.magnitude > 0:
+                components[_REWARD_COMPONENT_INDEX[REWARD_GAIN_BATTERY]] += (
+                    float(event.magnitude)
+                )
+            elif REWARD_LOSE_BATTERY in enabled and event.magnitude < 0:
+                components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_BATTERY]] += (
+                    -float(event.magnitude)
+                )
         elif event.event_type == EVENT_CREW_CHANGED:
             metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
             own_crew_event = _same_entity(event.target, self_ship)
@@ -1520,7 +1529,14 @@ def _routeable_causal_event_components(
     self_ship = decision.self_ship
     enemy_ship = decision.enemy_ship
     contributions: dict[str, float] = {}
-    if event.event_type == EVENT_CREW_CHANGED:
+    if event.event_type == EVENT_BATTERY_CHANGED:
+        if (
+            _same_entity(event.target, self_ship)
+            and event.magnitude > 0
+            and _ability_name(event) == "UtwigA2"
+        ):
+            contributions[REWARD_GAIN_BATTERY] = float(event.magnitude)
+    elif event.event_type == EVENT_CREW_CHANGED:
         if _same_entity(event.target, enemy_ship) and event.magnitude < 0:
             contributions[REWARD_ENEMY_LOSES_CREW] = (
                 -float(event.magnitude) * _source_reward_credit(event)

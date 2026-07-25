@@ -12,6 +12,7 @@ from src.training.causal_credit import (
     ORIGIN_KIND_AUTONOMOUS_FIRE,
     ORIGIN_KIND_BOARDING,
     ORIGIN_KIND_LAUNCH,
+    ORIGIN_KIND_MAINTAIN,
     ORIGIN_KIND_PRESS,
     REWARD_MODE_CAUSAL,
     REWARD_MODE_LEGACY,
@@ -167,6 +168,32 @@ class BattleEventLedger:
                 obj,
                 self._next_spawn_stamp(self.current_decision_frame),
             )
+            obj._training_origin_enemy_death_count = self.enemy_death_count
+        return bound
+
+    def bind_sustained_action(
+        self,
+        ship,
+        action_number: int,
+        obj,
+    ) -> AbilityRewardCredit | None:
+        """Make the current held-action decision the origin for future effects."""
+
+        if (
+            ship is not self.trainee_ship
+            or obj is None
+            or int(action_number) not in (1, 2, 3)
+            or self.active_trajectory_id is None
+            or self.current_decision_frame is None
+        ):
+            return None
+        credit = full_weight_credit(
+            self.active_trajectory_id,
+            self.current_decision_frame,
+            kind=ORIGIN_KIND_MAINTAIN,
+        )
+        bound = bind_reward_credit(obj, credit)
+        if bound is not None:
             obj._training_origin_enemy_death_count = self.enemy_death_count
         return bound
 
@@ -420,9 +447,20 @@ class BattleEventLedger:
         )
         return _clamp01(credited_loss / total_loss)
 
-    def record_battery_changed(self, ship, delta: float, *, actor=None, source=None):
+    def record_battery_changed(
+        self,
+        ship,
+        delta: float,
+        *,
+        actor=None,
+        source=None,
+        reward_credit: AbilityRewardCredit | None = None,
+    ):
         if delta == 0:
             return None
+        metadata = self._source_metadata(source, _root_owner(source))
+        if reward_credit is not None:
+            metadata["reward_credit"] = reward_credit
         return self.append(
             EVENT_BATTERY_CHANGED,
             actor=actor,
@@ -432,6 +470,7 @@ class BattleEventLedger:
             magnitude=float(delta),
             ability_name=_ability_name(source),
             action=_action_for_object(source),
+            metadata=metadata,
         )
 
     def record_debuff_applied(
@@ -550,6 +589,17 @@ def bind_autonomous_fire(obj, root_parent) -> AbilityRewardCredit | None:
     if ledger is None:
         return None
     return ledger.bind_autonomous_fire(obj, root_parent)
+
+
+def bind_sustained_action(
+    ship,
+    action_number: int,
+    obj,
+) -> AbilityRewardCredit | None:
+    ledger = ledger_for(ship)
+    if ledger is None:
+        return None
+    return ledger.bind_sustained_action(ship, action_number, obj)
 
 
 def bind_hostile_boarding(marine, boarded_ship) -> AbilityRewardCredit | None:
@@ -758,10 +808,23 @@ def _launched_crew_metadata(unit) -> dict[str, Any]:
     }
 
 
-def record_battery_changed(ship, delta: float, *, actor=None, source=None) -> None:
+def record_battery_changed(
+    ship,
+    delta: float,
+    *,
+    actor=None,
+    source=None,
+    reward_credit: AbilityRewardCredit | None = None,
+) -> None:
     ledger = ledger_for(ship)
     if ledger is not None:
-        ledger.record_battery_changed(ship, delta, actor=actor, source=source)
+        ledger.record_battery_changed(
+            ship,
+            delta,
+            actor=actor,
+            source=source,
+            reward_credit=reward_credit,
+        )
 
 
 def record_debuff_applied(

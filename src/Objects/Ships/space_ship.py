@@ -549,7 +549,15 @@ class SpaceShip(PlayerObject):
     def energy_regeneration_enabled(self):
         return True
 
-    def change_energy(self, delta, *, reset_wait=True):
+    def change_energy(
+        self,
+        delta,
+        *,
+        reset_wait=True,
+        actor=None,
+        source=None,
+        reward_credit=None,
+    ):
         """Apply UQM DeltaEnergy semantics and report whether it succeeded."""
         if delta < 0 and -delta > self.current_energy:
             return False
@@ -562,6 +570,9 @@ class SpaceShip(PlayerObject):
         event_ledger.record_battery_changed(
             self,
             self.current_energy - previous_energy,
+            actor=actor,
+            source=source,
+            reward_credit=reward_credit,
         )
         if reset_wait:
             self.energy_timer = 0

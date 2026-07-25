@@ -19,6 +19,8 @@ from src.Objects.Ships.catalog import (
 )
 from src.Objects.Ships.registry import create_ship
 from src.Objects.Ships.Utwig.Utwig import Utwig
+from src.training import event_ledger
+from src.training.causal_credit import reward_credit_for
 
 
 class UtwigShieldTests(unittest.TestCase):
@@ -129,6 +131,46 @@ class UtwigShieldTests(unittest.TestCase):
 
         self.assertEqual(ship.current_energy, energy_after_activation + 3)
         shield.gain_sound.play.assert_called_once_with()
+
+    def test_absorbed_gain_keeps_latest_held_frame_credit_and_actual_cap(self):
+        ship = create_ship("Utwig", 1)
+        ship.initialize_in_battle([500.0, 500.0], 0)
+        ship.current_energy = ship.max_energy
+        ledger = event_ledger.BattleEventLedger()
+        event_ledger.bind_ledger(ship, ledger)
+        ledger.start_reward_trajectory(ship, trajectory_id="trajectory")
+
+        ledger.current_frame = 1
+        ledger.begin_decision(ship, 1, 0, reward_mode="causal")
+        ship.set_control_state("action2", True, 1)
+        shield = ship.process_controls(1)[0]
+        self.assertEqual(reward_credit_for(shield).origins[0].frame_index, 1)
+        self.assertEqual(ship.current_energy, ship.max_energy - 1)
+
+        ledger.current_frame = 2
+        ledger.begin_decision(ship, 2, 0, reward_mode="causal")
+        ship.process_controls(2)
+        self.assertEqual(reward_credit_for(shield).origins[0].frame_index, 2)
+        ship.take_damage(4)
+
+        event_start = len(ledger.events)
+        ledger.current_frame = 3
+        ledger.begin_decision(ship, 3, 0, reward_mode="causal")
+        ship.process_controls(3)
+
+        battery_events = [
+            event
+            for event in ledger.events[event_start:]
+            if event.event_type == event_ledger.EVENT_BATTERY_CHANGED
+        ]
+        self.assertEqual(len(battery_events), 1)
+        gain = battery_events[0]
+        self.assertEqual(gain.magnitude, 1.0)
+        self.assertEqual(
+            gain.metadata["reward_credit"].origins[0].frame_index,
+            2,
+        )
+        self.assertEqual(reward_credit_for(shield).origins[0].frame_index, 3)
 
     def test_failed_midpoint_drain_keeps_uqm_half_cycle_grace(self):
         ship = create_ship("Utwig", 1)

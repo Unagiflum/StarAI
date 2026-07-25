@@ -21,6 +21,7 @@ ORIGIN_KIND_RELEASE = "release"
 ORIGIN_KIND_LAUNCH = "launch"
 ORIGIN_KIND_AUTONOMOUS_FIRE = "autonomous_fire"
 ORIGIN_KIND_BOARDING = "boarding"
+ORIGIN_KIND_MAINTAIN = "maintain"
 
 _WEIGHT_TOLERANCE = 1e-6
 _CREDIT_ATTRIBUTE = "_training_reward_credit"

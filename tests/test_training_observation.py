@@ -82,6 +82,21 @@ def _obj(name, **overrides):
 
 
 class TrainingObservationTests(unittest.TestCase):
+    def test_utwig_a2_timer_field_exposes_shield_drain_phase(self):
+        utwig = _ship(
+            "Utwig",
+            action2_timer=0,
+            _shield_drain_timer=6,
+        )
+        enemy = _ship("Earthling")
+
+        observation = encode_observation(utwig, enemy)
+
+        self.assertEqual(
+            observation[_field("self", "a2_timer")],
+            6 / const.FPS,
+        )
+
     def test_reflection_matches_encoding_of_an_explicitly_mirrored_state(self):
         trainee = _ship(
             "Orz",

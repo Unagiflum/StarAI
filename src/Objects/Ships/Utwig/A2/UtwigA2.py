@@ -64,4 +64,8 @@ class UtwigA2(Ability):
     def absorb_damage(self, damage):
         if damage <= 0:
             return
-        self.parent.queue_shield_energy(damage, self.gain_sound)
+        self.parent.queue_shield_energy(
+            damage,
+            self.gain_sound,
+            source=self,
+        )

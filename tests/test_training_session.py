@@ -501,7 +501,7 @@ class TrainingCompatibilityTests(unittest.TestCase):
         self.assertTrue(report.ok)
         self.assertEqual(
             report.warnings,
-            ("observation schema 5 uses compatible legacy semantics",),
+            ("observation schema 6 uses compatible legacy semantics",),
         )
 
     def test_incompatible_schema_is_an_error(self):

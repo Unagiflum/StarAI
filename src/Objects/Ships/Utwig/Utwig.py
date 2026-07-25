@@ -1,6 +1,8 @@
 from src.Objects.Ships.space_ship import SpaceShip
 from src.Objects.Ships.Utwig.A1.UtwigA1 import UtwigA1
 from src.Objects.Ships.Utwig.A2.UtwigA2 import UtwigA2
+from src.training import event_ledger
+from src.training.causal_credit import reward_credit_for
 import pygame
 
 
@@ -13,6 +15,8 @@ class Utwig(SpaceShip):
         self._shield_drain_timer = 0
         self._pending_shield_energy = 0
         self._pending_shield_gain_sound = None
+        self._pending_shield_energy_source = None
+        self._pending_shield_energy_credit = None
         self._shield_silhouettes = []
         for s in self.sprites:
             m = pygame.mask.from_surface(s, threshold=80)
@@ -25,6 +29,8 @@ class Utwig(SpaceShip):
         self._shield_drain_timer = 0
         self._pending_shield_energy = 0
         self._pending_shield_gain_sound = None
+        self._pending_shield_energy_source = None
+        self._pending_shield_energy_credit = None
 
     def control_ready(self, control_name, frame_id):
         if control_name == "action2":
@@ -43,6 +49,7 @@ class Utwig(SpaceShip):
             self._shield_drain_timer = 0
             self.action2_timer = 0
         elif shield_active:
+            event_ledger.bind_sustained_action(self, 2, shield)
             counter = self._shield_drain_timer
             if counter % self.SHIELD_DRAIN_INTERVAL == 0:
                 if not self.change_energy(-self.a2_cost):
@@ -61,17 +68,29 @@ class Utwig(SpaceShip):
 
         return super().process_controls(frame_id)
 
-    def queue_shield_energy(self, amount, gain_sound=None):
+    def queue_shield_energy(self, amount, gain_sound=None, *, source=None):
         self._pending_shield_energy += max(0, amount)
         if gain_sound is not None:
             self._pending_shield_gain_sound = gain_sound
+        if source is not None:
+            self._pending_shield_energy_source = source
+            self._pending_shield_energy_credit = reward_credit_for(source)
 
     def _apply_pending_shield_energy(self):
         amount = getattr(self, "_pending_shield_energy", 0)
         if amount <= 0:
             return
         self._pending_shield_energy = 0
-        self.change_energy(amount)
+        source = getattr(self, "_pending_shield_energy_source", None)
+        self._pending_shield_energy_source = None
+        credit = getattr(self, "_pending_shield_energy_credit", None)
+        self._pending_shield_energy_credit = None
+        self.change_energy(
+            amount,
+            actor=self,
+            source=source,
+            reward_credit=credit,
+        )
         sound = getattr(self, "_pending_shield_gain_sound", None)
         self._pending_shield_gain_sound = None
         if sound:

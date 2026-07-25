@@ -188,6 +188,7 @@ components:
 - `Debuff enemy`
 - `Kill enemy object`
 - `Kill enemy`
+- Utwig `Gain battery` produced by its held A2 shield
 
 Relocation occurs only when the event source resolves to valid causal credit
 owned by the open trainee reward trajectory.
@@ -201,7 +202,7 @@ These components retain their current timing unless explicitly excepted below:
 - `Get debuffed`
 - `Die`
 - `Gain crew`
-- `Gain battery`
+- `Gain battery`, except Utwig held-shield gains
 - `Lose battery`
 - `Use A1`
 - `Use A2`
@@ -212,6 +213,28 @@ These components retain their current timing unless explicitly excepted below:
 
 Other incoming negative events remain effect-timed so earlier trainee movement
 and avoidance decisions receive ordinary backward credit or penalty.
+
+### Utwig Held-Shield Battery Attribution
+
+Every trainee decision frame that keeps an already-active Utwig A2 shield held
+replaces the shield's future causal origin with that decision frame. A
+shieldable damaging strike snapshots that latest held-frame origin. When the
+queued shield energy is applied on the following preprocess, its actual capped
+battery increase is placed at the snapshotted origin rather than the
+application frame.
+
+Battery gains and losses use gross battery-change events rather than a net
+frame-end delta. An A2 expenditure and an absorbed-energy gain therefore remain
+separate `Lose battery` and `Gain battery` components even when their amounts
+cancel. A gain is limited to the battery increase actually applied after the
+maximum-battery cap; an absorbed strike that applies no energy produces no
+`Gain battery` component. Initial activation and periodic drain losses remain
+on the A2 decision frames that incur them.
+
+All shieldable damage sources that charge the Utwig shield use this rule,
+including projectiles, lasers, areas, and special objects. Damage that bypasses
+the shield and planet impacts configured not to recharge it do not create
+shield-gain credit.
 
 ### Escrow Accounting For Trainee Launched Crew
 

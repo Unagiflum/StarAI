@@ -26,6 +26,7 @@ from src.training.causal_credit import (
     ORIGIN_KIND_AUTONOMOUS_FIRE,
     ORIGIN_KIND_BOARDING,
     ORIGIN_KIND_LAUNCH,
+    ORIGIN_KIND_MAINTAIN,
     ORIGIN_KIND_PRESS,
     ORIGIN_KIND_RELEASE,
     RewardOrigin,
@@ -39,10 +40,12 @@ from src.training.rewards import (
     REWARD_DESTROY_OWN_OBJECT,
     REWARD_ENEMY_LOSES_CREW,
     REWARD_GAIN_CREW,
+    REWARD_GAIN_BATTERY,
     REWARD_GET_DEBUFFED,
     REWARD_KILL_ENEMY,
     REWARD_KILL_ENEMY_OBJECT,
     REWARD_LOSE_CREW,
+    REWARD_LOSE_BATTERY,
     REWARD_POINT_A1,
     REWARD_SPAWN_A1,
     RewardDecisionFrame,
@@ -147,6 +150,79 @@ class CausalCreditContractTests(unittest.TestCase):
 
 
 class StagedTrajectoryParityTests(unittest.TestCase):
+    def test_utwig_gain_routes_to_latest_held_a2_frame_without_netting_cost(self):
+        trainee = SimpleNamespace(name="Utwig")
+        enemy = SimpleNamespace(name="Earthling")
+        shield = SimpleNamespace(
+            name="UtwigA2",
+            type="shield",
+            parent=trainee,
+        )
+        ledger = event_ledger.BattleEventLedger()
+        ledger.start_reward_trajectory(trainee, trajectory_id="trajectory")
+        pipeline = StagedTrajectoryPipeline(
+            gamma=0.9,
+            reward_weights={
+                REWARD_GAIN_BATTERY: 1.0,
+                REWARD_LOSE_BATTERY: -1.0,
+            },
+            mode="causal",
+        )
+
+        first = RewardDecisionFrame(
+            1, (1.0,), 0, self_ship=trainee, enemy_ship=enemy
+        )
+        ledger.begin_decision(trainee, 1, 0, reward_mode="causal")
+        pipeline.stage_decision(first, trajectory_id="trajectory")
+        loss = ledger.record_battery_changed(trainee, -1)
+        pipeline.add_frame(
+            first,
+            RewardFrameOutcome(1, events=(loss,)),
+            ledger=ledger,
+            staged_index=0,
+        )
+
+        held = RewardDecisionFrame(
+            2, (2.0,), 0, self_ship=trainee, enemy_ship=enemy
+        )
+        ledger.begin_decision(trainee, 2, 0, reward_mode="causal")
+        pipeline.stage_decision(held, trajectory_id="trajectory")
+        credit = ledger.bind_sustained_action(trainee, 2, shield)
+        self.assertEqual(credit.origins[0].kind, ORIGIN_KIND_MAINTAIN)
+        pipeline.add_frame(
+            held,
+            RewardFrameOutcome(2),
+            ledger=ledger,
+            staged_index=1,
+        )
+
+        applied = RewardDecisionFrame(
+            3, (3.0,), 0, self_ship=trainee, enemy_ship=enemy
+        )
+        ledger.begin_decision(trainee, 3, 0, reward_mode="causal")
+        pipeline.stage_decision(applied, trajectory_id="trajectory")
+        gain = ledger.record_battery_changed(
+            trainee,
+            1,
+            actor=trainee,
+            source=shield,
+        )
+        ledger.bind_sustained_action(trainee, 2, shield)
+        pipeline.add_frame(
+            applied,
+            RewardFrameOutcome(3, events=(gain,)),
+            ledger=ledger,
+            staged_index=2,
+        )
+
+        first_components = pipeline.immediate_components_for_frame(1)
+        held_components = pipeline.immediate_components_for_frame(2)
+        applied_components = pipeline.immediate_components_for_frame(3)
+        self.assertEqual(first_components[REWARD_LOSE_BATTERY], 1.0)
+        self.assertEqual(first_components[REWARD_GAIN_BATTERY], 0.0)
+        self.assertEqual(held_components[REWARD_GAIN_BATTERY], 1.0)
+        self.assertEqual(applied_components[REWARD_GAIN_BATTERY], 0.0)
+
     def test_packed_staging_matches_rolling_pipeline_exact_contract(self):
         weights = {REWARD_POINT_A1: 2.5}
         rolling = RollingReturnPipeline(gamma=0.9, reward_weights=weights)

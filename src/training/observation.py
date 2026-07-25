@@ -197,7 +197,7 @@ def _ship_block(
         _number(ship, "a1_wait") / const.FPS,
         _number(ship, "action1_timer") / const.FPS,
         _number(ship, "a2_wait") / const.FPS,
-        _number(ship, "action2_timer") / const.FPS,
+        _a2_timer_observation(ship) / const.FPS,
         _number(ship, "a3_wait") / const.FPS,
         _number(ship, "action3_timer") / const.FPS,
         _number(ship, "energy_timer") / const.FPS,
@@ -666,6 +666,12 @@ def _damage_shield_active(ship) -> bool:
         and getattr(shield, "currently_alive", False)
         and getattr(shield, "blocks_damage", False)
     )
+
+
+def _a2_timer_observation(ship) -> float:
+    if getattr(ship, "name", None) == "Utwig":
+        return _number(ship, "_shield_drain_timer")
+    return _number(ship, "action2_timer")
 
 
 def _cloak_transition_direction(ship) -> int:

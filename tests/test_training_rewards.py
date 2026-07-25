@@ -7,6 +7,7 @@ from src.collision_capabilities import CollisionCapabilities, CollisionRole
 from src.training.event_ledger import BattleEventLedger
 from src.training.event_ledger import (
     EVENT_ACTION_USED,
+    EVENT_BATTERY_CHANGED,
     EVENT_CREW_CHANGED,
     EVENT_DEBUFF_APPLIED,
     EVENT_OBJECT_REMOVED,
@@ -281,6 +282,12 @@ class TrainingRewardComponentTests(unittest.TestCase):
                 event_type=EVENT_SHIP_DIED,
                 target=self.trainee,
             ),
+            TrainingBattleEvent(
+                frame_id=1,
+                event_type=EVENT_BATTERY_CHANGED,
+                target=self.trainee,
+                magnitude=2,
+            ),
         )
         start = decision(1, self.trainee, self.enemy, battery=5, speed=8, max_thrust=10)
         end = outcome(1, battery=7, speed=11, max_thrust=10, events=events)
@@ -468,14 +475,51 @@ class TrainingRewardComponentTests(unittest.TestCase):
                 result = frame_outcome_from_battle_state(frame_id=1, self_ship=ship)
                 self.assertEqual(result.self_sustained_a2_active, expected)
 
-    def test_battery_loss_and_zero_are_endpoint_rewards(self):
+    def test_battery_loss_event_and_zero_endpoint_are_separate_rewards(self):
         start = decision(1, self.trainee, self.enemy, battery=4)
-        end = outcome(1, battery=0)
+        end = outcome(
+            1,
+            battery=0,
+            events=(
+                TrainingBattleEvent(
+                    frame_id=1,
+                    event_type=EVENT_BATTERY_CHANGED,
+                    target=self.trainee,
+                    magnitude=-4,
+                ),
+            ),
+        )
 
         components = calculate_reward_components(start, [start], [end])
 
         self.assertEqual(components[REWARD_LOSE_BATTERY], 4.0)
         self.assertEqual(components[REWARD_BATTERY_AT_ZERO], 1 / const.FPS)
+
+    def test_battery_gain_and_loss_are_not_netted_within_a_frame(self):
+        start = decision(1, self.trainee, self.enemy, battery=4)
+        end = outcome(
+            1,
+            battery=4,
+            events=(
+                TrainingBattleEvent(
+                    frame_id=1,
+                    event_type=EVENT_BATTERY_CHANGED,
+                    target=self.trainee,
+                    magnitude=-1,
+                ),
+                TrainingBattleEvent(
+                    frame_id=1,
+                    event_type=EVENT_BATTERY_CHANGED,
+                    target=self.trainee,
+                    magnitude=1,
+                ),
+            ),
+        )
+
+        components = calculate_reward_components(start, [start], [end])
+
+        self.assertEqual(components[REWARD_LOSE_BATTERY], 1.0)
+        self.assertEqual(components[REWARD_GAIN_BATTERY], 1.0)
 
     def test_high_speed_reward_is_per_second_excess_speed_ratio(self):
         decisions = [
@@ -866,20 +910,53 @@ class RollingReturnPipelineTests(unittest.TestCase):
         self.assertEqual(
             pipeline.add_frame(
                 decision(1, self.trainee, self.enemy, battery=1, a1_pointing=True),
-                outcome(1, battery=2),
+                outcome(
+                    1,
+                    battery=2,
+                    events=(
+                        TrainingBattleEvent(
+                            frame_id=1,
+                            event_type=EVENT_BATTERY_CHANGED,
+                            target=self.trainee,
+                            magnitude=1,
+                        ),
+                    ),
+                ),
             ),
             [],
         )
         self.assertEqual(
             pipeline.add_frame(
                 decision(2, self.trainee, self.enemy, battery=2),
-                outcome(2, battery=3),
+                outcome(
+                    2,
+                    battery=3,
+                    events=(
+                        TrainingBattleEvent(
+                            frame_id=2,
+                            event_type=EVENT_BATTERY_CHANGED,
+                            target=self.trainee,
+                            magnitude=1,
+                        ),
+                    ),
+                ),
             ),
             [],
         )
         matured = pipeline.add_frame(
             decision(3, self.trainee, self.enemy, battery=3),
-            outcome(3, battery=4),
+            outcome(
+                3,
+                battery=4,
+                events=(
+                    TrainingBattleEvent(
+                        frame_id=3,
+                        event_type=EVENT_BATTERY_CHANGED,
+                        target=self.trainee,
+                        magnitude=1,
+                    ),
+                ),
+            ),
         )
 
         self.assertEqual(len(matured), 1)
