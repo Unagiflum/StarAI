@@ -222,6 +222,51 @@ class TrainingQosIntegrationTests(unittest.TestCase):
         process_qos.assert_called_once_with()
         thread_qos.assert_called_once_with()
 
+    def test_independent_cpu_process_starts_normal_when_display_is_enabled(self):
+        display_event = mock.Mock()
+        display_event.is_set.return_value = True
+
+        with (
+            mock.patch(
+                "src.training.process_session._set_worker_process_below_normal_priority"
+            ) as low_priority,
+            mock.patch(
+                "src.training.process_session._set_worker_process_normal_priority"
+            ) as normal_priority,
+            mock.patch(
+                "src.training.process_session.request_current_process_high_qos"
+            ),
+            mock.patch(
+                "src.training.process_session.request_current_thread_high_qos"
+            ),
+            mock.patch(
+                "src.training.process_session.torch_backend.get_torch",
+                side_effect=RuntimeError("stop after priority setup"),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "priority setup"):
+                independent_training_process_main(
+                    bundled_dir=Path("bundled"),
+                    user_dir=Path("user"),
+                    slot=None,
+                    metadata={},
+                    config=None,
+                    batch_grouping=1,
+                    stop_at_batch=None,
+                    stop_at_epsilon=None,
+                    initial_history=(),
+                    initial_log_lines=(),
+                    save_coordinator=None,
+                    message_queue=None,
+                    control_queue=None,
+                    stop_event=None,
+                    display_event=display_event,
+                    display_frame_count=1,
+                )
+
+        low_priority.assert_not_called()
+        normal_priority.assert_called_once_with()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -41,6 +41,7 @@ from src.training.orchestration import (
 )
 from src.training.process_worker import (
     _set_worker_process_below_normal_priority,
+    _set_worker_process_normal_priority,
     _start_process_with_single_threaded_openblas,
 )
 from src.training.session import (
@@ -427,6 +428,7 @@ class _ProcessTrainingEngine(TrainingSession):
     ) -> None:
         self._publisher = publisher
         self._process_save_coordinator = save_coordinator
+        self._display_priority_on = bool(display_event.is_set())
         self._discovery_generations: tuple[int, ...] | None = None
         self._discovery_deferred = False
         self._last_frame_status_published_at = 0.0
@@ -463,6 +465,7 @@ class _ProcessTrainingEngine(TrainingSession):
         return battle_view
 
     def _on_progress(self, payload: Mapping[str, Any]) -> None:
+        self._sync_display_process_priority()
         self._publisher.apply_controls(self)
         super()._on_progress(payload)
         event = payload.get("event")
@@ -484,6 +487,18 @@ class _ProcessTrainingEngine(TrainingSession):
             self._publisher.publish_status(self)
             if event == "frame":
                 self._last_frame_status_published_at = now
+
+    def _sync_display_process_priority(self) -> None:
+        """Promote only the displayed CPU worker and restore it when hidden."""
+
+        display_on = bool(self._display_on.is_set())
+        if display_on == self._display_priority_on:
+            return
+        if display_on:
+            _set_worker_process_normal_priority()
+        else:
+            _set_worker_process_below_normal_priority()
+        self._display_priority_on = display_on
 
     def _record_completed_batch(self, *args, **kwargs) -> int:
         if self._batch_pacing_group is None or self._batch_pacing_index is None:
@@ -619,7 +634,10 @@ def independent_training_process_main(
     batch_pacing_index: int | None = None,
 ) -> None:
     process_started_at = time.perf_counter()
-    _set_worker_process_below_normal_priority()
+    if display_event is not None and display_event.is_set():
+        _set_worker_process_normal_priority()
+    else:
+        _set_worker_process_below_normal_priority()
     request_current_process_high_qos()
     request_current_thread_high_qos()
     torch = torch_backend.get_torch()

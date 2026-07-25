@@ -52,9 +52,11 @@ from src.training.coordinated import (
 )
 from src.training.process_worker import (
     _BELOW_NORMAL_PRIORITY_CLASS,
+    _NORMAL_PRIORITY_CLASS,
     _OPENBLAS_NUM_THREADS_ENV,
     _start_process_with_single_threaded_openblas,
     _set_worker_process_below_normal_priority,
+    _set_worker_process_normal_priority,
     COMMAND_REQUEST_OBSERVATION,
     COMMAND_STEP_FRAME,
     CoordinatedSimulationWorker,
@@ -1076,9 +1078,28 @@ class CoordinatedProcessWorkerProtocolTests(unittest.TestCase):
             _BELOW_NORMAL_PRIORITY_CLASS,
         )
 
+    @mock.patch("src.training.process_worker.ctypes.WinDLL", create=True)
+    @mock.patch("src.training.process_worker.sys.platform", "win32")
+    def test_windows_displayed_worker_process_uses_normal_priority(
+        self,
+        win_dll,
+    ):
+        kernel32 = win_dll.return_value
+        kernel32.GetCurrentProcess.return_value = 123
+        kernel32.SetPriorityClass.return_value = 1
+
+        changed = _set_worker_process_normal_priority()
+
+        self.assertTrue(changed)
+        kernel32.SetPriorityClass.assert_called_once_with(
+            123,
+            _NORMAL_PRIORITY_CLASS,
+        )
+
     @mock.patch("src.training.process_worker.sys.platform", "linux")
     def test_non_windows_worker_process_leaves_priority_unchanged(self):
         self.assertFalse(_set_worker_process_below_normal_priority())
+        self.assertFalse(_set_worker_process_normal_priority())
 
     def test_command_and_result_dataclasses_are_picklable(self):
         config = TrainingOrchestrationConfig(

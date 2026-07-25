@@ -379,6 +379,31 @@ class ProcessTrainingResourceTests(unittest.TestCase):
 
         self.assertIs(engine._battle_view_for_display(battle_view), battle_view)
 
+    def test_worker_priority_follows_display_state_transitions_once(self):
+        engine = object.__new__(_ProcessTrainingEngine)
+        engine._display_on = threading.Event()
+        engine._display_priority_on = False
+
+        with (
+            mock.patch(
+                "src.training.process_session._set_worker_process_normal_priority"
+            ) as normal_priority,
+            mock.patch(
+                "src.training.process_session._set_worker_process_below_normal_priority"
+            ) as below_normal_priority,
+        ):
+            engine._sync_display_process_priority()
+            engine._display_on.set()
+            engine._sync_display_process_priority()
+            engine._sync_display_process_priority()
+            engine._display_on.clear()
+            engine._sync_display_process_priority()
+            engine._sync_display_process_priority()
+
+        normal_priority.assert_called_once_with()
+        below_normal_priority.assert_called_once_with()
+        self.assertFalse(engine._display_priority_on)
+
     def test_worker_sound_effect_gate_follows_shared_display_event(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

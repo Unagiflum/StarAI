@@ -85,6 +85,7 @@ from src.training.windows_qos import (
 )
 
 
+_NORMAL_PRIORITY_CLASS = 0x00000020
 _BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
 _OPENBLAS_NUM_THREADS_ENV = "OPENBLAS_NUM_THREADS"
 _WORKER_PROCESS_START_LOCK = threading.Lock()
@@ -138,8 +139,8 @@ def _add_worker_timing(
         )
 
 
-def _set_worker_process_below_normal_priority() -> bool:
-    """Give Windows foreground work precedence over this simulation worker."""
+def _set_worker_process_priority_class(priority_class: int) -> bool:
+    """Set the current Windows worker process scheduling priority class."""
 
     if sys.platform != "win32":
         return False
@@ -153,12 +154,24 @@ def _set_worker_process_below_normal_priority() -> bool:
         return bool(
             set_priority_class(
                 get_current_process(),
-                _BELOW_NORMAL_PRIORITY_CLASS,
+                int(priority_class),
             )
         )
     except (AttributeError, OSError):
         # Priority is a responsiveness optimization, not a startup requirement.
         return False
+
+
+def _set_worker_process_below_normal_priority() -> bool:
+    """Give Windows foreground work precedence over this simulation worker."""
+
+    return _set_worker_process_priority_class(_BELOW_NORMAL_PRIORITY_CLASS)
+
+
+def _set_worker_process_normal_priority() -> bool:
+    """Give a displayed Windows training worker normal scheduling priority."""
+
+    return _set_worker_process_priority_class(_NORMAL_PRIORITY_CLASS)
 
 
 def _start_process_with_single_threaded_openblas(process, *, environ=None) -> None:
