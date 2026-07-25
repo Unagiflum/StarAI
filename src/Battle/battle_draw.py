@@ -798,7 +798,11 @@ def draw_hud_badge(screen, hud_rect, player_id, badge):
         ui.WHITE,
         max_font_size=max_font_size,
     )
-    screen.blit(rendered, rendered.get_rect(center=center))
+    rendered_rect = rendered.get_rect(center=center)
+    painted_bounds = rendered.get_bounding_rect()
+    if painted_bounds.height:
+        rendered_rect.y = center[1] - painted_bounds.centery
+    screen.blit(rendered, rendered_rect)
 
 
 def _draw_battle_instructions(screen):

@@ -466,6 +466,36 @@ class BattleHudLayoutTests(unittest.TestCase):
             max_font_size=HUD_BADGE_CONTROLLER_FONT_SIZE,
         )
 
+    def test_badge_centers_visible_text_vertically(self):
+        from src.Battle.battle_draw import draw_hud_badge
+
+        screen = pygame.Surface((100, 100))
+        rendered = pygame.Surface((9, 13), pygame.SRCALPHA)
+        rendered.fill((255, 255, 255, 255), pygame.Rect(2, 1, 5, 7))
+
+        with mock.patch(
+            "src.Battle.battle_draw._render_hud_badge_text",
+            return_value=rendered,
+        ):
+            draw_hud_badge(
+                screen,
+                pygame.Rect(0, 0, 100, 100),
+                1,
+                HudBadge("simple"),
+            )
+
+        radius = HUD_BADGE_SIZE // 2
+        center_y = HUD_BADGE_GAP + radius
+        text_rows = [
+            y
+            for y in range(screen.get_height())
+            if any(
+                screen.get_at((x, y))[:3] == (255, 255, 255)
+                for x in range(screen.get_width())
+            )
+        ]
+        self.assertEqual((min(text_rows) + max(text_rows)) / 2, center_y)
+
 
 class BattleResumeFlowTests(unittest.TestCase):
     def test_controller_badges_are_passed_to_battle_draw(self):
