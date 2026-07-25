@@ -186,6 +186,33 @@ class ProcessModelSaveCoordinatorTests(unittest.TestCase):
 
 
 class SharedDisplayRendererTests(unittest.TestCase):
+    def test_deadline_budget_selects_available_interpolation_frames(self):
+        renderer = _SharedDisplayRenderer(5)
+
+        self.assertEqual(
+            renderer._frame_count_for_deadline(None, now=100.0),
+            5,
+        )
+        self.assertEqual(
+            renderer._frame_count_for_deadline(100.1, now=100.0),
+            1,
+        )
+
+        renderer._seconds_per_frame = 0.01
+
+        self.assertEqual(
+            renderer._frame_count_for_deadline(100.061, now=100.0),
+            5,
+        )
+        self.assertEqual(
+            renderer._frame_count_for_deadline(100.026, now=100.0),
+            2,
+        )
+        self.assertEqual(
+            renderer._frame_count_for_deadline(100.005, now=100.0),
+            1,
+        )
+
     def test_prepared_renderer_writes_rgb_backing_buffer_without_reencoding(self):
         width = 4
         height = 2
@@ -301,6 +328,58 @@ class SharedDisplayRendererTests(unittest.TestCase):
             renderer.close()
             memory.unlink()
 
+    def test_reader_uses_fixed_slot_stride_when_worker_sheds_frames(self):
+        width = 4
+        height = 2
+        frame_capacity = 3
+        frame_bytes = width * height * 3
+        frame_set_bytes = frame_capacity * frame_bytes
+        memory = shared_memory.SharedMemory(
+            create=True,
+            size=(
+                _DISPLAY_SEQUENCE_BYTES
+                + _DISPLAY_BUFFER_COUNT * frame_set_bytes
+            ),
+        )
+        renderer = _SharedDisplayRenderer(frame_capacity)
+        renderer._memory = memory
+        renderer._memory_name = memory.name
+        renderer._surface = pygame.Surface((width, height))
+        renderer._renderer = mock.Mock()
+        renderer._star_field = object()
+        renderer._seconds_per_frame = 0.01
+        reader = object.__new__(ProcessTrainingSession)
+        reader._display_memory = memory
+
+        try:
+            with (
+                mock.patch.object(const, "SCREEN_WIDTH", width),
+                mock.patch.object(const, "SCREEN_HEIGHT", height),
+                mock.patch.object(const, "SCREEN_LEFT", 1),
+                mock.patch(
+                    "src.training.process_session.pygame.image.tobytes",
+                    return_value=b"\x11" * frame_bytes,
+                ),
+                mock.patch(
+                    "src.training.process_session.time.perf_counter",
+                    side_effect=(100.0, 100.012),
+                ),
+            ):
+                metadata = renderer.render(
+                    {"frame_id": 7},
+                    deadline=100.026,
+                )
+                frames = reader._read_display_frames(metadata)
+
+            self.assertEqual(metadata["shared_frame_count"], 2)
+            self.assertEqual(metadata["shared_frame_capacity"], frame_capacity)
+            self.assertEqual(renderer._renderer.draw.call_count, 2)
+            self.assertEqual(len(frames), 2)
+            self.assertEqual(frames[0].get_at((0, 0))[:3], (17, 17, 17))
+        finally:
+            renderer.close()
+            memory.unlink()
+
 
 class ProcessOpponentDiscoveryTests(unittest.TestCase):
     def test_cached_saving_opponent_is_retained_then_reloaded_next_batch(self):
@@ -403,6 +482,28 @@ class ProcessTrainingResourceTests(unittest.TestCase):
         normal_priority.assert_called_once_with()
         below_normal_priority.assert_called_once_with()
         self.assertFalse(engine._display_priority_on)
+
+    def test_worker_display_pacing_sleeps_after_reserved_render_budget(self):
+        engine = object.__new__(_ProcessTrainingEngine)
+        engine._next_display_frame_time = 100.0
+        engine._display_render_deadline = None
+
+        with (
+            mock.patch(
+                "src.training.process_session.time.perf_counter",
+                side_effect=(100.0, 100.03),
+            ),
+            mock.patch("src.training.process_session.time.sleep") as sleep,
+        ):
+            engine._throttle_display_frame()
+            sleep.assert_not_called()
+            engine._finish_display_frame_deadline()
+
+        self.assertAlmostEqual(
+            sleep.call_args.args[0],
+            100.0 + 1.0 / const.FPS - 100.03,
+        )
+        self.assertIsNone(engine._display_render_deadline)
 
     def test_worker_sound_effect_gate_follows_shared_display_event(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1091,7 +1192,11 @@ class ProcessTrainingSessionTests(unittest.TestCase):
                         f"received {sorted(frame_ids)}"
                     )
 
-                self.assertEqual(
+                self.assertGreaterEqual(
+                    len(battle_view["rendered_frames"]),
+                    1,
+                )
+                self.assertLessEqual(
                     len(battle_view["rendered_frames"]),
                     const.VIDEO_FPS_MULTIPLIER,
                 )

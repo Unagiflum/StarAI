@@ -49,6 +49,7 @@ from src.training.session import (
     BatchMetrics,
     TrainingSession,
     TrainingSessionStatus,
+    advance_display_frame_deadline,
 )
 from src.training.windows_qos import (
     request_current_process_high_qos,
@@ -63,6 +64,8 @@ _MESSAGE_SAVED = "saved"
 _MESSAGE_AUDIO = "audio"
 _CONTROL_DISPLAY_BUFFER = "display_buffer"
 _CONTROL_STARTING_EPSILON = "starting_epsilon"
+_DISPLAY_RENDER_SAFETY_SECONDS = 0.001
+_DISPLAY_RENDER_COST_ALPHA = 0.25
 
 
 class CpuBatchPacingGroup:
@@ -239,6 +242,7 @@ class _SharedDisplayRenderer:
         self._star_field: DisplayStarField | None = None
         self._resources = HeadlessAssetManager()
         self._frame_count = max(1, int(frame_count))
+        self._seconds_per_frame: float | None = None
 
     def prepare(self) -> None:
         """Initialize display-only worker resources before the first visible frame."""
@@ -267,15 +271,20 @@ class _SharedDisplayRenderer:
             self._memory = shared_memory.SharedMemory(name=normalized)
             self._memory_name = normalized
 
-    def render(self, battle_view: Mapping[str, Any]) -> Mapping[str, int] | None:
+    def render(
+        self,
+        battle_view: Mapping[str, Any],
+        *,
+        deadline: float | None = None,
+    ) -> Mapping[str, int] | None:
         memory = self._memory
         if memory is None:
             return None
         width = const.SCREEN_WIDTH
         height = const.SCREEN_HEIGHT
-        frame_count = self._frame_count
+        frame_capacity = self._frame_count
         frame_bytes = width * height * 3
-        frame_set_bytes = frame_count * frame_bytes
+        frame_set_bytes = frame_capacity * frame_bytes
         required = (
             _DISPLAY_SEQUENCE_BYTES
             + _DISPLAY_BUFFER_COUNT * frame_set_bytes
@@ -292,6 +301,11 @@ class _SharedDisplayRenderer:
         committed_sequence = self._sequence + 1
         buffer_index = committed_sequence % _DISPLAY_BUFFER_COUNT
         buffer_offset = _DISPLAY_SEQUENCE_BYTES + buffer_index * frame_set_bytes
+        render_started_at = time.perf_counter()
+        frame_count = self._frame_count_for_deadline(
+            deadline,
+            now=render_started_at,
+        )
         layout = create_play_battle_layout(
             pygame.Rect(const.SCREEN_LEFT, 0, const.SCREEN_HEIGHT, const.SCREEN_HEIGHT)
         )
@@ -317,13 +331,41 @@ class _SharedDisplayRenderer:
                 pixels = pygame.image.tobytes(surface, "RGB")
             offset = buffer_offset + index * frame_bytes
             memory.buf[offset : offset + frame_bytes] = pixels
+        render_seconds = max(0.0, time.perf_counter() - render_started_at)
+        seconds_per_frame = render_seconds / frame_count
+        if self._seconds_per_frame is None:
+            self._seconds_per_frame = seconds_per_frame
+        else:
+            alpha = _DISPLAY_RENDER_COST_ALPHA
+            self._seconds_per_frame = (
+                (1.0 - alpha) * self._seconds_per_frame
+                + alpha * seconds_per_frame
+            )
         self._sequence = committed_sequence
         struct.pack_into("<Q", memory.buf, 0, committed_sequence)
         return {
             "frame_id": int(battle_view.get("frame_id", 0)),
             "shared_frame_count": frame_count,
+            "shared_frame_capacity": frame_capacity,
             "shared_sequence": committed_sequence,
         }
+
+    def _frame_count_for_deadline(
+        self,
+        deadline: float | None,
+        *,
+        now: float,
+    ) -> int:
+        if deadline is None:
+            return self._frame_count
+        estimate = self._seconds_per_frame
+        if estimate is None or estimate <= 0.0:
+            return 1
+        available = max(
+            0.0,
+            float(deadline) - float(now) - _DISPLAY_RENDER_SAFETY_SECONDS,
+        )
+        return max(1, min(self._frame_count, int(available / estimate)))
 
     def close(self) -> None:
         if self._memory is not None:
@@ -361,11 +403,15 @@ class _ProcessPublisher:
         session: TrainingSession,
         *,
         include_continuity: bool = False,
+        display_deadline: float | None = None,
     ) -> None:
         status = session.status
         display_metadata = None
         if status.battle_view:
-            display_metadata = self._renderer.render(status.battle_view)
+            display_metadata = self._renderer.render(
+                status.battle_view,
+                deadline=display_deadline,
+            )
         status = replace(status, battle_view=display_metadata)
         self._messages.put(
             (
@@ -429,6 +475,7 @@ class _ProcessTrainingEngine(TrainingSession):
         self._publisher = publisher
         self._process_save_coordinator = save_coordinator
         self._display_priority_on = bool(display_event.is_set())
+        self._display_render_deadline: float | None = None
         self._discovery_generations: tuple[int, ...] | None = None
         self._discovery_deferred = False
         self._last_frame_status_published_at = 0.0
@@ -484,9 +531,20 @@ class _ProcessTrainingEngine(TrainingSession):
             )
         )
         if event != "frame" or frame_status_due:
-            self._publisher.publish_status(self)
+            self._publisher.publish_status(
+                self,
+                display_deadline=(
+                    self._display_render_deadline
+                    if event == "frame" and display_on
+                    else None
+                ),
+            )
             if event == "frame":
                 self._last_frame_status_published_at = now
+        if event == "frame" and display_on:
+            self._finish_display_frame_deadline()
+        elif event == "frame":
+            self._display_render_deadline = None
 
     def _sync_display_process_priority(self) -> None:
         """Promote only the displayed CPU worker and restore it when hidden."""
@@ -499,6 +557,26 @@ class _ProcessTrainingEngine(TrainingSession):
         else:
             _set_worker_process_below_normal_priority()
         self._display_priority_on = display_on
+
+    def _throttle_display_frame(self) -> None:
+        """Reserve the physics deadline for rendering before sleeping."""
+
+        self._next_display_frame_time, _sleep_seconds = (
+            advance_display_frame_deadline(
+                self._next_display_frame_time,
+                now=time.perf_counter(),
+            )
+        )
+        self._display_render_deadline = self._next_display_frame_time
+
+    def _finish_display_frame_deadline(self) -> None:
+        deadline = self._display_render_deadline
+        self._display_render_deadline = None
+        if deadline is None:
+            return
+        sleep_seconds = float(deadline) - time.perf_counter()
+        if sleep_seconds > 0.0:
+            time.sleep(sleep_seconds)
 
     def _record_completed_batch(self, *args, **kwargs) -> int:
         if self._batch_pacing_group is None or self._batch_pacing_index is None:
@@ -1064,7 +1142,8 @@ class ProcessTrainingSession:
         height = const.SCREEN_HEIGHT
         frame_bytes = width * height * 3
         frame_count = int(metadata["shared_frame_count"])
-        frame_set_bytes = frame_count * frame_bytes
+        frame_capacity = int(metadata.get("shared_frame_capacity", frame_count))
+        frame_set_bytes = frame_capacity * frame_bytes
         buffer_index = expected % _DISPLAY_BUFFER_COUNT
         buffer_offset = _DISPLAY_SEQUENCE_BYTES + buffer_index * frame_set_bytes
         frames = []
