@@ -819,10 +819,9 @@ def draw_hud_badge(screen, hud_rect, player_id, badge):
         **countdown_font_options,
     )
     rendered_rect = rendered.get_rect(center=center)
-    if badge.kind != "countdown":
-        painted_bounds = rendered.get_bounding_rect()
-        if painted_bounds.height:
-            rendered_rect.y = center[1] - painted_bounds.centery
+    painted_bounds = rendered.get_bounding_rect()
+    if painted_bounds.height:
+        rendered_rect.y = center[1] - painted_bounds.centery
     screen.blit(rendered, rendered_rect)
 
 

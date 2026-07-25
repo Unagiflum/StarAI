@@ -512,6 +512,37 @@ class BattleHudLayoutTests(unittest.TestCase):
         self.assertLessEqual(three_digits.get_height(), available_size)
         self.assertEqual(three_digits.get_height(), two_digits.get_height())
 
+    def test_countdown_numerals_remain_vertically_centered(self):
+        from src.Battle.battle_draw import draw_hud_badge
+
+        radius = HUD_BADGE_SIZE // 2
+        center_y = HUD_BADGE_GAP + radius
+        painted_centers = []
+        for value in (150, 99, 1, 0):
+            screen = pygame.Surface((100, 100))
+            draw_hud_badge(
+                screen,
+                pygame.Rect(0, 0, 100, 100),
+                1,
+                HudBadge("countdown", value),
+            )
+            text_rows = [
+                y
+                for y in range(screen.get_height())
+                if any(
+                    (
+                        (pixel := screen.get_at((x, y))).r
+                        == pixel.g
+                        == pixel.b
+                        and pixel.r > 0
+                    )
+                    for x in range(screen.get_width())
+                )
+            ]
+            painted_centers.append((min(text_rows) + max(text_rows)) / 2)
+
+        self.assertEqual(painted_centers, [center_y] * 4)
+
     def test_badge_centers_visible_text_vertically(self):
         from src.Battle.battle_draw import draw_hud_badge
 
