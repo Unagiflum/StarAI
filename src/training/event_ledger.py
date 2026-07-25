@@ -13,6 +13,7 @@ from src.training.causal_credit import (
     ORIGIN_KIND_BOARDING,
     ORIGIN_KIND_LAUNCH,
     ORIGIN_KIND_PRESS,
+    REWARD_MODE_CAUSAL,
     REWARD_MODE_LEGACY,
     REWARD_MODES,
     bind_boarding_reward_credit,
@@ -39,6 +40,7 @@ EVENT_REBIRTH_ATTEMPT = "rebirth_attempt"
 EVENT_REBIRTH_COMPLETED = "rebirth_completed"
 
 LAUNCHED_CREW_LOSS_TIMER_EXPIRATION = "timer_expiration"
+LAUNCHED_CREW_NAMES = frozenset({"KzerZaA2", "OrzA3"})
 
 DEBUFF_LIMPET = "limpet"
 DEBUFF_BOARDING_MARINE = "boarding_marine"
@@ -629,26 +631,131 @@ def record_launched_crew_lost(
     ledger = ledger_for(unit) or ledger_for(parent)
     if ledger is None:
         return
-    metadata = {
-        "launched_crew_loss": True,
-        "launched_unit": unit,
-        "launched_unit_ability_name": _ability_name(unit),
-        "launched_unit_credit": reward_credit_for(unit),
-        "launched_unit_spawn_stamp": spawn_stamp_for(unit),
-    }
+    metadata = _launched_crew_metadata(unit)
+    metadata.update(
+        {
+            "launched_crew_loss": True,
+            "launched_crew_escrow_debited": bool(
+                getattr(unit, "_training_crew_escrow_debited", False)
+            ),
+        }
+    )
     if loss_reason is not None:
         metadata["launched_crew_loss_reason"] = str(loss_reason)
     if boarding_reward_credit_for(unit) is not None:
         metadata["source_credit"] = (
             const.HOSTILE_BOARDED_MARINE_CREW_LOSS_REWARD_FACTOR
         )
+    destroying_source = source if source is not None else unit
+    if (
+        ledger.reward_mode == REWARD_MODE_CAUSAL
+        and parent is ledger.trainee_ship
+        and metadata["launched_crew_escrow_debited"]
+    ):
+        source_owner = _root_owner(destroying_source)
+        ledger.append(
+            EVENT_CREW_CHANGED,
+            actor=actor,
+            owner=parent,
+            target=parent,
+            obj=destroying_source,
+            magnitude=-abs(float(magnitude)),
+            ability_name=_ability_name(destroying_source),
+            action=_action_for_object(destroying_source),
+            metadata={
+                **ledger._source_metadata(destroying_source, source_owner),
+                **metadata,
+            },
+        )
+        return
     ledger.record_crew_changed(
         parent,
         -abs(float(magnitude)),
         actor=actor,
-        source=source if source is not None else unit,
+        source=destroying_source,
         metadata=metadata,
     )
+
+
+def record_launched_crew_deployed(unit, *, magnitude: float = 1.0) -> None:
+    """Debit trainee launched crew into causal reward escrow."""
+
+    parent = getattr(unit, "parent", None)
+    if parent is None or _ability_name(unit) not in LAUNCHED_CREW_NAMES:
+        return
+    ledger = ledger_for(unit) or ledger_for(parent)
+    if (
+        ledger is None
+        or ledger.reward_mode != REWARD_MODE_CAUSAL
+        or parent is not ledger.trainee_ship
+        or not ledger.credit_is_open(reward_credit_for(unit))
+        or getattr(unit, "_training_crew_escrow_debited", False)
+    ):
+        return
+    try:
+        unit._training_crew_escrow_debited = True
+    except Exception:
+        return
+    ledger.append(
+        EVENT_CREW_CHANGED,
+        actor=parent,
+        owner=parent,
+        target=parent,
+        obj=unit,
+        magnitude=-abs(float(magnitude)),
+        ability_name=_ability_name(unit),
+        action=_action_for_object(unit),
+        metadata={
+            **ledger._source_metadata(unit, parent),
+            **_launched_crew_metadata(unit),
+            "launched_crew_escrow_debit": True,
+        },
+    )
+
+
+def record_launched_crew_recovered(unit, *, magnitude: float = 1.0) -> None:
+    """Refund causal reward escrow when launched trainee crew returns safely."""
+
+    parent = getattr(unit, "parent", None)
+    if parent is None:
+        return
+    ledger = ledger_for(unit) or ledger_for(parent)
+    if (
+        ledger is None
+        or ledger.reward_mode != REWARD_MODE_CAUSAL
+        or parent is not ledger.trainee_ship
+        or not getattr(unit, "_training_crew_escrow_debited", False)
+        or getattr(unit, "_training_crew_escrow_refunded", False)
+    ):
+        return
+    try:
+        unit._training_crew_escrow_refunded = True
+    except Exception:
+        return
+    ledger.append(
+        EVENT_CREW_CHANGED,
+        actor=parent,
+        owner=parent,
+        target=parent,
+        obj=unit,
+        magnitude=abs(float(magnitude)),
+        ability_name=_ability_name(unit),
+        action=_action_for_object(unit),
+        metadata={
+            **ledger._source_metadata(unit, parent),
+            **_launched_crew_metadata(unit),
+            "launched_crew_escrow_refund": True,
+        },
+    )
+
+
+def _launched_crew_metadata(unit) -> dict[str, Any]:
+    return {
+        "launched_unit": unit,
+        "launched_unit_ability_name": _ability_name(unit),
+        "launched_unit_credit": reward_credit_for(unit),
+        "launched_unit_spawn_stamp": spawn_stamp_for(unit),
+    }
 
 
 def record_battery_changed(ship, delta: float, *, actor=None, source=None) -> None:

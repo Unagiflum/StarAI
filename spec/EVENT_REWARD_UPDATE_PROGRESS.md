@@ -260,28 +260,31 @@ Status: Implemented and verified.
 - Full post-enablement regression gate: `runalltests.cmd` — 1,057 tests passed
   in 12.352 seconds.
 
-## Post-Enablement: Trainee Launched-Crew Loss Attribution
+## Post-Enablement: Trainee Launched-Crew Escrow Accounting
 
 Status: Implemented and verified.
 
-- Added immutable event-time snapshots of the lost unit's credit and spawn
-  stamp alongside the existing destroying-source provenance.
-- Added frame-and-sequence spawn stamps for committed trainee actions,
-  autonomous fire, and credited derived objects entering the world. Objects
-  spawned by one committed action share a stamp.
-- Live causal mode now places natural, environmental, opponent-caused,
-  boarded-RNG, timeout, and other non-trainee Kzer-Za A2/Orz A3 permanent crew
-  losses at the launched unit's origin.
-- Parent friendly fire selects the later fighter or damaging-object spawn;
-  equal stamps split the component evenly between their causal credits.
-- Missing provenance retains effect-frame behavior and is diagnosed. Closed
-  selected provenance removes the component entirely so it cannot leak into a
-  death frame or replacement trajectory.
+- Live causal mode now debits one `Lose crew` unit per trainee Kzer-Za A2
+  fighter or Orz A3 marine immediately at launch.
+- Safe recovery emits a full nominal refund using the `Lose crew` component;
+  `Gain crew` does not participate.
+- Natural, environmental, opponent-caused, boarded-RNG, timeout, and other
+  non-trainee permanent losses forfeit the launch escrow without adding a
+  second crew penalty.
+- Parent friendly fire reverses the victim launch debit and moves that one
+  crew penalty to the actual damaging source. It also routes the existing
+  `Destroy own object` component to that source.
+- Missing or closed friendly-fire provenance retains the already-charged
+  launch escrow and is diagnosed, rather than fabricating a second penalty.
+- Compatibility events without a recorded escrow debit retain the earlier
+  loss-routing fallback.
 - Legacy and shadow component vectors retain effect-frame behavior.
-- Added route diagnostics for natural, external, both friendly-fire orderings,
-  ties, missing provenance, and closed provenance.
-- Focused event-reward gate: 58 tests and 55 subtests passed.
-- Kzer-Za/Orz lifecycle, collision, and ledger regression gate: 109 tests and
-  162 subtests passed.
-- Full regression gate: `runalltests.cmd` - 1,067 tests passed in 12.294
+- Added route diagnostics for escrow forfeiture, friendly-fire reattribution,
+  missing provenance, and closed provenance.
+- Focused event-reward gate covers launch debit, full recovery refund, natural
+  and timeout forfeiture, actual-source friendly-fire attribution, and
+  `Destroy own object` routing: 71 tests and 57 subtests passed.
+- Kzer-Za/Orz lifecycle, collision, reward, and ledger regression gate: 246
+  tests and 239 subtests passed.
+- Full regression gate: `runalltests.cmd` - 1,286 tests passed in 40.712
   seconds.

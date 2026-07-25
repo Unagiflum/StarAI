@@ -196,8 +196,8 @@ owned by the open trainee reward trajectory.
 
 These components retain their current timing unless explicitly excepted below:
 
-- `Lose crew`, except permanent loss of trainee Kzer-Za A2 fighters and Orz A3
-  marines
+- `Lose crew`, except causal escrow accounting for trainee Kzer-Za A2 fighters
+  and Orz A3 marines
 - `Get debuffed`
 - `Die`
 - `Gain crew`
@@ -213,29 +213,36 @@ These components retain their current timing unless explicitly excepted below:
 Other incoming negative events remain effect-timed so earlier trainee movement
 and avoidance decisions receive ordinary backward credit or penalty.
 
-### Permanent Loss Of Trainee Launched Crew
+### Escrow Accounting For Trainee Launched Crew
 
-In live `causal` mode, permanent loss of a trainee Kzer-Za A2 fighter or Orz A3
-marine is an exception to ordinary effect-timed incoming penalties:
+In live `causal` mode, a trainee Kzer-Za A2 fighter or Orz A3 marine uses
+`Lose crew` as reward escrow:
 
+- Each launched unit immediately places one `Lose crew` component at its launch
+  origin. Kzer-Za therefore places two components when it launches two
+  fighters.
+- Safe recovery places a negative one-unit `Lose crew` component at the
+  recovery frame. Because the configured `Lose crew` weight is normally
+  negative, this is a full nominal refund and therefore a positive reward.
+- The refund is derived exclusively from the `Lose crew` weight. It does not
+  emit or depend on `Gain crew`.
 - Natural expiration, environmental loss, opponent damage, boarded RNG, host
-  destruction, and other non-trainee causes place `Lose crew` at the lost
-  unit's launch origin.
+  destruction, and other non-trainee causes forfeit the launch escrow and add
+  no second crew-loss component.
 - When a trainee-owned projectile, special object, laser, or area effect causes
-  friendly fire, compare the damaging object's spawn stamp with the launched
-  crew unit's spawn stamp. The later spawn owns the loss.
-- A spawn stamp contains both frame and ledger sequence. Equal stamps split the
-  component 50/50 between the two causal credits.
-- The launched unit credit, damaging-source credit, and both spawn stamps are
-  snapshotted on the crew-loss event. Reward origins are not used as a proxy
-  for spawn ordering because an ability may have weighted press/release
-  origins.
-- Missing provenance retains the existing effect-frame component and records a
-  diagnostic. If the selected provenance is closed, omit the component rather
-  than assigning it to the effect frame or another trajectory.
-- `legacy` and `shadow` retain the existing effect-frame `Lose crew` behavior.
+  friendly fire, reverse the escrow component at the launched unit's origin
+  and place one `Lose crew` component at the damaging source's causal origin.
+  This reattributes one penalty rather than charging the same crew twice.
+- The existing `Destroy own object` component for the friendly-fire
+  destruction is also routed to the damaging source's causal origin.
+- Missing or closed provenance retains the already-charged launch escrow and
+  records a diagnostic; it must not fabricate a second crew-loss component.
+- Compatibility loss events without a recorded escrow debit retain the prior
+  permanent-loss routing fallback.
+- `legacy` and `shadow` retain their existing launched-crew behavior.
 
-Safe return remains a crew transfer and produces no `Lose crew` component.
+Temporal discounting naturally makes a later full refund worth less to the
+launch action. No additional recovery magnitude discount is applied.
 
 ### Ownership Requirement
 
@@ -533,13 +540,13 @@ exclusive final sample returns. Action-exclusive credit is out of scope.
 ### Orz Marine
 
 - Launch creates one full-weight origin.
+- Launch also places one causal `Lose crew` escrow debit at that origin.
 - Boarding debuff, enemy crew loss, and a lethal kill caused by that marine use
   the same origin.
 - Repeated crew-loss events accumulate at launch.
-- Marine return, destruction, and the existing launched-crew accounting keep
-  their gameplay behavior.
-- Negative trainee crew-loss accounting remains effect-timed unless a separate
-  specification changes it.
+- Safe return places the full nominal escrow refund at the recovery frame.
+- Permanent loss forfeits escrow; friendly fire moves it to the damaging
+  source as specified above.
 
 ### Other Persistent Fighters And Special Objects
 
@@ -945,11 +952,15 @@ Acceptance:
   both `Kill enemy object` and `Enemy loses crew` at the destroying source's
   origin.
 - Natural loss of a crew-bearing fighter does not fabricate trainee credit.
-- Natural or externally caused permanent loss of trainee launched crew uses
-  the launched unit's origin in live causal mode.
-- Parent friendly fire assigns trainee launched-crew loss to the later spawn,
-  with equal stamps split evenly.
-- Closed selected launched-crew provenance omits the loss component.
+- Trainee launched crew is debited at launch and fully refunded only on safe
+  recovery in live causal mode.
+- Natural or externally caused permanent loss forfeits the launch escrow
+  without adding another loss component.
+- Parent friendly fire moves the existing escrow debit from the launched
+  unit's origin to the damaging source and routes `Destroy own object` to that
+  same source.
+- Missing or closed friendly-fire provenance retains the launch debit without
+  fabricating a second loss.
 - Frames between launch and effect receive no relocated component.
 - Frames before launch receive correct gamma propagation.
 - Effects across enemy replacement retain the original launch.
@@ -1072,8 +1083,8 @@ Acceptance:
 - Ordinary projectile enemy-object destruction.
 - Enemy crew-bearing fighter destruction producing both object-kill and
   permanent crew-loss components at the destroying source origin.
-- Crew-bearing fighter safe return, natural expiration/loss, and destruction by
-  a non-trainee source.
+- Trainee launched-crew debit, safe-return refund, natural expiration/loss,
+  non-trainee destruction, and friendly-fire reattribution.
 - Chenjesu primary crystal and shards.
 - Kohr-Ah saw before and after release.
 - Multiple Kohr-Ah saws affected by one release.

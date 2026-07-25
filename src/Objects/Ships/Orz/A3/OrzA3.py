@@ -575,6 +575,7 @@ class OrzA3(Ability):
         if not self.currently_alive or not self._parent_alive():
             return
         self.parent.current_hp = min(self.parent.max_hp, self.parent.current_hp + 1)
+        event_ledger.record_launched_crew_recovered(self)
         self._crew_recovered = True
         self._detach_from_ship()
         self.current_hp = 0

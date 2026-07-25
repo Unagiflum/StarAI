@@ -99,6 +99,7 @@ _CAUSAL_REWARD_COMPONENTS = frozenset(
         REWARD_ENEMY_LOSES_CREW,
         REWARD_DEBUFF_ENEMY,
         REWARD_KILL_ENEMY_OBJECT,
+        REWARD_DESTROY_OWN_OBJECT,
         REWARD_LOSE_CREW,
         REWARD_DIE,
     }
@@ -1062,6 +1063,26 @@ def _calculate_immediate_reward_component_vector(
             ):
                 components[_REWARD_COMPONENT_INDEX[REWARD_SPAWN_A2]] = 1.0
         elif event.event_type == EVENT_CREW_CHANGED:
+            metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
+            own_crew_event = _same_entity(event.target, self_ship)
+            if own_crew_event and metadata.get("launched_crew_escrow_debit"):
+                if REWARD_LOSE_CREW in enabled:
+                    components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_CREW]] += (
+                        -float(event.magnitude)
+                    )
+                continue
+            if own_crew_event and metadata.get("launched_crew_escrow_refund"):
+                if REWARD_LOSE_CREW in enabled:
+                    components[_REWARD_COMPONENT_INDEX[REWARD_LOSE_CREW]] -= (
+                        float(event.magnitude)
+                    )
+                continue
+            if (
+                own_crew_event
+                and metadata.get("launched_crew_loss")
+                and metadata.get("launched_crew_escrow_debited")
+            ):
+                continue
             if (
                 REWARD_ENEMY_LOSES_CREW in enabled
                 and _same_entity(event.target, enemy_ship)
@@ -1253,6 +1274,15 @@ def _route_own_launched_crew_loss(
     """Move a permanent launched-unit loss to its selected causal launch."""
 
     amount = -float(event.magnitude)
+    metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
+    if metadata.get("launched_crew_escrow_debited"):
+        _route_escrowed_launched_crew_loss(
+            pipeline,
+            event,
+            ledger,
+            amount=amount,
+        )
+        return
     status, destinations = _own_launched_crew_loss_destinations(
         decision,
         event,
@@ -1300,6 +1330,77 @@ def _route_own_launched_crew_loss(
                     * float(origin.weight)
                 ),
             )
+
+
+def _route_escrowed_launched_crew_loss(
+    pipeline: StagedTrajectoryPipeline,
+    event: TrainingBattleEvent,
+    ledger,
+    *,
+    amount: float,
+) -> None:
+    """Keep forfeited escrow, or move it to the responsible friendly source."""
+
+    metadata = event.metadata if isinstance(event.metadata, Mapping) else {}
+    unit = metadata.get("launched_unit")
+    source = metadata.get("source")
+    source_owner = metadata.get("source_owner")
+    source_type = metadata.get("source_type")
+    friendly_weapon = bool(
+        source is not None
+        and source is not unit
+        and source_owner is ledger.trainee_ship
+        and source_type in {"projectile", "special_object", "laser", "area"}
+    )
+    if not friendly_weapon:
+        ledger.diagnostics.launched_crew_loss_routes["escrow_forfeited"] += 1
+        return
+
+    unit_credit = metadata.get("launched_unit_credit")
+    source_credit = metadata.get("reward_credit")
+    unit_ability = str(metadata.get("launched_unit_ability_name") or "unknown")
+    if not isinstance(unit_credit, AbilityRewardCredit):
+        ledger.diagnostics.missing_provenance[unit_ability] += 1
+        ledger.diagnostics.launched_crew_loss_routes["missing_unit"] += 1
+        return
+    if not isinstance(source_credit, AbilityRewardCredit):
+        source_ability = str(metadata.get("source_ability_name") or "unknown")
+        ledger.diagnostics.missing_provenance[source_ability] += 1
+        ledger.diagnostics.launched_crew_loss_routes[
+            "missing_friendly_source"
+        ] += 1
+        return
+    if not ledger.credit_is_open(unit_credit) or not ledger.credit_is_open(
+        source_credit
+    ):
+        ledger.diagnostics.closed_trajectory_rejections[unit_ability] += 1
+        ledger.diagnostics.launched_crew_loss_routes["closed"] += 1
+        return
+    if any(
+        int(origin.frame_index) not in pipeline._frame_to_index
+        for credit in (unit_credit, source_credit)
+        for origin in credit.origins
+    ):
+        ledger.diagnostics.missing_provenance[unit_ability] += 1
+        ledger.diagnostics.launched_crew_loss_routes["missing_origin_frame"] += 1
+        return
+
+    for origin in unit_credit.origins:
+        pipeline.add_component_at_frame(
+            origin.frame_index,
+            REWARD_LOSE_CREW,
+            -amount * float(origin.weight),
+        )
+    for origin in source_credit.origins:
+        pipeline.add_component_at_frame(
+            origin.frame_index,
+            REWARD_LOSE_CREW,
+            amount * float(origin.weight),
+        )
+    ledger.diagnostics.routed_events[(REWARD_LOSE_CREW, unit_ability)] += 1
+    ledger.diagnostics.launched_crew_loss_routes[
+        "friendly_fire_reattributed"
+    ] += 1
 
 
 def _own_launched_crew_loss_destinations(
@@ -1443,6 +1544,11 @@ def _routeable_causal_event_components(
                 contributions[REWARD_KILL_ENEMY] = 0.5
         elif _object_removed_by_owner_weapon(event, enemy_ship, self_ship):
             contributions[REWARD_KILL_ENEMY_OBJECT] = 1.0
+        elif (
+            _ability_name(event) in {"KzerZaA2", "OrzA3"}
+            and _object_removed_by_owner_weapon(event, self_ship, self_ship)
+        ):
+            contributions[REWARD_DESTROY_OWN_OBJECT] = 1.0
     elif event.event_type == EVENT_OBJECT_HP_CHANGED:
         if (
             _is_chmmr_satellite_event(event)

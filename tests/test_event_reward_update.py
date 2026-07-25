@@ -36,7 +36,9 @@ from src.training.causal_credit import (
 from src.training.rewards import (
     REWARD_DIE,
     REWARD_DEBUFF_ENEMY,
+    REWARD_DESTROY_OWN_OBJECT,
     REWARD_ENEMY_LOSES_CREW,
+    REWARD_GAIN_CREW,
     REWARD_GET_DEBUFFED,
     REWARD_KILL_ENEMY,
     REWARD_KILL_ENEMY_OBJECT,
@@ -769,11 +771,35 @@ class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
             action_number,
             (obj,),
         )
+        event_start = len(self.ledger.events)
+        event_ledger.record_launched_crew_deployed(obj)
         pipeline.add_frame(
             decision,
-            RewardFrameOutcome(frame_id),
+            RewardFrameOutcome(
+                frame_id,
+                events=tuple(self.ledger.events[event_start:]),
+            ),
             ledger=self.ledger,
         )
+
+    def recover(self, pipeline, unit, frame_id):
+        decision = self.decision(frame_id)
+        self.ledger.current_frame = frame_id
+        self.ledger.begin_decision(
+            self.trainee,
+            frame_id,
+            decision.action_index,
+            reward_mode=pipeline.mode,
+        )
+        event_ledger.record_launched_crew_recovered(unit)
+        event = self.ledger.events[-1]
+        pipeline.stage_decision(decision, trajectory_id="trajectory")
+        pipeline.add_frame(
+            decision,
+            RewardFrameOutcome(frame_id, events=(event,)),
+            ledger=self.ledger,
+        )
+        return event
 
     def add_loss(
         self,
@@ -806,7 +832,7 @@ class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
         )
         return event
 
-    def test_natural_loss_moves_to_fighter_launch_in_live_causal_mode(self):
+    def test_natural_loss_forfeits_launch_escrow_in_live_causal_mode(self):
         fighter = SimpleNamespace(
             name="KzerZaA2",
             type="special_object",
@@ -825,11 +851,13 @@ class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
             0.0,
         )
         self.assertEqual(
-            self.ledger.diagnostics.launched_crew_loss_routes["natural"],
+            self.ledger.diagnostics.launched_crew_loss_routes[
+                "escrow_forfeited"
+            ],
             1,
         )
 
-    def test_timer_expiration_splits_fighter_loss_between_launch_and_expiry(self):
+    def test_timer_expiration_forfeits_full_fighter_launch_escrow(self):
         fighter = SimpleNamespace(
             name="KzerZaA2",
             type="special_object",
@@ -846,20 +874,20 @@ class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
 
         self.assertEqual(
             pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
-            0.5,
+            1.0,
         )
         self.assertEqual(
             pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
-            0.5,
+            0.0,
         )
         self.assertEqual(
             self.ledger.diagnostics.launched_crew_loss_routes[
-                "timer_expiration_split"
+                "escrow_forfeited"
             ],
             1,
         )
 
-    def test_external_loss_moves_to_fighter_launch(self):
+    def test_external_loss_forfeits_marine_launch_escrow(self):
         fighter = SimpleNamespace(
             name="OrzA3",
             type="special_object",
@@ -883,9 +911,53 @@ class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
             0.0,
         )
         self.assertEqual(
-            self.ledger.diagnostics.launched_crew_loss_routes["external"],
+            self.ledger.diagnostics.launched_crew_loss_routes[
+                "escrow_forfeited"
+            ],
             1,
         )
+
+    def test_safe_recovery_refunds_full_launch_escrow_at_recovery_frame(self):
+        fighter = SimpleNamespace(
+            name="KzerZaA2",
+            type="special_object",
+            parent=self.trainee,
+        )
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
+        self.launch(pipeline, fighter, 1, 2)
+        self.recover(pipeline, fighter, 2)
+
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            1.0,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
+            -1.0,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(2)[REWARD_GAIN_CREW],
+            0.0,
+        )
+
+    def test_gain_crew_slider_does_not_enable_escrow_debit_or_refund(self):
+        fighter = SimpleNamespace(
+            name="KzerZaA2",
+            type="special_object",
+            parent=self.trainee,
+        )
+        pipeline = StagedTrajectoryPipeline(
+            gamma=0.9,
+            reward_weights={REWARD_GAIN_CREW: 8.0},
+            mode="causal",
+        )
+        self.launch(pipeline, fighter, 1, 2)
+        self.recover(pipeline, fighter, 2)
+
+        for frame_id in (1, 2):
+            components = pipeline.immediate_components_for_frame(frame_id)
+            self.assertEqual(components[REWARD_LOSE_CREW], 0.0)
+            self.assertEqual(components[REWARD_GAIN_CREW], 0.0)
 
     def test_later_friendly_projectile_launch_receives_loss(self):
         fighter = SimpleNamespace(
@@ -916,7 +988,7 @@ class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
             0.0,
         )
 
-    def test_later_fighter_launch_receives_friendly_fire_loss(self):
+    def test_friendly_fire_always_moves_escrow_to_firing_source(self):
         projectile = SimpleNamespace(
             name="KzerZaA1",
             type="projectile",
@@ -934,14 +1006,14 @@ class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
 
         self.assertEqual(
             pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
-            0.0,
+            1.0,
         )
         self.assertEqual(
             pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
-            1.0,
+            0.0,
         )
 
-    def test_same_spawn_stamp_splits_friendly_fire_loss(self):
+    def test_same_spawn_stamp_does_not_split_friendly_fire_escrow(self):
         fighter = SimpleNamespace(
             name="KzerZaA2",
             type="special_object",
@@ -965,22 +1037,101 @@ class OwnLaunchedCrewLossRoutingTests(unittest.TestCase):
         pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
         for frame_id in (1, 2):
             decision = self.decision(frame_id)
-            self.ledger.begin_decision(self.trainee, frame_id, 0)
+            self.ledger.begin_decision(
+                self.trainee,
+                frame_id,
+                0,
+                reward_mode=pipeline.mode,
+            )
+            event_start = len(self.ledger.events)
+            if frame_id == 1:
+                event_ledger.record_launched_crew_deployed(fighter)
             pipeline.stage_decision(decision, trajectory_id="trajectory")
             pipeline.add_frame(
                 decision,
-                RewardFrameOutcome(frame_id),
+                RewardFrameOutcome(
+                    frame_id,
+                    events=tuple(self.ledger.events[event_start:]),
+                ),
                 ledger=self.ledger,
             )
         self.add_loss(pipeline, fighter, 3, source=projectile)
 
         self.assertEqual(
             pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
-            0.5,
+            0.0,
         )
         self.assertEqual(
             pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
-            0.5,
+            1.0,
+        )
+        self.assertEqual(
+            self.ledger.diagnostics.launched_crew_loss_routes[
+                "friendly_fire_reattributed"
+            ],
+            1,
+        )
+
+    def test_friendly_fire_routes_crew_and_own_object_cost_to_source(self):
+        fighter = SimpleNamespace(
+            name="KzerZaA2",
+            type="special_object",
+            parent=self.trainee,
+        )
+        projectile = SimpleNamespace(
+            name="KzerZaA1",
+            type="projectile",
+            parent=self.trainee,
+        )
+        pipeline = StagedTrajectoryPipeline(gamma=0.9, mode="causal")
+        self.launch(pipeline, fighter, 1, 2)
+        self.launch(pipeline, projectile, 2, 1)
+
+        decision = self.decision(3)
+        self.ledger.current_frame = 3
+        self.ledger.begin_decision(
+            self.trainee,
+            3,
+            decision.action_index,
+            reward_mode=pipeline.mode,
+        )
+        event_start = len(self.ledger.events)
+        event_ledger.record_launched_crew_lost(fighter, source=projectile)
+        self.ledger.record_object_removed(
+            fighter,
+            destroyed=True,
+            reason="destroyed",
+            source=projectile,
+        )
+        pipeline.stage_decision(decision, trajectory_id="trajectory")
+        pipeline.add_frame(
+            decision,
+            RewardFrameOutcome(
+                3,
+                events=tuple(self.ledger.events[event_start:]),
+            ),
+            ledger=self.ledger,
+        )
+
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(1)[REWARD_LOSE_CREW],
+            0.0,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(2)[REWARD_LOSE_CREW],
+            1.0,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(2)[
+                REWARD_DESTROY_OWN_OBJECT
+            ],
+            1.0,
+        )
+        self.assertEqual(
+            pipeline.immediate_components_for_frame(3)[
+                REWARD_DESTROY_OWN_OBJECT
+            ],
+            0.0,
         )
 
     def test_closed_launch_provenance_omits_loss(self):
@@ -1439,6 +1590,59 @@ class BuiltInProvenanceTests(unittest.TestCase):
         self.assertTrue(all(isinstance(shard, ChenjesuA1Shard) for shard in shards))
         self.assertTrue(all(reward_credit_for(shard) == reward_credit_for(crystal) for shard in shards))
         self.assertEqual(reward_credit_for(shards[0]).origins[0].kind, ORIGIN_KIND_PRESS)
+
+    def test_real_launched_crew_actions_debit_and_recovery_refunds_escrow(self):
+        for ship_name, action_number, expected_units in (
+            ("KzerZa", 2, 2),
+            ("Orz", 3, 1),
+        ):
+            with self.subTest(ship=ship_name):
+                ship = self.make_ship(ship_name)
+                ship.opponent = self.make_ship("Earthling", 2)
+                ledger = event_ledger.BattleEventLedger()
+                event_ledger.bind_ledger(ship, ledger)
+                ledger.start_reward_trajectory(
+                    ship,
+                    trajectory_id="trajectory",
+                )
+                ledger.current_frame = 5
+                ledger.begin_decision(
+                    ship,
+                    5,
+                    8,
+                    reward_mode="causal",
+                )
+
+                result = ship.commit_action(
+                    ship._select_action_plan(action_number)
+                )
+
+                self.assertTrue(result.valid)
+                self.assertEqual(len(result.spawned_objects), expected_units)
+                debits = [
+                    event
+                    for event in ledger.events
+                    if event.metadata.get("launched_crew_escrow_debit")
+                ]
+                self.assertEqual(len(debits), expected_units)
+                self.assertTrue(all(event.magnitude == -1.0 for event in debits))
+
+                unit = result.spawned_objects[0]
+                unit.mode = unit.RETURNING
+                ledger.current_frame = 6
+                ledger.begin_decision(
+                    ship,
+                    6,
+                    9,
+                    reward_mode="causal",
+                )
+                unit.recover_with_parent()
+
+                refund = ledger.events[-1]
+                self.assertTrue(
+                    refund.metadata.get("launched_crew_escrow_refund")
+                )
+                self.assertEqual(refund.magnitude, 1.0)
 
     def test_real_kzerza_fighter_marks_timer_expiration_loss(self):
         ship = self.make_ship("KzerZa")

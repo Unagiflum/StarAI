@@ -316,6 +316,7 @@ class KzerZaA2(Ability):
         if not self.currently_alive or not self._parent_alive():
             return
         self.parent.current_hp = min(self.parent.max_hp, self.parent.current_hp + 1)
+        event_ledger.record_launched_crew_recovered(self)
         if self.return_sound:
             self.return_sound.play()
         self._crew_recovered = True

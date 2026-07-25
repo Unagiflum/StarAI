@@ -717,6 +717,9 @@ class SpaceShip(PlayerObject):
             plan.action_number,
             plan.spawned_objects,
         )
+        if self._crew_change_is_launched_unit_transfer(plan):
+            for unit in plan.spawned_objects:
+                event_ledger.record_launched_crew_deployed(unit)
 
         for effect in plan.side_effects:
             effect()
