@@ -21,6 +21,8 @@ from src.Battle.battle_draw import (
     BattleDrawOptions,
     HUD_BADGE_GAP,
     HUD_BADGE_SIZE,
+    HUD_COUNTDOWN_FIT_TEXT,
+    HUD_COUNTDOWN_FONT_NAME,
     HudBadge,
     MARINE_REGION_HEIGHT,
     RenderSnapshot,
@@ -465,6 +467,50 @@ class BattleHudLayoutTests(unittest.TestCase):
             (255, 255, 255),
             max_font_size=HUD_BADGE_CONTROLLER_FONT_SIZE,
         )
+
+    def test_countdown_badge_uses_monospaced_three_digit_fit(self):
+        from src.Battle.battle_draw import draw_hud_badge
+
+        screen = pygame.Surface((100, 100))
+        with mock.patch(
+            "src.Battle.battle_draw._render_hud_badge_text",
+            return_value=pygame.Surface((1, 1), pygame.SRCALPHA),
+        ) as render_text:
+            draw_hud_badge(
+                screen,
+                pygame.Rect(0, 0, 100, 100),
+                1,
+                HudBadge("countdown", 99),
+            )
+
+        render_text.assert_called_once_with(
+            "99",
+            (255, 255, 255),
+            max_font_size=18,
+            font_name=HUD_COUNTDOWN_FONT_NAME,
+            fit_text=HUD_COUNTDOWN_FIT_TEXT,
+        )
+
+    def test_countdown_font_size_is_stable_and_fits_three_digits(self):
+        from src.Battle.battle_draw import _render_hud_badge_text
+
+        three_digits = _render_hud_badge_text(
+            "150",
+            (255, 255, 255),
+            font_name=HUD_COUNTDOWN_FONT_NAME,
+            fit_text=HUD_COUNTDOWN_FIT_TEXT,
+        )
+        two_digits = _render_hud_badge_text(
+            "99",
+            (255, 255, 255),
+            font_name=HUD_COUNTDOWN_FONT_NAME,
+            fit_text=HUD_COUNTDOWN_FIT_TEXT,
+        )
+
+        available_size = HUD_BADGE_SIZE - 2 * 4
+        self.assertLessEqual(three_digits.get_width(), available_size)
+        self.assertLessEqual(three_digits.get_height(), available_size)
+        self.assertEqual(three_digits.get_height(), two_digits.get_height())
 
     def test_badge_centers_visible_text_vertically(self):
         from src.Battle.battle_draw import draw_hud_badge

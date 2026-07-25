@@ -47,6 +47,8 @@ HUD_BADGE_FONT_SIZE = 18
 HUD_BADGE_CONTROLLER_FONT_SIZE = 30
 HUD_BADGE_MIN_FONT_SIZE = 8
 HUD_BADGE_TEXT_PADDING = 4
+HUD_COUNTDOWN_FONT_NAME = "Consolas"
+HUD_COUNTDOWN_FIT_TEXT = "000"
 
 # Derived layout — constant once the screen geometry is set.
 _TOTAL_WIDTH = (BAR_WIDTH * 2) + VIEWPORT_COLUMN_WIDTH
@@ -707,14 +709,23 @@ def _hud_badge_text(badge):
     return None
 
 
-def _render_hud_badge_text(text, color, max_font_size=HUD_BADGE_FONT_SIZE):
+def _render_hud_badge_text(
+    text,
+    color,
+    max_font_size=HUD_BADGE_FONT_SIZE,
+    *,
+    font_name=None,
+    fit_text=None,
+):
     max_width = HUD_BADGE_SIZE - 2 * HUD_BADGE_TEXT_PADDING
     max_height = HUD_BADGE_SIZE - 2 * HUD_BADGE_TEXT_PADDING
+    fit_text = text if fit_text is None else fit_text
     for size in range(int(max_font_size), HUD_BADGE_MIN_FONT_SIZE - 1, -1):
-        rendered = pygame.font.SysFont(None, size).render(text, True, color)
-        if rendered.get_width() <= max_width and rendered.get_height() <= max_height:
-            return rendered
-    return pygame.font.SysFont(None, HUD_BADGE_MIN_FONT_SIZE).render(
+        font = pygame.font.SysFont(font_name, size)
+        fit_width, fit_height = font.size(fit_text)
+        if fit_width <= max_width and fit_height <= max_height:
+            return font.render(text, True, color)
+    return pygame.font.SysFont(font_name, HUD_BADGE_MIN_FONT_SIZE).render(
         text,
         True,
         color,
@@ -793,15 +804,25 @@ def draw_hud_badge(screen, hud_rect, player_id, badge):
         if badge.kind in {"ai", "simple"}
         else HUD_BADGE_FONT_SIZE
     )
+    countdown_font_options = (
+        {
+            "font_name": HUD_COUNTDOWN_FONT_NAME,
+            "fit_text": HUD_COUNTDOWN_FIT_TEXT,
+        }
+        if badge.kind == "countdown"
+        else {}
+    )
     rendered = _render_hud_badge_text(
         text,
         ui.WHITE,
         max_font_size=max_font_size,
+        **countdown_font_options,
     )
     rendered_rect = rendered.get_rect(center=center)
-    painted_bounds = rendered.get_bounding_rect()
-    if painted_bounds.height:
-        rendered_rect.y = center[1] - painted_bounds.centery
+    if badge.kind != "countdown":
+        painted_bounds = rendered.get_bounding_rect()
+        if painted_bounds.height:
+            rendered_rect.y = center[1] - painted_bounds.centery
     screen.blit(rendered, rendered_rect)
 
 
