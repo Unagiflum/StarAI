@@ -9,6 +9,9 @@ import src.const as const
 SPECIAL_INDICATOR_BORDER_COLOR = (0, 0, 0)
 SPECIAL_INDICATOR_NEGATIVE_COLOR = (0, 0, 0)
 SPECIAL_INDICATOR_SEGMENTS = 128
+SPECIAL_INDICATOR_RING_WIDTH = 5
+SPECIAL_INDICATOR_HEART_COLOR = (255, 0, 0)
+SPECIAL_INDICATOR_BATTERY_COLOR = const.HUD_ENERGY_COLOR
 
 
 def _draw_indicator_fraction(surface, center, radius, fraction, color):
@@ -50,6 +53,199 @@ def _draw_indicator_fraction(surface, center, radius, fraction, color):
     pygame.gfxdraw.aapolygon(surface, points, color)
 
 
+def _draw_indicator_ring_fraction(
+    surface,
+    center,
+    outer_radius,
+    inner_radius,
+    fraction,
+    color,
+):
+    """Draw a clockwise annular slice starting at twelve o'clock."""
+    fraction = max(0.0, min(1.0, fraction))
+    if fraction <= 0.0:
+        return
+    if fraction >= 1.0:
+        pygame.gfxdraw.filled_circle(
+            surface,
+            center,
+            center,
+            outer_radius,
+            color,
+        )
+        pygame.gfxdraw.aacircle(
+            surface,
+            center,
+            center,
+            outer_radius,
+            color,
+        )
+        return
+
+    step_position = SPECIAL_INDICATOR_SEGMENTS * fraction
+    whole_steps = math.floor(step_position)
+    angles = [
+        -math.pi / 2 + math.tau * index / SPECIAL_INDICATOR_SEGMENTS
+        for index in range(whole_steps + 1)
+    ]
+    if not math.isclose(step_position, whole_steps, abs_tol=1e-12):
+        angles.append(-math.pi / 2 + math.tau * fraction)
+
+    outer_points = [
+        (
+            round(center + outer_radius * math.cos(angle)),
+            round(center + outer_radius * math.sin(angle)),
+        )
+        for angle in angles
+    ]
+    inner_points = [
+        (
+            round(center + inner_radius * math.cos(angle)),
+            round(center + inner_radius * math.sin(angle)),
+        )
+        for angle in reversed(angles)
+    ]
+    points = []
+    for point in outer_points + inner_points:
+        if not points or point != points[-1]:
+            points.append(point)
+    if len(points) < 3:
+        return
+
+    pygame.gfxdraw.filled_polygon(surface, points, color)
+    pygame.gfxdraw.aapolygon(surface, points, color)
+
+
+def _draw_indicator_x(surface, center, inner_radius, color):
+    inset = max(2, inner_radius // 3)
+    extent = inner_radius - inset
+    width = max(2, inner_radius // 4)
+    pygame.draw.line(
+        surface,
+        color,
+        (center - extent, center - extent),
+        (center + extent, center + extent),
+        width,
+    )
+    pygame.draw.line(
+        surface,
+        color,
+        (center + extent, center - extent),
+        (center - extent, center + extent),
+        width,
+    )
+
+
+def _draw_indicator_heart(surface, center, inner_radius):
+    scale = max(1.0, inner_radius / 11)
+    points = []
+    for index in range(32):
+        angle = math.tau * index / 32
+        x = 16 * math.sin(angle) ** 3
+        y = (
+            13 * math.cos(angle)
+            - 5 * math.cos(2 * angle)
+            - 2 * math.cos(3 * angle)
+            - math.cos(4 * angle)
+        )
+        points.append(
+            (
+                round(center + x * 0.48 * scale),
+                round(center - y * 0.48 * scale),
+            )
+        )
+    pygame.gfxdraw.filled_polygon(
+        surface,
+        points,
+        SPECIAL_INDICATOR_HEART_COLOR,
+    )
+    pygame.gfxdraw.aapolygon(
+        surface,
+        points,
+        SPECIAL_INDICATOR_HEART_COLOR,
+    )
+
+
+def _draw_indicator_battery(surface, center, inner_radius):
+    dash_width = max(3, round(inner_radius * 0.55))
+    dash_height = max(2, round(dash_width * 0.5))
+    gap = max(1, round(inner_radius * 0.18))
+    total_width = dash_width * 2 + gap
+    total_height = dash_height * 2 + gap
+    left = center - total_width // 2
+    top = center - total_height // 2
+    for row in range(2):
+        for column in range(2):
+            pygame.draw.rect(
+                surface,
+                SPECIAL_INDICATOR_BATTERY_COLOR,
+                pygame.Rect(
+                    left + column * (dash_width + gap),
+                    top + row * (dash_height + gap),
+                    dash_width,
+                    dash_height,
+                ),
+            )
+
+
+def _draw_ring_indicator(screen, ship, center, radius, color, style):
+    outer_radius = radius - 1
+    ring_width = min(
+        SPECIAL_INDICATOR_RING_WIDTH,
+        max(2, outer_radius - 2),
+    )
+    inner_radius = outer_radius - ring_width
+    negative_color = getattr(
+        ship,
+        "hud_indicator_negative_color",
+        SPECIAL_INDICATOR_NEGATIVE_COLOR,
+    )
+    pygame.gfxdraw.filled_circle(
+        screen,
+        center,
+        center,
+        outer_radius,
+        negative_color,
+    )
+    pygame.gfxdraw.aacircle(
+        screen,
+        center,
+        center,
+        outer_radius,
+        negative_color,
+    )
+    fraction = getattr(ship, "hud_indicator_fraction", 1.0)
+    _draw_indicator_ring_fraction(
+        screen,
+        center,
+        outer_radius,
+        inner_radius,
+        fraction,
+        color,
+    )
+    pygame.gfxdraw.filled_circle(
+        screen,
+        center,
+        center,
+        inner_radius,
+        SPECIAL_INDICATOR_NEGATIVE_COLOR,
+    )
+    pygame.gfxdraw.aacircle(
+        screen,
+        center,
+        center,
+        inner_radius,
+        SPECIAL_INDICATOR_NEGATIVE_COLOR,
+    )
+
+    if style == "x":
+        _draw_indicator_x(screen, center, inner_radius, color)
+    elif style == "heart":
+        _draw_indicator_heart(screen, center, inner_radius)
+    elif style == "battery":
+        _draw_indicator_battery(screen, center, inner_radius)
+
+
 def draw_special_indicator(screen, ship):
     """Draw a ship-provided anti-aliased HUD status light, when present."""
     color = getattr(ship, "hud_indicator_color", None)
@@ -74,6 +270,11 @@ def draw_special_indicator(screen, ship):
         radius,
         SPECIAL_INDICATOR_BORDER_COLOR,
     )
+    style = getattr(ship, "hud_indicator_style", None)
+    if style in {"x", "heart", "battery"}:
+        _draw_ring_indicator(screen, ship, center, radius, color, style)
+        return
+
     inner_radius = radius - 1
     fraction = getattr(ship, "hud_indicator_fraction", None)
     if fraction is None:

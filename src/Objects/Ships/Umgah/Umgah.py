@@ -41,6 +41,10 @@ class Umgah(SpaceShip):
         return self.ENERGY_WAIT_INDICATOR_NEGATIVE_COLOR
 
     @property
+    def hud_indicator_style(self):
+        return "battery"
+
+    @property
     def hud_indicator_size(self):
         return SHIP_DEFINITIONS[self.name].circle_size
 

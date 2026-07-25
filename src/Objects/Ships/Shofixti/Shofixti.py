@@ -32,6 +32,10 @@ class Shofixti(SpaceShip):
         return self.ARMING_INDICATOR_COLORS[stage]
 
     @property
+    def hud_indicator_style(self):
+        return "x"
+
+    @property
     def hud_indicator_size(self):
         return SHIP_DEFINITIONS[self.name].circle_size
 

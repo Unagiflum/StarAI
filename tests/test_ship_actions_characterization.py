@@ -1127,6 +1127,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
 
         battle_ship = create_ship("Shofixti", 1)
         battle_ship.initialize_in_battle([100, 100], 0)
+        self.assertEqual(battle_ship.hud_indicator_style, "x")
         self.assertEqual(battle_ship.hud_indicator_color, (0, 255, 0))
         self.assertIsNone(battle_ship.perform_action2())
         self.assertEqual(battle_ship.hud_indicator_color, (255, 255, 0))

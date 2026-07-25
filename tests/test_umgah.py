@@ -84,6 +84,7 @@ class UmgahTests(CollisionTestCase):
             SHIP_DEFINITIONS["Umgah"].circle_size,
         )
         self.assertEqual(self.ship.hud_indicator_gap, 3)
+        self.assertEqual(self.ship.hud_indicator_style, "battery")
         self.assertEqual(self.ship.hud_indicator_fraction, 0.0)
 
         self.ship.current_energy -= 1

@@ -33,6 +33,10 @@ class Pkunk(SpaceShip):
         return self.current_rebirth_chance
 
     @property
+    def hud_indicator_style(self):
+        return "heart"
+
+    @property
     def hud_indicator_size(self):
         return SHIP_DEFINITIONS[self.name].circle_size
 

@@ -46,6 +46,7 @@ class PkunkRebirthTests(unittest.TestCase):
             SHIP_DEFINITIONS["Pkunk"].circle_size,
         )
         self.assertEqual(ship.hud_indicator_gap, 3)
+        self.assertEqual(ship.hud_indicator_style, "heart")
         self.assertEqual(ship.hud_indicator_fraction, 0.7)
 
         ship.rebirth_count = 2

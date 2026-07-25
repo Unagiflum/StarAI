@@ -164,6 +164,65 @@ class SpecialIndicatorTests(unittest.TestCase):
         self.assertEqual(panel.get_at((9, 14))[:3], (0, 255, 0))
         self.assertEqual(panel.get_at((2, 9))[:3], (0, 0, 0))
 
+    def test_shofixti_style_draws_colored_ring_and_x_in_black_center(self):
+        panel = pygame.Surface((44, 44))
+        panel.fill((12, 34, 56))
+        ship = SimpleNamespace(
+            hud_indicator_color=(255, 255, 0),
+            hud_indicator_style="x",
+            hud_indicator_size=35,
+            hud_indicator_gap=3,
+        )
+
+        draw_special_indicator(panel, ship)
+
+        self.assertEqual(panel.get_at((20, 3))[:3], (0, 0, 0))
+        self.assertEqual(panel.get_at((20, 4))[:3], (255, 255, 0))
+        self.assertEqual(panel.get_at((20, 13))[:3], (0, 0, 0))
+        self.assertEqual(panel.get_at((20, 20))[:3], (255, 255, 0))
+        self.assertEqual(panel.get_at((2, 20))[:3], (12, 34, 56))
+
+    def test_pkunk_style_draws_fractional_ring_around_red_heart(self):
+        panel = pygame.Surface((44, 44))
+        panel.fill((12, 34, 56))
+        ship = SimpleNamespace(
+            hud_indicator_color=(0, 255, 0),
+            hud_indicator_fraction=0.25,
+            hud_indicator_style="heart",
+            hud_indicator_size=35,
+            hud_indicator_gap=3,
+        )
+
+        draw_special_indicator(panel, ship)
+
+        self.assertEqual(panel.get_at((20, 4))[:3], (0, 255, 0))
+        self.assertEqual(panel.get_at((34, 20))[:3], (0, 255, 0))
+        self.assertEqual(panel.get_at((20, 36))[:3], (0, 0, 0))
+        self.assertEqual(panel.get_at((20, 20))[:3], (255, 0, 0))
+        self.assertEqual(panel.get_at((20, 13))[:3], (0, 0, 0))
+
+    def test_umgah_style_draws_two_color_ring_and_four_battery_dashes(self):
+        panel = pygame.Surface((44, 44))
+        panel.fill((12, 34, 56))
+        ship = SimpleNamespace(
+            hud_indicator_color=(255, 0, 0),
+            hud_indicator_negative_color=(0, 255, 0),
+            hud_indicator_fraction=0.5,
+            hud_indicator_style="battery",
+            hud_indicator_size=35,
+            hud_indicator_gap=3,
+        )
+
+        draw_special_indicator(panel, ship)
+
+        self.assertEqual(panel.get_at((20, 4))[:3], (255, 0, 0))
+        self.assertEqual(panel.get_at((20, 36))[:3], (255, 0, 0))
+        self.assertEqual(panel.get_at((6, 20))[:3], (0, 255, 0))
+        self.assertEqual(panel.get_at((34, 20))[:3], (255, 0, 0))
+        for point in ((15, 16), (22, 16), (15, 22), (22, 22)):
+            self.assertEqual(panel.get_at(point)[:3], (255, 0, 0))
+        self.assertEqual(panel.get_at((20, 20))[:3], (0, 0, 0))
+
     def test_omits_light_for_ships_without_an_indicator(self):
         screen = mock.Mock()
 
