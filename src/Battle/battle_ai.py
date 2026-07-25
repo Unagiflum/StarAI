@@ -87,6 +87,16 @@ class FallbackController:
 
     def actions_for_frame(self, simulation) -> dict[str, bool]:
         self_ship, enemy_ship = _ships_for_player(simulation, self.player)
+        if not _ship_is_alive(enemy_ship):
+            self.action1_held = False
+            self.action2_held = False
+            return {
+                "forward": False,
+                "left": False,
+                "right": False,
+                "action1": False,
+                "action2": False,
+            }
         left, right = _turn_toward_target(self_ship, enemy_ship)
         self._update_button_state("action1_held", 1.0 / const.FPS)
         self._update_button_state("action2_held", 1.0 / (2.0 * const.FPS))
@@ -226,6 +236,8 @@ def _ships_for_player(simulation, player: int):
 
 
 def _turn_toward_target(ship, target) -> tuple[bool, bool]:
+    if not _ship_is_alive(target):
+        return False, False
     dx, dy = wrapped_delta(_position(ship), _position(target))
     if dx == 0 and dy == 0:
         return False, False
@@ -240,3 +252,11 @@ def _turn_toward_target(ship, target) -> tuple[bool, bool]:
 def _position(obj) -> tuple[float, float]:
     value = getattr(obj, "position", (0.0, 0.0))
     return float(value[0]), float(value[1])
+
+
+def _ship_is_alive(ship) -> bool:
+    return bool(
+        ship is not None
+        and getattr(ship, "currently_alive", True)
+        and getattr(ship, "current_hp", 1) > 0
+    )

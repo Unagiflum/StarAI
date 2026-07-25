@@ -18,6 +18,7 @@ from src.training import torch_backend
 from src.training.contracts import (
     ACTION_SCHEMA_METADATA,
     ACTION_SCHEMA_VERSION,
+    COMPATIBLE_OBSERVATION_SCHEMA_VERSIONS,
     OBSERVATION_INPUT_SIZE,
     OBSERVATION_SCHEMA_VERSION,
 )
@@ -212,17 +213,20 @@ def validate_model_metadata(
     expected_action_ordering = [dict(action) for action in ACTION_SCHEMA_METADATA]
     checks = (
         ("schema_version", MODEL_METADATA_VERSION, "metadata schema"),
-        (
-            "observation_schema_version",
-            OBSERVATION_SCHEMA_VERSION,
-            "observation schema",
-        ),
         ("observation_input_size", OBSERVATION_INPUT_SIZE, "observation input size"),
         ("action_schema_version", ACTION_SCHEMA_VERSION, "action schema"),
     )
     for key, expected, label in checks:
         if metadata.get(key) != expected:
             errors.append(f"{label} is incompatible")
+
+    observation_version = metadata.get("observation_schema_version")
+    if observation_version not in COMPATIBLE_OBSERVATION_SCHEMA_VERSIONS:
+        errors.append("observation schema is incompatible")
+    elif observation_version != OBSERVATION_SCHEMA_VERSION:
+        warnings.append(
+            f"observation schema {observation_version} uses compatible legacy semantics"
+        )
 
     if metadata.get("action_ordering") != expected_action_ordering:
         errors.append("action ordering is incompatible")

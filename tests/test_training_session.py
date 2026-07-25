@@ -486,6 +486,24 @@ class TrainingMetricsTests(unittest.TestCase):
 
 
 class TrainingCompatibilityTests(unittest.TestCase):
+    def test_previous_observation_schema_remains_compatible(self):
+        metadata = metadata_from_state(
+            ship="Earthling",
+            slot=1,
+            description="Test",
+            architecture=model_architecture_metadata(8, 1),
+            training={},
+        )
+        metadata["observation_schema_version"] = OBSERVATION_SCHEMA_VERSION - 1
+
+        report = validate_model_metadata(metadata)
+
+        self.assertTrue(report.ok)
+        self.assertEqual(
+            report.warnings,
+            ("observation schema 5 uses compatible legacy semantics",),
+        )
+
     def test_incompatible_schema_is_an_error(self):
         metadata = metadata_from_state(
             ship="Earthling",

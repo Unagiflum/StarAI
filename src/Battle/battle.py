@@ -236,6 +236,9 @@ class BattleSimulation:
         self.training_episode_kills: tuple[int, ...] = ()
         self.training_episode_deaths: tuple[int, ...] = ()
         self._training_pending_explosions = []
+        self._training_opponent_absent_until_frame: int | None = None
+        self._training_suspended_opponent_objects: tuple = ()
+        self.training_post_death_completed = False
         if getattr(self, "training_mode", False):
             self._prepare_training_spawn(self.player1)
             self._prepare_training_spawn(self.player2)
@@ -305,6 +308,7 @@ class BattleSimulation:
         self.frame_id += 1
         self.training_episode_kills = ()
         self.training_episode_deaths = ()
+        self.training_post_death_completed = False
         training_event_ledger = getattr(self, "training_event_ledger", None)
         if training_event_ledger is not None:
             training_event_ledger.current_frame = self.frame_id
@@ -512,9 +516,19 @@ class BattleSimulation:
             if ship.current_hp <= 0 and ship.currently_alive
         ]
         if getattr(self, "training_mode", False):
+            if newly_dead and self.training_opponent_absent:
+                self._restore_training_opponent(completed=False)
             if newly_dead:
                 self._start_training_deaths(newly_dead)
                 self._respawn_training_ships(newly_dead)
+                if (
+                    tuple(sorted(ship.player for ship in newly_dead)) == (2,)
+                    and self.player1.currently_alive
+                    and self.player1.current_hp > 0
+                ):
+                    self._suspend_training_opponent()
+            else:
+                self._complete_training_post_death_if_ready()
             self._update_training_death_effects()
             return
         reborn_ships = [ship for ship in newly_dead if self._attempt_rebirth(ship)]
@@ -606,6 +620,62 @@ class BattleSimulation:
             if item.is_final:
                 with use_audio_service(self.audio):
                     BattleEffect.play_ship_death()
+
+    @property
+    def training_opponent_absent(self):
+        return (
+            getattr(self, "_training_opponent_absent_until_frame", None)
+            is not None
+        )
+
+    def _suspend_training_opponent(self):
+        opponent = self.player2
+        battle_aftermath.release_dead_opponents(self.world, (opponent,))
+        suspended = tuple(
+            obj
+            for obj in self.world.snapshot()
+            if obj is opponent or self._root_owner(obj) is opponent
+        )
+        suspended_ids = {id(obj) for obj in suspended}
+        self.world.remove_where(lambda obj: id(obj) in suspended_ids)
+        opponent.currently_alive = False
+        reset_ship_controls(opponent)
+        self._training_suspended_opponent_objects = suspended
+        self._training_opponent_absent_until_frame = (
+            self.frame_id + const.TRAINING_POST_OPPONENT_DEATH_FRAMES
+        )
+
+    def _complete_training_post_death_if_ready(self):
+        ready_frame = self._training_opponent_absent_until_frame
+        if ready_frame is None or self.frame_id < ready_frame:
+            return
+        self._restore_training_opponent(completed=True)
+
+    def _restore_training_opponent(self, *, completed):
+        if not self.training_opponent_absent:
+            return
+        opponent = self.player2
+        opponent.currently_alive = True
+        self.world.objects.extend(self._training_suspended_opponent_objects)
+        self.player1.opponent = opponent
+        opponent.opponent = self.player1
+        battle_aftermath.restore_reborn_opponents(self.world, (opponent,))
+        reset_key_states(self.key_states)
+        reset_ship_controls(opponent)
+        self._training_suspended_opponent_objects = ()
+        self._training_opponent_absent_until_frame = None
+        self.training_post_death_completed = bool(completed)
+
+    @staticmethod
+    def _root_owner(obj):
+        parent = getattr(obj, "parent", None)
+        owner = None
+        seen = set()
+        while parent is not None and id(parent) not in seen:
+            seen.add(id(parent))
+            owner = parent
+            parent = getattr(parent, "parent", None)
+        return owner
 
     def _respawn_training_ships(self, dead_ships):
         dead_ships = tuple(dead_ships)
@@ -827,6 +897,10 @@ class BattleSimulation:
             "winner": self.winner(),
             "training_episode_kills": getattr(self, "training_episode_kills", ()),
             "training_episode_deaths": getattr(self, "training_episode_deaths", ()),
+            "training_opponent_absent": self.training_opponent_absent,
+            "training_post_death_completed": bool(
+                getattr(self, "training_post_death_completed", False)
+            ),
         }
 
     def winner(self):

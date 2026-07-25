@@ -548,6 +548,7 @@ def run_training_round(
     episode_component_sums = {
         component: 0.0 for component in REWARD_COMPONENTS
     }
+    post_death_episode: PendingCombatEpisode | None = None
     next_display_frame_time = time.perf_counter()
     simple_opponent_controller = SimpleOpponentController(config, rng=rng)
 
@@ -603,6 +604,28 @@ def run_training_round(
             frame_limit=config.match_time_limit,
         )
         training_deaths = set(getattr(simulation, "training_episode_deaths", ()))
+        if (
+            terminal
+            and training_deaths == {2}
+            and bool(getattr(simulation, "training_opponent_absent", False))
+        ):
+            win, loss, draw = _classify_round_outcome(
+                simulation, terminal_reason
+            )
+            kills, deaths = _classify_kills_deaths(simulation)
+            post_death_episode = PendingCombatEpisode(
+                opponent=active_opponent,
+                start_frame_id=episode_start_frame,
+                end_frame_id=state["frame_id"],
+                terminal_reason=terminal_reason,
+                win=win,
+                loss=loss,
+                draw=draw,
+                kills=kills,
+                deaths=deaths,
+            )
+            terminal = False
+            terminal_reason = "post_death"
         can_continue = bool(training_deaths) and state["frame_id"] < config.match_time_limit
         reward_terminal = terminal and (
             not causal_lifecycle or 1 in training_deaths or not can_continue
@@ -657,23 +680,44 @@ def run_training_round(
                 next_display_frame_time = time.perf_counter()
             abort_if_requested()
         if terminal:
-            win, loss, draw = _classify_round_outcome(
-                simulation, terminal_reason
-            )
-            kills, deaths = _classify_kills_deaths(simulation)
+            handled_post_death = post_death_episode is not None
+            if handled_post_death:
+                current_deaths = set(
+                    getattr(simulation, "training_episode_deaths", ())
+                )
+                pending = post_death_episode
+                boundary = PendingCombatEpisode(
+                    opponent=pending.opponent,
+                    start_frame_id=pending.start_frame_id,
+                    end_frame_id=state["frame_id"],
+                    terminal_reason=pending.terminal_reason,
+                    win=pending.win,
+                    loss=pending.loss,
+                    draw=pending.draw,
+                    kills=pending.kills,
+                    deaths=max(pending.deaths, int(1 in current_deaths)),
+                )
+                win, loss, draw = boundary.win, boundary.loss, boundary.draw
+                kills, deaths = boundary.kills, boundary.deaths
+            else:
+                win, loss, draw = _classify_round_outcome(
+                    simulation, terminal_reason
+                )
+                kills, deaths = _classify_kills_deaths(simulation)
+                boundary = PendingCombatEpisode(
+                    opponent=opponent,
+                    start_frame_id=episode_start_frame,
+                    end_frame_id=state["frame_id"],
+                    terminal_reason=terminal_reason,
+                    win=win,
+                    loss=loss,
+                    draw=draw,
+                    kills=kills,
+                    deaths=deaths,
+                )
             if causal_lifecycle:
                 pending_episodes.append(
-                    PendingCombatEpisode(
-                        opponent=opponent,
-                        start_frame_id=episode_start_frame,
-                        end_frame_id=state["frame_id"],
-                        terminal_reason=terminal_reason,
-                        win=win,
-                        loss=loss,
-                        draw=draw,
-                        kills=kills,
-                        deaths=deaths,
-                    )
+                    boundary
                 )
                 if reward_terminal:
                     episode_results.extend(
@@ -682,9 +726,9 @@ def run_training_round(
                     pending_episodes.clear()
             else:
                 episode_results.append(TrainingEpisodeResult(
-                    opponent=opponent,
+                    opponent=boundary.opponent,
                     frames=state["frame_id"] - episode_start_frame,
-                    terminal_reason=terminal_reason,
+                    terminal_reason=boundary.terminal_reason,
                     mature_samples=episode_mature_count,
                     total_return=_average_value(
                         episode_return_sum, episode_mature_count
@@ -701,6 +745,23 @@ def run_training_round(
             reset_span = getattr(trainee_policy, "reset_exploration_span", None)
             if callable(reset_span):
                 reset_span()
+            post_death_episode = None
+            if handled_post_death:
+                pipeline = StagedTrajectoryPipeline(
+                    gamma=config.gamma,
+                    reward_weights=config.reward_weights,
+                    mode=config.reward_mode,
+                )
+                simple_opponent_controller = SimpleOpponentController(
+                    config, rng=rng
+                )
+                episode_start_frame = state["frame_id"]
+                episode_mature_count = 0
+                episode_return_sum = 0.0
+                episode_component_sums = {
+                    component: 0.0 for component in REWARD_COMPONENTS
+                }
+                continue
             if not training_deaths:
                 terminal_seen = True
                 ledger.close_reward_trajectory()
@@ -741,22 +802,39 @@ def run_training_round(
             mature_samples,
             episode_component_sums,
         )
-        win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
-        kills, deaths = _classify_kills_deaths(simulation)
-        if causal_lifecycle:
-            pending_episodes.append(
-                PendingCombatEpisode(
-                    opponent=opponent,
-                    start_frame_id=episode_start_frame,
-                    end_frame_id=simulation.frame_id,
-                    terminal_reason=terminal_reason,
-                    win=win,
-                    loss=loss,
-                    draw=draw,
-                    kills=kills,
-                    deaths=deaths,
-                )
+        if post_death_episode is not None:
+            pending = post_death_episode
+            boundary = PendingCombatEpisode(
+                opponent=pending.opponent,
+                start_frame_id=pending.start_frame_id,
+                end_frame_id=simulation.frame_id,
+                terminal_reason=pending.terminal_reason,
+                win=pending.win,
+                loss=pending.loss,
+                draw=pending.draw,
+                kills=pending.kills,
+                deaths=pending.deaths,
             )
+            win, loss, draw = boundary.win, boundary.loss, boundary.draw
+            kills, deaths = boundary.kills, boundary.deaths
+        else:
+            win, loss, draw = _classify_round_outcome(
+                simulation, terminal_reason
+            )
+            kills, deaths = _classify_kills_deaths(simulation)
+            boundary = PendingCombatEpisode(
+                opponent=opponent,
+                start_frame_id=episode_start_frame,
+                end_frame_id=simulation.frame_id,
+                terminal_reason=terminal_reason,
+                win=win,
+                loss=loss,
+                draw=draw,
+                kills=kills,
+                deaths=deaths,
+            )
+        if causal_lifecycle:
+            pending_episodes.append(boundary)
             episode_results.extend(
                 finalize_pending_episodes(pending_episodes, mature_samples)
             )
@@ -764,9 +842,9 @@ def run_training_round(
             ledger.close_reward_trajectory()
         else:
             episode_results.append(TrainingEpisodeResult(
-                opponent=opponent,
+                opponent=boundary.opponent,
                 frames=simulation.frame_id - episode_start_frame,
-                terminal_reason=terminal_reason,
+                terminal_reason=boundary.terminal_reason,
                 mature_samples=episode_mature_count,
                 total_return=_average_value(
                     episode_return_sum, episode_mature_count
@@ -979,6 +1057,10 @@ def _activity_probability(activity: float) -> float:
 def _round_terminal_state(simulation, *, elapsed_frames: int, frame_limit: int):
     if getattr(simulation, "training_episode_deaths", ()):
         return True, "resolved"
+    if bool(getattr(simulation, "training_post_death_completed", False)):
+        return True, "post_death_complete"
+    if bool(getattr(simulation, "training_opponent_absent", False)):
+        return False, "post_death"
     aftermath = getattr(simulation, "aftermath", None)
     pending_rebirths = bool(getattr(aftermath, "pending_rebirths", None))
     if pending_rebirths:

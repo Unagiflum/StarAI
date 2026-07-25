@@ -61,6 +61,7 @@ class CoordinatedWindowRuntime:
     episode_return_sum: float = 0.0
     episode_component_sums: dict[str, float] = field(default_factory=dict)
     episode_needs_timeout: bool = True
+    post_death_episode: PendingCombatEpisode | None = None
 
     def __post_init__(self) -> None:
         if self.opponent_plan is None:
@@ -342,6 +343,26 @@ def advance_coordinated_window_frame(
     terminal_started_at = timing_started_at(timing_seconds)
     terminal, terminal_reason = permanent_terminal_state(simulation)
     training_deaths = set(getattr(simulation, "training_episode_deaths", ()))
+    if (
+        terminal
+        and training_deaths == {2}
+        and bool(getattr(simulation, "training_opponent_absent", False))
+    ):
+        win, loss, draw = classify_round_outcome(simulation, terminal_reason)
+        kills, deaths = classify_kills_deaths(simulation)
+        runtime.post_death_episode = PendingCombatEpisode(
+            opponent=runtime.opponent,
+            start_frame_id=runtime.episode_start_frame,
+            end_frame_id=simulation.frame_id,
+            terminal_reason=terminal_reason,
+            win=win,
+            loss=loss,
+            draw=draw,
+            kills=kills,
+            deaths=deaths,
+        )
+        terminal = False
+        terminal_reason = "post_death"
     causal_lifecycle = config.reward_mode != REWARD_MODE_LEGACY
     can_continue = bool(training_deaths) and runtime.frames_consumed < runtime.frame_limit
     reward_terminal = terminal and (
@@ -443,6 +464,12 @@ def record_coordinated_terminal_episode(
     mature_samples: Sequence[MatureTrainingSample],
     reward_terminal: bool,
 ) -> None:
+    if runtime.post_death_episode is not None:
+        finalize_coordinated_post_death_episode(
+            runtime,
+            mature_samples=mature_samples,
+        )
+        return
     win, loss, draw = classify_round_outcome(runtime.simulation, terminal_reason)
     kills, deaths = classify_kills_deaths(runtime.simulation)
     config = runtime.state.record.config
@@ -484,6 +511,62 @@ def record_coordinated_terminal_episode(
                 runtime.episode_component_sums, runtime.episode_mature_count
             ),
         ))
+    runtime.episode_needs_timeout = False
+    reset_span = getattr(runtime.policy, "reset_exploration_span", None)
+    if callable(reset_span):
+        reset_span()
+
+
+def finalize_coordinated_post_death_episode(
+    runtime: CoordinatedWindowRuntime,
+    *,
+    mature_samples: Sequence[MatureTrainingSample],
+) -> None:
+    pending = runtime.post_death_episode
+    if pending is None:
+        raise RuntimeError("coordinated runtime has no post-death episode")
+    current_deaths = set(
+        getattr(runtime.simulation, "training_episode_deaths", ())
+    )
+    boundary = PendingCombatEpisode(
+        opponent=pending.opponent,
+        start_frame_id=pending.start_frame_id,
+        end_frame_id=runtime.simulation.frame_id,
+        terminal_reason=pending.terminal_reason,
+        win=pending.win,
+        loss=pending.loss,
+        draw=pending.draw,
+        kills=pending.kills,
+        deaths=max(pending.deaths, int(1 in current_deaths)),
+    )
+    config = runtime.state.record.config
+    if config.reward_mode != REWARD_MODE_LEGACY:
+        runtime.pending_episodes.append(boundary)
+        runtime.episode_results.extend(
+            finalize_pending_episodes(runtime.pending_episodes, mature_samples)
+        )
+        runtime.pending_episodes.clear()
+        runtime.ledger.close_reward_trajectory()
+    else:
+        runtime.episode_results.append(TrainingEpisodeResult(
+            opponent=boundary.opponent,
+            frames=boundary.frames,
+            terminal_reason=boundary.terminal_reason,
+            mature_samples=runtime.episode_mature_count,
+            total_return=average_value(
+                runtime.episode_return_sum, runtime.episode_mature_count
+            ),
+            win=boundary.win,
+            loss=boundary.loss,
+            draw=boundary.draw,
+            kills=boundary.kills,
+            deaths=boundary.deaths,
+            component_totals=average_components(
+                runtime.episode_component_sums,
+                runtime.episode_mature_count,
+            ),
+        ))
+    runtime.post_death_episode = None
     runtime.episode_needs_timeout = False
     reset_span = getattr(runtime.policy, "reset_exploration_span", None)
     if callable(reset_span):
@@ -567,7 +650,13 @@ def finish_coordinated_window(
         win, loss, draw = classify_round_outcome(runtime.simulation, "timeout")
         kills, deaths = classify_kills_deaths(runtime.simulation)
         add_timing_seconds(timing_seconds, "reward_terminal", terminal_started_at)
-        if runtime.state.record.config.reward_mode != REWARD_MODE_LEGACY:
+        handled_post_death = runtime.post_death_episode is not None
+        if handled_post_death:
+            finalize_coordinated_post_death_episode(
+                runtime,
+                mature_samples=mature_samples,
+            )
+        elif runtime.state.record.config.reward_mode != REWARD_MODE_LEGACY:
             runtime.pending_episodes.append(
                 PendingCombatEpisode(
                     opponent=runtime.opponent,
@@ -604,9 +693,10 @@ def finish_coordinated_window(
                     runtime.episode_component_sums, runtime.episode_mature_count
                 ),
             ))
-        reset_span = getattr(runtime.policy, "reset_exploration_span", None)
-        if callable(reset_span):
-            reset_span()
+        if not handled_post_death:
+            reset_span = getattr(runtime.policy, "reset_exploration_span", None)
+            if callable(reset_span):
+                reset_span()
         add_timing_seconds(timing_seconds, "reward", reward_started_at)
     return CoordinatedFixedFrameWindowResult(
         opponent=runtime.opponent,
@@ -627,6 +717,10 @@ def finish_coordinated_window(
 def permanent_terminal_state(simulation) -> tuple[bool, str]:
     if getattr(simulation, "training_episode_deaths", ()):
         return True, "resolved"
+    if bool(getattr(simulation, "training_post_death_completed", False)):
+        return True, "post_death_complete"
+    if bool(getattr(simulation, "training_opponent_absent", False)):
+        return False, "post_death"
     aftermath = getattr(simulation, "aftermath", None)
     if bool(getattr(aftermath, "pending_rebirths", None)):
         return False, "pending_rebirth"

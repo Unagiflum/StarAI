@@ -131,15 +131,29 @@ def encode_observation(
         enemy_ship,
         game_objects,
     )
-    enemy_type_index = _SHIP_TYPE_INDEX.get(getattr(enemy_ship, "name", None))
+    observed_enemy = enemy_ship if _object_alive(enemy_ship) else None
+    enemy_type_index = _SHIP_TYPE_INDEX.get(getattr(observed_enemy, "name", None))
     if enemy_type_index is not None:
         values[enemy_type_index] = 1.0
 
     values[len(SHIP_TYPE_CATALOG_ORDER):OBJECT_SLOT_OFFSET] = (
-        _ship_block(self_ship, enemy_ship, context=context, frame_id=frame_id)
-        + _ship_block(enemy_ship, self_ship, context=context, frame_id=frame_id)
+        _ship_block(self_ship, observed_enemy, context=context, frame_id=frame_id)
+        + (
+            _ship_block(
+                observed_enemy,
+                self_ship,
+                context=context,
+                frame_id=frame_id,
+            )
+            if observed_enemy is not None
+            else [0.0] * SHIP_BLOCK_SIZE
+        )
     )
-    values[OBJECT_SLOT_OFFSET:] = _object_slots(self_ship, enemy_ship, context)
+    values[OBJECT_SLOT_OFFSET:] = _object_slots(
+        self_ship,
+        observed_enemy,
+        context,
+    )
 
     _validate_observation(values)
     return values
@@ -291,7 +305,11 @@ def _classify_object_slots(
 ) -> dict[str, list]:
     groups = {group_name: [] for group_name, _ in OBJECT_SLOT_GROUPS}
     enemy_fact = next((item for item in objects if item.obj is enemy_ship), None)
-    if enemy_fact is not None and enemy_fact.has_position:
+    if (
+        enemy_fact is not None
+        and enemy_fact.has_position
+        and enemy_fact.alive
+    ):
         groups["enemy_ship"].append(enemy_fact)
 
     for observed in objects:

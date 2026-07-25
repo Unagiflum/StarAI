@@ -13,8 +13,8 @@ from src.training import torch_backend
 from src.training.contracts import (
     ACTION_SCHEMA_METADATA,
     ACTION_SCHEMA_VERSION,
+    COMPATIBLE_OBSERVATION_SCHEMA_VERSIONS,
     OBSERVATION_INPUT_SIZE,
-    OBSERVATION_SCHEMA_VERSION,
     SHIP_TYPE_CATALOG_ORDER,
 )
 from src.training.model_registry import (
@@ -213,10 +213,16 @@ def validate_schema_metadata(metadata: Mapping[str, Any]) -> None:
     if not metadata:
         return
     expected = {
-        "observation_schema_version": OBSERVATION_SCHEMA_VERSION,
         "observation_input_size": OBSERVATION_INPUT_SIZE,
         "action_schema_version": ACTION_SCHEMA_VERSION,
     }
+    observation_version = metadata.get("observation_schema_version")
+    if (
+        observation_version is not None
+        and int(observation_version)
+        not in COMPATIBLE_OBSERVATION_SCHEMA_VERSIONS
+    ):
+        raise InferenceModelLoadError("incompatible observation_schema_version")
     for key, value in expected.items():
         if key in metadata and int(metadata[key]) != int(value):
             raise InferenceModelLoadError(f"incompatible {key}")

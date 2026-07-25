@@ -1310,7 +1310,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
             architecture=architecture_for_state(first.state),
             training={},
         )
-        first_metadata["observation_schema_version"] -= 1
+        first_metadata["observation_schema_version"] -= 2
         second_metadata = metadata_from_state(
             ship="Androsynth",
             slot=1,
@@ -2096,7 +2096,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 progress={"completed_batches": 42},
             )
             current_schema_version = metadata["observation_schema_version"]
-            metadata["observation_schema_version"] -= 1
+            metadata["observation_schema_version"] -= 2
 
             class ResettableRepository:
                 def __init__(self):
@@ -2526,7 +2526,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             metadata = dict(slot.metadata)
             metadata["progress"] = {"completed_batches": 42}
             if key == ("Earthling", 1):
-                metadata["observation_schema_version"] -= 1
+                metadata["observation_schema_version"] -= 2
             repository.slots[key] = TrainingModelSlot(
                 slot.ship,
                 slot.slot,

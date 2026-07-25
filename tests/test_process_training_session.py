@@ -1087,7 +1087,7 @@ class ProcessTrainingSessionTests(unittest.TestCase):
             )
             slot = repository.create_or_update_user_model(metadata)
             invalid_metadata = dict(metadata)
-            invalid_metadata["observation_schema_version"] -= 1
+            invalid_metadata["observation_schema_version"] -= 2
             session = ProcessTrainingSession(
                 repository=repository,
                 slot=slot,

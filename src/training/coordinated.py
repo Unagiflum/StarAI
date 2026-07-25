@@ -2816,6 +2816,7 @@ def run_coordinated_fixed_frame_window(
     episode_return_sum = 0.0
     episode_component_sums = {component: 0.0 for component in REWARD_COMPONENTS}
     episode_needs_timeout = True
+    post_death_episode: PendingCombatEpisode | None = None
 
     while window_frames_consumed < window_frame_limit:
         if stop_requested is not None and stop_requested():
@@ -2871,6 +2872,28 @@ def run_coordinated_fixed_frame_window(
         window_frames_consumed += 1
         terminal, terminal_reason = _permanent_terminal_state(simulation)
         training_deaths = set(getattr(simulation, "training_episode_deaths", ()))
+        if (
+            terminal
+            and training_deaths == {2}
+            and bool(getattr(simulation, "training_opponent_absent", False))
+        ):
+            win, loss, draw = _classify_round_outcome(
+                simulation, terminal_reason
+            )
+            kills, deaths = _classify_kills_deaths(simulation)
+            post_death_episode = PendingCombatEpisode(
+                opponent=opponent,
+                start_frame_id=episode_start_frame_id,
+                end_frame_id=simulation.frame_id,
+                terminal_reason=terminal_reason,
+                win=win,
+                loss=loss,
+                draw=draw,
+                kills=kills,
+                deaths=deaths,
+            )
+            terminal = False
+            terminal_reason = "post_death"
         can_continue = bool(training_deaths) and window_frames_consumed < window_frame_limit
         reward_terminal = terminal and (
             not causal_lifecycle or 1 in training_deaths or not can_continue
@@ -2915,22 +2938,43 @@ def run_coordinated_fixed_frame_window(
         _raise_if_stop_requested(stop_requested)
 
         if terminal:
-            win, loss, draw = _classify_round_outcome(simulation, terminal_reason)
-            kills, deaths = _classify_kills_deaths(simulation)
-            if causal_lifecycle:
-                pending_episodes.append(
-                    PendingCombatEpisode(
-                        opponent=opponent,
-                        start_frame_id=episode_start_frame_id,
-                        end_frame_id=simulation.frame_id,
-                        terminal_reason=terminal_reason,
-                        win=win,
-                        loss=loss,
-                        draw=draw,
-                        kills=kills,
-                        deaths=deaths,
-                    )
+            handled_post_death = post_death_episode is not None
+            if handled_post_death:
+                pending = post_death_episode
+                current_deaths = set(
+                    getattr(simulation, "training_episode_deaths", ())
                 )
+                boundary = PendingCombatEpisode(
+                    opponent=pending.opponent,
+                    start_frame_id=pending.start_frame_id,
+                    end_frame_id=simulation.frame_id,
+                    terminal_reason=pending.terminal_reason,
+                    win=pending.win,
+                    loss=pending.loss,
+                    draw=pending.draw,
+                    kills=pending.kills,
+                    deaths=max(pending.deaths, int(1 in current_deaths)),
+                )
+            else:
+                win, loss, draw = _classify_round_outcome(
+                    simulation, terminal_reason
+                )
+                kills, deaths = _classify_kills_deaths(simulation)
+                boundary = PendingCombatEpisode(
+                    opponent=opponent,
+                    start_frame_id=episode_start_frame_id,
+                    end_frame_id=simulation.frame_id,
+                    terminal_reason=terminal_reason,
+                    win=win,
+                    loss=loss,
+                    draw=draw,
+                    kills=kills,
+                    deaths=deaths,
+                )
+            win, loss, draw = boundary.win, boundary.loss, boundary.draw
+            kills, deaths = boundary.kills, boundary.deaths
+            if causal_lifecycle:
+                pending_episodes.append(boundary)
                 if reward_terminal:
                     episode_results.extend(
                         finalize_pending_episodes(pending_episodes, mature_samples)
@@ -2939,9 +2983,9 @@ def run_coordinated_fixed_frame_window(
                     ledger.close_reward_trajectory()
             else:
                 episode_results.append(TrainingEpisodeResult(
-                    opponent=opponent,
+                    opponent=boundary.opponent,
                     frames=window_frames_consumed - episode_start_window_frame,
-                    terminal_reason=terminal_reason,
+                    terminal_reason=boundary.terminal_reason,
                     mature_samples=episode_mature_count,
                     total_return=_average_value(
                         episode_return_sum,
@@ -2961,8 +3005,11 @@ def run_coordinated_fixed_frame_window(
             reset_span = getattr(trainee_policy, "reset_exploration_span", None)
             if callable(reset_span):
                 reset_span()
+            post_death_episode = None
             if window_frames_consumed < window_frame_limit:
-                if training_deaths:
+                if handled_post_death:
+                    simulation, ledger, pipeline, simple_controller = new_battle()
+                elif training_deaths:
                     if reward_terminal:
                         pipeline = StagedTrajectoryPipeline(
                             gamma=config.gamma,
@@ -2997,22 +3044,38 @@ def run_coordinated_fixed_frame_window(
             mature_samples,
             episode_component_sums,
         )
-        win, loss, draw = _classify_round_outcome(simulation, "timeout")
-        kills, deaths = _classify_kills_deaths(simulation)
-        if causal_lifecycle:
-            pending_episodes.append(
-                PendingCombatEpisode(
-                    opponent=opponent,
-                    start_frame_id=episode_start_frame_id,
-                    end_frame_id=simulation.frame_id,
-                    terminal_reason="timeout",
-                    win=win,
-                    loss=loss,
-                    draw=draw,
-                    kills=kills,
-                    deaths=deaths,
-                )
+        handled_post_death = post_death_episode is not None
+        if handled_post_death:
+            pending = post_death_episode
+            boundary = PendingCombatEpisode(
+                opponent=pending.opponent,
+                start_frame_id=pending.start_frame_id,
+                end_frame_id=simulation.frame_id,
+                terminal_reason=pending.terminal_reason,
+                win=pending.win,
+                loss=pending.loss,
+                draw=pending.draw,
+                kills=pending.kills,
+                deaths=pending.deaths,
             )
+        else:
+            win, loss, draw = _classify_round_outcome(simulation, "timeout")
+            kills, deaths = _classify_kills_deaths(simulation)
+            boundary = PendingCombatEpisode(
+                opponent=opponent,
+                start_frame_id=episode_start_frame_id,
+                end_frame_id=simulation.frame_id,
+                terminal_reason="timeout",
+                win=win,
+                loss=loss,
+                draw=draw,
+                kills=kills,
+                deaths=deaths,
+            )
+        win, loss, draw = boundary.win, boundary.loss, boundary.draw
+        kills, deaths = boundary.kills, boundary.deaths
+        if causal_lifecycle:
+            pending_episodes.append(boundary)
             episode_results.extend(
                 finalize_pending_episodes(pending_episodes, mature_samples)
             )
@@ -3020,9 +3083,9 @@ def run_coordinated_fixed_frame_window(
             ledger.close_reward_trajectory()
         else:
             episode_results.append(TrainingEpisodeResult(
-                opponent=opponent,
+                opponent=boundary.opponent,
                 frames=window_frames_consumed - episode_start_window_frame,
-                terminal_reason="timeout",
+                terminal_reason=boundary.terminal_reason,
                 mature_samples=episode_mature_count,
                 total_return=_average_value(episode_return_sum, episode_mature_count),
                 win=win,
@@ -3056,6 +3119,10 @@ def run_coordinated_fixed_frame_window(
 def _permanent_terminal_state(simulation) -> tuple[bool, str]:
     if getattr(simulation, "training_episode_deaths", ()):
         return True, "resolved"
+    if bool(getattr(simulation, "training_post_death_completed", False)):
+        return True, "post_death_complete"
+    if bool(getattr(simulation, "training_opponent_absent", False)):
+        return False, "post_death"
     aftermath = getattr(simulation, "aftermath", None)
     if bool(getattr(aftermath, "pending_rebirths", None)):
         return False, "pending_rebirth"

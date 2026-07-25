@@ -691,6 +691,7 @@ class ScriptedSimulation:
         *,
         terminal_after=None,
         enemy_replacement_frames=(),
+        post_death_frames=None,
         pending_rebirth=False,
         audio_service=None,
         resources=None,
@@ -705,14 +706,33 @@ class ScriptedSimulation:
         self.aftermath = None
         self.terminal_after = terminal_after
         self.enemy_replacement_frames = set(enemy_replacement_frames)
+        self.post_death_frames = (
+            None if post_death_frames is None else int(post_death_frames)
+        )
         self.pending_rebirth = bool(pending_rebirth)
         self.training_episode_deaths = ()
         self.training_episode_kills = ()
+        self.training_opponent_absent = False
+        self.training_post_death_completed = False
 
     def step(self, actions=None):
         self.frame_id += 1
         self.training_episode_deaths = ()
         self.training_episode_kills = ()
+        self.training_post_death_completed = False
+        if self.post_death_frames is not None:
+            if self.frame_id == 1:
+                self.training_episode_deaths = (2,)
+                self.training_episode_kills = (1,)
+                self.training_opponent_absent = True
+                self.player2.current_hp = 0
+                self.player2.currently_alive = False
+                return {"frame_id": self.frame_id}
+            if self.frame_id == 1 + self.post_death_frames:
+                self.training_opponent_absent = False
+                self.training_post_death_completed = True
+                self.player2 = fake_ship("Androsynth", 2)
+                return {"frame_id": self.frame_id}
         if self.frame_id in self.enemy_replacement_frames:
             self.training_episode_deaths = (2,)
             self.training_episode_kills = (1,)
@@ -915,6 +935,34 @@ class CoordinatedFixedFrameWindowTests(unittest.TestCase):
             [episode.frames for episode in result.episode_results],
             [2, 3],
         )
+
+    def test_post_death_phase_preserves_win_until_targetless_frames_finish(self):
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=5,
+            gamma=0.0,
+        )
+        factory = ScriptedSimulationFactory(
+            (
+                {"post_death_frames": 3},
+                {},
+            )
+        )
+
+        result, replay, _events, policy, factory = self.run_window(
+            config=config,
+            simulation_factory=factory,
+        )
+
+        self.assertEqual(result.frames, 5)
+        self.assertEqual(policy.selection_count, 5)
+        self.assertEqual(len(replay), 5)
+        self.assertEqual(len(factory.created), 2)
+        self.assertEqual(len(result.episode_results), 2)
+        self.assertTrue(result.episode_results[0].win)
+        self.assertEqual(result.episode_results[0].frames, 4)
+        self.assertEqual(result.episode_results[0].mature_samples, 4)
+        self.assertEqual(result.episode_results[1].terminal_reason, "timeout")
 
     def test_causal_trajectory_spans_enemy_replacement_and_delays_metrics(self):
         config = TrainingOrchestrationConfig(

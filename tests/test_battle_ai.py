@@ -17,9 +17,12 @@ from src.Battle.battle_ai import (
 )
 from src.training.model_loader import (
     InferenceModelCache,
+    InferenceModelLoadError,
     LoadedInferenceModel,
     InferenceModelKey,
+    validate_schema_metadata,
 )
+from src.training.contracts import OBSERVATION_SCHEMA_VERSION
 from src.training.model_registry import (
     TrainingModelRepository,
     metadata_from_state,
@@ -62,6 +65,22 @@ def make_ship(name, player, position=(4000, 4000), rotation=0.0):
 
 
 class BattleAIModelResolutionTests(unittest.TestCase):
+    def test_inference_loader_accepts_previous_observation_schema(self):
+        validate_schema_metadata(
+            {
+                "observation_schema_version": OBSERVATION_SCHEMA_VERSION - 1,
+            }
+        )
+
+        with self.assertRaises(InferenceModelLoadError):
+            validate_schema_metadata(
+                {
+                    "observation_schema_version": (
+                        OBSERVATION_SCHEMA_VERSION - 2
+                    ),
+                }
+            )
+
     def test_model_loading_uses_preferred_device_for_inference(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -268,6 +287,31 @@ class BattleAIFallbackControllerTests(unittest.TestCase):
         self.assertTrue(first["action2"])
         self.assertTrue(second["action1"])
         self.assertTrue(second["action2"])
+
+    def test_fallback_releases_controls_when_enemy_is_dead(self):
+        controller = FallbackController(1, rng=SequenceRng([]))
+        controller.action1_held = True
+        controller.action2_held = True
+        enemy = make_ship("Chenjesu", 2)
+        enemy.currently_alive = False
+        enemy.current_hp = 0
+        simulation = SimpleNamespace(
+            player1=make_ship("Earthling", 1),
+            player2=enemy,
+        )
+
+        actions = controller.actions_for_frame(simulation)
+
+        self.assertEqual(
+            actions,
+            {
+                "forward": False,
+                "left": False,
+                "right": False,
+                "action1": False,
+                "action2": False,
+            },
+        )
 
     def test_training_action_index_maps_to_battle_controls(self):
         self.assertEqual(

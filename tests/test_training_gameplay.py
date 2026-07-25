@@ -13,6 +13,7 @@ pygame.init()
 if pygame.display.get_surface() is None:
     pygame.display.set_mode((1, 1))
 
+import src.const as const
 from src.Battle.battle import BattleSimulation
 from src.Battle.effects import BattleEffect
 from src.Objects.Ships.registry import create_ship
@@ -79,6 +80,37 @@ class TrainingGameplayTests(unittest.TestCase):
 
         self.assertEqual(state["training_episode_kills"], (1,))
         self.assertEqual(state["training_episode_deaths"], (2,))
+
+    def test_opponent_respawn_waits_for_three_targetless_seconds(self):
+        simulation, _audio = self.create_simulation()
+        trainee = simulation.player1
+        trainee.position = [1000.0, 1000.0]
+        trainee.previous_position = trainee.position.copy()
+        trainee.velocity = [0.0, 0.0]
+        trainee.current_hp = 1000
+        old_opponent = simulation.player2
+        old_opponent.current_hp = 0
+        old_opponent.last_lethal_damage_source = SimpleNamespace(parent=trainee)
+
+        death_state = simulation.step(actions={1: {}, 2: {}})
+        replacement = simulation.player2
+
+        self.assertTrue(death_state["training_opponent_absent"])
+        self.assertFalse(replacement.currently_alive)
+        self.assertNotIn(replacement, simulation.world.objects)
+        self.assertIsNone(trainee.opponent)
+
+        for _ in range(const.TRAINING_POST_OPPONENT_DEATH_FRAMES - 1):
+            state = simulation.step(actions={1: {}, 2: {}})
+
+        self.assertTrue(state["training_opponent_absent"])
+        completion = simulation.step(actions={1: {}, 2: {}})
+        self.assertFalse(completion["training_opponent_absent"])
+        self.assertTrue(completion["training_post_death_completed"])
+        self.assertTrue(replacement.currently_alive)
+        self.assertIn(replacement, simulation.world.objects)
+        self.assertIs(trainee.opponent, replacement)
+        self.assertIs(replacement.opponent, trainee)
 
     def test_opponent_self_destruct_does_not_credit_trainee_kill(self):
         simulation, _audio = self.create_simulation(opponent="Shofixti")

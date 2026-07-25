@@ -419,6 +419,61 @@ class TrainingObservationTests(unittest.TestCase):
         self.assertEqual(observation[_object_field("planet", 0, "present")], 1.0)
         self.assertEqual(observation[_object_field("planet", 0, "remaining_timer")], 5.0)
 
+    def test_dead_enemy_has_no_identity_state_bearing_or_position(self):
+        trainee = _ship(
+            "Earthling",
+            player=1,
+            position=[100.0, 100.0],
+            rotation=90.0,
+        )
+        enemy = _ship(
+            "Mycon",
+            player=2,
+            position=[150.0, 100.0],
+            currently_alive=False,
+            current_hp=0,
+        )
+        lingering_projectile = _obj(
+            "MyconA1",
+            parent=enemy,
+            player=2,
+            position=[125.0, 100.0],
+        )
+
+        observation = encode_observation(
+            trainee,
+            enemy,
+            game_objects=[trainee, enemy, lingering_projectile],
+        )
+
+        self.assertEqual(sum(observation[: len(SHIP_TYPE_CATALOG_ORDER)]), 0.0)
+        self.assertEqual(
+            observation[_field("self", "opponent_bearing_sine")],
+            0.0,
+        )
+        self.assertEqual(
+            observation[_field("self", "opponent_bearing_cosine")],
+            0.0,
+        )
+        self.assertTrue(
+            all(
+                value == 0.0
+                for value in observation[
+                    ENEMY_SHIP_BLOCK_OFFSET:OBJECT_SLOT_OFFSET
+                ]
+            )
+        )
+        self.assertTrue(
+            all(
+                observation[_object_field("enemy_ship", 0, field)] == 0.0
+                for field in OBJECT_SLOT_FIELDS
+            )
+        )
+        self.assertEqual(
+            observation[_object_field("enemy_a1", 0, "present")],
+            1.0,
+        )
+
     def test_object_slot_groups_order_and_zero_masking_are_stable(self):
         trainee = _ship(
             "Earthling",
