@@ -36,6 +36,7 @@ from src.Menus.train_ai import (
     INSTANCE_ADD_WIDTH,
     INSTANCE_CLOSE_WIDTH,
     INSTANCE_GAP,
+    INSTANCE_HORIZONTAL_MARGIN,
     INSTANCE_DROPDOWN_MAX_VISIBLE_ROWS,
     INSTANCE_POSITION_WIDTH,
     INSTANCE_RUNNING_WIDTH,
@@ -490,7 +491,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(len(labels), len(set(labels)))
         self.assertEqual(len(row_prefixes), len(set(row_prefixes)))
 
-    def test_position_and_running_count_are_zero_padded(self):
+    def test_position_running_and_open_counts_are_zero_padded(self):
         manager = TrainingInstanceManager()
         first = manager.active_instance
         first.session = self.FakeSession(running=True)
@@ -502,7 +503,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(manager.active_position_text(), "03/03")
         self.assertEqual(manager.running_count(), 2)
         self.assertEqual(manager.running_count_text(), "02>")
-        self.assertEqual(manager.instance_summary_text(), "02>/03")
+        self.assertEqual(manager.instance_summary_text(), "03")
 
     def test_select_relative_instance_wraps_through_instances(self):
         manager = TrainingInstanceManager()
@@ -571,6 +572,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
     def test_training_session_json_round_trip_preserves_instances_and_settings(self):
         manager = TrainingInstanceManager()
+        manager.tooltips_enabled = False
         manager.active_state.selected_ship = "Earthling"
         manager.active_state.selected_slot = 2
         manager.active_state.learning_rate = 0.003
@@ -594,6 +596,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         self.assertEqual(restored.active_state.match_time_limit, 2400)
         self.assertTrue(restored.batch_scheduling.apply_to_all_open_instances)
         self.assertEqual(restored.active_tab, "regimen")
+        self.assertFalse(restored.tooltips_enabled)
 
     def test_version_one_session_migrates_active_instances_tab(self):
         payload = training_instance_manager_to_json(TrainingInstanceManager())
@@ -604,6 +607,14 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         restored = training_instance_manager_from_json(payload)
 
         self.assertEqual(restored.active_tab, "rewards")
+
+    def test_legacy_session_defaults_tooltips_to_enabled(self):
+        payload = training_instance_manager_to_json(TrainingInstanceManager())
+        payload.pop("tooltips_enabled")
+
+        restored = training_instance_manager_from_json(payload)
+
+        self.assertTrue(restored.tooltips_enabled)
 
     def test_training_session_save_and_load_uses_supplied_path(self):
         manager = TrainingInstanceManager()
@@ -2387,16 +2398,19 @@ class TrainingUIRunWiringTests(unittest.TestCase):
             train_ai.UI_TOP_MARGIN + (train_ai.TAB_HEIGHT + train_ai.TAB_GAP) // 2,
         )
         dropdown_rect = pygame.Rect(
-            train_ai.TAB_MARGIN
+            train_ai.INSTANCE_HORIZONTAL_MARGIN
+            + train_ai.INSTANCE_TOOLTIPS_WIDTH
+            + train_ai.INSTANCE_GAP
             + train_ai.INSTANCE_SUMMARY_WIDTH
             + train_ai.INSTANCE_GAP,
             train_ai.INSTANCE_TOP,
             train_ai.CONTROL_WIDTH
-            - 2 * train_ai.TAB_MARGIN
+            - 2 * train_ai.INSTANCE_HORIZONTAL_MARGIN
+            - train_ai.INSTANCE_TOOLTIPS_WIDTH
             - train_ai.INSTANCE_SUMMARY_WIDTH
             - train_ai.INSTANCE_CLOSE_WIDTH
             - train_ai.INSTANCE_ADD_WIDTH
-            - 3 * train_ai.INSTANCE_GAP,
+            - 4 * train_ai.INSTANCE_GAP,
             train_ai.INSTANCE_CONTROL_HEIGHT,
         )
         open_dropdown = pygame.event.Event(
@@ -3312,7 +3326,7 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 side_effect=lambda *_args: draw_order.append("hud"),
             ),
             mock.patch(
-                "src.Menus.train_ai.ui.draw_ship_tooltip",
+                "src.Menus.train_ai.ui.draw_tooltip",
                 side_effect=lambda *_args: draw_order.append("tooltip"),
             ) as draw_tooltip,
             mock.patch("pygame.display.flip", side_effect=self.StopRun),
@@ -3321,11 +3335,83 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 train_ai.run(screen)
 
         draw_tooltip.assert_called_once()
-        self.assertEqual(
-            draw_tooltip.call_args.args[2],
-            "At least two training instances are required",
-        )
+        label = draw_tooltip.call_args.args[2]
+        self.assertIn("Start all open instances together", label)
+        self.assertIn("At least two training instances are required", label)
         self.assertLess(draw_order.index("hud"), draw_order.index("tooltip"))
+
+    def test_tooltips_checkbox_disables_control_tooltips(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        checkbox_rect = pygame.Rect(
+            train_ai.INSTANCE_HORIZONTAL_MARGIN,
+            train_ai.INSTANCE_TOP,
+            train_ai.INSTANCE_TOOLTIPS_WIDTH,
+            train_ai.INSTANCE_CONTROL_HEIGHT,
+        )
+        event = pygame.event.Event(
+            pygame.MOUSEBUTTONDOWN,
+            {"button": 1, "pos": checkbox_rect.center},
+        )
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.TrainingInstanceManager",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeRepository,
+            ),
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch("src.Menus.train_ai.fit_ship_sprites", return_value={}),
+            mock.patch("pygame.mouse.get_pos", return_value=checkbox_rect.center),
+            mock.patch("pygame.event.get", return_value=[event]),
+            mock.patch("src.Menus.train_ai.ui.draw_tooltip") as draw_tooltip,
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+        self.assertFalse(manager.tooltips_enabled)
+        draw_tooltip.assert_not_called()
+
+    def test_disabled_start_tooltip_explains_ai_slot_naming(self):
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+        manager = TrainingInstanceManager()
+        start_pos = self.trainee_start_position()
+
+        with (
+            mock.patch(
+                "src.Menus.train_ai.TrainingInstanceManager",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.load_training_ui_session",
+                return_value=manager,
+            ),
+            mock.patch(
+                "src.Menus.train_ai.TrainingModelRepository",
+                self.FakeRepository,
+            ),
+            mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+            mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+            mock.patch("src.Menus.train_ai.fit_ship_sprites", return_value={}),
+            mock.patch("pygame.mouse.get_pos", return_value=start_pos),
+            mock.patch("pygame.event.get", return_value=[]),
+            mock.patch("src.Menus.train_ai.ui.draw_tooltip") as draw_tooltip,
+            mock.patch("pygame.display.flip", side_effect=self.StopRun),
+        ):
+            with self.assertRaises(self.StopRun):
+                train_ai.run(screen)
+
+        draw_tooltip.assert_called_once()
+        self.assertIn("name its AI slot", draw_tooltip.call_args.args[2])
 
 
 class TrainingMenuClockTests(unittest.TestCase):
@@ -3389,6 +3475,64 @@ class TrainingStartAllStyleTests(unittest.TestCase):
         self.assertEqual(train_ai.START_ALL_GREEN, (0, 105, 0, ui.OK_GREEN[3]))
         self.assertEqual(train_ai.START_ALL_GREEN_HI[:3], (0, 105, 0))
         self.assertEqual(train_ai.START_ALL_GREEN_HI[3], ui.OK_GREEN_HI[3])
+
+
+class TrainingTooltipTests(unittest.TestCase):
+    def test_dynamic_training_actions_have_tooltips_for_every_phase(self):
+        expected_phrases = {
+            "Start": "name its AI slot",
+            "Starting": "Starting",
+            "Stop": "Safely stop",
+            "Stopping": "stopping",
+            "Start all eligible": "eligible instance",
+            "Stop all": "every independently running instance",
+            "Stopping all": "instances are stopping",
+            "Start synced": "coordinated training run",
+            "Stop synced": "stop the coordinated",
+            "Stopping synced": "coordinated training run is stopping",
+            "Running synced": "use Stop synced",
+            "Load": "saved model and training settings",
+            "Load all": "all eligible instances",
+            "X": "Permanently delete",
+            "X (ALL)": "all open instances",
+        }
+        for label, phrase in expected_phrases.items():
+            with self.subTest(label=label):
+                self.assertIn(phrase, train_ai._training_action_tooltip(label))
+
+        self.assertIn(
+            "already loaded",
+            train_ai._training_action_tooltip("Earthling-01 Loaded"),
+        )
+
+    def test_wrapped_control_tooltip_is_clamped_to_the_screen(self):
+        screen = pygame.Surface((240, 120), pygame.SRCALPHA)
+        font = pygame.font.SysFont(None, 18)
+
+        rect = ui.draw_tooltip(
+            screen,
+            font,
+            "This deliberately long tooltip should wrap across several concise lines.",
+            (235, 115),
+            pygame.Rect(220, 100, 15, 15),
+            max_width=130,
+        )
+
+        self.assertTrue(screen.get_rect().contains(rect))
+        self.assertLessEqual(rect.width, 130)
+        self.assertGreater(rect.height, font.get_linesize())
+
+    def test_content_tooltip_rect_is_translated_and_clipped(self):
+        content = pygame.Rect(0, 100, 300, 200)
+        control = pygame.Rect(20, 40, 120, 50)
+
+        visible = train_ai._visible_content_control_rect(
+            control,
+            content,
+            scroll_y=65,
+        )
+
+        self.assertEqual(visible, pygame.Rect(20, 100, 120, 25))
 
 
 class TrainingLayoutTests(unittest.TestCase):
@@ -3625,7 +3769,7 @@ class TrainingLayoutTests(unittest.TestCase):
         self.assertEqual(layout.tab_box_rect.bottom, strip.bottom)
         self.assertTrue(layout.tab_box_rect.contains(strip))
 
-    def test_apply_all_strip_uses_square_tab_colors_and_new_label(self):
+    def test_apply_all_strip_stays_transparent_when_checked(self):
         checkbox = train_ai.TabScopeCheckbox(
             0,
             0,
@@ -3646,7 +3790,7 @@ class TrainingLayoutTests(unittest.TestCase):
         checkbox.draw(surface, font, mouse_pos=(299, 29))
         self.assertEqual(
             surface.get_at((299, 29)),
-            (*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_HOVER_ALPHA),
+            (*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_SELECTED_ALPHA),
         )
 
         surface.fill((0, 0, 0, 0))
@@ -3654,10 +3798,41 @@ class TrainingLayoutTests(unittest.TestCase):
         checkbox.draw(surface, font, mouse_pos=(400, 400))
         self.assertEqual(
             surface.get_at((299, 29)),
-            (*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_SELECTED_ALPHA),
+            (*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_NORMAL_ALPHA),
         )
         self.assertEqual(checkbox.text, "Apply actions to all instances")
         self.assertEqual(train_ai.TAB_BOX_BORDER_WIDTH, 3)
+
+    def test_tabs_scope_strip_and_border_accept_single_instance_cyan(self):
+        accent = train_ai.SINGLE_INSTANCE_SCOPE_COLOR
+        font = pygame.font.SysFont(None, 18)
+        tab = train_ai.TabButton(0, 0, 140, 34, "Trainee", lambda: None)
+        tab.accent_color = accent
+        tab.active = True
+        tab_surface = pygame.Surface(tab.rect.size, pygame.SRCALPHA)
+        tab.draw(tab_surface, font, mouse_pos=(300, 300))
+        self.assertEqual(
+            tab_surface.get_at((0, tab.rect.centery)),
+            (*accent, 255),
+        )
+
+        checkbox = train_ai.TabScopeCheckbox(0, 0, 300, 30, "Apply all")
+        checkbox.accent_color = accent
+        checkbox_surface = pygame.Surface(checkbox.rect.size, pygame.SRCALPHA)
+        checkbox.draw(checkbox_surface, font, mouse_pos=(400, 400))
+        self.assertEqual(
+            checkbox_surface.get_at((0, 0)),
+            (*accent, const.TAB_BUTTON_NORMAL_ALPHA),
+        )
+
+        border_surface = pygame.Surface((60, 40))
+        border_surface.fill(ui.BLACK)
+        train_ai._draw_tab_box_border(
+            border_surface,
+            border_surface.get_rect(),
+            accent,
+        )
+        self.assertEqual(border_surface.get_at((0, 20))[:3], accent)
 
     def test_tab_box_uses_three_times_thicker_vertical_border(self):
         rect = pygame.Rect(0, 0, 60, 40)
@@ -3693,19 +3868,26 @@ class TrainingLayoutTests(unittest.TestCase):
 
     def test_instance_buttons_leave_room_for_dropdown_label(self):
         layout = training_layout()
+        tips_rect = pygame.Rect(
+            INSTANCE_HORIZONTAL_MARGIN,
+            INSTANCE_TOP,
+            train_ai.INSTANCE_TOOLTIPS_WIDTH,
+            INSTANCE_CONTROL_HEIGHT,
+        )
         summary_rect = pygame.Rect(
-            8,
+            tips_rect.right + INSTANCE_GAP,
             INSTANCE_TOP,
             train_ai.INSTANCE_SUMMARY_WIDTH,
             INSTANCE_CONTROL_HEIGHT,
         )
         dropdown_width = (
             layout.control_rect.width
-            - 2 * 8
+            - 2 * INSTANCE_HORIZONTAL_MARGIN
             - summary_rect.width
+            - tips_rect.width
             - INSTANCE_CLOSE_WIDTH
             - INSTANCE_ADD_WIDTH
-            - 3 * INSTANCE_GAP
+            - 4 * INSTANCE_GAP
         )
         dropdown_rect = pygame.Rect(
             summary_rect.right + INSTANCE_GAP,
@@ -3726,8 +3908,33 @@ class TrainingLayoutTests(unittest.TestCase):
             INSTANCE_CONTROL_HEIGHT,
         )
 
-        self.assertGreaterEqual(dropdown_width, 320)
-        self.assertEqual(add_rect.right, layout.control_rect.width - 8)
+        self.assertEqual(tips_rect.left, INSTANCE_HORIZONTAL_MARGIN)
+        self.assertLess(tips_rect.left, summary_rect.left)
+        self.assertGreaterEqual(dropdown_width, 340)
+        self.assertFalse(tips_rect.colliderect(summary_rect))
+        self.assertFalse(summary_rect.colliderect(dropdown_rect))
+        self.assertEqual(
+            add_rect.right,
+            layout.control_rect.width - INSTANCE_HORIZONTAL_MARGIN,
+        )
+
+    def test_instance_dropdown_fits_longest_ship_and_optimizing_status(self):
+        font = pygame.font.SysFont("Consolas", 19)
+        dropdown_width = (
+            train_ai.CONTROL_WIDTH
+            - 2 * INSTANCE_HORIZONTAL_MARGIN
+            - train_ai.INSTANCE_TOOLTIPS_WIDTH
+            - train_ai.INSTANCE_SUMMARY_WIDTH
+            - INSTANCE_CLOSE_WIDTH
+            - INSTANCE_ADD_WIDTH
+            - 4 * INSTANCE_GAP
+        )
+        prefix = "01] Androsynth-01 "
+        status = "Optimizing"
+        prefix_right = 8 + font.size(prefix)[0]
+        status_left = dropdown_width - 28 - font.size(status)[0]
+
+        self.assertLessEqual(prefix_right, status_left - 10)
 
     def test_arena_uses_the_full_height_at_the_right_edge(self):
         layout = training_layout()

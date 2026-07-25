@@ -143,6 +143,83 @@ def draw_ship_tooltip(screen, font, label, mouse_pos, anchor_rect):
     return rect
 
 
+def _wrapped_tooltip_lines(font, label, max_width):
+    """Wrap tooltip copy without splitting ordinary words."""
+    lines = []
+    for paragraph in str(label).splitlines() or [""]:
+        words = paragraph.split()
+        if not words:
+            lines.append("")
+            continue
+        current = words[0]
+        for word in words[1:]:
+            candidate = f"{current} {word}"
+            if font.size(candidate)[0] <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        lines.append(current)
+    return tuple(lines)
+
+
+def draw_tooltip(
+    screen,
+    font,
+    label,
+    mouse_pos,
+    anchor_rect,
+    *,
+    max_width=420,
+):
+    """Draw a wrapped explanatory tooltip and return its screen rectangle."""
+    padding_x, padding_y = Const.SHIP_TOOLTIP_PADDING
+    max_text_width = max(1, min(
+        int(max_width) - 2 * padding_x,
+        screen.get_width() - 2 * padding_x,
+    ))
+    lines = _wrapped_tooltip_lines(font, label, max_text_width)
+    rendered_lines = [
+        font.render(line, True, Const.SHIP_TOOLTIP_TEXT_COLOR)
+        for line in lines
+    ]
+    line_height = font.get_linesize()
+    text_width = max((line.get_width() for line in rendered_lines), default=0)
+    rect = pygame.Rect(
+        0,
+        0,
+        text_width + 2 * padding_x,
+        len(rendered_lines) * line_height + 2 * padding_y,
+    )
+    rect.midtop = (
+        mouse_pos[0],
+        mouse_pos[1] + Const.SHIP_TOOLTIP_VERTICAL_OFFSET,
+    )
+    rect.clamp_ip(screen.get_rect())
+
+    tooltip_surface = pygame.Surface(rect.size, pygame.SRCALPHA)
+    surface_rect = tooltip_surface.get_rect()
+    pygame.draw.rect(
+        tooltip_surface,
+        (*Const.SHIP_TOOLTIP_BACKGROUND_COLOR, Const.SHIP_TOOLTIP_ALPHA),
+        surface_rect,
+        border_radius=Const.SHIP_TOOLTIP_BORDER_RADIUS,
+    )
+    pygame.draw.rect(
+        tooltip_surface,
+        Const.SHIP_TOOLTIP_BORDER_COLOR,
+        surface_rect,
+        Const.SHIP_TOOLTIP_BORDER_WIDTH,
+        border_radius=Const.SHIP_TOOLTIP_BORDER_RADIUS,
+    )
+    y = padding_y
+    for rendered in rendered_lines:
+        tooltip_surface.blit(rendered, (padding_x, y))
+        y += line_height
+    screen.blit(tooltip_surface, rect)
+    return rect
+
+
 class SoundManager:
     def __init__(self, enabled=True, resources=None, audio_service=None):
         self.resources = resources or default_assets()

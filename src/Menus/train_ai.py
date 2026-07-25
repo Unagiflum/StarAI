@@ -212,16 +212,18 @@ CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
 TAB_MARGIN = 8
 INSTANCE_TOP = 8
 INSTANCE_CONTROL_HEIGHT = 30
-INSTANCE_GAP = 8
+INSTANCE_HORIZONTAL_MARGIN = 6
+INSTANCE_GAP = 4
 INSTANCE_DROPDOWN_MAX_VISIBLE_ROWS = 25
 INSTANCE_SEPARATOR_HEIGHT = 4
 TRAINING_INSTANCE_SOFT_MAX = 4
 TRAINING_INSTANCE_SUPPORTED_MAX = 25
-INSTANCE_SUMMARY_WIDTH = 80
+INSTANCE_SUMMARY_WIDTH = 36
+INSTANCE_TOOLTIPS_WIDTH = 64
 INSTANCE_POSITION_WIDTH = INSTANCE_SUMMARY_WIDTH
 INSTANCE_RUNNING_WIDTH = 0
-INSTANCE_CLOSE_WIDTH = 60
-INSTANCE_ADD_WIDTH = INSTANCE_CLOSE_WIDTH
+INSTANCE_CLOSE_WIDTH = 56
+INSTANCE_ADD_WIDTH = 44
 INSTANCE_DROPDOWN_COLOR = (0, 70, 75, 235)
 INSTANCE_DROPDOWN_HOVER_COLOR = (0, 100, 110, 255)
 INSTANCE_BORDER_COLOR = (200, 200, 200)
@@ -235,6 +237,8 @@ TAB_HEIGHT = 28
 TAB_COLOR = (155, 0, 105, 75)
 TAB_COLOR_HI = (155, 0, 105, 255)
 TAB_HEADER_COLOR = (100, 100, 100)
+SINGLE_INSTANCE_SCOPE_COLOR = ui.MENU_BUTTON_COLOR[:3]
+ALL_INSTANCES_SCOPE_COLOR = const.TAB_BUTTON_COLOR
 CONTENT_TOP = UI_TOP_MARGIN + TAB_HEIGHT + TAB_GAP
 FOOTER_CONTROL_HEIGHT = 30
 FOOTER_ACTION_GAP = 10
@@ -806,6 +810,7 @@ class TrainingInstanceManager:
         self._suspend_future_propagation = False
         self.active_tab = "trainee"
         self.display_on = False
+        self.tooltips_enabled = True
         self.batch_scheduling = TrainingBatchSchedulingState()
         self.instances = [
             TrainingInstance(
@@ -953,7 +958,7 @@ class TrainingInstanceManager:
 
     def instance_summary_text(self):
         width = max(2, len(str(len(self.instances))))
-        return f"{self.running_count():0{width}d}>/{len(self.instances):0{width}d}"
+        return f"{len(self.instances):0{width}d}"
 
     def status_for(self, instance):
         return instance.session.status if instance.session is not None else None
@@ -1338,6 +1343,7 @@ def training_instance_manager_to_json(manager):
         "active_tab": manager.active_tab,
         "active_instance_id": manager.active_instance_id,
         "next_instance_id": manager._next_instance_id,
+        "tooltips_enabled": manager.tooltips_enabled,
         "batch_scheduling": {
             "apply_to_all_open_instances": manager.batch_scheduling.apply_to_all_open_instances,
         },
@@ -1399,6 +1405,7 @@ def training_instance_manager_from_json(payload):
     if active_instance_id not in used_ids:
         active_instance_id = instances[0].instance_id
     manager.active_instance_id = active_instance_id
+    manager.tooltips_enabled = bool(payload.get("tooltips_enabled", True))
     active_tab = payload.get("active_tab")
     if active_tab == "batch":
         active_tab = "regimen"
@@ -1659,24 +1666,24 @@ def training_layout():
     )
 
 
-def _draw_tab_box_border(surface, rect):
+def _draw_tab_box_border(surface, rect, color=const.TAB_BUTTON_COLOR):
     """Draw the tab enclosure with stronger vertical rails."""
     rect = pygame.Rect(rect)
     pygame.draw.rect(
         surface,
-        const.TAB_BUTTON_COLOR,
+        color,
         rect,
         TAB_BOX_BORDER_WIDTH,
     )
     vertical_width = min(TAB_BOX_VERTICAL_BORDER_WIDTH, rect.width // 2)
     pygame.draw.rect(
         surface,
-        const.TAB_BUTTON_COLOR,
+        color,
         (rect.left, rect.top, vertical_width, rect.height),
     )
     pygame.draw.rect(
         surface,
-        const.TAB_BUTTON_COLOR,
+        color,
         (rect.right - vertical_width, rect.top, vertical_width, rect.height),
     )
 
@@ -1695,6 +1702,7 @@ class TabButton(ui_button.Button):
             bg_color=(*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_NORMAL_ALPHA), 
             hover_color=(*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_HOVER_ALPHA)
         )
+        self.accent_color = const.TAB_BUTTON_COLOR
         self.active = False
 
     def draw(self, surface, font, mouse_pos=None):
@@ -1704,10 +1712,12 @@ class TabButton(ui_button.Button):
             if mouse_pos is None:
                 mouse_pos = pygame.mouse.get_pos()
             color = (
-                self.hover_color if self.rect.collidepoint(mouse_pos) and not self.active else self.bg_color
+                (*self.accent_color, const.TAB_BUTTON_HOVER_ALPHA)
+                if self.rect.collidepoint(mouse_pos) and not self.active
+                else (*self.accent_color, const.TAB_BUTTON_NORMAL_ALPHA)
             )
             if self.active:
-                color = (*const.TAB_BUTTON_COLOR, const.TAB_BUTTON_SELECTED_ALPHA)
+                color = (*self.accent_color, const.TAB_BUTTON_SELECTED_ALPHA)
 
         button_surface = pygame.Surface(
             (self.rect.width, self.rect.height), pygame.SRCALPHA
@@ -1721,7 +1731,7 @@ class TabButton(ui_button.Button):
 
         # Keep the tab outline opaque while the fill uses normal/hover/selected alpha.
         pygame.draw.rect(
-            button_surface, const.TAB_BUTTON_COLOR, button_surface.get_rect(), width=2,
+            button_surface, self.accent_color, button_surface.get_rect(), width=2,
             border_top_left_radius=5, border_top_right_radius=5
         )
 
@@ -1739,19 +1749,22 @@ class TabButton(ui_button.Button):
 class TabScopeCheckbox(ui_button.Checkbox):
     """Square-edged checkbox strip styled as part of the tab box."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.accent_color = const.TAB_BUTTON_COLOR
+
     def draw(self, surface, font, mouse_pos=None):
         if not self.enabled:
             color = (*ui.DARK_GREY, 255)
         else:
             if mouse_pos is None:
                 mouse_pos = pygame.mouse.get_pos()
-            if self.is_checked:
-                alpha = const.TAB_BUTTON_SELECTED_ALPHA
-            elif self.rect.collidepoint(mouse_pos):
-                alpha = const.TAB_BUTTON_HOVER_ALPHA
-            else:
-                alpha = const.TAB_BUTTON_NORMAL_ALPHA
-            color = (*const.TAB_BUTTON_COLOR, alpha)
+            alpha = (
+                const.TAB_BUTTON_SELECTED_ALPHA
+                if self.rect.collidepoint(mouse_pos)
+                else const.TAB_BUTTON_NORMAL_ALPHA
+            )
+            color = (*self.accent_color, alpha)
 
         button_surface = pygame.Surface(self.rect.size, pygame.SRCALPHA)
         pygame.draw.rect(button_surface, color, button_surface.get_rect())
@@ -2105,6 +2118,55 @@ def _format_replay_buffer_size(sample_count):
 
 def _format_update_to_data_ratio(minibatch_size, gradient_steps, samples_per_batch):
     return f"{int(minibatch_size) * int(gradient_steps) / int(samples_per_batch):.2f}"
+
+
+def _training_action_tooltip(text):
+    """Return concise help for a dynamic training action label."""
+    exact = {
+        "Start": (
+            "Start this instance. Select a trainee ship and name its AI slot "
+            "before starting."
+        ),
+        "Starting": "Starting the requested training instance or instances.",
+        "Stop": "Safely stop training for this instance.",
+        "Stopping": "This instance is stopping and saving its latest progress.",
+        "Start all eligible": (
+            "Start every configured, eligible instance independently. Each AI "
+            "slot must be named first."
+        ),
+        "Stop all": "Safely stop every independently running instance.",
+        "Stopping all": "All independently running instances are stopping.",
+        "Start synced": (
+            "Start all open instances together in one coordinated training run."
+        ),
+        "Stop synced": "Safely stop the coordinated training run.",
+        "Stopping synced": "The coordinated training run is stopping.",
+        "Running synced": (
+            "This instance belongs to a coordinated run; use Stop synced below."
+        ),
+        "Load": "Load the selected AI slot's saved model and training settings.",
+        "Load all": "Load saved models and training settings for all eligible instances.",
+        "X": "Permanently delete the selected AI slot's saved model after confirmation.",
+        "X (ALL)": (
+            "Permanently delete eligible saved models across all open instances "
+            "after confirmation."
+        ),
+    }
+    if text in exact:
+        return exact[text]
+    if str(text).endswith(" Loaded"):
+        return "This AI slot's saved model and training settings are already loaded."
+    return ""
+
+
+def _visible_content_control_rect(rect, content_rect, scroll_y=0):
+    """Translate a tab-content rectangle to its visible screen rectangle."""
+    translated = pygame.Rect(rect).move(
+        pygame.Rect(content_rect).x,
+        pygame.Rect(content_rect).y - int(scroll_y),
+    )
+    visible = translated.clip(content_rect)
+    return visible if visible.width and visible.height else None
 
 
 def _normalized_training_settings(training):
@@ -3919,6 +3981,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     small_font = pygame.font.SysFont(None, 24)
     instance_font = pygame.font.SysFont("Consolas", 19)
+    tooltip_toggle_font = largest_fitting_font(
+        ("Tips",),
+        INSTANCE_TOOLTIPS_WIDTH - 42,
+        max_height=INSTANCE_CONTROL_HEIGHT - 4,
+        maximum=19,
+        minimum=14,
+    )
+    control_tooltip_font = pygame.font.SysFont(None, 22)
     arena_font = pygame.font.SysFont(None, 32)
     log_font = pygame.font.SysFont("Consolas", TRAINING_BATCH_LOG_FONT_SIZE)
     picker_title_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.042))
@@ -5897,8 +5967,18 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         instance_manager,
         footer_transition,
     )
+    tooltips_checkbox = ui_button.Checkbox(
+        INSTANCE_HORIZONTAL_MARGIN,
+        INSTANCE_TOP,
+        INSTANCE_TOOLTIPS_WIDTH,
+        INSTANCE_CONTROL_HEIGHT,
+        "Tips",
+        initial_state=instance_manager.tooltips_enabled,
+        text_offset=(12, 0),
+        box_offset=(0, -2),
+    )
     instance_summary_rect = pygame.Rect(
-        TAB_MARGIN,
+        tooltips_checkbox.rect.right + INSTANCE_GAP,
         INSTANCE_TOP,
         INSTANCE_SUMMARY_WIDTH,
         INSTANCE_CONTROL_HEIGHT,
@@ -5907,11 +5987,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         instance_summary_rect.right + INSTANCE_GAP,
         INSTANCE_TOP,
         CONTROL_WIDTH
-        - 2 * TAB_MARGIN
+        - 2 * INSTANCE_HORIZONTAL_MARGIN
         - instance_summary_rect.width
+        - tooltips_checkbox.rect.width
         - INSTANCE_CLOSE_WIDTH
         - INSTANCE_ADD_WIDTH
-        - 3 * INSTANCE_GAP,
+        - 4 * INSTANCE_GAP,
         INSTANCE_CONTROL_HEIGHT,
     )
     close_instance_button = ui_button.Button(
@@ -5960,6 +6041,113 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ui.OK_GREEN,
         ui.OK_GREEN_HI,
     )
+
+    def control_tooltip_at(mouse_pos, batch_validation):
+        """Return the topmost requested control tooltip at a screen position."""
+
+        top_level_targets = (
+            (
+                instance_summary_rect,
+                "Open instances: the total number of training configurations currently open.",
+            ),
+            (
+                tooltips_checkbox.rect,
+                "Tips: show concise help when hovering over training controls.",
+            ),
+            (
+                instance_dropdown.rect,
+                "Instances: select which open training instance to configure.",
+            ),
+            (
+                close_instance_button.rect,
+                "Close: close the selected instance. A running instance stops safely first.",
+            ),
+            (
+                add_instance_button.rect,
+                "Add: create and select a new training instance.",
+            ),
+            (
+                apply_all_checkbox.rect,
+                (
+                    "Apply all: future edits and supported actions affect every open instance."
+                    if apply_all_checkbox.is_checked
+                    else "Apply all: keep future edits and actions limited to the selected instance."
+                ),
+            ),
+            (
+                display_checkbox.rect,
+                "Display: show the selected running instance's live battle view.",
+            ),
+            (
+                batch_start_all_button.rect,
+                _training_action_tooltip(batch_start_all_button.text),
+            ),
+        )
+        for rect, label in top_level_targets:
+            if label and rect.collidepoint(mouse_pos):
+                if (
+                    rect == batch_start_all_button.rect
+                    and batch_start_all_button.text == "Start synced"
+                    and not batch_start_all_button.enabled
+                ):
+                    reason = (
+                        batch_validation.blocking_reason
+                        or START_ALL_DISABLED_TOOLTIP
+                    )
+                    label = f"{label} Unavailable: {reason}."
+                return label, rect
+
+        if not run_indicator.visible and back_button.rect.collidepoint(mouse_pos):
+            return (
+                "Back: save this training-menu session and return to the previous menu.",
+                back_button.rect,
+            )
+
+        if instance_manager.active_tab != "trainee":
+            return None
+
+        content_targets = [
+            (
+                cpu_sync_checkbox.rect,
+                (
+                    "Sync CPU runs: keep independently started CPU instances at "
+                    "a shared batch pace and use their average epsilon."
+                ),
+            ),
+        ]
+        content_targets.extend(
+            (
+                field.rect,
+                "AI slot name: give the selected slot a name before training can start.",
+            )
+            for field in slot_fields
+        )
+        content_targets.extend(
+            (
+                button.rect,
+                _training_action_tooltip(button.text),
+            )
+            for button in delete_buttons
+        )
+        content_targets.extend(
+            (
+                (load_button.rect, _training_action_tooltip(load_button.text)),
+                (
+                    start_stop_button.rect,
+                    _training_action_tooltip(start_stop_button.text),
+                ),
+            )
+        )
+        for content_control, label in content_targets:
+            visible_rect = _visible_content_control_rect(
+                content_control,
+                layout.content_rect,
+                trainee_scroll_y,
+            )
+            if label and visible_rect is not None and visible_rect.collidepoint(mouse_pos):
+                return label, visible_rect
+        return None
+
     ship_picker = None
     for index, delete_button in enumerate(delete_buttons):
         delete_button.callback = lambda slot=index + 1: request_delete(slot)
@@ -6014,6 +6202,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 continue
 
             if instance_dropdown.handle_event(event, menu_sound_manager):
+                continue
+            if (
+                event.type == pygame.MOUSEBUTTONDOWN
+                and event.button == 1
+                and tooltips_checkbox.rect.collidepoint(event.pos)
+            ):
+                tooltips_checkbox.handle_event(event, menu_sound_manager)
+                instance_manager.tooltips_enabled = tooltips_checkbox.value
                 continue
             if event.type == pygame.KEYDOWN and event.key in (pygame.K_PAGEUP, pygame.K_PAGEDOWN):
                 delta = -1 if event.key == pygame.K_PAGEUP else 1
@@ -6694,6 +6890,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         opponent_tab.active = instance_manager.active_tab == "opponent"
         rewards_tab.active = instance_manager.active_tab == "rewards"
         regimen_tab.active = instance_manager.active_tab == "regimen"
+        scope_color = (
+            ALL_INSTANCES_SCOPE_COLOR
+            if instance_manager.batch_scheduling.apply_to_all_open_instances
+            else SINGLE_INSTANCE_SCOPE_COLOR
+        )
+        apply_all_checkbox.accent_color = scope_color
+        for tab in (trainee_tab, opponent_tab, rewards_tab, regimen_tab):
+            tab.accent_color = scope_color
 
         if instance_manager.active_tab == "trainee":
             content = pygame.Surface(
@@ -6873,7 +7077,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if not regimen_tab.active: regimen_tab.draw(screen, tab_font)
 
         apply_all_checkbox.draw(screen, apply_all_font)
-        _draw_tab_box_border(screen, layout.tab_box_rect)
+        _draw_tab_box_border(screen, layout.tab_box_rect, scope_color)
 
         # Draw active tab in front to merge seamlessly
         if trainee_tab.active: trainee_tab.draw(screen, tab_font)
@@ -6881,11 +7085,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if rewards_tab.active: rewards_tab.draw(screen, tab_font)
         if regimen_tab.active: regimen_tab.draw(screen, tab_font)
 
-        running_color = (
-            RunIndicator.TRANSITION_COLOR
-            if transition_in_progress
-            else ui.BRIGHT_GREEN
-        )
+        tooltips_checkbox.is_checked = instance_manager.tooltips_enabled
+        tooltips_checkbox.draw(screen, tooltip_toggle_font)
         pygame.draw.rect(screen, ui.BLACK, instance_summary_rect, border_radius=5)
         pygame.draw.rect(
             screen,
@@ -6897,7 +7098,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         summary_text = instance_font.render(
             instance_manager.instance_summary_text(),
             True,
-            running_color,
+            ui.WHITE,
         )
         screen.blit(
             summary_text,
@@ -6989,20 +7190,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             confirmation_prompt[0].draw(screen, arena_font, body_font)
 
         if (
-            confirmation_prompt[0] is None
+            instance_manager.tooltips_enabled
+            and confirmation_prompt[0] is None
             and ship_picker is None
             and not instance_dropdown.expanded
-            and batch_start_all_button.text == "Start synced"
-            and not batch_start_all_button.enabled
-            and batch_start_all_button.rect.collidepoint(pygame.mouse.get_pos())
         ):
-            ui.draw_ship_tooltip(
-                screen,
-                small_font,
-                batch_validation.blocking_reason or START_ALL_DISABLED_TOOLTIP,
-                pygame.mouse.get_pos(),
-                batch_start_all_button.rect,
-            )
+            mouse_pos = pygame.mouse.get_pos()
+            tooltip = control_tooltip_at(mouse_pos, batch_validation)
+            if tooltip is not None:
+                label, anchor_rect = tooltip
+                ui.draw_tooltip(
+                    screen,
+                    control_tooltip_font,
+                    label,
+                    mouse_pos,
+                    anchor_rect,
+                )
 
         try:
             pygame.display.flip()
