@@ -1688,6 +1688,17 @@ def _draw_tab_box_border(surface, rect, color=const.TAB_BUTTON_COLOR):
     )
 
 
+def _draw_instance_control_border(surface, rect):
+    """Draw the shared border used by controls in the instance strip."""
+    pygame.draw.rect(
+        surface,
+        INSTANCE_BORDER_COLOR,
+        rect,
+        INSTANCE_BORDER_WIDTH,
+        border_radius=5,
+    )
+
+
 def _trainee_action_button_width(font):
     """Return one stable width that fits every trainee action label."""
     label_width = font.size(TRAINEE_ACTION_LONGEST_LABEL)[0]
@@ -7087,14 +7098,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         tooltips_checkbox.is_checked = instance_manager.tooltips_enabled
         tooltips_checkbox.draw(screen, tooltip_toggle_font)
+        _draw_instance_control_border(screen, tooltips_checkbox.rect)
         pygame.draw.rect(screen, ui.BLACK, instance_summary_rect, border_radius=5)
-        pygame.draw.rect(
-            screen,
-            INSTANCE_BORDER_COLOR,
-            instance_summary_rect,
-            INSTANCE_BORDER_WIDTH,
-            border_radius=5,
-        )
+        _draw_instance_control_border(screen, instance_summary_rect)
         summary_text = instance_font.render(
             instance_manager.instance_summary_text(),
             True,
@@ -7106,21 +7112,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         instance_dropdown.draw(screen, instance_font, draw_list=False)
         close_instance_button.draw(screen, instance_font)
-        pygame.draw.rect(
-            screen,
-            INSTANCE_BORDER_COLOR,
-            close_instance_button.rect,
-            INSTANCE_BORDER_WIDTH,
-            border_radius=5,
-        )
+        _draw_instance_control_border(screen, close_instance_button.rect)
         add_instance_button.draw(screen, instance_font)
-        pygame.draw.rect(
-            screen,
-            INSTANCE_BORDER_COLOR,
-            add_instance_button.rect,
-            INSTANCE_BORDER_WIDTH,
-            border_radius=5,
-        )
+        _draw_instance_control_border(screen, add_instance_button.rect)
         separator_y = INSTANCE_TOP + INSTANCE_CONTROL_HEIGHT + 5
         pygame.draw.line(
             screen,

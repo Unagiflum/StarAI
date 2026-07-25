@@ -3936,6 +3936,21 @@ class TrainingLayoutTests(unittest.TestCase):
 
         self.assertLessEqual(prefix_right, status_left - 10)
 
+    def test_instance_strip_control_border_is_white_and_three_pixels_wide(self):
+        surface = pygame.Surface((64, INSTANCE_CONTROL_HEIGHT), pygame.SRCALPHA)
+
+        train_ai._draw_instance_control_border(surface, surface.get_rect())
+
+        self.assertEqual(
+            surface.get_at((surface.get_width() // 2, 0))[:3],
+            train_ai.INSTANCE_BORDER_COLOR,
+        )
+        self.assertEqual(
+            surface.get_at((surface.get_width() // 2, 2))[:3],
+            train_ai.INSTANCE_BORDER_COLOR,
+        )
+        self.assertEqual(surface.get_at((surface.get_width() // 2, 3))[3], 0)
+
     def test_arena_uses_the_full_height_at_the_right_edge(self):
         layout = training_layout()
 
