@@ -3479,6 +3479,25 @@ class TrainingStartAllStyleTests(unittest.TestCase):
 
 
 class TrainingTooltipTests(unittest.TestCase):
+    def test_every_opponent_and_regimen_control_has_help(self):
+        self.assertEqual(len(train_ai.OPPONENT_CONTROL_TOOLTIPS), 5)
+        self.assertEqual(len(train_ai.REGIMEN_CONTROL_TOOLTIPS), 14)
+        self.assertTrue(all(train_ai.OPPONENT_CONTROL_TOOLTIPS))
+        self.assertTrue(all(train_ai.REGIMEN_CONTROL_TOOLTIPS))
+
+    def test_every_reward_control_has_help(self):
+        self.assertEqual(
+            set(train_ai.REWARD_CONTROL_TOOLTIPS),
+            set(REWARD_LABELS),
+        )
+        self.assertTrue(all(train_ai.REWARD_CONTROL_TOOLTIPS.values()))
+
+    def test_sustained_a2_reward_help_tracks_its_display_label(self):
+        self.assertIn(
+            "keeping the secondary ability active",
+            train_ai._reward_control_tooltip(REWARD_SPAWN_A2, "Maintain A2"),
+        )
+
     def test_dynamic_training_actions_have_tooltips_for_every_phase(self):
         expected_phrases = {
             "Start": "name its AI slot",
