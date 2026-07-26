@@ -7,7 +7,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import pygame
-from src.Menus import display_settings, game_settings, pick_fleet, train_ai
+from src.Menus import display_settings, game_settings, pick_fleet
 from src.UI import ui, ui_button
 from src.UI.loading_screen import preload_assets
 from src.audio import initialize_pygame_audio
@@ -59,10 +59,11 @@ def package_smoke_test():
 
         from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
         from src.Objects.Ships.registry import get_ability_class, get_ship_class
-        from src.training import process_worker
+        if TORCH_AVAILABLE:
+            from src.training import process_worker
 
-        if not callable(process_worker.worker_process_main):
-            raise RuntimeError("training process worker entry point is unavailable")
+            if not callable(process_worker.worker_process_main):
+                raise RuntimeError("training process worker entry point is unavailable")
 
         for ship_name in SHIP_DEFINITIONS:
             get_ship_class(ship_name)
@@ -145,6 +146,8 @@ def handle_menu_selection(
 def main_menu_items(training_available=TORCH_AVAILABLE):
     items = [("Play Game", pick_fleet.run)]
     if training_available:
+        from src.Menus import train_ai
+
         items.append(("Train AI", train_ai.run))
     items.extend(
         (

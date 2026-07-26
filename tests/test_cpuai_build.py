@@ -35,6 +35,11 @@ class CpuAIBuildConfigurationTests(unittest.TestCase):
         self.assertIn("torchvision", excludes)
         self.assertIn("torchaudio", excludes)
 
+    def test_lightweight_spec_does_not_bundle_training_worker(self):
+        spec = (PROJECT_ROOT / "StarAI.spec").read_text(encoding="utf-8")
+
+        self.assertNotIn('"src.training.process_worker"', spec)
+
     def test_cpuai_spec_bundles_torch_but_excludes_companion_packages(self):
         excludes = _literal_keyword_from_call(
             _spec_tree("StarAI_CPUAI.spec"),
