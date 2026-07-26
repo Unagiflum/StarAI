@@ -23,6 +23,7 @@ from src.training.model_registry import (
     metadata_from_state,
     model_architecture_metadata,
     model_paths,
+    previous_model_paths,
     replay_checkpoint_path,
     trained_model_counts_for_ships,
 )
@@ -452,6 +453,13 @@ class TrainingModelRepositoryTests(unittest.TestCase):
             replay_path.write_bytes(b"replay")
             csv_path = pth_path.with_suffix(".csv")
             csv_path.write_text("Batch\n450\n", encoding="utf-8")
+            previous_pth, previous_metadata = previous_model_paths(
+                repository.user_dir,
+                "Mycon",
+                2,
+            )
+            previous_pth.write_bytes(b"previous checkpoint")
+            previous_metadata.write_text("{}", encoding="utf-8")
 
             repository.delete_user_model("Mycon", 2)
 
@@ -459,6 +467,8 @@ class TrainingModelRepositoryTests(unittest.TestCase):
         self.assertFalse(metadata_path.exists())
         self.assertFalse(replay_path.exists())
         self.assertFalse(csv_path.exists())
+        self.assertFalse(previous_pth.exists())
+        self.assertFalse(previous_metadata.exists())
 
     def test_pth_without_json_is_existing_model_with_empty_description(self):
         with tempfile.TemporaryDirectory() as directory:

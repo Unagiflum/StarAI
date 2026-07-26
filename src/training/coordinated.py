@@ -63,6 +63,10 @@ from src.training.model_registry import (
     model_paths,
     normalize_architecture_metadata,
 )
+from src.training.model_persistence import (
+    resolve_model_save,
+    rotate_previous_model_save,
+)
 from src.training.observation import encode_observation
 from src.training.orchestration import (
     OPPONENT_MODE_EXISTING_AI,
@@ -895,6 +899,7 @@ class CoordinatedTrainingSession:
     ):
         if len(records) < 2:
             raise ValueError("Coordinated training requires at least two records")
+        records = tuple(_record_with_resolved_model_save(record) for record in records)
         _validate_coordinated_record_contract(records)
         shared_floor = float(records[0].config.epsilon_floor)
         shared_current_epsilon = max(
@@ -2435,17 +2440,10 @@ class CoordinatedTrainingSession:
             metadata = dict(state.record.metadata)
             current_epsilon = float(state.current_epsilon)
         with context:
-            pth_path, _ = model_paths(
+            pth_path, metadata_path = model_paths(
                 state.record.repository.user_dir,
                 key.ship,
                 key.slot,
-            )
-            save_training_checkpoint(
-                pth_path,
-                components.model,
-                optimizer=components.optimizer,
-                replay_buffer=components.replay_buffer if include_replay else None,
-                extra_state={"completed_batches": completed_batches},
             )
             updated_metadata = metadata_from_state(
                 ship=key.ship,
@@ -2469,6 +2467,14 @@ class CoordinatedTrainingSession:
                         for metrics in history[-state.record.batch_grouping :]
                     ],
                 },
+            )
+            rotate_previous_model_save(pth_path, metadata_path)
+            save_training_checkpoint(
+                pth_path,
+                components.model,
+                optimizer=components.optimizer,
+                replay_buffer=components.replay_buffer if include_replay else None,
+                extra_state={"completed_batches": completed_batches},
             )
             updated_slot = state.record.repository.create_or_update_user_model(
                 updated_metadata
@@ -4325,6 +4331,20 @@ from src.training.coordinated_simulation import (
     finish_coordinated_window as _finish_coordinated_window,
     new_coordinated_battle as _new_coordinated_battle,
 )
+
+
+def _record_with_resolved_model_save(
+    record: CoordinatedTrainingRecord,
+) -> CoordinatedTrainingRecord:
+    resolved_slot = resolve_model_save(record.slot)
+    if resolved_slot.pth_path == record.slot.pth_path:
+        return record
+    metadata = (
+        resolved_slot.metadata
+        if isinstance(resolved_slot.metadata, Mapping)
+        else record.metadata
+    )
+    return replace(record, slot=resolved_slot, metadata=metadata)
 
 
 def build_coordinated_components(

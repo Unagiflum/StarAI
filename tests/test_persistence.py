@@ -20,7 +20,11 @@ from src.configuration import (
     GameSettingsRepository,
     PlayerFleet,
 )
-from src.persistence import PersistenceValidationError, atomic_write_json
+from src.persistence import (
+    PersistenceValidationError,
+    atomic_copy_file,
+    atomic_write_json,
+)
 
 
 class GameSettingsPersistenceTests(unittest.TestCase):
@@ -218,6 +222,21 @@ class AtomicJsonWriteTests(unittest.TestCase):
 
             self.assertEqual(path.read_text(encoding="utf-8"), original)
             self.assertEqual(list(Path(directory).glob(".*.tmp")), [])
+
+    def test_failed_atomic_copy_does_not_corrupt_existing_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.pth"
+            destination = root / "_destination.pth"
+            source.write_bytes(b"new checkpoint")
+            destination.write_bytes(b"previous checkpoint")
+
+            with mock.patch("src.persistence.os.replace", side_effect=OSError("disk error")):
+                with self.assertRaisesRegex(OSError, "disk error"):
+                    atomic_copy_file(source, destination)
+
+            self.assertEqual(destination.read_bytes(), b"previous checkpoint")
+            self.assertEqual(list(root.glob(".*.tmp")), [])
 
     def test_unexpected_programming_errors_are_not_hidden(self):
         with tempfile.TemporaryDirectory() as directory:

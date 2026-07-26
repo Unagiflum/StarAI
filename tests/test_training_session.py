@@ -1,4 +1,5 @@
 import csv
+import json
 import threading
 import tempfile
 import unittest
@@ -15,6 +16,7 @@ from src.training.model_registry import (
     TrainingModelRepository,
     metadata_from_state,
     model_architecture_metadata,
+    previous_model_paths,
     replay_checkpoint_path,
 )
 from src.training.opponent_cache import (
@@ -31,7 +33,11 @@ from src.training.orchestration import (
     TrainingOrchestrationConfig,
     TrainingRoundResult,
 )
-from src.training.replay import TrainingReplayBuffer, save_training_checkpoint
+from src.training.replay import (
+    TrainingReplayBuffer,
+    save_training_checkpoint,
+    training_checkpoint_extra_state,
+)
 from src.training.render_view import freeze_battle_view
 from src.training.session import (
     BatchMetrics,
@@ -1058,10 +1064,24 @@ class TrainingSessionTests(unittest.TestCase):
 
             saved_slot = repository.slot_for("Earthling", 1)
             replay_exists = replay_checkpoint_path(saved_slot.pth_path).exists()
+            previous_pth, previous_metadata = previous_model_paths(
+                repository.user_dir,
+                "Earthling",
+                1,
+            )
+            previous_batches = training_checkpoint_extra_state(
+                previous_pth,
+                map_location="cpu",
+            )["completed_batches"]
+            previous_metadata_batches = json.loads(
+                previous_metadata.read_text(encoding="utf-8")
+            )["progress"]["completed_batches"]
 
         self.assertEqual(session.saved_batches, [3, 5])
         self.assertEqual(session.saved_replay_flags, [False, True])
         self.assertEqual(saved_slot.metadata["progress"]["completed_batches"], 5)
+        self.assertEqual(previous_batches, 3)
+        self.assertEqual(previous_metadata_batches, 3)
         self.assertFalse(replay_exists)
 
     def test_session_stops_at_absolute_batch_target(self):

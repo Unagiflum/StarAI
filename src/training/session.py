@@ -32,6 +32,10 @@ from src.training.model_registry import (
     model_paths,
     normalize_architecture_metadata,
 )
+from src.training.model_persistence import (
+    resolve_model_save,
+    rotate_previous_model_save,
+)
 from src.training.orchestration import (
     OPPONENT_MODE_EXISTING_AI,
     TrainingBatchAborted,
@@ -492,6 +496,11 @@ class TrainingSession:
     ):
         if slot.is_bundled:
             raise TrainingSessionError("Bundled training models are read-only")
+        resolved_slot = resolve_model_save(slot)
+        if resolved_slot.pth_path != slot.pth_path:
+            slot = resolved_slot
+            if isinstance(resolved_slot.metadata, Mapping):
+                metadata = resolved_slot.metadata
         self.repository = repository
         self.slot = slot
         self.metadata = dict(metadata)
@@ -1004,16 +1013,10 @@ class TrainingSession:
         )
         completed_batches = self.status.completed_batches
         with context:
-            pth_path, _ = model_paths(
+            pth_path, metadata_path = model_paths(
                 self.repository.user_dir,
                 key.ship,
                 key.slot,
-            )
-            save_training_checkpoint(
-                pth_path,
-                model,
-                optimizer=optimizer,
-                extra_state={"completed_batches": completed_batches},
             )
             metadata = metadata_from_state(
                 ship=key.ship,
@@ -1034,6 +1037,13 @@ class TrainingSession:
                         for metrics in self.history[-self.batch_grouping :]
                     ],
                 },
+            )
+            rotate_previous_model_save(pth_path, metadata_path)
+            save_training_checkpoint(
+                pth_path,
+                model,
+                optimizer=optimizer,
+                extra_state={"completed_batches": completed_batches},
             )
             self.metadata = metadata
             self.slot = self.repository.create_or_update_user_model(metadata)

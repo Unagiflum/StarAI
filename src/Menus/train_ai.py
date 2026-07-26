@@ -45,6 +45,7 @@ from src.training.model_registry import (
     metadata_from_state,
     model_architecture_metadata,
     normalize_architecture_metadata,
+    previous_save_path,
     replay_checkpoint_path,
     trained_model_counts_for_ships,
 )
@@ -3852,9 +3853,17 @@ def _epsilon_for_model_update(starting_epsilon, current_epsilon, *, reset_checkp
 
 def _clear_reset_model_artifacts(model_slot):
     if model_slot.pth_path is not None:
-        model_slot.pth_path.write_bytes(b"")
-        csv_path = model_slot.pth_path.with_suffix(".csv")
-        for path in (csv_path, replay_checkpoint_path(model_slot.pth_path)):
+        pth_path = model_slot.pth_path
+        previous_pth = previous_save_path(pth_path)
+        previous_metadata = previous_save_path(pth_path.with_suffix(".json"))
+        for path in (previous_pth, previous_metadata):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        pth_path.write_bytes(b"")
+        csv_path = pth_path.with_suffix(".csv")
+        for path in (csv_path, replay_checkpoint_path(pth_path)):
             try:
                 path.unlink()
             except FileNotFoundError:

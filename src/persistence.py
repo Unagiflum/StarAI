@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 from typing import Any, TypeVar
 
@@ -52,6 +53,34 @@ def atomic_write_json(path: Path, value: Any) -> None:
             file.flush()
             os.fsync(file.fileno())
         os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except OSError:
+                pass
+
+
+def atomic_copy_file(source: Path, destination: Path) -> None:
+    """Copy one file without exposing a partially written destination."""
+    source = Path(source)
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with source.open("rb") as source_file, tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as destination_file:
+            temporary_path = Path(destination_file.name)
+            shutil.copyfileobj(source_file, destination_file)
+            destination_file.flush()
+            os.fsync(destination_file.fileno())
+        os.replace(temporary_path, destination)
         temporary_path = None
     finally:
         if temporary_path is not None:

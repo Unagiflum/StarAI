@@ -108,6 +108,7 @@ from src.training.model_registry import (
     TrainingModelSlot,
     metadata_from_state,
     model_architecture_metadata,
+    previous_save_path,
     replay_checkpoint_path,
 )
 from src.training.opponent_cache import ModelSaveCoordinator, OpponentModelCache
@@ -4570,12 +4571,18 @@ class TrainingConfigAdapterTests(unittest.TestCase):
             pth_path.write_bytes(b"checkpoint")
             csv_path.write_text("old,csv\n", encoding="utf-8")
             replay_path.write_bytes(b"replay")
+            previous_pth = previous_save_path(pth_path)
+            previous_metadata = previous_save_path(pth_path.with_suffix(".json"))
+            previous_pth.write_bytes(b"previous checkpoint")
+            previous_metadata.write_text("{}", encoding="utf-8")
 
             _clear_reset_model_artifacts(SimpleNamespace(pth_path=pth_path))
 
             self.assertEqual(pth_path.read_bytes(), b"")
             self.assertFalse(csv_path.exists())
             self.assertFalse(replay_path.exists())
+            self.assertFalse(previous_pth.exists())
+            self.assertFalse(previous_metadata.exists())
 
 
 class TrainingBatchLogBoxTests(unittest.TestCase):

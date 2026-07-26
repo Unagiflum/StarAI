@@ -467,23 +467,9 @@ def load_training_checkpoint(
     replay_buffer: TrainingReplayBuffer | None = None,
     map_location: Any | None = None,
 ) -> LoadedTrainingCheckpoint:
-    torch = torch_backend.require_torch()
-    try:
-        try:
-            payload = torch.load(Path(path), map_location=map_location, weights_only=False)
-        except TypeError:
-            payload = torch.load(Path(path), map_location=map_location)
-    except Exception as exc:
-        raise TrainingCheckpointError(f"Could not load training checkpoint: {exc}") from exc
+    payload = _load_training_checkpoint_payload(path, map_location=map_location)
 
-    if not isinstance(payload, Mapping):
-        raise TrainingCheckpointError("Training checkpoint must contain a mapping")
-    if payload.get("format_version") != REPLAY_CHECKPOINT_FORMAT_VERSION:
-        raise TrainingCheckpointError("Unsupported training checkpoint format")
-    model_state = payload.get("model_state_dict")
-    if not isinstance(model_state, Mapping):
-        raise TrainingCheckpointError("Training checkpoint is missing model weights")
-
+    model_state = payload["model_state_dict"]
     try:
         model.load_state_dict(model_state)
         optimizer_state = payload.get("optimizer_state_dict")
@@ -504,3 +490,38 @@ def load_training_checkpoint(
         replay_sample_count=replay_sample_count,
         extra_state=dict(extra_state),
     )
+
+
+def training_checkpoint_extra_state(
+    path: Path,
+    *,
+    map_location: Any | None = None,
+) -> Mapping[str, Any]:
+    """Read validated checkpoint progress without applying model weights."""
+    payload = _load_training_checkpoint_payload(path, map_location=map_location)
+    extra_state = payload.get("extra_state", {})
+    return dict(extra_state) if isinstance(extra_state, Mapping) else {}
+
+
+def _load_training_checkpoint_payload(
+    path: Path,
+    *,
+    map_location: Any | None = None,
+) -> Mapping[str, Any]:
+    torch = torch_backend.require_torch()
+    try:
+        try:
+            payload = torch.load(Path(path), map_location=map_location, weights_only=False)
+        except TypeError:
+            payload = torch.load(Path(path), map_location=map_location)
+    except Exception as exc:
+        raise TrainingCheckpointError(f"Could not load training checkpoint: {exc}") from exc
+
+    if not isinstance(payload, Mapping):
+        raise TrainingCheckpointError("Training checkpoint must contain a mapping")
+    if payload.get("format_version") != REPLAY_CHECKPOINT_FORMAT_VERSION:
+        raise TrainingCheckpointError("Unsupported training checkpoint format")
+    model_state = payload.get("model_state_dict")
+    if not isinstance(model_state, Mapping):
+        raise TrainingCheckpointError("Training checkpoint is missing model weights")
+    return payload

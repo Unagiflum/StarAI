@@ -26,6 +26,7 @@ from src.training.model_registry import (
     model_slot_has_checkpoint,
     normalize_architecture_metadata,
 )
+from src.training.model_persistence import resolve_model_save
 from src.training.replay import load_training_checkpoint
 from src.training.value_network import ValueNetworkConfig, build_value_network
 
@@ -157,6 +158,7 @@ def load_inference_model(
 ) -> LoadedInferenceModel:
     """Build, load, and freeze one trained model for read-only inference."""
 
+    slot = resolve_model_save(slot)
     if slot.pth_path is None or not slot.pth_path.exists():
         raise InferenceModelLoadError("missing weights")
     if slot.pth_path.stat().st_size <= 0:

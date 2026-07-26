@@ -60,6 +60,17 @@ def model_paths(directory: Path, ship: str, slot: int) -> tuple[Path, Path]:
     return base.with_suffix(".pth"), base.with_suffix(".json")
 
 
+def previous_save_path(path: Path) -> Path:
+    """Return the underscore-prefixed backup path for one model artifact."""
+    path = Path(path)
+    return path.with_name(f"_{path.name}")
+
+
+def previous_model_paths(directory: Path, ship: str, slot: int) -> tuple[Path, Path]:
+    pth_path, metadata_path = model_paths(directory, ship, slot)
+    return previous_save_path(pth_path), previous_save_path(metadata_path)
+
+
 def replay_checkpoint_path(model_path: Path) -> Path:
     return Path(model_path).with_suffix(".replay.pth")
 
@@ -178,15 +189,25 @@ class TrainingModelRepository:
             )
 
         user_pth, user_json = model_paths(self.user_dir, ship, slot)
-        if user_pth.exists():
-            description, metadata = _description_from_metadata(user_json)
+        previous_pth, previous_json = previous_model_paths(
+            self.user_dir,
+            ship,
+            slot,
+        )
+        selected_pth, selected_json = (
+            (user_pth, user_json)
+            if user_pth.exists()
+            else (previous_pth, previous_json)
+        )
+        if selected_pth.exists():
+            description, metadata = _description_from_metadata(selected_json)
             return TrainingModelSlot(
                 ship=ship,
                 slot=slot,
                 source=SLOT_USER,
                 description=description,
-                pth_path=user_pth,
-                metadata_path=user_json if user_json.exists() else None,
+                pth_path=selected_pth,
+                metadata_path=selected_json if selected_json.exists() else None,
                 metadata=metadata,
             )
 
@@ -217,11 +238,18 @@ class TrainingModelRepository:
         if not model_slot.is_user:
             return
         pth_path, metadata_path = model_paths(self.user_dir, ship, slot)
+        previous_pth, previous_metadata = previous_model_paths(
+            self.user_dir,
+            ship,
+            slot,
+        )
         for path in (
-            pth_path,
-            metadata_path,
+            previous_pth,
+            previous_metadata,
             pth_path.with_suffix(".csv"),
             replay_checkpoint_path(pth_path),
+            metadata_path,
+            pth_path,
         ):
             try:
                 path.unlink()
