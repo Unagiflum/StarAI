@@ -171,6 +171,7 @@ def draw_tooltip(
     anchor_rect,
     *,
     max_width=420,
+    warning=None,
 ):
     """Draw a wrapped explanatory tooltip and return its screen rectangle."""
     padding_x, padding_y = Const.SHIP_TOOLTIP_PADDING
@@ -178,10 +179,18 @@ def draw_tooltip(
         int(max_width) - 2 * padding_x,
         screen.get_width() - 2 * padding_x,
     ))
-    lines = _wrapped_tooltip_lines(font, label, max_text_width)
+    styled_lines = [
+        (line, Const.SHIP_TOOLTIP_TEXT_COLOR)
+        for line in _wrapped_tooltip_lines(font, label, max_text_width)
+    ]
+    if warning:
+        styled_lines.extend(
+            (line, Const.SHIP_TOOLTIP_WARNING_TEXT_COLOR)
+            for line in _wrapped_tooltip_lines(font, warning, max_text_width)
+        )
     rendered_lines = [
-        font.render(line, True, Const.SHIP_TOOLTIP_TEXT_COLOR)
-        for line in lines
+        font.render(line, True, color)
+        for line, color in styled_lines
     ]
     line_height = font.get_linesize()
     text_width = max((line.get_width() for line in rendered_lines), default=0)

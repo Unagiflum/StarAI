@@ -358,7 +358,7 @@ class FleetSlotTests(unittest.TestCase):
             )
         )[:3]
         self.assertNotEqual(background_pixel, screen_color)
-        self.assertNotEqual(background_pixel, Const.SHIP_TOOLTIP_BACKGROUND_COLOR)
+        self.assertEqual(background_pixel, Const.SHIP_TOOLTIP_BACKGROUND_COLOR)
 
     def test_visible_text_is_vertically_centered(self):
         font = pygame.font.SysFont(None, 40)

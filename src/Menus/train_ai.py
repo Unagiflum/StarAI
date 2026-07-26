@@ -99,6 +99,25 @@ GO_TO_EPSILON_TOOLTIP = (
     "this value. Enter 0 to run indefinitely; the target must be below the "
     "current epsilon."
 )
+REPLAY_CAPACITY_WARNING = (
+    "Replay capacity is smaller than one batch, so the batch's earliest "
+    "samples will be evicted before optimization begins."
+)
+LOW_UTD_WARNING = (
+    "UTD is below 1, so optimization performs less than one sample-update per "
+    "new sample and underuses the batch's data."
+)
+STARTING_EPSILON_BELOW_FLOOR_WARNING = (
+    "Starting epsilon is below the floor and will be raised to the floor when "
+    "training starts."
+)
+GO_TO_EPSILON_BELOW_FLOOR_WARNING = (
+    "This target is below the epsilon floor and cannot be reached."
+)
+GO_TO_EPSILON_NO_DECAY_WARNING = (
+    "Epsilon decay is 1.000, so epsilon will not decrease to this target."
+)
+GO_TO_BATCH_REACHED_WARNING = "This batch target has already been reached."
 OPPONENT_CONTROL_TOOLTIPS = (
     (
         "Simple vs. AI: set the percentage of each opponent matchup controlled "
@@ -354,15 +373,24 @@ INSTANCE_SEPARATOR_HEIGHT = 4
 TRAINING_INSTANCE_SOFT_MAX = 4
 TRAINING_INSTANCE_SUPPORTED_MAX = 25
 INSTANCE_SUMMARY_WIDTH = 36
-INSTANCE_TOOLTIPS_WIDTH = 64
+INSTANCE_BORDER_WIDTH = 3
+HELP_CHECKBOX_SIZE = 18
+HELP_ICON_DIAMETER = INSTANCE_CONTROL_HEIGHT - 2 * INSTANCE_BORDER_WIDTH
+HELP_CONTROL_PADDING = 4
+HELP_CONTROL_GAP = 4
+INSTANCE_TOOLTIPS_WIDTH = (
+    2 * HELP_CONTROL_PADDING
+    + HELP_CHECKBOX_SIZE
+    + HELP_CONTROL_GAP
+    + HELP_ICON_DIAMETER
+)
 INSTANCE_POSITION_WIDTH = INSTANCE_SUMMARY_WIDTH
 INSTANCE_RUNNING_WIDTH = 0
-INSTANCE_CLOSE_WIDTH = 56
-INSTANCE_ADD_WIDTH = 44
+INSTANCE_CLOSE_WIDTH = 61
+INSTANCE_ADD_WIDTH = 49
 INSTANCE_DROPDOWN_COLOR = (0, 70, 75, 235)
 INSTANCE_DROPDOWN_HOVER_COLOR = (0, 100, 110, 255)
 INSTANCE_BORDER_COLOR = (200, 200, 200)
-INSTANCE_BORDER_WIDTH = 3
 TRAIN_AI_SESSION_VERSION = 2
 TRAIN_AI_SESSION_PATH = const.USER_DATA_ROOT / "train_ai_session.json"
 TRAIN_AI_TABS = ("trainee", "opponent", "rewards", "regimen")
@@ -623,6 +651,58 @@ def stop_at_epsilon_for_state(
         return None
     state.go_to_epsilon_value = target
     return target
+
+
+def _go_to_batch_warning(state: TrainingUIState, completed_batches):
+    if not state.go_to_batch_enabled or completed_batches is None:
+        return None
+    target = normalize_go_to_batch_number(state.go_to_batch_number)
+    if target > 0 and target <= int(completed_batches):
+        return GO_TO_BATCH_REACHED_WARNING
+    return None
+
+
+def _go_to_epsilon_warning(state: TrainingUIState):
+    if not state.go_to_epsilon_enabled:
+        return None
+    target = normalize_go_to_epsilon_value(state.go_to_epsilon_value)
+    if 0.0 < target < float(state.epsilon_floor):
+        return GO_TO_EPSILON_BELOW_FLOOR_WARNING
+    if (
+        0.0 < target < float(state.current_epsilon)
+        and float(state.epsilon_decay) >= 1.0
+    ):
+        return GO_TO_EPSILON_NO_DECAY_WARNING
+    return None
+
+
+def _maximum_batch_samples(state: TrainingUIState) -> int:
+    return (
+        int(state.rounds_per_batch)
+        * int(state.match_time_limit)
+        * len(SHIP_DEFINITIONS)
+    )
+
+
+def _regimen_control_warnings(state: TrainingUIState) -> dict[int, str]:
+    max_batch_samples = _maximum_batch_samples(state)
+    warnings = {}
+    if int(state.replay_buffer_size) < max_batch_samples:
+        warnings[REGIMEN_REPLAY_BUFFER_INDEX] = REPLAY_CAPACITY_WARNING
+    if (
+        _update_to_data_ratio(
+            state.minibatch_size,
+            state.replay_updates_per_batch,
+            max_batch_samples,
+        )
+        < 1.0
+    ):
+        warnings[REGIMEN_REPLAY_UPDATES_INDEX] = LOW_UTD_WARNING
+    if float(state.starting_epsilon) < float(state.epsilon_floor):
+        warnings[
+            REGIMEN_STARTING_EPSILON_INDEX
+        ] = STARTING_EPSILON_BELOW_FLOOR_WARNING
+    return warnings
 
 
 def independent_training_device(training_device: str | None) -> str:
@@ -1940,6 +2020,40 @@ class TabScopeCheckbox(ui_button.Checkbox):
             )
 
 
+class HelpCheckbox(ui_button.Checkbox):
+    """Compact Help toggle with a checkbox and circled question-mark icon."""
+
+    def __init__(self, x, y, width, height, *, initial_state=True):
+        circle_center_x = (
+            HELP_CONTROL_PADDING
+            + HELP_CHECKBOX_SIZE
+            + HELP_CONTROL_GAP
+            + HELP_ICON_DIAMETER // 2
+        )
+        super().__init__(
+            x,
+            y,
+            width,
+            height,
+            "?",
+            initial_state=initial_state,
+            text_offset=(circle_center_x - width // 2, 0),
+            box_offset=(HELP_CONTROL_PADDING - 11, 0),
+        )
+        self.circle_center_x = circle_center_x
+
+    def draw(self, surface, font, mouse_pos=None):
+        super().draw(surface, font, mouse_pos)
+        circle_color = ui.WHITE if self.enabled else ui.GREY
+        pygame.draw.circle(
+            surface,
+            circle_color,
+            (self.rect.x + self.circle_center_x, self.rect.centery),
+            HELP_ICON_DIAMETER // 2,
+            2,
+        )
+
+
 class RunIndicator:
     """Noninteractive footer status shown while training is active."""
 
@@ -2263,7 +2377,17 @@ def _format_replay_buffer_size(sample_count):
 
 
 def _format_update_to_data_ratio(minibatch_size, gradient_steps, samples_per_batch):
-    return f"{int(minibatch_size) * int(gradient_steps) / int(samples_per_batch):.2f}"
+    ratio = _update_to_data_ratio(
+        minibatch_size,
+        gradient_steps,
+        samples_per_batch,
+    )
+    decimal_places = 3 if 0.995 <= ratio < 1.0 else 2
+    return f"{ratio:.{decimal_places}f}"
+
+
+def _update_to_data_ratio(minibatch_size, gradient_steps, samples_per_batch):
+    return int(minibatch_size) * int(gradient_steps) / int(samples_per_batch)
 
 
 def _training_action_tooltip(text):
@@ -2534,6 +2658,7 @@ class SliderRow:
     LABEL_SLIDER_VALUE = "label-slider-value"
     LABEL_VALUE_SLIDER = "label-value-slider"
     VALUE_COLOR = (255, 255, 0)
+    WARNING_VALUE_COLOR = (255, 96, 96)
     TEXT_PADDING = 8
     LABEL_VALUE_GAP = 4
     VALUE_HANDLE_GAP = 4
@@ -2584,6 +2709,7 @@ class SliderRow:
         self.value_suffix = value_suffix
         self.value_suffix_reserve = value_suffix_reserve
         self.value_formatter = value_formatter
+        self.value_color = self.VALUE_COLOR
         self.layout = layout
         self.label_width = label_width
         self.value_width = value_width
@@ -2685,7 +2811,7 @@ class SliderRow:
         return f"{self.value:.{self.decimal_places}f}{self.value_suffix}"
 
     def _rendered_value(self, font):
-        rendered = font.render(self.format_value(), True, self.VALUE_COLOR)
+        rendered = font.render(self.format_value(), True, self.value_color)
         if self.layout == self.LABEL_VALUE_SLIDER:
             suffix_reserve_width = (
                 font.size(self.value_suffix_reserve)[0]
@@ -3473,6 +3599,28 @@ def _format_training_duration(seconds):
     return f"{hours:d}h:{minutes:02d}m:{seconds:02d}s"
 
 
+def _completed_batches_for_model_slot(model_slot, live_status=None):
+    """Return the selected model's live or persisted completed-batch count."""
+
+    if live_status is not None:
+        try:
+            return max(0, int(live_status.completed_batches))
+        except (AttributeError, TypeError, ValueError):
+            pass
+    if model_slot is None or not model_slot.exists:
+        return None
+    metadata = model_slot.metadata
+    if not isinstance(metadata, Mapping):
+        return None
+    progress = metadata.get("progress", {})
+    if not isinstance(progress, Mapping):
+        return None
+    try:
+        return max(0, int(progress["completed_batches"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _selected_model_progress_lines(model_slot, live_status=None):
     if model_slot is None or not model_slot.exists:
         return ()
@@ -4147,10 +4295,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     small_font = pygame.font.SysFont(None, 24)
     instance_font = pygame.font.SysFont("Consolas", 19)
     tooltip_toggle_font = largest_fitting_font(
-        ("Help",),
-        INSTANCE_TOOLTIPS_WIDTH - 30,
-        max_height=INSTANCE_CONTROL_HEIGHT - 4,
-        maximum=21,
+        ("?",),
+        HELP_ICON_DIAMETER - 6,
+        max_height=HELP_ICON_DIAMETER - 4,
+        maximum=23,
         minimum=14,
     )
     control_tooltip_font = pygame.font.SysFont(None, 22)
@@ -6132,15 +6280,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         instance_manager,
         footer_transition,
     )
-    tooltips_checkbox = ui_button.Checkbox(
+    tooltips_checkbox = HelpCheckbox(
         INSTANCE_HORIZONTAL_MARGIN,
         INSTANCE_TOP,
         INSTANCE_TOOLTIPS_WIDTH,
         INSTANCE_CONTROL_HEIGHT,
-        "Help",
         initial_state=instance_manager.tooltips_enabled,
-        text_offset=(11, 0),
-        box_offset=(-7, -2),
     )
     instance_summary_rect = pygame.Rect(
         tooltips_checkbox.rect.right + INSTANCE_GAP,
@@ -6272,6 +6417,27 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         content_targets = []
         scroll_y = 0
         if active_tab == "trainee":
+            selected_live_status = None
+            active_session_slot = getattr(active_session, "slot", None)
+            if (
+                session_status is not None
+                and selected_slot is not None
+                and getattr(active_session_slot, "ship", None)
+                == selected_slot.ship
+                and getattr(active_session_slot, "slot", None)
+                == selected_slot.slot
+            ):
+                selected_live_status = session_status
+            completed_batches = _completed_batches_for_model_slot(
+                selected_slot,
+                selected_live_status,
+            )
+            go_to_batch_warning = _go_to_batch_warning(
+                state,
+                completed_batches,
+            )
+            go_to_epsilon_warning = _go_to_epsilon_warning(state)
+
             if device_selector.visible:
                 content_targets.append(
                     (device_selector.rect, TRAINING_DEVICE_TOOLTIP)
@@ -6286,8 +6452,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                             "average epsilon."
                         ),
                     ),
-                    (go_to_batch_checkbox.rect, GO_TO_BATCH_TOOLTIP),
-                    (go_to_epsilon_checkbox.rect, GO_TO_EPSILON_TOOLTIP),
+                    (
+                        go_to_batch_checkbox.rect,
+                        GO_TO_BATCH_TOOLTIP,
+                        go_to_batch_warning,
+                    ),
+                    (
+                        go_to_epsilon_checkbox.rect,
+                        GO_TO_EPSILON_TOOLTIP,
+                        go_to_epsilon_warning,
+                    ),
                 )
             )
             content_targets.extend(
@@ -6338,25 +6512,27 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             )
             scroll_y = rewards_scroll_y
         elif active_tab == "regimen":
-            content_targets.extend(
-                (slider.rect, label)
-                for slider, label in zip(
-                    regimen_sliders,
-                    REGIMEN_CONTROL_TOOLTIPS,
+            regimen_warnings = _regimen_control_warnings(state)
+            for index, (slider, label) in enumerate(
+                zip(regimen_sliders, REGIMEN_CONTROL_TOOLTIPS)
+            ):
+                content_targets.append(
+                    (slider.rect, label, regimen_warnings.get(index))
                 )
-            )
             scroll_y = regimen_scroll_y
         else:
             return None
 
-        for content_control, label in content_targets:
+        for target in content_targets:
+            content_control, label, *optional_warning = target
+            warning = optional_warning[0] if optional_warning else None
             visible_rect = _visible_content_control_rect(
                 content_control,
                 layout.content_rect,
                 scroll_y,
             )
             if label and visible_rect is not None and visible_rect.collidepoint(mouse_pos):
-                return label, visible_rect
+                return label, visible_rect, warning
         return None
 
     ship_picker = None
@@ -6659,8 +6835,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             slider.enabled = not state.running
         for slider in regimen_sliders:
             slider.enabled = not state.running
-            
-        max_batch_frames = state.rounds_per_batch * state.match_time_limit * len(SHIP_DEFINITIONS)
+            slider.value_color = SliderRow.VALUE_COLOR
+
+        max_batch_frames = _maximum_batch_samples(state)
+        regimen_warnings = _regimen_control_warnings(state)
         regimen_sliders[
             REGIMEN_REPLAY_BUFFER_INDEX
         ].label = f"Replay size, batch={_format_short_count(max_batch_frames)}"
@@ -6676,6 +6854,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].value_suffix = (
             f" (UTD={utd_ratio})"
         )
+        for index in regimen_warnings:
+            regimen_sliders[index].value_color = SliderRow.WARNING_VALUE_COLOR
 
         previous_active_id = instance_manager.active_instance_id
         for instance in list(instance_manager.instances):
@@ -7392,14 +7572,25 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             mouse_pos = pygame.mouse.get_pos()
             tooltip = control_tooltip_at(mouse_pos, batch_validation)
             if tooltip is not None:
-                label, anchor_rect = tooltip
-                ui.draw_tooltip(
-                    screen,
-                    control_tooltip_font,
-                    label,
-                    mouse_pos,
-                    anchor_rect,
-                )
+                label, anchor_rect, *optional_warning = tooltip
+                warning = optional_warning[0] if optional_warning else None
+                if warning:
+                    ui.draw_tooltip(
+                        screen,
+                        control_tooltip_font,
+                        label,
+                        mouse_pos,
+                        anchor_rect,
+                        warning=warning,
+                    )
+                else:
+                    ui.draw_tooltip(
+                        screen,
+                        control_tooltip_font,
+                        label,
+                        mouse_pos,
+                        anchor_rect,
+                    )
 
         try:
             pygame.display.flip()

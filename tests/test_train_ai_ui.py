@@ -3479,6 +3479,9 @@ class TrainingStartAllStyleTests(unittest.TestCase):
 
 
 class TrainingTooltipTests(unittest.TestCase):
+    def test_tooltips_are_fully_opaque(self):
+        self.assertEqual(const.SHIP_TOOLTIP_ALPHA, 255)
+
     def test_every_opponent_and_regimen_control_has_help(self):
         self.assertEqual(len(train_ai.OPPONENT_CONTROL_TOOLTIPS), 5)
         self.assertEqual(len(train_ai.REGIMEN_CONTROL_TOOLTIPS), 14)
@@ -3496,6 +3499,56 @@ class TrainingTooltipTests(unittest.TestCase):
         self.assertIn(
             "keeping the secondary ability active",
             train_ai._reward_control_tooltip(REWARD_SPAWN_A2, "Maintain A2"),
+        )
+
+    def test_regimen_warnings_cover_deterministic_data_and_epsilon_problems(self):
+        state = TrainingUIState(
+            replay_buffer_size=5000,
+            minibatch_size=16,
+            replay_updates_per_batch=10,
+            starting_epsilon=0.025,
+            epsilon_floor=0.050,
+        )
+
+        warnings = train_ai._regimen_control_warnings(state)
+
+        self.assertEqual(
+            warnings[train_ai.REGIMEN_REPLAY_BUFFER_INDEX],
+            train_ai.REPLAY_CAPACITY_WARNING,
+        )
+        self.assertEqual(
+            warnings[train_ai.REGIMEN_REPLAY_UPDATES_INDEX],
+            train_ai.LOW_UTD_WARNING,
+        )
+        self.assertEqual(
+            warnings[train_ai.REGIMEN_STARTING_EPSILON_INDEX],
+            train_ai.STARTING_EPSILON_BELOW_FLOOR_WARNING,
+        )
+
+    def test_go_to_warnings_cover_reached_and_unreachable_targets(self):
+        state = TrainingUIState(
+            go_to_batch_enabled=True,
+            go_to_batch_number=10,
+            go_to_epsilon_enabled=True,
+            go_to_epsilon_value=0.025,
+            epsilon_floor=0.050,
+        )
+
+        self.assertEqual(
+            train_ai._go_to_batch_warning(state, completed_batches=10),
+            train_ai.GO_TO_BATCH_REACHED_WARNING,
+        )
+        self.assertEqual(
+            train_ai._go_to_epsilon_warning(state),
+            train_ai.GO_TO_EPSILON_BELOW_FLOOR_WARNING,
+        )
+
+        state.go_to_epsilon_value = 0.250
+        state.current_epsilon = 0.500
+        state.epsilon_decay = 1.000
+        self.assertEqual(
+            train_ai._go_to_epsilon_warning(state),
+            train_ai.GO_TO_EPSILON_NO_DECAY_WARNING,
         )
 
     def test_dynamic_training_actions_have_tooltips_for_every_phase(self):
@@ -3542,6 +3595,44 @@ class TrainingTooltipTests(unittest.TestCase):
         self.assertLessEqual(rect.width, 130)
         self.assertGreater(rect.height, font.get_linesize())
 
+    def test_control_tooltip_warning_uses_red_text(self):
+        class CapturingFont:
+            def __init__(self):
+                self.colors = []
+
+            @staticmethod
+            def size(text):
+                return (max(1, len(text) * 6), 12)
+
+            @staticmethod
+            def get_linesize():
+                return 12
+
+            def render(self, text, _antialias, color):
+                self.colors.append((text, color))
+                return pygame.Surface((max(1, len(text) * 6), 12), pygame.SRCALPHA)
+
+        font = CapturingFont()
+        screen = pygame.Surface((360, 180), pygame.SRCALPHA)
+
+        ui.draw_tooltip(
+            screen,
+            font,
+            "Normal guidance.",
+            (180, 60),
+            pygame.Rect(150, 40, 60, 30),
+            warning="Warning guidance.",
+        )
+
+        self.assertIn(
+            ("Normal guidance.", const.SHIP_TOOLTIP_TEXT_COLOR),
+            font.colors,
+        )
+        self.assertIn(
+            ("Warning guidance.", const.SHIP_TOOLTIP_WARNING_TEXT_COLOR),
+            font.colors,
+        )
+
     def test_content_tooltip_rect_is_translated_and_clipped(self):
         content = pygame.Rect(0, 100, 300, 200)
         control = pygame.Rect(20, 40, 120, 50)
@@ -3556,6 +3647,56 @@ class TrainingTooltipTests(unittest.TestCase):
 
 
 class TrainingLayoutTests(unittest.TestCase):
+    def test_compact_help_control_reallocates_width_to_close_and_add(self):
+        self.assertEqual(train_ai.INSTANCE_TOOLTIPS_WIDTH, 54)
+        self.assertEqual(
+            train_ai.HELP_ICON_DIAMETER,
+            train_ai.INSTANCE_CONTROL_HEIGHT
+            - 2 * train_ai.INSTANCE_BORDER_WIDTH,
+        )
+        self.assertGreater(train_ai.INSTANCE_CLOSE_WIDTH, 56)
+        self.assertGreater(train_ai.INSTANCE_ADD_WIDTH, 44)
+        self.assertEqual(
+            train_ai.INSTANCE_TOOLTIPS_WIDTH
+            + train_ai.INSTANCE_CLOSE_WIDTH
+            + train_ai.INSTANCE_ADD_WIDTH,
+            64 + 56 + 44,
+        )
+
+    def test_help_control_keeps_centered_checkbox_and_circled_question_mark(self):
+        control = train_ai.HelpCheckbox(
+            0,
+            0,
+            train_ai.INSTANCE_TOOLTIPS_WIDTH,
+            train_ai.INSTANCE_CONTROL_HEIGHT,
+            initial_state=False,
+        )
+        surface = pygame.Surface(control.rect.size, pygame.SRCALPHA)
+        font = pygame.font.SysFont(None, 23)
+
+        control.draw(surface, font, mouse_pos=(-1, -1))
+
+        checkbox_left = train_ai.HELP_CONTROL_PADDING
+        circle_center = (
+            control.circle_center_x,
+            train_ai.INSTANCE_CONTROL_HEIGHT // 2,
+        )
+        self.assertEqual(
+            surface.get_at(
+                (checkbox_left, train_ai.INSTANCE_CONTROL_HEIGHT // 2)
+            )[:3],
+            ui.WHITE,
+        )
+        self.assertEqual(
+            surface.get_at(
+                (
+                    circle_center[0],
+                    circle_center[1] - train_ai.HELP_ICON_DIAMETER // 2,
+                )
+            )[:3],
+            ui.WHITE,
+        )
+
     def test_footer_widths_fit_middle_actions_and_run_indicator_labels(self):
         total_width = (
             train_ai.FOOTER_DISPLAY_WIDTH
@@ -4260,6 +4401,34 @@ class SliderRowTests(unittest.TestCase):
             _format_update_to_data_ratio(4096, 10, 30000),
             "1.37",
         )
+
+    def test_update_to_data_ratio_does_not_round_sub_one_value_to_one(self):
+        self.assertEqual(
+            _format_update_to_data_ratio(999, 1, 1000),
+            "0.999",
+        )
+
+    def test_slider_can_render_warning_value_in_red(self):
+        slider = SliderRow(
+            (0, 0, 240, 34),
+            "Value",
+            0,
+            100,
+            50,
+            is_int=True,
+        )
+        slider.value_color = SliderRow.WARNING_VALUE_COLOR
+        font = pygame.font.SysFont(None, 20)
+
+        rendered, _rect = slider._rendered_value(font)
+
+        colors = {
+            rendered.get_at((x, y))[:3]
+            for x in range(rendered.get_width())
+            for y in range(rendered.get_height())
+            if rendered.get_at((x, y))[3]
+        }
+        self.assertIn(SliderRow.WARNING_VALUE_COLOR, colors)
 
     def test_disabled_slider_value_remains_yellow(self):
         slider = SliderRow(
