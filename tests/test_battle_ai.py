@@ -1,10 +1,14 @@
 import tempfile
+import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 from src.Battle.battle import (
+    _create_battle_ai_manager,
     filter_ai_key_changes,
     reset_ai_player_inputs,
 )
@@ -68,6 +72,59 @@ def make_ship(name, player, position=(4000, 4000), rotation=0.0):
 
 
 class BattleAIModelResolutionTests(unittest.TestCase):
+    def test_simple_ai_manager_does_not_require_training_dependencies(self):
+        script = """
+import builtins
+from types import SimpleNamespace
+
+real_import = builtins.__import__
+
+def import_without_training_dependencies(name, *args, **kwargs):
+    if name in {"numpy", "torch"} or name.startswith(("numpy.", "torch.")):
+        raise ModuleNotFoundError(
+            f"{name} is excluded from the lightweight build"
+        )
+    return real_import(name, *args, **kwargs)
+
+builtins.__import__ = import_without_training_dependencies
+from src.Battle.battle import _create_battle_ai_manager
+
+manager = _create_battle_ai_manager(
+    {1: False, 2: True},
+    model_inference_available=False,
+)
+simulation = SimpleNamespace(
+    player1=SimpleNamespace(
+        name="Earthling",
+        player=1,
+        position=[4000, 4000],
+        rotation=0.0,
+        currently_alive=True,
+        current_hp=10,
+    ),
+    player2=SimpleNamespace(
+        name="Spathi",
+        player=2,
+        position=[4000, 5000],
+        rotation=0.0,
+        currently_alive=True,
+        current_hp=10,
+    ),
+)
+manager.bind_round(simulation)
+assert manager.status_for_player(2).kind == "simple"
+assert manager.actions_for_frame(simulation)[2]["forward"]
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_inference_loader_accepts_previous_observation_schema(self):
         validate_schema_metadata(
             {

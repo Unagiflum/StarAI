@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import math
 import random
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import src.const as const
 from src.Battle.computer_control import (
@@ -15,18 +15,11 @@ from src.Battle.computer_control import (
 )
 from src.toroidal import wrapped_delta
 from src.training.contracts import action_for_index
-from src.training.model_loader import (
-    InferenceModelCache,
-    load_inference_model,
-)
-from src.training.model_registry import (
-    TrainingModelRepository,
-    TrainingModelSlot,
-    model_slot_has_checkpoint,
-    model_basename,
-)
 from src.training.observation import encode_observation
-from src.training.replay import select_action_epsilon_greedy
+
+if TYPE_CHECKING:
+    from src.training.model_loader import InferenceModelCache
+    from src.training.model_registry import TrainingModelRepository, TrainingModelSlot
 
 
 @dataclass(frozen=True)
@@ -63,6 +56,8 @@ class TrainedModelController:
         self.model = model
 
     def actions_for_frame(self, simulation) -> dict[str, bool]:
+        from src.training.replay import select_action_epsilon_greedy
+
         self_ship, enemy_ship = _ships_for_player(simulation, self.player)
         observation = encode_observation(
             self_ship,
@@ -120,17 +115,28 @@ class BattleAIManager:
         repository: TrainingModelRepository | None = None,
         rng=None,
         model_cache: InferenceModelCache | None = None,
+        model_inference_available: bool = True,
     ):
         self.ai_enabled = {
             1: bool(ai_enabled.get(1, ai_enabled.get("1", False))),
             2: bool(ai_enabled.get(2, ai_enabled.get("2", False))),
         }
-        self.repository = repository or TrainingModelRepository(
-            const.DEFAULT_MODELS_PATH,
-            const.MODELS_PATH,
-        )
         self.rng = rng or random
-        self.model_cache = model_cache or InferenceModelCache()
+        self.model_inference_available = bool(model_inference_available)
+        if self.model_inference_available:
+            if repository is None:
+                from src.training.model_registry import TrainingModelRepository
+
+                repository = TrainingModelRepository(
+                    const.DEFAULT_MODELS_PATH,
+                    const.MODELS_PATH,
+                )
+            if model_cache is None:
+                from src.training.model_loader import InferenceModelCache
+
+                model_cache = InferenceModelCache()
+        self.repository = repository
+        self.model_cache = model_cache
         self._controllers: dict[int, Any] = {}
         self._labels: dict[int, str] = {}
         self._statuses: dict[int, BattleControllerStatus] = {}
@@ -146,7 +152,12 @@ class BattleAIManager:
                 continue
             ship, _ = _ships_for_player(simulation, player)
             prepare_computer_controlled_ship(ship)
-            loaded, failures = self._resolve_model(str(getattr(ship, "name", "")))
+            if self.model_inference_available:
+                loaded, failures = self._resolve_model(
+                    str(getattr(ship, "name", ""))
+                )
+            else:
+                loaded, failures = None, []
             self.load_failures[player] = tuple(failures)
             if loaded is None:
                 self._controllers[player] = FallbackController(player, rng=self.rng)
@@ -188,6 +199,8 @@ class BattleAIManager:
         return self._statuses.get(player, BattleControllerStatus("simple"))
 
     def _resolve_model(self, ship_name: str) -> tuple[BattleAIModel | None, list[str]]:
+        from src.training.model_registry import model_basename
+
         slots = self.repository.slots_for_ship(ship_name)
         default_slots = [slot for slot in slots if _is_default_slot(slot)]
         remaining_slots = [slot for slot in slots if slot not in default_slots]
@@ -210,6 +223,9 @@ class BattleAIManager:
 
 
 def load_battle_ai_model(slot: TrainingModelSlot) -> BattleAIModel:
+    from src.training.model_loader import load_inference_model
+    from src.training.model_registry import model_basename
+
     try:
         loaded = load_inference_model(slot)
     except Exception as exc:
@@ -226,6 +242,8 @@ def _is_default_slot(slot: TrainingModelSlot) -> bool:
 
 
 def _slot_has_candidate_weights(slot: TrainingModelSlot) -> bool:
+    from src.training.model_registry import model_slot_has_checkpoint
+
     return model_slot_has_checkpoint(slot)
 
 

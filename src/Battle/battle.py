@@ -70,6 +70,49 @@ def _controller_hud_badges(ai_manager):
     return badges
 
 
+def _create_battle_ai_manager(ai_enabled, *, rng=None, model_inference_available=None):
+    """Create interactive AI without importing the optional model stack eagerly."""
+    global BattleAIManager, InferenceModelCache, TrainingModelRepository
+    if BattleAIManager is None:
+        from src.Battle.battle_ai import BattleAIManager as battle_ai_manager
+
+        BattleAIManager = battle_ai_manager
+
+    if model_inference_available is None:
+        from src.training.torch_backend import TORCH_AVAILABLE
+
+        model_inference_available = TORCH_AVAILABLE
+
+    repository = None
+    model_cache = None
+    if model_inference_available:
+        if InferenceModelCache is None:
+            from src.training.model_loader import InferenceModelCache as model_cache_class
+
+            InferenceModelCache = model_cache_class
+        if TrainingModelRepository is None:
+            from src.training.model_registry import (
+                TrainingModelRepository as model_repository_class,
+            )
+
+            TrainingModelRepository = model_repository_class
+        repository = TrainingModelRepository(
+            const.DEFAULT_MODELS_PATH,
+            const.MODELS_PATH,
+        )
+        model_cache = InferenceModelCache()
+        if any(bool(value) for value in ai_enabled.values()):
+            model_cache.load_initial(repository)
+
+    return BattleAIManager(
+        ai_enabled,
+        repository=repository,
+        rng=rng,
+        model_cache=model_cache,
+        model_inference_available=model_inference_available,
+    )
+
+
 def _add_battle_timing_seconds(timing_seconds, bucket, started_at):
     if timing_seconds is None:
         return
@@ -929,24 +972,6 @@ def run(
     player1_ai=False,
     player2_ai=False,
 ):
-    # Interactive AI/model dependencies are intentionally lazy so headless
-    # training workers can import ``BattleSimulation`` without the model stack.
-    global BattleAIManager, InferenceModelCache, TrainingModelRepository
-    if BattleAIManager is None:
-        from src.Battle.battle_ai import BattleAIManager as battle_ai_manager
-
-        BattleAIManager = battle_ai_manager
-    if InferenceModelCache is None:
-        from src.training.model_loader import InferenceModelCache as model_cache
-
-        InferenceModelCache = model_cache
-    if TrainingModelRepository is None:
-        from src.training.model_registry import (
-            TrainingModelRepository as model_repository,
-        )
-
-        TrainingModelRepository = model_repository
-
     clock = PresentationClock(const.FPS, const.VIDEO_FPS_MULTIPLIER)
     simulation = BattleSimulation(
         screen,
@@ -956,18 +981,9 @@ def run(
         player2_ships,
         audio_service=audio_service,
     )
-    ai_model_repository = TrainingModelRepository(
-        const.DEFAULT_MODELS_PATH,
-        const.MODELS_PATH,
-    )
-    ai_model_cache = InferenceModelCache()
-    if player1_ai or player2_ai:
-        ai_model_cache.load_initial(ai_model_repository)
-    ai_manager = BattleAIManager(
+    ai_manager = _create_battle_ai_manager(
         {1: player1_ai, 2: player2_ai},
-        repository=ai_model_repository,
         rng=getattr(simulation, "rng", random),
-        model_cache=ai_model_cache,
     )
     ai_manager.bind_round(simulation)
     reset_ai_player_inputs(simulation, ai_manager)
