@@ -17,7 +17,11 @@ from src.toroidal import wrapped_delta
 from src.training import event_ledger
 from src.training.action_safety import guard_training_selection
 from src.training.causal_credit import REWARD_MODE_LEGACY
-from src.training.contracts import TrainingAction, action_for_index
+from src.training.contracts import (
+    ACTION_OUTPUT_SIZE,
+    TrainingAction,
+    action_for_index,
+)
 from src.training.coordinated_contracts import (
     CoordinatedFixedFrameWindowResult,
     TrainingEpisodeResult,
@@ -30,7 +34,7 @@ from src.training.cpu_contracts import (
     single_controller_opponent_plan,
 )
 from src.training.episode_metrics import PendingCombatEpisode, finalize_pending_episodes
-from src.training.replay_contracts import ActionSelection
+from src.training.replay_contracts import ActionHold, ActionSelection
 from src.training.rewards import (
     MatureTrainingSample,
     REWARD_COMPONENTS,
@@ -62,6 +66,11 @@ class CoordinatedWindowRuntime:
     episode_component_sums: dict[str, float] = field(default_factory=dict)
     episode_needs_timeout: bool = True
     post_death_episode: PendingCombatEpisode | None = None
+    action_counts: list[int] = field(
+        default_factory=lambda: [0] * ACTION_OUTPUT_SIZE
+    )
+    opponent_hold: ActionHold = field(default_factory=ActionHold)
+    rng: Any | None = None
 
     def __post_init__(self) -> None:
         if self.opponent_plan is None:
@@ -301,6 +310,8 @@ def advance_coordinated_window_frame(
     self_ship = simulation.player1
     enemy_ship = simulation.player2
     selection = guard_training_selection(selection, self_ship, enemy_ship)
+    if not selection.held:
+        runtime.action_counts[selection.action_index] += 1
     opponent_controls = guard_computer_controls(
         opponent_controls,
         enemy_ship,
@@ -325,6 +336,7 @@ def advance_coordinated_window_frame(
     staged_index = runtime.pipeline.stage_decision(
         decision,
         trajectory_id=runtime.ledger.active_trajectory_id,
+        emit_sample=not selection.held,
     )
     add_timing_seconds(timing_seconds, "reward_decision", reward_decision_started_at)
     event_start = len(runtime.ledger.events)
@@ -607,6 +619,7 @@ def reset_coordinated_window_battle(
             resources=resources,
             ship_factory=ship_factory,
         )
+    runtime.opponent_hold.reset()
     runtime.episode_start_frame = runtime.simulation.frame_id
     runtime.episode_mature_count = 0
     runtime.episode_return_sum = 0.0
@@ -711,6 +724,7 @@ def finish_coordinated_window(
             runtime.component_sums, runtime.total_mature_count
         ),
         reward_diagnostics=runtime.ledger.diagnostics,
+        action_counts=tuple(runtime.action_counts),
     )
 
 

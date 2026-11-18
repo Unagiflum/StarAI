@@ -43,6 +43,7 @@ from src.training.model_registry import (
     SLOT_EMPTY,
     TrainingModelRepository,
     TrainingModelSlot,
+    model_action_frame_span,
 )
 from src.training.episode_metrics import (
     PendingCombatEpisode,
@@ -56,6 +57,7 @@ from src.training.replay import (
     optimize_from_replay,
     select_action_epsilon_greedy,
 )
+from src.training.replay_contracts import ActionHold
 from src.training.rewards import (
     MatureTrainingSample,
     REWARD_COMPONENTS,
@@ -63,6 +65,7 @@ from src.training.rewards import (
     decision_frame_from_battle_state,
     frame_outcome_from_battle_state,
 )
+from src.training.contracts import DEFAULT_NEW_MODEL_VALUE_HEAD
 from src.training.value_network import (
     ValueNetworkConfig,
     build_optimizer,
@@ -90,6 +93,7 @@ class TrainingRoundResult:
     component_totals: Mapping[str, float] = field(default_factory=dict)
     episode_results: tuple[TrainingEpisodeResult, ...] = ()
     reward_diagnostics: CausalRewardDiagnostics | None = None
+    action_counts: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -107,23 +111,28 @@ class TrainingBatchResult:
 
 
 class ValueNetworkPolicy:
-    """Epsilon-greedy policy over the Phase 1 value network."""
+    """Epsilon-greedy policy that holds each decision for a frame span.
+
+    Every decision, exploratory or greedy, is repeated for
+    ``action_frame_span`` frames. Repeated frames are marked ``held`` so only
+    the deciding frame becomes a replay sample.
+    """
 
     def __init__(
         self,
         model,
         *,
         epsilon: float,
-        epsilon_frame_span: int = 1,
+        action_frame_span: int = 1,
         rng: Any | None = None,
     ):
         self.model = model
         self.epsilon = float(epsilon)
-        self.epsilon_frame_span = max(1, int(epsilon_frame_span))
+        self.action_frame_span = max(1, int(action_frame_span))
         self.rng = rng or random
         self.last_selection: ActionSelection | None = None
-        self._span_frames_remaining = 0
-        self._span_action_index: int | None = None
+        self._hold = ActionHold()
+        self._held_exploratory = False
 
     def select_action(self, observation: Sequence[float]) -> ActionSelection:
         prepared = self.prepare_action_selection(observation)
@@ -141,25 +150,25 @@ class ValueNetworkPolicy:
         self,
         observation: Sequence[float],
     ) -> ActionSelection | None:
-        del observation
-        if self._span_frames_remaining > 0:
-            self._span_frames_remaining -= 1
-            if self._span_action_index is not None:
-                self.last_selection = ActionSelection(
-                    action_index=self._span_action_index,
-                    exploratory=True,
-                )
-                return self.last_selection
-            return None
+        """Return a held or exploratory action, or ``None`` when inference is due."""
 
-        self._span_action_index = None
-        self._span_frames_remaining = self.epsilon_frame_span - 1
+        del observation
+        held_action = self._hold.held_action()
+        if held_action is not None:
+            self.last_selection = ActionSelection(
+                action_index=held_action,
+                exploratory=self._held_exploratory,
+                held=True,
+            )
+            return self.last_selection
+
         if self.epsilon >= 1.0 or (
             self.epsilon > 0.0 and self.rng.random() < self.epsilon
         ):
-            self._span_action_index = int(self.rng.randrange(ACTION_OUTPUT_SIZE))
+            action_index = int(self.rng.randrange(ACTION_OUTPUT_SIZE))
+            self._begin_hold(action_index, exploratory=True)
             self.last_selection = ActionSelection(
-                action_index=self._span_action_index,
+                action_index=action_index,
                 exploratory=True,
             )
             return self.last_selection
@@ -172,9 +181,13 @@ class ValueNetworkPolicy:
         action_values: Sequence[float] | None = None,
     ) -> ActionSelection:
         if isinstance(selection, ActionSelection):
-            self.last_selection = selection
+            completed = ActionSelection(
+                action_index=int(selection.action_index),
+                exploratory=False,
+                action_values=selection.action_values,
+            )
         else:
-            self.last_selection = ActionSelection(
+            completed = ActionSelection(
                 action_index=int(selection),
                 exploratory=False,
                 action_values=(
@@ -183,11 +196,21 @@ class ValueNetworkPolicy:
                     else None
                 ),
             )
-        return self.last_selection
+        self._begin_hold(completed.action_index, exploratory=False)
+        self.last_selection = completed
+        return completed
 
     def reset_exploration_span(self) -> None:
-        self._span_frames_remaining = 0
-        self._span_action_index = None
+        """Drop any held action so the next frame makes a fresh decision."""
+
+        self._hold.reset()
+        self._held_exploratory = False
+
+    reset_action_span = reset_exploration_span
+
+    def _begin_hold(self, action_index: int, *, exploratory: bool) -> None:
+        self._hold.begin(action_index, self.action_frame_span)
+        self._held_exploratory = bool(exploratory)
 
 
 def simple_opponent_schedule(rounds_per_batch: int) -> tuple[OpponentSpec, ...]:
@@ -352,6 +375,7 @@ def discover_existing_ai_opponents(
                     slot=slot_number,
                     model=loaded,
                     description=slot.description,
+                    action_frame_span=model_action_frame_span(slot.metadata),
                 )
             )
     return OpponentDiscoveryResult(opponents=tuple(opponents), skipped=tuple(skipped))
@@ -400,7 +424,7 @@ def run_training_batch(
     trainee_policy = ValueNetworkPolicy(
         model,
         epsilon=config.epsilon,
-        epsilon_frame_span=config.epsilon_frame_span,
+        action_frame_span=config.action_frame_span,
         rng=rng,
     )
     round_results: list[TrainingRoundResult] = []
@@ -551,6 +575,8 @@ def run_training_round(
     post_death_episode: PendingCombatEpisode | None = None
     next_display_frame_time = time.perf_counter()
     simple_opponent_controller = SimpleOpponentController(config, rng=rng)
+    opponent_hold = ActionHold()
+    action_counts = [0] * ACTION_OUTPUT_SIZE
 
     for match_frame in range(config.match_time_limit):
         abort_if_requested()
@@ -568,6 +594,8 @@ def run_training_round(
             self_ship,
             enemy_ship,
         )
+        if not selection.held:
+            action_counts[selection.action_index] += 1
         decision = decision_frame_from_battle_state(
             frame_id=simulation.frame_id + 1,
             observation=observation,
@@ -586,6 +614,7 @@ def run_training_round(
         staged_index = pipeline.stage_decision(
             decision,
             trajectory_id=ledger.active_trajectory_id,
+            emit_sample=not selection.held,
         )
         event_start = len(ledger.events)
         actions = {
@@ -595,6 +624,7 @@ def run_training_round(
                 simulation,
                 config,
                 simple_opponent_controller,
+                opponent_hold=opponent_hold,
             ),
         }
         state = simulation.step(actions=actions)
@@ -755,6 +785,7 @@ def run_training_round(
                 simple_opponent_controller = SimpleOpponentController(
                     config, rng=rng
                 )
+                opponent_hold.reset()
                 episode_start_frame = state["frame_id"]
                 episode_mature_count = 0
                 episode_return_sum = 0.0
@@ -778,6 +809,7 @@ def run_training_round(
                     mode=config.reward_mode,
                 )
             simple_opponent_controller = SimpleOpponentController(config, rng=rng)
+            opponent_hold.reset()
             episode_start_frame = state["frame_id"]
             episode_mature_count = 0
             episode_return_sum = 0.0
@@ -874,6 +906,7 @@ def run_training_round(
         component_totals=_average_components(component_sums, mature_count),
         episode_results=tuple(episode_results),
         reward_diagnostics=ledger.diagnostics,
+        action_counts=tuple(action_counts),
     )
 
 
@@ -985,6 +1018,7 @@ def build_training_components(config: TrainingOrchestrationConfig):
         ValueNetworkConfig(
             hidden_layer_width=config.hidden_layer_width,
             hidden_layer_count=config.hidden_layer_count,
+            head=DEFAULT_NEW_MODEL_VALUE_HEAD,
         ),
         device=device,
     )
@@ -1016,23 +1050,39 @@ def _opponent_direct_controls(
     simulation,
     config: TrainingOrchestrationConfig,
     simple_controller: SimpleOpponentController,
+    *,
+    opponent_hold: ActionHold | None = None,
 ) -> TrainingAction:
     if opponent.model is None:
         controls = simple_controller.direct_controls_for_frame(simulation)
     else:
-        observation = encode_observation(
-            simulation.player2,
-            simulation.player1,
-            frame_id=simulation.frame_id,
-            game_objects=simulation.world,
+        hold_key = id(opponent.model)
+        held_action = (
+            opponent_hold.held_action(hold_key)
+            if opponent_hold is not None
+            else None
         )
-        selection = select_action_epsilon_greedy(
-            opponent.model,
-            observation,
-            epsilon=0.0,
-            value_predictor=predict_action_values_read_only,
-        )
-        controls = direct_controls_for_action_index(selection.action_index)
+        if held_action is None:
+            observation = encode_observation(
+                simulation.player2,
+                simulation.player1,
+                frame_id=simulation.frame_id,
+                game_objects=simulation.world,
+            )
+            selection = select_action_epsilon_greedy(
+                opponent.model,
+                observation,
+                epsilon=0.0,
+                value_predictor=predict_action_values_read_only,
+            )
+            held_action = selection.action_index
+            if opponent_hold is not None:
+                opponent_hold.begin(
+                    held_action,
+                    opponent.action_frame_span,
+                    key=hold_key,
+                )
+        controls = direct_controls_for_action_index(held_action)
     return guard_computer_controls(
         controls,
         simulation.player2,

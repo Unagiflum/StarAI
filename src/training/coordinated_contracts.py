@@ -36,3 +36,4 @@ class CoordinatedFixedFrameWindowResult:
     draw: bool
     component_totals: Mapping[str, float] = field(default_factory=dict)
     reward_diagnostics: CausalRewardDiagnostics | None = None
+    action_counts: tuple[int, ...] = ()

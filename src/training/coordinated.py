@@ -34,6 +34,7 @@ from src.training.batched_value_network import (
     train_selected_action_regression_batched,
 )
 from src.training.contracts import (
+    ACTION_INDEX_TABLE,
     ACTION_OUTPUT_SIZE,
     OBSERVATION_INPUT_SIZE,
     TrainingAction,
@@ -100,6 +101,7 @@ from src.training.replay import (
     select_action_epsilon_greedy,
 )
 from src.training.replay import ActionSelection
+from src.training.replay_contracts import ActionHold
 from src.training.rewards import (
     REWARD_COMPONENTS,
     StagedTrajectoryPipeline,
@@ -108,26 +110,35 @@ from src.training.rewards import (
 )
 from src.training.session import (
     BatchMetrics,
+    EVALUATION_SEED,
+    EvaluationMetrics,
     MAX_BATCH_LOG_LINES,
     RECENT_BATCH_METRICS_KEY,
     SimulationSpeedTracker,
     TrainingSessionStatus,
     advance_display_frame_deadline,
+    append_evaluation_metrics_csv,
     append_grouped_metrics_csv,
     batch_metrics_to_metadata,
     batch_metrics_history_from_metadata,
+    evaluation_metrics_csv_path,
+    evaluation_metrics_from_batch_result,
     format_batch_summary_line,
+    format_evaluation_summary_line,
+    is_evaluation_batch,
     metrics_from_batch_result,
     reconcile_grouped_metrics_csv,
+    regimen_with_action_frame_span,
     rolling_metrics,
     should_update_live_frame_status,
+    training_metrics_row_for_evaluation_batch,
 )
 from src.training.value_network import (
-    ValueNetworkConfig,
     build_optimizer,
     build_value_network,
     predict_action_values_read_only,
     train_selected_action_regression,
+    value_network_config_from_architecture,
 )
 from src.training.worker_transport import (
     TransportTimingAccumulator,
@@ -138,6 +149,11 @@ from src.training.windows_qos import training_high_qos
 
 
 TRAINEE_PARAMETER_CACHE_MAX_ENTRIES = 1
+
+
+_ACTION_INDEX_BY_MASK = {
+    action.mask: index for index, action in enumerate(ACTION_INDEX_TABLE)
+}
 _THREAD_PRIORITY_BELOW_NORMAL = -1
 
 
@@ -201,51 +217,100 @@ class CoordinatedActionBatchResult:
 
 
 class CoordinatedExplorationSchedule:
-    """One shared explore/greedy gate with independent per-record actions."""
+    """Shared explore/greedy gate with per-record action holds.
 
-    def __init__(self, *, epsilon: float, frame_span: int, rng: Any):
+    Each record holds its decided action for ``frame_span`` frames, whether the
+    decision was exploratory or greedy. Records that need a new decision on the
+    same frame share one explore/greedy roll, so greedy decisions still run as
+    one batched inference call. Records listed in ``greedy_record_ids`` are in
+    a greedy evaluation batch and never explore.
+    """
+
+    def __init__(
+        self,
+        *,
+        epsilon: float,
+        frame_span: int,
+        rng: Any,
+        greedy_record_ids: Sequence[int] = (),
+    ):
         self.epsilon = max(0.0, min(1.0, float(epsilon)))
         self.frame_span = max(1, int(frame_span))
         self.rng = rng
-        self._frames_remaining = 0
-        self._exploring = False
-        self._actions: dict[int, int] = {}
+        self.greedy_record_ids = frozenset(int(item) for item in greedy_record_ids)
+        self._holds: dict[int, tuple[ActionHold, bool]] = {}
 
     def begin_round(self) -> None:
-        self._frames_remaining = 0
-        self._exploring = False
-        self._actions.clear()
+        self._holds.clear()
 
     def reset_record(self, record_id: int) -> None:
-        """Do not carry one record's random action across an episode reset."""
+        """Do not carry one record's held action across an episode reset."""
 
-        self._actions.pop(int(record_id), None)
+        self._holds.pop(int(record_id), None)
+
+    def begin_hold(
+        self,
+        record_id: int,
+        action_index: int,
+        *,
+        exploratory: bool,
+    ) -> None:
+        hold = ActionHold()
+        hold.begin(action_index, self.frame_span)
+        self._holds[int(record_id)] = (hold, bool(exploratory))
+
+    def held_selection(self, record_id: int) -> ActionSelection | None:
+        entry = self._holds.get(int(record_id))
+        if entry is None:
+            return None
+        hold, exploratory = entry
+        action_index = hold.held_action()
+        if action_index is None:
+            return None
+        return ActionSelection(
+            action_index=action_index,
+            exploratory=exploratory,
+            held=True,
+        )
 
     def prepare_selections(
         self,
         requests: Sequence[CoordinatedActionRequest],
-    ) -> Mapping[int, ActionSelection] | None:
-        if self._frames_remaining <= 0:
-            self._exploring = self.epsilon >= 1.0 or (
-                self.epsilon > 0.0 and self.rng.random() < self.epsilon
-            )
-            self._frames_remaining = self.frame_span
-            self._actions.clear()
-        self._frames_remaining -= 1
-        if not self._exploring:
-            return None
-        selections = {}
+    ) -> tuple[dict[int, ActionSelection], list[CoordinatedActionRequest]]:
+        """Return held/exploratory selections and the requests needing inference."""
+
+        selections: dict[int, ActionSelection] = {}
+        deciders: list[CoordinatedActionRequest] = []
         for request in requests:
             record_id = int(request.record_id)
-            action_index = self._actions.get(record_id)
-            if action_index is None:
+            held = self.held_selection(record_id)
+            if held is not None:
+                selections[record_id] = held
+            else:
+                deciders.append(request)
+        explorers = [
+            request
+            for request in deciders
+            if int(request.record_id) not in self.greedy_record_ids
+        ]
+        if explorers and (
+            self.epsilon >= 1.0
+            or (self.epsilon > 0.0 and self.rng.random() < self.epsilon)
+        ):
+            for request in explorers:
+                record_id = int(request.record_id)
                 action_index = int(self.rng.randrange(ACTION_OUTPUT_SIZE))
-                self._actions[record_id] = action_index
-            selections[record_id] = ActionSelection(
-                action_index=action_index,
-                exploratory=True,
-            )
-        return selections
+                self.begin_hold(record_id, action_index, exploratory=True)
+                selections[record_id] = ActionSelection(
+                    action_index=action_index,
+                    exploratory=True,
+                )
+            deciders = [
+                request
+                for request in deciders
+                if int(request.record_id) not in selections
+            ]
+        return selections, deciders
 
 
 _PADDED_COORDINATED_OBSERVATION = (0.0,) * OBSERVATION_INPUT_SIZE
@@ -267,10 +332,17 @@ class CoordinatedValueNetworkPolicy:
         self.rng = exploration_schedule.rng
 
     def complete_greedy_selection(self, action_index: int) -> ActionSelection:
+        self.coordinated_exploration_schedule.begin_hold(
+            self.record_id,
+            int(action_index),
+            exploratory=False,
+        )
         return ActionSelection(action_index=int(action_index), exploratory=False)
 
     def reset_exploration_span(self) -> None:
         self.coordinated_exploration_schedule.reset_record(self.record_id)
+
+    reset_action_span = reset_exploration_span
 
 
 @dataclass(frozen=True)
@@ -553,6 +625,7 @@ class _CoordinatedRecordState:
     simulation_speed_tracker: SimulationSpeedTracker = field(
         default_factory=SimulationSpeedTracker
     )
+    last_evaluation_metrics: EvaluationMetrics | None = None
 
 
 @dataclass
@@ -567,6 +640,7 @@ class _WorkerWindowRuntime:
     frame_count: int = 0
     trainee_observation: Any | None = None
     opponent_observation: Any | None = None
+    opponent_hold: ActionHold = field(default_factory=ActionHold)
 
 
 class _WorkerRuntimeError(RuntimeError):
@@ -594,7 +668,7 @@ def _coordinated_regimen_signature(
         float(config.starting_epsilon),
         float(config.epsilon_floor),
         float(config.epsilon_decay),
-        int(config.epsilon_frame_span),
+        int(config.action_frame_span),
         float(config.gamma),
         int(config.minibatch_size),
         int(config.replay_updates_per_batch),
@@ -997,11 +1071,15 @@ class CoordinatedTrainingSession:
                     state.record.slot.ship,
                     state.record.slot.slot,
                 )
-                reconcile_grouped_metrics_csv(
+                for csv_path in (
                     metadata_path.with_suffix(".csv"),
-                    completed_batches=state.status.completed_batches,
-                    batch_grouping=state.record.batch_grouping,
-                )
+                    evaluation_metrics_csv_path(metadata_path.with_suffix(".csv")),
+                ):
+                    reconcile_grouped_metrics_csv(
+                        csv_path,
+                        completed_batches=state.status.completed_batches,
+                        batch_grouping=state.record.batch_grouping,
+                    )
 
     @property
     def records(self) -> tuple[CoordinatedTrainingRecord, ...]:
@@ -1211,6 +1289,7 @@ class CoordinatedTrainingSession:
                 battle_view=status.battle_view,
                 display_message=status.display_message,
                 error=status.error,
+                evaluation_batch=status.evaluation_batch,
             )
 
     def history_for_instance(self, instance_id: int) -> tuple[BatchMetrics, ...]:
@@ -1341,14 +1420,17 @@ class CoordinatedTrainingSession:
         trainee_parameter_cache = BatchedValueNetworkParameterCache(
             max_entries=TRAINEE_PARAMETER_CACHE_MAX_ENTRIES,
         )
+        evaluation_ids = self._evaluation_record_ids()
         exploration_schedule = CoordinatedExplorationSchedule(
             epsilon=self._shared_current_epsilon,
-            frame_span=next(iter(self._states.values())).record.config.epsilon_frame_span,
+            frame_span=next(iter(self._states.values())).record.config.action_frame_span,
             rng=self._rng,
+            greedy_record_ids=evaluation_ids,
         )
-        schedules = self._opponent_schedules_for_batch()
+        schedules = self._opponent_schedules_for_batch(evaluation_ids)
         if any(not schedule for schedule in schedules.values()):
             return False
+        self._mark_evaluation_batches(evaluation_ids)
 
         batch_started_at = time.perf_counter()
         with self._lock:
@@ -1392,17 +1474,22 @@ class CoordinatedTrainingSession:
                         record_id=instance_id,
                         exploration_schedule=exploration_schedule,
                     )
-                    active_windows.append(
-                        _create_coordinated_window_runtime(
-                            state=state,
-                            opponent=opponent,
-                            opponent_plan=opponent_plan,
-                            policy=policy,
-                            rng=self._rng,
-                            simulation_factory=self._simulation_factory,
-                            audio_service=self._audio_for_instance(instance_id),
-                        )
+                    window_rng = (
+                        random.Random(EVALUATION_SEED + round_index)
+                        if instance_id in evaluation_ids
+                        else self._rng
                     )
+                    window_runtime = _create_coordinated_window_runtime(
+                        state=state,
+                        opponent=opponent,
+                        opponent_plan=opponent_plan,
+                        policy=policy,
+                        rng=window_rng,
+                        simulation_factory=self._simulation_factory,
+                        audio_service=self._audio_for_instance(instance_id),
+                    )
+                    window_runtime.rng = window_rng
+                    active_windows.append(window_runtime)
                 while any(not window.complete for window in active_windows):
                     _raise_if_stop_requested(self._stop_requested.is_set)
                     frame_requests = []
@@ -1475,7 +1562,7 @@ class CoordinatedTrainingSession:
                             )
                         _advance_coordinated_window_frame(
                             window,
-                            rng=self._rng,
+                            rng=window.rng or self._rng,
                             simulation_factory=self._simulation_factory,
                             audio_service=self._audio_for_instance(
                                 window.state.record.instance_id
@@ -1533,7 +1620,8 @@ class CoordinatedTrainingSession:
             optimization_started_at,
         )
 
-        self._advance_shared_epsilon()
+        if len(evaluation_ids) < len(self._states):
+            self._advance_shared_epsilon()
         completed_batch_numbers: dict[int, int] = {}
         preliminary_batch_seconds = max(
             0.0,
@@ -1553,6 +1641,7 @@ class CoordinatedTrainingSession:
                 ),
                 batch_seconds=preliminary_batch_seconds,
                 emit_outputs=False,
+                evaluation=instance_id in evaluation_ids,
             )
             completed_batch_numbers[instance_id] = batch_number
             if batch_number % state.record.batch_grouping == 0:
@@ -1628,10 +1717,12 @@ class CoordinatedTrainingSession:
         trainee_parameter_cache = BatchedValueNetworkParameterCache(
             max_entries=TRAINEE_PARAMETER_CACHE_MAX_ENTRIES,
         )
+        evaluation_ids = self._evaluation_record_ids()
         exploration_schedule = CoordinatedExplorationSchedule(
             epsilon=self._shared_current_epsilon,
-            frame_span=next(iter(self._states.values())).record.config.epsilon_frame_span,
+            frame_span=next(iter(self._states.values())).record.config.action_frame_span,
             rng=self._rng,
+            greedy_record_ids=evaluation_ids,
         )
         workers: dict[int, Any] = self._cpu_workers
         results: dict[int, list[CoordinatedFixedFrameWindowResult]] = {
@@ -1657,9 +1748,10 @@ class CoordinatedTrainingSession:
                 drain_ipc = getattr(client, "drain_ipc_seconds", None)
                 if callable(drain_ipc):
                     drain_ipc()
-            schedules = self._opponent_schedules_for_batch()
+            schedules = self._opponent_schedules_for_batch(evaluation_ids)
             if any(not schedule for schedule in schedules.values()):
                 return False
+            self._mark_evaluation_batches(evaluation_ids)
 
             batch_started_at = time.perf_counter()
             with self._lock:
@@ -1712,9 +1804,13 @@ class CoordinatedTrainingSession:
                             config=state.record.config,
                             opponent=replace(opponent, model=None),
                             opponent_plan=opponent_plan.without_models(),
-                            rng_seed=self._worker_window_seed(
-                                instance_id,
-                                round_index,
+                            rng_seed=(
+                                EVALUATION_SEED + round_index
+                                if instance_id in evaluation_ids
+                                else self._worker_window_seed(
+                                    instance_id,
+                                    round_index,
+                                )
                             ),
                             frame_limit=state.record.config.match_time_limit,
                         )
@@ -1781,10 +1877,23 @@ class CoordinatedTrainingSession:
                     self._record_inference_batch(action_result)
 
                     opponent_started_at = _timing_started_at(timing_seconds)
-                    opponent_controls = select_opponent_controls_for_observations(
-                        tuple(
+                    held_opponent_controls: dict[int, TrainingAction] = {}
+                    opponent_requests = []
+                    for window in active_windows:
+                        if window.opponent.model is None:
+                            continue
+                        record_id = window.state.record.instance_id
+                        held_action = window.opponent_hold.held_action(
+                            id(window.opponent.model)
+                        )
+                        if held_action is not None:
+                            held_opponent_controls[record_id] = (
+                                direct_controls_for_action_index(held_action)
+                            )
+                            continue
+                        opponent_requests.append(
                             CoordinatedOpponentActionRequest(
-                                request_id=window.state.record.instance_id,
+                                request_id=record_id,
                                 opponent=window.opponent,
                                 observation=(
                                     window.opponent_observation
@@ -1792,10 +1901,27 @@ class CoordinatedTrainingSession:
                                     else _PADDED_COORDINATED_OBSERVATION
                                 ),
                             )
-                            for window in active_windows
-                            if window.opponent.model is not None
-                        ),
+                        )
+                    opponent_controls = dict(
+                        select_opponent_controls_for_observations(
+                            tuple(opponent_requests),
+                        )
                     )
+                    windows_by_record = {
+                        item.state.record.instance_id: item
+                        for item in active_windows
+                    }
+                    for request in opponent_requests:
+                        decided = opponent_controls.get(int(request.request_id))
+                        if decided is None:
+                            continue
+                        window = windows_by_record[request.request_id]
+                        window.opponent_hold.begin(
+                            _ACTION_INDEX_BY_MASK[int(decided.mask)],
+                            request.opponent.action_frame_span,
+                            key=id(request.opponent.model),
+                        )
+                    opponent_controls.update(held_opponent_controls)
                     _add_timing_seconds(
                         timing_seconds,
                         "opponent_inference",
@@ -1817,6 +1943,7 @@ class CoordinatedTrainingSession:
                                 round_index=window.round_index,
                                 trainee_action_index=selection.action_index,
                                 trainee_exploratory=selection.exploratory,
+                                trainee_held=selection.held,
                                 opponent_controls=(
                                     _worker_controls_mapping(direct_controls)
                                     if direct_controls is not None
@@ -1873,6 +2000,7 @@ class CoordinatedTrainingSession:
                         )
                         if frame_result.terminal_episode is not None:
                             window.policy.reset_exploration_span()
+                            window.opponent_hold.reset()
                         if frame_result.audio_events:
                             self._relay_audio_events(record_id, frame_result.audio_events)
                         progress_payload = frame_result.progress_payload
@@ -1984,7 +2112,8 @@ class CoordinatedTrainingSession:
             optimization_started_at,
         )
 
-        self._advance_shared_epsilon()
+        if len(evaluation_ids) < len(self._states):
+            self._advance_shared_epsilon()
         completed_batch_numbers: dict[int, int] = {}
         preliminary_batch_seconds = max(
             0.0,
@@ -2004,6 +2133,7 @@ class CoordinatedTrainingSession:
                 ),
                 batch_seconds=preliminary_batch_seconds,
                 emit_outputs=False,
+                evaluation=instance_id in evaluation_ids,
             )
             completed_batch_numbers[instance_id] = batch_number
             if batch_number % state.record.batch_grouping == 0:
@@ -2200,24 +2330,49 @@ class CoordinatedTrainingSession:
             self._timing_completed_batches += max(0, int(completed_batches))
             self._timing_frame_count += max(0, int(frame_count))
 
+    def _evaluation_record_ids(self) -> frozenset[int]:
+        """Return records whose next batch is a greedy evaluation batch."""
+
+        with self._lock:
+            return frozenset(
+                instance_id
+                for instance_id, state in self._states.items()
+                if is_evaluation_batch(
+                    state.status.completed_batches + 1,
+                    state.record.batch_grouping,
+                )
+            )
+
+    def _mark_evaluation_batches(self, evaluation_ids) -> None:
+        with self._lock:
+            for instance_id, state in self._states.items():
+                state.status.evaluation_batch = instance_id in evaluation_ids
+
     def _opponent_schedules_for_batch(
         self,
+        evaluation_ids=frozenset(),
     ) -> dict[int, tuple[OpponentControllerPlan, ...]]:
-        """Build shared plans using only live coordinated opponent models."""
+        """Build shared plans using only live coordinated opponent models.
+
+        Records in a greedy evaluation batch always face simple opponents so
+        evaluation results stay comparable across batches.
+        """
 
         anchor_id = min(self._states)
         anchor_state = self._states[anchor_id]
         config = anchor_state.record.config
         batch_number = int(anchor_state.status.completed_batches)
-        if config.opponent_mode != OPPONENT_MODE_EXISTING_AI:
-            schedule = tuple(
-                single_controller_opponent_plan(
-                    opponent,
-                    config.match_time_limit,
-                )
-                for opponent in simple_opponent_schedule(config.rounds_per_batch)
+        simple_schedule = tuple(
+            single_controller_opponent_plan(
+                opponent,
+                config.match_time_limit,
             )
-            return {instance_id: schedule for instance_id in self._states}
+            for opponent in simple_opponent_schedule(config.rounds_per_batch)
+        )
+        if config.opponent_mode != OPPONENT_MODE_EXISTING_AI or len(
+            evaluation_ids
+        ) == len(self._states):
+            return {instance_id: simple_schedule for instance_id in self._states}
         live_opponents = []
         for state in self._states.values():
             if state.components is None:
@@ -2232,6 +2387,7 @@ class CoordinatedTrainingSession:
                     slot=int(state.record.slot.slot),
                     model=state.components.model,
                     description=state.record.slot.description,
+                    action_frame_span=int(state.record.config.action_frame_span),
                 )
             )
 
@@ -2242,7 +2398,12 @@ class CoordinatedTrainingSession:
             ai_opponent_chance=config.ai_opponent_chance,
             batch_number=batch_number,
         )
-        return {instance_id: schedule for instance_id in self._states}
+        return {
+            instance_id: (
+                simple_schedule if instance_id in evaluation_ids else schedule
+            )
+            for instance_id in self._states
+        }
 
     def _record_completed_batch(
         self,
@@ -2251,6 +2412,7 @@ class CoordinatedTrainingSession:
         *,
         batch_seconds: float,
         emit_outputs: bool = True,
+        evaluation: bool = False,
     ) -> int:
         with self._lock:
             state.status.completed_batches += 1
@@ -2269,23 +2431,39 @@ class CoordinatedTrainingSession:
                 elapsed,
             )
             state.status.current_epsilon = state.current_epsilon
+            state.status.evaluation_batch = False
             current_epsilon = state.current_epsilon
 
-        metrics = metrics_from_batch_result(
-            result,
-            batch=batch_number,
-            epsilon=current_epsilon,
-            learning_rate=state.record.config.learning_rate,
-            batch_seconds=batch_seconds,
-        )
+        metrics = None
+        evaluation_metrics = None
+        if evaluation:
+            evaluation_metrics = evaluation_metrics_from_batch_result(
+                result,
+                batch=batch_number,
+                batch_seconds=batch_seconds,
+            )
+        else:
+            metrics = metrics_from_batch_result(
+                result,
+                batch=batch_number,
+                epsilon=current_epsilon,
+                learning_rate=state.record.config.learning_rate,
+                batch_seconds=batch_seconds,
+            )
         with self._lock:
-            state.history.append(metrics)
-            rolling = rolling_metrics(tuple(state.history), state.record.batch_grouping)
-            if emit_outputs:
-                state.log_lines.append(format_batch_summary_line(metrics, rolling))
-                if len(state.log_lines) > MAX_BATCH_LOG_LINES:
-                    del state.log_lines[: len(state.log_lines) - MAX_BATCH_LOG_LINES]
-            state.status.recent_loss = metrics.average_loss
+            if evaluation_metrics is not None:
+                state.last_evaluation_metrics = evaluation_metrics
+            else:
+                state.history.append(metrics)
+                rolling = rolling_metrics(
+                    tuple(state.history),
+                    state.record.batch_grouping,
+                )
+                if emit_outputs:
+                    state.log_lines.append(format_batch_summary_line(metrics, rolling))
+                    if len(state.log_lines) > MAX_BATCH_LOG_LINES:
+                        del state.log_lines[: len(state.log_lines) - MAX_BATCH_LOG_LINES]
+            state.status.recent_loss = float(result.average_loss or 0.0)
             state.status.replay_size = result.replay_size
             batch_components = {component: 0.0 for component in REWARD_COMPONENTS}
             for window_result in result.round_results:
@@ -2299,9 +2477,33 @@ class CoordinatedTrainingSession:
             limit = max(1, int(state.record.batch_grouping))
             if len(state.history) > limit:
                 del state.history[: len(state.history) - limit]
-        if emit_outputs and batch_number % state.record.batch_grouping == 0:
+        if evaluation_metrics is not None:
+            if emit_outputs:
+                self._emit_evaluation_outputs(state, evaluation_metrics)
+        elif emit_outputs and batch_number % state.record.batch_grouping == 0:
             append_grouped_metrics_csv(self._csv_path(state), metrics, rolling)
         return batch_number
+
+    def _emit_evaluation_outputs(
+        self,
+        state: _CoordinatedRecordState,
+        metrics: EvaluationMetrics,
+    ) -> None:
+        with self._lock:
+            state.log_lines.append(format_evaluation_summary_line(metrics))
+            if len(state.log_lines) > MAX_BATCH_LOG_LINES:
+                del state.log_lines[: len(state.log_lines) - MAX_BATCH_LOG_LINES]
+            training_row = training_metrics_row_for_evaluation_batch(
+                state.history,
+                batch_number=metrics.batch,
+                batch_grouping=state.record.batch_grouping,
+            )
+        append_evaluation_metrics_csv(
+            evaluation_metrics_csv_path(self._csv_path(state)),
+            metrics,
+        )
+        if training_row is not None:
+            append_grouped_metrics_csv(self._csv_path(state), *training_row)
 
     def _begin_batch_accounting(self) -> float:
         with self._lock:
@@ -2329,6 +2531,26 @@ class CoordinatedTrainingSession:
             durations = self._completed_batch_seconds[state.record.instance_id]
             if durations:
                 durations[-1] = batch_seconds
+            evaluation_metrics = state.last_evaluation_metrics
+            if (
+                evaluation_metrics is not None
+                and evaluation_metrics.batch == int(batch_number)
+            ):
+                evaluation_metrics = replace(
+                    evaluation_metrics,
+                    batch_seconds=batch_seconds,
+                )
+                state.last_evaluation_metrics = evaluation_metrics
+                state.status.last_batch_seconds = batch_seconds
+                state.status.average_batch_seconds = (
+                    self._average_batch_seconds_locked(state)
+                )
+            else:
+                evaluation_metrics = None
+        if evaluation_metrics is not None:
+            self._emit_evaluation_outputs(state, evaluation_metrics)
+            return
+        with self._lock:
             metrics_index = next(
                 (
                     index
@@ -2512,10 +2734,12 @@ class CoordinatedTrainingSession:
                 "epsilon": float(current_epsilon),
                 "epsilon_floor": float(config.epsilon_floor),
                 "epsilon_decay": float(config.epsilon_decay),
-                "epsilon_frame_span": int(config.epsilon_frame_span),
             }
         )
-        training["regimen"] = regimen
+        training["regimen"] = regimen_with_action_frame_span(
+            regimen,
+            int(config.action_frame_span),
+        )
         return training
 
     def _csv_path(self, state: _CoordinatedRecordState):
@@ -2727,6 +2951,7 @@ class CoordinatedTrainingSession:
             for state in self._states.values():
                 state.status.running = False
                 state.status.stopping = False
+                state.status.evaluation_batch = False
                 state.status.simulation_speed_multiplier = 0.0
                 if not state.status.error:
                     state.status.display_message = ""
@@ -2862,6 +3087,7 @@ def run_coordinated_fixed_frame_window(
         staged_index = pipeline.stage_decision(
             decision,
             trajectory_id=ledger.active_trajectory_id,
+            emit_sample=not selection.held,
         )
         event_start = len(ledger.events)
         state = simulation.step(
@@ -3275,7 +3501,12 @@ def select_actions_for_records(
     *,
     parameter_cache: BatchedValueNetworkParameterCache | None = None,
 ) -> CoordinatedActionBatchResult:
-    """Select coordinated trainee actions behind one replaceable helper boundary."""
+    """Select coordinated trainee actions behind one replaceable helper boundary.
+
+    Held actions skip inference. When any record needs a greedy decision, the
+    full request tuple is inferred together so the stacked parameter cache stays
+    stable, and only the deciding records consume their results.
+    """
 
     if not requests:
         return CoordinatedActionBatchResult(
@@ -3291,29 +3522,25 @@ def select_actions_for_records(
         "coordinated_exploration_schedule",
         None,
     )
-    if isinstance(shared_schedule, CoordinatedExplorationSchedule) and all(
+    uses_shared_schedule = isinstance(
+        shared_schedule,
+        CoordinatedExplorationSchedule,
+    ) and all(
         getattr(request.policy, "coordinated_exploration_schedule", None)
         is shared_schedule
         for request in requests
-    ):
-        prepared = shared_schedule.prepare_selections(requests)
-        if prepared is not None:
-            return CoordinatedActionBatchResult(
-                selections=prepared,
-                inference_mode="exploration_only",
-                request_count=len(prepared),
-                exploratory_count=len(prepared),
-            )
-        greedy_requests = list(requests)
-        selections: dict[int, ActionSelection] = {}
+    )
+    if uses_shared_schedule:
+        selections, greedy_requests = shared_schedule.prepare_selections(requests)
+        inference_requests = list(requests)
     else:
-        greedy_requests = []
-        selections = {}
-
-    if not all(_policy_supports_batched_selection(request.policy) for request in requests):
-        if not isinstance(shared_schedule, CoordinatedExplorationSchedule):
+        if not all(
+            _policy_supports_batched_selection(request.policy)
+            for request in requests
+        ):
             return _select_actions_for_records_sequential(requests)
-    if not isinstance(shared_schedule, CoordinatedExplorationSchedule):
+        selections = {}
+        greedy_requests = []
         for request in requests:
             record_id = int(request.record_id)
             prepared = request.policy.prepare_action_selection(request.observation)
@@ -3321,14 +3548,18 @@ def select_actions_for_records(
                 greedy_requests.append(request)
             else:
                 selections[record_id] = prepared
+        inference_requests = greedy_requests
 
-    inference_mode = "exploration_only"
-    if greedy_requests:
-        # Independent policies infer only their greedy subset. A coordinated
-        # exploration schedule reaches this path only when every record is
-        # greedy, so its cached model tuple remains fixed for the whole batch.
-        models = tuple(request.policy.model for request in greedy_requests)
-        observations = tuple(request.observation for request in greedy_requests)
+    if not greedy_requests:
+        inference_mode = (
+            "held_only"
+            if selections and all(selection.held for selection in selections.values())
+            else "exploration_only"
+        )
+    else:
+        greedy_ids = {int(request.record_id) for request in greedy_requests}
+        models = tuple(request.policy.model for request in inference_requests)
+        observations = tuple(request.observation for request in inference_requests)
         try:
             parameters = (
                 parameter_cache.get(models, set_eval=True)
@@ -3343,8 +3574,10 @@ def select_actions_for_records(
                 observations,
             )
             action_indices = values.argmax(dim=1).detach().cpu().tolist()
-            for request, action_index in zip(greedy_requests, action_indices):
+            for request, action_index in zip(inference_requests, action_indices):
                 record_id = int(request.record_id)
+                if record_id not in greedy_ids:
+                    continue
                 selections[record_id] = request.policy.complete_greedy_selection(
                     int(action_index),
                 )
@@ -3434,6 +3667,19 @@ def select_opponent_controls_for_windows(
                 else window.simple_controller.controls_for_frame(simulation)
             )
             continue
+        opponent_hold = getattr(window, "opponent_hold", None)
+        held_action = (
+            opponent_hold.held_action(id(window.opponent.model))
+            if opponent_hold is not None
+            else None
+        )
+        if held_action is not None:
+            controls[id(window)] = (
+                direct_controls_for_action_index(held_action)
+                if direct
+                else controls_for_action_index(held_action)
+            )
+            continue
         observation = encode_observation(
             simulation.player2,
             simulation.player1,
@@ -3449,6 +3695,13 @@ def select_opponent_controls_for_windows(
         )
         action_indices = values.argmax(dim=1).detach().cpu().tolist()
         for (window, _observation), action_index in zip(grouped, action_indices):
+            opponent_hold = getattr(window, "opponent_hold", None)
+            if opponent_hold is not None:
+                opponent_hold.begin(
+                    int(action_index),
+                    window.opponent.action_frame_span,
+                    key=id(window.opponent.model),
+                )
             controls[id(window)] = (
                 direct_controls_for_action_index(int(action_index))
                 if direct
@@ -4360,10 +4613,7 @@ def build_coordinated_components(
         )
     )
     model = build_value_network(
-        ValueNetworkConfig(
-            hidden_layer_width=int(architecture["hidden_layer_width"]),
-            hidden_layer_count=int(architecture["hidden_layer_count"]),
-        ),
+        value_network_config_from_architecture(architecture),
         device=torch_backend.training_device(record.config.training_device),
     )
     device = next(model.parameters()).device

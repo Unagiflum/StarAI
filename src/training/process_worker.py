@@ -435,6 +435,7 @@ class CoordinatedSimulationWorker:
         selection = ActionSelection(
             action_index=int(command.trainee_action_index),
             exploratory=bool(command.trainee_exploratory),
+            held=bool(command.trainee_held),
         )
         observation = self._trainee_observation
         if observation is None:

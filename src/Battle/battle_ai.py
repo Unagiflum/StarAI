@@ -27,6 +27,7 @@ class BattleAIModel:
     model: Any
     slot: TrainingModelSlot
     label: str
+    action_frame_span: int = 1
 
 
 @dataclass(frozen=True)
@@ -51,14 +52,27 @@ def controls_for_action_index(action_index: int) -> dict[str, bool]:
 
 
 class TrainedModelController:
-    def __init__(self, player: int, model):
+    """Play a trained model, holding each action for its trained frame span."""
+
+    def __init__(self, player: int, model, *, action_frame_span: int = 1):
         self.player = int(player)
         self.model = model
+        self.action_frame_span = max(1, int(action_frame_span))
+        self._held_action_index: int | None = None
+        self._held_frames_remaining = 0
+        self._held_ship = None
 
     def actions_for_frame(self, simulation) -> dict[str, bool]:
         from src.training.replay import select_action_epsilon_greedy
 
         self_ship, enemy_ship = _ships_for_player(simulation, self.player)
+        if (
+            self._held_action_index is not None
+            and self._held_frames_remaining > 0
+            and self._held_ship is self_ship
+        ):
+            self._held_frames_remaining -= 1
+            return controls_for_action_index(self._held_action_index)
         observation = encode_observation(
             self_ship,
             enemy_ship,
@@ -70,6 +84,9 @@ class TrainedModelController:
             observation,
             epsilon=0.0,
         )
+        self._held_action_index = int(selection.action_index)
+        self._held_frames_remaining = self.action_frame_span - 1
+        self._held_ship = self_ship
         return controls_for_action_index(selection.action_index)
 
 
@@ -164,7 +181,11 @@ class BattleAIManager:
                 self._labels[player] = "None found"
                 self._statuses[player] = BattleControllerStatus("simple")
             else:
-                self._controllers[player] = TrainedModelController(player, loaded.model)
+                self._controllers[player] = TrainedModelController(
+                    player,
+                    loaded.model,
+                    action_frame_span=loaded.action_frame_span,
+                )
                 self._labels[player] = loaded.label
                 self._statuses[player] = BattleControllerStatus(
                     "ai",
@@ -218,6 +239,9 @@ class BattleAIManager:
                 model=loaded.model,
                 slot=loaded.slot,
                 label=model_basename(loaded.slot.ship, loaded.slot.slot),
+                action_frame_span=int(
+                    getattr(loaded, "action_frame_span", 1) or 1
+                ),
             ), failures
         return None, failures
 
@@ -234,6 +258,7 @@ def load_battle_ai_model(slot: TrainingModelSlot) -> BattleAIModel:
         model=loaded.model,
         slot=slot,
         label=model_basename(slot.ship, slot.slot),
+        action_frame_span=loaded.action_frame_span,
     )
 
 

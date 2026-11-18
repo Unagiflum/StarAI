@@ -16,9 +16,12 @@ import src.const as const
 from src.audio import DisplayGatedAudioService, NullAudioService
 from src.training import torch_backend
 from src.training.contracts import (
+    ACTION_FRAME_SPAN_METADATA_KEY,
+    ACTION_INDEX_TABLE,
     ACTION_SCHEMA_METADATA,
     ACTION_SCHEMA_VERSION,
     COMPATIBLE_OBSERVATION_SCHEMA_VERSIONS,
+    LEGACY_EPSILON_FRAME_SPAN_METADATA_KEY,
     OBSERVATION_INPUT_SIZE,
     OBSERVATION_SCHEMA_VERSION,
 )
@@ -38,6 +41,7 @@ from src.training.model_persistence import (
 )
 from src.training.orchestration import (
     OPPONENT_MODE_EXISTING_AI,
+    OPPONENT_MODE_SIMPLE,
     TrainingBatchAborted,
     TrainingBatchResult,
     TrainingOrchestrationConfig,
@@ -52,9 +56,9 @@ from src.training.replay import (
 )
 from src.training.render_view import freeze_battle_view
 from src.training.value_network import (
-    ValueNetworkConfig,
     build_optimizer,
     build_value_network,
+    value_network_config_from_architecture,
 )
 from src.training.windows_qos import training_high_qos
 
@@ -76,6 +80,37 @@ GROUPED_METRICS_CSV_HEADER = (
     "Average Loss",
     "Time per batch (s)",
 )
+EVALUATION_METRICS_CSV_HEADER = (
+    "Batch",
+    "Kills",
+    "Deaths",
+    "K/D",
+    "Score",
+    "Top action",
+    "Top action share",
+    "Second action",
+    "Second action share",
+    "Third action",
+    "Third action share",
+    "Time (s)",
+)
+EVALUATION_LOG_PREFIX = "E"
+_LEGACY_EVALUATION_LOG_PREFIX = "EVAL"
+EVALUATION_SEED = 0x51A7E7A1
+EVALUATION_TOP_ACTION_COUNT = 3
+# One fixed-width column per control, in CONTROL_ORDER: thrust, turn left,
+# turn right, weapon 1, weapon 2. Unheld controls show as underscores.
+ACTION_GLYPHS = {
+    "thrust": "↑",
+    "turn_left": "←",
+    "turn_right": "→",
+    "a1": "1",
+    "a2": "2",
+}
+_EVALUATION_ACTION_SEPARATOR = " | "
+# Width of the evaluation line's action block, chosen so its duration column
+# lines up with the duration column of ordinary batch summary lines.
+_EVALUATION_ACTION_BLOCK_WIDTH = 54
 
 
 @dataclass(frozen=True)
@@ -111,6 +146,211 @@ class BatchMetrics:
     @property
     def average_batch_seconds(self) -> float:
         return self.batch_seconds / self.batch_count if self.batch_count else 0.0
+
+
+@dataclass(frozen=True)
+class EvaluationMetrics:
+    """Greedy-policy results from one evaluation batch."""
+
+    batch: int
+    kills: int
+    deaths: int
+    average_match_score: float
+    action_shares: tuple[tuple[int, float], ...] = ()
+    batch_seconds: float = 0.0
+
+    @property
+    def kill_death_ratio(self) -> float:
+        return self.kills / max(1, self.deaths)
+
+
+def is_evaluation_batch(batch_number: int, batch_grouping: int) -> bool:
+    """Return whether this batch is a greedy evaluation batch.
+
+    The last batch of every ``batch_grouping`` group is evaluated, matching the
+    batch where grouped metrics are written and the model is saved.
+    """
+
+    grouping = int(batch_grouping)
+    number = int(batch_number)
+    return grouping >= 2 and number > 0 and number % grouping == 0
+
+
+def evaluation_batch_config(
+    config: TrainingOrchestrationConfig,
+) -> TrainingOrchestrationConfig:
+    """Return a no-exploration config that faces only simple opponents."""
+
+    return replace(
+        config,
+        epsilon=0.0,
+        opponent_mode=OPPONENT_MODE_SIMPLE,
+        ai_opponent_chance=0.0,
+    )
+
+
+def evaluation_rng(round_index: int = 0) -> random.Random:
+    """Return the fixed RNG that repeats evaluation starting conditions."""
+
+    return random.Random(EVALUATION_SEED + int(round_index))
+
+
+def training_action_label(action_index: int) -> str:
+    controls = ACTION_INDEX_TABLE[int(action_index)].held_controls
+    return "+".join(controls) if controls else "none"
+
+
+def training_action_glyphs(action_index: int) -> str:
+    """Return a fixed-width control diagram such as ``[↑←_1_]``."""
+
+    action = ACTION_INDEX_TABLE[int(action_index)]
+    return "[" + "".join(
+        glyph if getattr(action, control) else "_"
+        for control, glyph in ACTION_GLYPHS.items()
+    ) + "]"
+
+
+def _summed_action_counts(round_results) -> list[int]:
+    totals: list[int] = []
+    for round_result in round_results:
+        counts = tuple(getattr(round_result, "action_counts", ()) or ())
+        if len(totals) < len(counts):
+            totals.extend([0] * (len(counts) - len(totals)))
+        for index, count in enumerate(counts):
+            totals[index] += int(count)
+    return totals
+
+
+def evaluation_metrics_from_batch_result(
+    result: TrainingBatchResult,
+    *,
+    batch: int,
+    batch_seconds: float = 0.0,
+) -> EvaluationMetrics:
+    metrics = metrics_from_batch_result(
+        result,
+        batch=batch,
+        epsilon=0.0,
+        learning_rate=0.0,
+        batch_seconds=batch_seconds,
+    )
+    counts = _summed_action_counts(result.round_results)
+    decisions = sum(counts)
+    ranked = sorted(
+        (
+            (index, count)
+            for index, count in enumerate(counts)
+            if count > 0
+        ),
+        key=lambda item: (-item[1], item[0]),
+    )
+    shares = tuple(
+        (index, count / decisions)
+        for index, count in ranked[:EVALUATION_TOP_ACTION_COUNT]
+    ) if decisions else ()
+    return EvaluationMetrics(
+        batch=metrics.batch,
+        kills=metrics.kills,
+        deaths=metrics.deaths,
+        average_match_score=metrics.average_match_score,
+        action_shares=shares,
+        batch_seconds=max(0.0, float(batch_seconds)),
+    )
+
+
+def format_evaluation_summary_line(metrics: EvaluationMetrics) -> str:
+    """Format an evaluation line whose columns align with batch summaries."""
+
+    actions = _EVALUATION_ACTION_SEPARATOR.join(
+        f"{training_action_glyphs(index)} {share:4.0%}"
+        for index, share in metrics.action_shares
+    ) or "none"
+    return (
+        f"{EVALUATION_LOG_PREFIX} {metrics.batch:8d} | "
+        f"{metrics.kills:4d}K{'':12s}{metrics.deaths:4d}D "
+        f"KD: {metrics.kill_death_ratio:5.2f} | "
+        f"Score: {metrics.average_match_score:7.3f} ||   "
+        f"Actions: {actions:<{_EVALUATION_ACTION_BLOCK_WIDTH}s}|| "
+        f"{format_batch_duration(metrics.batch_seconds)}"
+    )
+
+
+def is_evaluation_log_line(line: str) -> bool:
+    text = str(line)
+    return text.startswith(
+        (EVALUATION_LOG_PREFIX + " ", _LEGACY_EVALUATION_LOG_PREFIX + " ")
+    )
+
+
+def evaluation_metrics_csv_path(training_csv_path: Path) -> Path:
+    path = Path(training_csv_path)
+    return path.with_name(f"{path.stem}-eval.csv")
+
+
+def append_evaluation_metrics_csv(path: Path, metrics: EvaluationMetrics) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists() or path.stat().st_size == 0
+    action_cells: list[str] = []
+    for slot_index in range(EVALUATION_TOP_ACTION_COUNT):
+        if slot_index < len(metrics.action_shares):
+            index, share = metrics.action_shares[slot_index]
+            action_cells.extend((training_action_label(index), f"{share:.3f}"))
+        else:
+            action_cells.extend(("", ""))
+    with path.open("a", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        if write_header:
+            writer.writerow(EVALUATION_METRICS_CSV_HEADER)
+        writer.writerow(
+            (
+                str(metrics.batch),
+                str(metrics.kills),
+                str(metrics.deaths),
+                f"{metrics.kill_death_ratio:.3f}",
+                f"{metrics.average_match_score:.4f}",
+                *action_cells,
+                f"{metrics.batch_seconds:.0f}",
+            )
+        )
+
+
+def training_metrics_row_for_evaluation_batch(
+    history,
+    *,
+    batch_number: int,
+    batch_grouping: int,
+) -> tuple[BatchMetrics, BatchMetrics] | None:
+    """Return the grouped training CSV row written on an evaluation batch.
+
+    The row keeps the evaluation batch's number so saved progress and metrics
+    stay aligned, while its values describe the group's training batches.
+    """
+
+    batch_number = int(batch_number)
+    grouping = max(1, int(batch_grouping))
+    group = tuple(
+        metrics
+        for metrics in history
+        if batch_number - grouping < int(metrics.batch) < batch_number
+    )
+    if not group:
+        return None
+    rolling = rolling_metrics(group, len(group))
+    return (
+        replace(group[-1], batch=batch_number),
+        replace(rolling, batch=batch_number),
+    )
+
+
+def regimen_with_action_frame_span(
+    regimen: Mapping[str, Any],
+    action_frame_span: int,
+) -> dict[str, Any]:
+    updated = dict(regimen)
+    updated.pop(LEGACY_EPSILON_FRAME_SPAN_METADATA_KEY, None)
+    updated[ACTION_FRAME_SPAN_METADATA_KEY] = int(action_frame_span)
+    return updated
 
 
 def batch_metrics_to_metadata(metrics: BatchMetrics) -> dict[str, Any]:
@@ -195,6 +435,7 @@ class TrainingSessionStatus:
     battle_view: Mapping[str, Any] | None = None
     display_message: str = ""
     error: str = ""
+    evaluation_batch: bool = False
 
 
 class TrainingSessionError(RuntimeError):
@@ -322,8 +563,8 @@ def format_batch_duration(seconds: float) -> str:
 def format_batch_summary_line(metrics: BatchMetrics, rolling: BatchMetrics) -> str:
     return (
         f"# {metrics.batch:8d} | "
-        f"{metrics.kills:4d} K ({rolling.average_kills:7.2f}), "
-        f"{metrics.deaths:4d} D ({rolling.average_deaths:7.2f}) | "
+        f"{metrics.kills:4d}K ({rolling.average_kills:7.2f}), "
+        f"{metrics.deaths:4d}D ({rolling.average_deaths:7.2f}) | "
         f"Score: {metrics.average_match_score:7.3f} ({rolling.average_match_score:7.3f}) | "
         f"Epsilon: {metrics.epsilon:.5f} | "
         f"LR: {metrics.learning_rate:.5f} | "
@@ -353,8 +594,8 @@ def append_grouped_metrics_csv(
                 f"{rolling.average_kills:.2f}",
                 str(metrics.deaths),
                 f"{rolling.average_deaths:.2f}",
-                f"{metrics.average_match_score:.1f}",
-                f"{rolling.average_match_score:.1f}",
+                f"{metrics.average_match_score:.3f}",
+                f"{rolling.average_match_score:.3f}",
                 f"{metrics.epsilon:.5f}",
                 f"{metrics.learning_rate:.6f}",
                 f"{metrics.average_loss:.4f}",
@@ -562,6 +803,7 @@ class TrainingSession:
         self._completed_batches_at_run_start = self._status.completed_batches
         self._last_saved_completed_batches = self._status.completed_batches
         self._last_recorded_batch_metrics: BatchMetrics | None = None
+        self._last_evaluation_metrics: EvaluationMetrics | None = None
         self._cached_existing_ai_opponents = None
         self._cached_existing_ai_opponents_at: int | None = None
         self.opponent_model_cache = opponent_model_cache
@@ -570,11 +812,12 @@ class TrainingSession:
         self._completed_batch_seconds: list[float] = []
         self._thread: threading.Thread | None = None
 
-        reconcile_grouped_metrics_csv(
-            self._csv_path(),
-            completed_batches=self._status.completed_batches,
-            batch_grouping=self.batch_grouping,
-        )
+        for csv_path in (self._csv_path(), self._evaluation_csv_path()):
+            reconcile_grouped_metrics_csv(
+                csv_path,
+                completed_batches=self._status.completed_batches,
+                batch_grouping=self.batch_grouping,
+            )
 
         report = validate_model_metadata(
             self.metadata,
@@ -630,6 +873,7 @@ class TrainingSession:
                 battle_view=self._status.battle_view,
                 display_message=self._status.display_message,
                 error=self._status.error,
+                evaluation_batch=self._status.evaluation_batch,
             )
 
     @property
@@ -742,7 +986,12 @@ class TrainingSession:
                 or self.status.current_epsilon > self.stop_at_epsilon
             )
         ):
-            discovered_opponents = self._existing_ai_opponents_for_batch()
+            with self._lock:
+                next_batch_number = self._status.completed_batches + 1
+            evaluation = is_evaluation_batch(next_batch_number, self.batch_grouping)
+            discovered_opponents = (
+                None if evaluation else self._existing_ai_opponents_for_batch()
+            )
             with self._lock:
                 opponent_batch_anchor = (
                     self._status.completed_batches
@@ -753,13 +1002,20 @@ class TrainingSession:
                         - self._opponent_batch_origin_completed
                     )
                 )
-                self._status.display_message = "Preparing new batch"
+                self._status.display_message = (
+                    "Preparing greedy evaluation batch"
+                    if evaluation
+                    else "Preparing new batch"
+                )
                 self._status.simulation_speed_multiplier = 0.0
+                self._status.evaluation_batch = evaluation
                 batch_config = replace(
                     self.config,
                     epsilon=self._current_epsilon,
                     display_on=False,
                 )
+                if evaluation:
+                    batch_config = evaluation_batch_config(batch_config)
                 batch_started_at = time.perf_counter()
                 self._current_batch_started_at = batch_started_at
             try:
@@ -768,7 +1024,7 @@ class TrainingSession:
                     optimizer=optimizer,
                     replay_buffer=replay_buffer,
                     config=batch_config,
-                    rng=self.rng,
+                    rng=evaluation_rng() if evaluation else self.rng,
                     model_repository=self.repository,
                     discovered_opponents=discovered_opponents,
                     audio_service=self.audio_service,
@@ -786,6 +1042,7 @@ class TrainingSession:
             completed_batches = self._record_completed_batch(
                 result,
                 batch_seconds=max(0.0, batch_finished_at - batch_started_at),
+                evaluation=evaluation,
             )
             if completed_batches % self.batch_grouping == 0:
                 self._save_state(
@@ -875,10 +1132,7 @@ class TrainingSession:
             )
         )
         model = build_value_network(
-            ValueNetworkConfig(
-                hidden_layer_width=int(architecture["hidden_layer_width"]),
-                hidden_layer_count=int(architecture["hidden_layer_count"]),
-            ),
+            value_network_config_from_architecture(architecture),
             device=torch_backend.training_device(self.config.training_device),
         )
         device = next(model.parameters()).device
@@ -903,6 +1157,7 @@ class TrainingSession:
         *,
         batch_seconds: float = 0.0,
         emit_outputs: bool = True,
+        evaluation: bool = False,
     ) -> int:
         with self._lock:
             self._status.completed_batches += 1
@@ -915,49 +1170,82 @@ class TrainingSession:
             self._status.batches_per_hour = self._batches_per_hour_locked(
                 elapsed_training_seconds
             )
-            self._current_epsilon = max(
-                float(self.config.epsilon_floor),
-                min(1.0, self._current_epsilon * float(self.config.epsilon_decay)),
-            )
+            if not evaluation:
+                # Evaluation batches do not explore, so they do not consume
+                # exploration decay.
+                self._current_epsilon = max(
+                    float(self.config.epsilon_floor),
+                    min(1.0, self._current_epsilon * float(self.config.epsilon_decay)),
+                )
             self._status.current_epsilon = self._current_epsilon
+            self._status.evaluation_batch = False
             current_epsilon = self._current_epsilon
-        metrics = metrics_from_batch_result(
-            result,
-            batch=batch_number,
-            epsilon=current_epsilon,
-            learning_rate=self.config.learning_rate,
-            batch_seconds=batch_seconds,
-        )
+        evaluation_metrics = None
+        metrics = None
+        if evaluation:
+            evaluation_metrics = evaluation_metrics_from_batch_result(
+                result,
+                batch=batch_number,
+                batch_seconds=batch_seconds,
+            )
+        else:
+            metrics = metrics_from_batch_result(
+                result,
+                batch=batch_number,
+                epsilon=current_epsilon,
+                learning_rate=self.config.learning_rate,
+                batch_seconds=batch_seconds,
+            )
         with self._lock:
-            self._history.append(metrics)
-            self._last_recorded_batch_metrics = metrics
-            rolling = rolling_metrics(tuple(self._history), self.batch_grouping)
-            if emit_outputs:
-                self._log_lines.append(format_batch_summary_line(metrics, rolling))
-            
+            if evaluation_metrics is not None:
+                self._last_evaluation_metrics = evaluation_metrics
+            else:
+                self._history.append(metrics)
+                self._last_recorded_batch_metrics = metrics
+                rolling = rolling_metrics(tuple(self._history), self.batch_grouping)
+                if emit_outputs:
+                    self._log_lines.append(format_batch_summary_line(metrics, rolling))
+
             from src.training.rewards import REWARD_COMPONENTS
             batch_components = {c: 0.0 for c in REWARD_COMPONENTS}
             for round_result in result.round_results:
                 for comp, val in round_result.component_totals.items():
                     if comp in batch_components:
                         batch_components[comp] += val
-                        
+
             num_rounds = len(result.round_results)
             if num_rounds > 0:
                 for comp in batch_components:
                     batch_components[comp] /= num_rounds
-            
+
             self._status.batch_component_totals = batch_components
-            
+
             if emit_outputs and len(self._log_lines) > MAX_BATCH_LOG_LINES:
                 del self._log_lines[: len(self._log_lines) - MAX_BATCH_LOG_LINES]
-            self._status.recent_loss = metrics.average_loss
+            self._status.recent_loss = float(result.average_loss or 0.0)
             self._status.replay_size = result.replay_size
 
-        if emit_outputs and batch_number % self.batch_grouping == 0:
+        if evaluation_metrics is not None:
+            if emit_outputs:
+                self._emit_evaluation_outputs(evaluation_metrics)
+        elif emit_outputs and batch_number % self.batch_grouping == 0:
             append_grouped_metrics_csv(self._csv_path(), metrics, rolling)
         self._trim_history()
         return batch_number
+
+    def _emit_evaluation_outputs(self, metrics: EvaluationMetrics) -> None:
+        with self._lock:
+            self._log_lines.append(format_evaluation_summary_line(metrics))
+            if len(self._log_lines) > MAX_BATCH_LOG_LINES:
+                del self._log_lines[: len(self._log_lines) - MAX_BATCH_LOG_LINES]
+            training_row = training_metrics_row_for_evaluation_batch(
+                self._history,
+                batch_number=metrics.batch,
+                batch_grouping=self.batch_grouping,
+            )
+        append_evaluation_metrics_csv(self._evaluation_csv_path(), metrics)
+        if training_row is not None:
+            append_grouped_metrics_csv(self._csv_path(), *training_row)
 
     def _finalize_completed_batch_metrics(
         self,
@@ -969,6 +1257,24 @@ class TrainingSession:
         with self._lock:
             if self._completed_batch_seconds:
                 self._completed_batch_seconds[-1] = batch_seconds
+            evaluation_metrics = getattr(self, "_last_evaluation_metrics", None)
+            if (
+                evaluation_metrics is not None
+                and evaluation_metrics.batch == int(batch_number)
+            ):
+                evaluation_metrics = replace(
+                    evaluation_metrics,
+                    batch_seconds=batch_seconds,
+                )
+                self._last_evaluation_metrics = evaluation_metrics
+                self._status.last_batch_seconds = batch_seconds
+                self._status.average_batch_seconds = self._average_batch_seconds_locked()
+            else:
+                evaluation_metrics = None
+        if evaluation_metrics is not None:
+            self._emit_evaluation_outputs(evaluation_metrics)
+            return
+        with self._lock:
             metrics_index = next(
                 (
                     index
@@ -1066,7 +1372,7 @@ class TrainingSession:
             current_epsilon = float(self._current_epsilon)
             epsilon_floor = float(self.config.epsilon_floor)
             epsilon_decay = float(self.config.epsilon_decay)
-            epsilon_frame_span = int(self.config.epsilon_frame_span)
+            action_frame_span = int(self.config.action_frame_span)
         regimen.update(
             {
                 "starting_epsilon": starting_epsilon,
@@ -1074,15 +1380,20 @@ class TrainingSession:
                 "epsilon": current_epsilon,
                 "epsilon_floor": epsilon_floor,
                 "epsilon_decay": epsilon_decay,
-                "epsilon_frame_span": epsilon_frame_span,
             }
         )
-        training["regimen"] = regimen
+        training["regimen"] = regimen_with_action_frame_span(
+            regimen,
+            action_frame_span,
+        )
         return training
 
     def _csv_path(self) -> Path:
         _, metadata_path = model_paths(self.repository.user_dir, self.slot.ship, self.slot.slot)
         return metadata_path.with_suffix(".csv")
+
+    def _evaluation_csv_path(self) -> Path:
+        return evaluation_metrics_csv_path(self._csv_path())
 
     def _trim_history(self) -> None:
         limit = max(1, int(self.batch_grouping))
@@ -1094,6 +1405,7 @@ class TrainingSession:
         with self._lock:
             self._status.running = False
             self._status.stopping = False
+            self._status.evaluation_batch = False
             self._run_stopped_at = stopped_at
             self._current_batch_started_at = None
             self._status.elapsed_training_seconds = self._elapsed_training_seconds_locked()

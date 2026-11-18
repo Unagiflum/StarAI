@@ -9,14 +9,19 @@ from typing import Any, Mapping
 import src.const as const
 from src.persistence import EXPECTED_READ_ERRORS, atomic_write_json, read_json
 from src.training.contracts import (
+    ACTION_FRAME_SPAN_METADATA_KEY,
     ACTION_OUTPUT_SIZE,
     ACTION_SCHEMA_METADATA,
     ACTION_SCHEMA_VERSION,
+    DEFAULT_NEW_MODEL_VALUE_HEAD,
     OBSERVATION_INPUT_SIZE,
     OBSERVATION_SCHEMA_VERSION,
     REFLECTION_AUGMENTATION_METADATA_KEY,
     REFLECTION_AUGMENTATION_MODE,
     SHIP_TYPE_CATALOG_ORDER,
+    TRAINING_LOSS,
+    VALUE_HEAD_STANDARD,
+    VALUE_HEADS,
 )
 
 
@@ -80,8 +85,11 @@ def model_architecture_metadata(
     hidden_layer_count: int,
     *,
     optimizer: str = "adam",
-    loss: str = "huber",
+    loss: str = TRAINING_LOSS,
+    head: str = DEFAULT_NEW_MODEL_VALUE_HEAD,
 ) -> dict[str, Any]:
+    """Return architecture metadata; new models default to the dueling head."""
+
     return {
         "input_size": OBSERVATION_INPUT_SIZE,
         "hidden_layer_width": int(hidden_layer_width),
@@ -91,20 +99,52 @@ def model_architecture_metadata(
         "output_activation": None,
         "optimizer": optimizer,
         "loss": loss,
+        "head": head,
     }
 
 
 def normalize_architecture_metadata(architecture: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize stored architecture metadata.
+
+    A missing ``head`` means the model predates dueling heads. Loss is a
+    training choice rather than a weight layout, so every model now records the
+    current training loss.
+    """
+
     width = architecture.get("hidden_layer_width", architecture.get("hidden_layer_size"))
     count = architecture.get("hidden_layer_count")
     if width is None or count is None:
         return dict(architecture)
+    head = str(architecture.get("head", VALUE_HEAD_STANDARD))
+    if head not in VALUE_HEADS:
+        head = VALUE_HEAD_STANDARD
     return model_architecture_metadata(
         int(width),
         int(count),
         optimizer=str(architecture.get("optimizer", "adam")),
-        loss=str(architecture.get("loss", "huber")),
+        loss=TRAINING_LOSS,
+        head=head,
     )
+
+
+def model_action_frame_span(metadata: Mapping[str, Any] | None) -> int:
+    """Return how many frames a saved model holds each inferred action.
+
+    Models saved before action frame spans existed acted every frame; their
+    legacy ``epsilon_frame_span`` only grouped exploratory actions, so it is
+    deliberately ignored here.
+    """
+
+    if not isinstance(metadata, Mapping):
+        return 1
+    training = metadata.get("training")
+    regimen = training.get("regimen") if isinstance(training, Mapping) else None
+    if not isinstance(regimen, Mapping):
+        return 1
+    try:
+        return max(1, int(regimen.get(ACTION_FRAME_SPAN_METADATA_KEY, 1)))
+    except (TypeError, ValueError):
+        return 1
 
 
 def current_game_settings_metadata() -> dict[str, int]:

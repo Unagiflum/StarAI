@@ -82,6 +82,7 @@ class StepFrameCommand:
     trainee_action_index: int
     trainee_exploratory: bool
     opponent_controls: Mapping[str, bool] | None = None
+    trainee_held: bool = False
     sequence_number: int = 0
     capture_audio: bool = False
     display_buffer: "DisplayBufferSpec | None" = None

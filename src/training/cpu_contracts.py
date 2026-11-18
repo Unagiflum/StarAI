@@ -45,7 +45,7 @@ class TrainingOrchestrationConfig:
     epsilon: float = 0.1
     epsilon_floor: float = 0.05
     epsilon_decay: float = 0.998
-    epsilon_frame_span: int = 1
+    action_frame_span: int = 1
     hidden_layer_width: int = 128
     hidden_layer_count: int = 2
     minibatch_size: int = DEFAULT_MINIBATCH_SIZE
@@ -79,8 +79,8 @@ class TrainingOrchestrationConfig:
         ):
             if not 0.0 <= float(value) <= 1.0:
                 raise ValueError(f"{label} must be in [0, 1]")
-        if int(self.epsilon_frame_span) <= 0:
-            raise ValueError("epsilon_frame_span must be positive")
+        if int(self.action_frame_span) <= 0:
+            raise ValueError("action_frame_span must be positive")
         if self.training_device not in DEVICE_CHOICES:
             raise ValueError("unsupported training device")
         if self.reward_mode not in REWARD_MODES:
@@ -102,6 +102,7 @@ class OpponentSpec:
     slot: int | None = None
     model: Any | None = None
     description: str = ""
+    action_frame_span: int = 1
 
 
 @dataclass(frozen=True)
@@ -173,6 +174,7 @@ class OpponentControllerPlan:
                         mode=segment.opponent.mode,
                         slot=segment.opponent.slot,
                         description=segment.opponent.description,
+                        action_frame_span=segment.opponent.action_frame_span,
                     ),
                     start_frame=segment.start_frame,
                     end_frame=segment.end_frame,

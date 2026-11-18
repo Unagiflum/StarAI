@@ -44,6 +44,7 @@ from src.training.model_registry import (
     TrainingModelSlot,
     metadata_from_state,
     model_architecture_metadata,
+    model_slot_has_checkpoint,
     normalize_architecture_metadata,
     previous_save_path,
     replay_checkpoint_path,
@@ -54,6 +55,9 @@ from src.training.coordinated import (
     CoordinatedTrainingSession,
 )
 from src.training.contracts import (
+    ACTION_FRAME_SPAN_METADATA_KEY,
+    DEFAULT_NEW_MODEL_VALUE_HEAD,
+    LEGACY_EPSILON_FRAME_SPAN_METADATA_KEY,
     REFLECTION_AUGMENTATION_METADATA_KEY,
     REFLECTION_AUGMENTATION_MODE,
 )
@@ -74,6 +78,7 @@ from src.training.session import (
     TrainingSession,
     TrainingSessionError,
     TrainingSessionStatus,
+    is_evaluation_log_line,
     reconcile_grouped_metrics_csv,
     validate_model_metadata,
 )
@@ -212,8 +217,9 @@ REGIMEN_CONTROL_TOOLTIPS = (
         "completed batch."
     ),
     (
-        "Epsilon frame span: set how many frames share each exploration "
-        "decision and exploratory action."
+        "Action frame span: hold every chosen action, exploratory or "
+        "greedy, for this many frames. Only the deciding frame becomes a "
+        "training sample, so each batch yields fewer samples."
     ),
     (
         "Gamma: set how strongly future rewards contribute to the training "
@@ -248,6 +254,7 @@ TRAINING_LOG_HEADING_COLOR = (255, 255, 255)
 TRAINING_LOG_ODD_ROW_COLOR = (155, 255, 155)
 TRAINING_LOG_EVEN_ROW_COLOR = (155, 155, 255)
 TRAINING_LOG_SPEED_COLOR = (0, 255, 0)
+TRAINING_LOG_EVALUATION_COLOR = (255, 215, 0)
 
 SIMPLE_ACTIVITY_VALUES = tuple(float(value) for value in range(0, 101, 5))
 AI_OPPONENT_PERCENT_VALUES = SIMPLE_ACTIVITY_VALUES
@@ -274,7 +281,7 @@ LEARNING_RATE_VALUES = (0.00001, 0.00003, 0.00010, 0.00030, 0.00100, 0.00300, 0.
 EPSILON_VALUES = tuple(round(i * 0.025, 3) for i in range(41))
 EPSILON_FLOOR_VALUES = tuple(round(i * 0.005, 3) for i in range(31))
 EPSILON_DECAY_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
-EPSILON_FRAME_SPAN_VALUES = tuple(range(1, 49))
+ACTION_FRAME_SPAN_VALUES = tuple(range(1, 49))
 GAMMA_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(50))
 HIDDEN_LAYER_SIZE_VALUES = (16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
 HIDDEN_LAYER_COUNT_VALUES = tuple(range(1, 9, 1))
@@ -285,7 +292,7 @@ REGIMEN_REPLAY_BUFFER_INDEX = 3
 REGIMEN_STARTING_EPSILON_INDEX = 4
 REGIMEN_EPSILON_FLOOR_INDEX = 5
 REGIMEN_EPSILON_DECAY_INDEX = 6
-REGIMEN_EPSILON_FRAME_SPAN_INDEX = 7
+REGIMEN_ACTION_FRAME_SPAN_INDEX = 7
 REGIMEN_GAMMA_INDEX = 8
 REGIMEN_MINIBATCH_SIZE_INDEX = 9
 REGIMEN_REPLAY_UPDATES_INDEX = 10
@@ -308,7 +315,7 @@ REGIMEN_CONTROLLED_FIELDS = (
     "starting_epsilon",
     "epsilon_floor",
     "epsilon_decay",
-    "epsilon_frame_span",
+    "action_frame_span",
     "gamma",
     "minibatch_size",
     "replay_updates_per_batch",
@@ -336,7 +343,7 @@ FUTURE_CHANGE_SCALAR_FIELDS = (
     "starting_epsilon",
     "epsilon_floor",
     "epsilon_decay",
-    "epsilon_frame_span",
+    "action_frame_span",
     "gamma",
     "hidden_layer_size",
     "hidden_layer_count",
@@ -462,7 +469,7 @@ class TrainingUIState:
     current_epsilon: float = 0.500
     epsilon_floor: float = 0.050
     epsilon_decay: float = 0.998
-    epsilon_frame_span: int = 8
+    action_frame_span: int = 4
     gamma: float = 0.990
     minibatch_size: int = 2048
     replay_updates_per_batch: int = 15
@@ -677,11 +684,15 @@ def _go_to_epsilon_warning(state: TrainingUIState):
 
 
 def _maximum_batch_samples(state: TrainingUIState) -> int:
-    return (
+    """Return replay samples per batch: one per action decision."""
+
+    frames = (
         int(state.rounds_per_batch)
         * int(state.match_time_limit)
         * len(SHIP_DEFINITIONS)
     )
+    span = max(1, int(getattr(state, "action_frame_span", 1)))
+    return max(1, -(-frames // span))
 
 
 def _regimen_control_warnings(state: TrainingUIState) -> dict[int, str]:
@@ -771,10 +782,39 @@ def coordinated_architecture_signature(architecture) -> tuple[tuple[str, object]
     return tuple((key, normalized.get(key)) for key in COORDINATED_ARCHITECTURE_KEYS)
 
 
-def architecture_for_state(state: TrainingUIState) -> dict:
+def architecture_for_state(
+    state: TrainingUIState,
+    slot: TrainingModelSlot | None = None,
+    *,
+    reset_checkpoint: bool = False,
+) -> dict:
+    """Return the architecture a start or save should use for ``state``.
+
+    A user model with saved weights and matching layer sizes keeps its stored
+    value head, so models trained before dueling heads keep training. New and
+    reset models use the default head for new models.
+    """
+
+    head = DEFAULT_NEW_MODEL_VALUE_HEAD
+    if (
+        not reset_checkpoint
+        and slot is not None
+        and slot.is_user
+        and isinstance(slot.metadata, Mapping)
+        and model_slot_has_checkpoint(slot)
+    ):
+        existing = normalize_architecture_metadata(
+            slot.metadata.get("architecture", {}) or {}
+        )
+        if (
+            existing.get("hidden_layer_width") == int(state.hidden_layer_size)
+            and existing.get("hidden_layer_count") == int(state.hidden_layer_count)
+        ):
+            head = str(existing.get("head", head))
     return model_architecture_metadata(
         state.hidden_layer_size,
         state.hidden_layer_count,
+        head=head,
     )
 
 
@@ -784,7 +824,11 @@ def architecture_for_slot_or_state(
 ) -> dict:
     metadata = slot.metadata if isinstance(slot.metadata, dict) else {}
     architecture = metadata.get("architecture") if metadata else None
-    return architecture if isinstance(architecture, dict) else architecture_for_state(state)
+    return (
+        architecture
+        if isinstance(architecture, dict)
+        else architecture_for_state(state, slot)
+    )
 
 
 def model_checkpoint_reset_reasons(
@@ -948,7 +992,7 @@ def validate_coordinated_batch_start(
     reset_required_instances = []
     for instance, slot in resolved_slots:
         state = instance.state
-        architecture = architecture_for_state(state)
+        architecture = architecture_for_state(state, slot)
         if model_checkpoint_reset_reasons(slot, architecture):
             reset_required_instances.append(instance)
         signatures.append(coordinated_architecture_signature(architecture))
@@ -1498,6 +1542,7 @@ def _training_ui_state_from_json(payload):
     state = TrainingUIState()
     if not isinstance(payload, dict):
         return state
+    payload = _with_action_frame_span_key(payload)
     for field_name, value in payload.items():
         if field_name not in _TRAINING_UI_STATE_FIELDS:
             continue
@@ -2450,6 +2495,19 @@ def _visible_content_control_rect(rect, content_rect, scroll_y=0):
     return visible if visible.width and visible.height else None
 
 
+def _with_action_frame_span_key(values):
+    """Map the legacy ``epsilon_frame_span`` key to ``action_frame_span``."""
+
+    if not isinstance(values, dict):
+        return values
+    if LEGACY_EPSILON_FRAME_SPAN_METADATA_KEY not in values:
+        return values
+    updated = dict(values)
+    legacy_value = updated.pop(LEGACY_EPSILON_FRAME_SPAN_METADATA_KEY)
+    updated.setdefault(ACTION_FRAME_SPAN_METADATA_KEY, legacy_value)
+    return updated
+
+
 def _normalized_training_settings(training):
     if not isinstance(training, dict):
         return training
@@ -2461,6 +2519,8 @@ def _normalized_training_settings(training):
             normalized[group] = settings
     regimen = normalized.get("regimen")
     if isinstance(regimen, dict):
+        regimen = _with_action_frame_span_key(regimen)
+        normalized["regimen"] = regimen
         regimen.setdefault(
             REFLECTION_AUGMENTATION_METADATA_KEY,
             REFLECTION_AUGMENTATION_MODE,
@@ -2560,7 +2620,7 @@ def apply_model_conditions_to_state(state, metadata):
                     continue
                 state.rewards[label] = value
 
-        regimen = training.get("regimen", {})
+        regimen = _with_action_frame_span_key(training.get("regimen", {}))
         if isinstance(regimen, dict):
             regimen_fields = (
                 ("replay_buffer_size", int, REPLAY_BUFFER_SIZE_VALUES),
@@ -2572,7 +2632,7 @@ def apply_model_conditions_to_state(state, metadata):
                 ("learning_rate", float, LEARNING_RATE_VALUES),
                 ("epsilon_floor", float, EPSILON_FLOOR_VALUES),
                 ("epsilon_decay", float, EPSILON_DECAY_VALUES),
-                ("epsilon_frame_span", int, EPSILON_FRAME_SPAN_VALUES),
+                ("action_frame_span", int, ACTION_FRAME_SPAN_VALUES),
                 ("gamma", float, GAMMA_VALUES),
             )
             for key, caster, allowed in regimen_fields:
@@ -3679,6 +3739,8 @@ def _current_batch_status_label(status):
         for marker in ("waiting", "preparing", "loading", "scheduler idle")
     ):
         return "Waiting"
+    if getattr(status, "evaluation_batch", False):
+        return "Evaluating"
     return "Running"
 
 
@@ -3800,7 +3862,18 @@ def _display_off_console_content(status, log_lines):
 
     if log_lines:
         append("Completed batches")
-        for row_number, line in enumerate(log_lines, start=1):
+        row_number = 0
+        last_index = len(log_lines) - 1
+        for index, line in enumerate(log_lines):
+            if is_evaluation_log_line(line):
+                # Set evaluation rows apart with a blank line on each side.
+                if index > 0:
+                    append("")
+                append(line, TRAINING_LOG_EVALUATION_COLOR)
+                if index < last_index:
+                    append("")
+                continue
+            row_number += 1
             append(line, _alternating_training_log_color(row_number))
     elif status is None:
         append("Completed batch summaries will appear here.")
@@ -4116,7 +4189,7 @@ def training_config_from_state(
         epsilon=state.current_epsilon,
         epsilon_floor=state.epsilon_floor,
         epsilon_decay=state.epsilon_decay,
-        epsilon_frame_span=state.epsilon_frame_span,
+        action_frame_span=state.action_frame_span,
         hidden_layer_width=state.hidden_layer_size,
         hidden_layer_count=state.hidden_layer_count,
         minibatch_size=state.minibatch_size,
@@ -4678,7 +4751,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
         regimen_slider(5, "Epsilon floor", EPSILON_FLOOR_VALUES, state.epsilon_floor, step=0.005, decimal_places=3),
         regimen_slider(6, "Epsilon decay", EPSILON_DECAY_VALUES, state.epsilon_decay, step=0.001, decimal_places=3),
-        regimen_slider(7, "Epsilon frame span", EPSILON_FRAME_SPAN_VALUES, state.epsilon_frame_span, is_int=True),
+        regimen_slider(7, "Action frame span", ACTION_FRAME_SPAN_VALUES, state.action_frame_span, is_int=True),
         regimen_slider(8, "Gamma", GAMMA_VALUES, state.gamma, step=0.001, decimal_places=3),
         regimen_slider(9, "Minibatch size", MINIBATCH_SIZE_VALUES, state.minibatch_size, is_int=True),
         regimen_slider(10, "Gradient steps", REPLAY_UPDATES_PER_BATCH_VALUES, state.replay_updates_per_batch, is_int=True),
@@ -4752,8 +4825,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             state.starting_epsilon = starting_epsilon
         state.epsilon_floor = regimen_sliders[REGIMEN_EPSILON_FLOOR_INDEX].value
         state.epsilon_decay = regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX].value
-        state.epsilon_frame_span = int(
-            regimen_sliders[REGIMEN_EPSILON_FRAME_SPAN_INDEX].value
+        state.action_frame_span = int(
+            regimen_sliders[REGIMEN_ACTION_FRAME_SPAN_INDEX].value
         )
         state.gamma = regimen_sliders[REGIMEN_GAMMA_INDEX].value
         state.hidden_layer_size = int(
@@ -4816,8 +4889,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         _set_slider_value(regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX], state.epsilon_decay)
         _set_slider_value(
-            regimen_sliders[REGIMEN_EPSILON_FRAME_SPAN_INDEX],
-            state.epsilon_frame_span,
+            regimen_sliders[REGIMEN_ACTION_FRAME_SPAN_INDEX],
+            state.action_frame_span,
         )
         _set_slider_value(regimen_sliders[REGIMEN_GAMMA_INDEX], state.gamma)
         _set_slider_value(
@@ -4843,14 +4916,24 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         regimen_scroll_y = 0
         batch_log_box.set_lines(())
 
-    def architecture_metadata_for(training_state):
-        return model_architecture_metadata(
-            training_state.hidden_layer_size,
-            training_state.hidden_layer_count,
+    def architecture_metadata_for(training_state, *, reset_checkpoint=False):
+        if training_state is state:
+            slot = selected_model_slot()
+        elif training_state.selected_ship is not None:
+            slot = model_repository.slot_for(
+                training_state.selected_ship,
+                training_state.selected_slot,
+            )
+        else:
+            slot = None
+        return architecture_for_state(
+            training_state,
+            slot,
+            reset_checkpoint=reset_checkpoint,
         )
 
-    def architecture_metadata():
-        return architecture_metadata_for(state)
+    def architecture_metadata(*, reset_checkpoint=False):
+        return architecture_metadata_for(state, reset_checkpoint=reset_checkpoint)
 
     def training_metadata_for(training_state, *, reset_checkpoint=False):
         current_epsilon = _epsilon_for_model_update(
@@ -4884,7 +4967,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 "epsilon": current_epsilon,
                 "epsilon_floor": training_state.epsilon_floor,
                 "epsilon_decay": training_state.epsilon_decay,
-                "epsilon_frame_span": training_state.epsilon_frame_span,
+                ACTION_FRAME_SPAN_METADATA_KEY: training_state.action_frame_span,
                 "gamma": training_state.gamma,
             },
         }
@@ -5042,7 +5125,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         saved_arch = model_slot.metadata.get("architecture", {})
                         saved_training = model_slot.metadata.get("training", {})
                         settings_match = (
-                            saved_arch == current_arch
+                            normalize_architecture_metadata(saved_arch or {})
+                            == current_arch
                             and _training_settings_match(saved_training, current_training)
                             and field.text == model_slot.description
                         )
@@ -5124,11 +5208,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             model_slot.metadata if isinstance(model_slot.metadata, dict) else {}
         )
         updated_training = training_metadata(reset_checkpoint=reset_checkpoint)
+        architecture = architecture_metadata(reset_checkpoint=reset_checkpoint)
         metadata = metadata_from_state(
             ship=state.selected_ship,
             slot=state.selected_slot,
             description=description,
-            architecture=architecture_metadata(),
+            architecture=architecture,
             training=updated_training,
             progress=_progress_for_model_update(
                 existing_metadata,
@@ -5147,7 +5232,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             
         state.loaded_ship = state.selected_ship
         state.loaded_slot = state.selected_slot
-        state.loaded_architecture = architecture_metadata()
+        state.loaded_architecture = architecture
         state.loaded_training = updated_training
         
         refresh_slot_controls()
@@ -5392,8 +5477,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         float,
                     ),
                     (
-                        "epsilon_frame_span",
-                        regimen_sliders[REGIMEN_EPSILON_FRAME_SPAN_INDEX],
+                        ACTION_FRAME_SPAN_METADATA_KEY,
+                        regimen_sliders[REGIMEN_ACTION_FRAME_SPAN_INDEX],
                         int,
                     ),
                     ("gamma", regimen_sliders[REGIMEN_GAMMA_INDEX], float),
@@ -5739,7 +5824,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             instance_state = instance.state
             previous_session = instance.session
             try:
-                architecture = architecture_metadata_for(instance_state)
+                architecture = architecture_metadata_for(
+                    instance_state,
+                    reset_checkpoint=reset_checkpoint,
+                )
                 updated_training = training_metadata_for(
                     instance_state,
                     reset_checkpoint=reset_checkpoint,
@@ -6031,7 +6119,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             ship=instance_state.selected_ship,
             slot=instance_state.selected_slot,
             description=instance_state.slot_labels[instance_state.selected_slot - 1].strip(),
-            architecture=architecture_metadata_for(instance_state),
+            architecture=architecture_metadata_for(
+                instance_state,
+                reset_checkpoint=reset_checkpoint,
+            ),
             training=training_metadata_for(
                 instance_state,
                 reset_checkpoint=reset_checkpoint,

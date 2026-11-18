@@ -23,4 +23,5 @@ def guard_training_selection(selection: ActionSelection, ship, enemy) -> ActionS
         action_index=_ACTION_INDEX_BY_MASK[guarded.mask],
         exploratory=selection.exploratory,
         action_values=selection.action_values,
+        held=selection.held,
     )

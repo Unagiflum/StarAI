@@ -513,6 +513,7 @@ class StagedTrajectoryPipeline:
         self._observations = array("f")
         self._actions = array("i")
         self._frame_ids = array("q")
+        self._sample_flags = array("b")
         self._components = array("d")
         self._shadow_components = (
             array("d") if self.mode == REWARD_MODE_SHADOW else None
@@ -541,6 +542,7 @@ class StagedTrajectoryPipeline:
             len(self._observations) * self._observations.itemsize
             + len(self._actions) * self._actions.itemsize
             + len(self._frame_ids) * self._frame_ids.itemsize
+            + len(self._sample_flags) * self._sample_flags.itemsize
             + len(self._components) * self._components.itemsize
             + (
                 len(self._shadow_components) * self._shadow_components.itemsize
@@ -555,6 +557,7 @@ class StagedTrajectoryPipeline:
         self._observations = array("f")
         self._actions = array("i")
         self._frame_ids = array("q")
+        self._sample_flags = array("b")
         self._components = array("d")
         self._shadow_components = (
             array("d") if self.mode == REWARD_MODE_SHADOW else None
@@ -569,7 +572,15 @@ class StagedTrajectoryPipeline:
         decision: RewardDecisionFrame,
         *,
         trajectory_id: str | None = None,
+        emit_sample: bool = True,
     ) -> int:
+        """Stage one simulated frame.
+
+        Every frame keeps its own reward slot so per-frame rewards and causal
+        credit routing are unchanged. Frames staged with ``emit_sample=False``
+        repeat an earlier decision during an action frame span and do not
+        become replay samples.
+        """
         if self._closed:
             raise RuntimeError("cannot stage a decision after trajectory closure")
         frame_id = int(decision.frame_id)
@@ -594,6 +605,9 @@ class StagedTrajectoryPipeline:
         self._observations.extend(observation)
         self._actions.append(int(decision.action_index))
         self._frame_ids.append(frame_id)
+        # A trajectory always begins with a sampled decision, even if a caller
+        # carried an action hold across a trajectory boundary.
+        self._sample_flags.append(1 if emit_sample or index == 0 else 0)
         self._components.extend((0.0,) * _REWARD_COMPONENT_COUNT)
         if self._shadow_components is not None:
             self._shadow_components.extend((0.0,) * _REWARD_COMPONENT_COUNT)
@@ -806,6 +820,8 @@ class StagedTrajectoryPipeline:
         samples: list[MatureTrainingSample] = []
         horizon = self.discount_cutoff_frames
         for index in range(frame_count):
+            if not self._sample_flags[index]:
+                continue
             actual_frame_count = min(horizon, frame_count - index)
             sample_end_index = index + actual_frame_count - 1
             observation_offset = index * observation_size

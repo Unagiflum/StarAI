@@ -27,7 +27,7 @@ from src.Menus.train_ai import (
     ACTION_TOP,
     EPSILON_DECAY_VALUES,
     EPSILON_FLOOR_VALUES,
-    EPSILON_FRAME_SPAN_VALUES,
+    ACTION_FRAME_SPAN_VALUES,
     EPSILON_VALUES,
     DISPLAY_TOP,
     FOOTER_CONTROL_HEIGHT,
@@ -285,7 +285,7 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.current_epsilon, 0.5)
         self.assertEqual(state.epsilon_floor, 0.05)
         self.assertEqual(state.epsilon_decay, 0.998)
-        self.assertEqual(state.epsilon_frame_span, 8)
+        self.assertEqual(state.action_frame_span, 4)
         self.assertEqual(state.gamma, 0.99)
         self.assertEqual(state.minibatch_size, 2048)
         self.assertEqual(state.replay_updates_per_batch, 15)
@@ -4556,7 +4556,7 @@ class RegimenSliderTests(unittest.TestCase):
             EPSILON_DECAY_VALUES,
             tuple(round(0.950 + i * 0.001, 3) for i in range(51)),
         )
-        self.assertEqual(EPSILON_FRAME_SPAN_VALUES, tuple(range(1, 49)))
+        self.assertEqual(ACTION_FRAME_SPAN_VALUES, tuple(range(1, 49)))
         self.assertEqual(
             GAMMA_VALUES,
             tuple(round(0.950 + i * 0.001, 3) for i in range(50)),
@@ -4690,7 +4690,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         state.current_epsilon = 0.125
         state.epsilon_floor = 0.075
         state.epsilon_decay = 0.997
-        state.epsilon_frame_span = 12
+        state.action_frame_span = 12
         state.hidden_layer_size = 64
         state.hidden_layer_count = 1
 
@@ -4713,7 +4713,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         self.assertEqual(config.epsilon, 0.125)
         self.assertEqual(config.epsilon_floor, 0.075)
         self.assertEqual(config.epsilon_decay, 0.997)
-        self.assertEqual(config.epsilon_frame_span, 12)
+        self.assertEqual(config.action_frame_span, 12)
         self.assertEqual(config.hidden_layer_width, 64)
         self.assertEqual(config.hidden_layer_count, 1)
 

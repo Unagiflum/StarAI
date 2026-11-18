@@ -12,6 +12,12 @@ import numpy as np
 from src.training import torch_backend
 from src.training.contracts import ACTION_OUTPUT_SIZE, OBSERVATION_INPUT_SIZE
 from src.training.reflection import reflect_action_indices, reflect_observations
+from src.training.value_network import (
+    MAX_GRADIENT_NORM,
+    VALUE_HEAD_DUELING,
+    VALUE_HEAD_STANDARD,
+    is_dueling_value_network,
+)
 
 
 @dataclass(frozen=True)
@@ -20,6 +26,7 @@ class BatchedValueNetworkParameters:
     params: tuple[tuple[Any, Any], ...]
     device: Any
     dtype: Any
+    head: str = VALUE_HEAD_STANDARD
 
     @property
     def model_count(self) -> int:
@@ -103,6 +110,7 @@ def build_batched_value_network_parameters(
         params=params,
         device=params[0][0].device,
         dtype=params[0][0].dtype,
+        head=_shared_value_head(model_tuple, torch),
     )
 
 
@@ -126,7 +134,7 @@ def predict_action_values_from_batched_parameters(
         )
     inference_context = getattr(torch, "inference_mode", torch.no_grad)
     with inference_context():
-        return _batched_forward(parameters.params, tensor)
+        return _batched_forward(parameters.params, tensor, head=parameters.head)
 
 
 def predict_action_values_batched(
@@ -173,6 +181,7 @@ def train_selected_action_regression_batched(
     if model_count == 0:
         return ()
 
+    head = _shared_value_head(models, torch)
     params = _stack_linear_parameters(models, torch)
     device = params[0][0].device
     dtype = params[0][0].dtype
@@ -204,9 +213,9 @@ def train_selected_action_regression_batched(
         model.train()
         optimizer.zero_grad()
 
-    predictions = _batched_forward(params, observations)
+    predictions = _batched_forward(params, observations, head=head)
     selected = predictions.gather(2, actions.unsqueeze(2)).squeeze(2)
-    per_sample_losses = torch.nn.functional.smooth_l1_loss(
+    per_sample_losses = torch.nn.functional.mse_loss(
         selected,
         returns,
         reduction="none",
@@ -223,9 +232,9 @@ def train_selected_action_regression_batched(
     # Rebuild the stacked parameter graph so the reflected half can release the
     # original activations before accumulating its equally weighted gradients.
     params = _stack_linear_parameters(models, torch)
-    predictions = _batched_forward(params, mirrored_observations)
+    predictions = _batched_forward(params, mirrored_observations, head=head)
     selected = predictions.gather(2, mirrored_actions.unsqueeze(2)).squeeze(2)
-    per_sample_losses = torch.nn.functional.smooth_l1_loss(
+    per_sample_losses = torch.nn.functional.mse_loss(
         selected,
         returns,
         reduction="none",
@@ -237,18 +246,32 @@ def train_selected_action_regression_batched(
         float(loss)
         for loss in combined_losses.cpu().tolist()
     )
-    for optimizer in optimizers:
+    for model, optimizer in zip(models, optimizers):
+        torch.nn.utils.clip_grad_norm_(model.parameters(), MAX_GRADIENT_NORM)
         optimizer.step()
     return detached_losses
 
 
-def _batched_forward(params, observations):
+def _batched_forward(params, observations, *, head: str = VALUE_HEAD_STANDARD):
     squeeze_model_batch = observations.ndim == 2
     values = observations.unsqueeze(1) if squeeze_model_batch else observations
-    for layer_index, (weight, bias) in enumerate(params):
-        values = values.bmm(weight.transpose(1, 2)) + bias.unsqueeze(1)
-        if layer_index < len(params) - 1:
-            values = values.relu()
+    if head == VALUE_HEAD_DUELING:
+        trunk = params[:-2]
+        for weight, bias in trunk:
+            values = (values.bmm(weight.transpose(1, 2)) + bias.unsqueeze(1)).relu()
+        value_weight, value_bias = params[-2]
+        advantage_weight, advantage_bias = params[-1]
+        state_value = values.bmm(value_weight.transpose(1, 2)) + value_bias.unsqueeze(1)
+        advantage = (
+            values.bmm(advantage_weight.transpose(1, 2))
+            + advantage_bias.unsqueeze(1)
+        )
+        values = state_value + advantage - advantage.mean(dim=-1, keepdim=True)
+    else:
+        for layer_index, (weight, bias) in enumerate(params):
+            values = values.bmm(weight.transpose(1, 2)) + bias.unsqueeze(1)
+            if layer_index < len(params) - 1:
+                values = values.relu()
     return values.squeeze(1) if squeeze_model_batch else values
 
 
@@ -260,7 +283,23 @@ def _stack_numpy_batches(values):
     return values
 
 
+def _shared_value_head(models: Sequence[Any], torch) -> str:
+    heads = {_value_head_for_model(model, torch) for model in models}
+    if len(heads) != 1:
+        raise ValueError("batched value networks must share one head type")
+    return heads.pop()
+
+
+def _value_head_for_model(model: Any, torch) -> str:
+    if is_dueling_value_network(model):
+        return VALUE_HEAD_DUELING
+    if isinstance(model, torch.nn.Sequential):
+        return VALUE_HEAD_STANDARD
+    raise TypeError("unsupported value-network model type")
+
+
 def _stack_linear_parameters(models: Sequence[Any], torch, *, detach: bool = False):
+    _shared_value_head(models, torch)
     layer_groups = [_linear_layers_for_model(model, torch) for model in models]
     reference = layer_groups[0]
     reference_shapes = tuple(
@@ -295,6 +334,8 @@ def _stack_linear_parameters(models: Sequence[Any], torch, *, detach: bool = Fal
 
 
 def _linear_layers_for_model(model: Any, torch):
+    if is_dueling_value_network(model):
+        return _dueling_linear_layers(model, torch)
     if not isinstance(model, torch.nn.Sequential):
         raise TypeError("batched value-network execution requires nn.Sequential models")
     modules = list(model)
@@ -311,3 +352,27 @@ def _linear_layers_for_model(model: Any, torch):
     if modules[0].in_features != OBSERVATION_INPUT_SIZE:
         raise ValueError("value-network input size is incompatible")
     return tuple(module for module in modules if isinstance(module, torch.nn.Linear))
+
+
+def _dueling_linear_layers(model: Any, torch):
+    """Return trunk layers followed by the value and advantage heads."""
+
+    modules = list(model.trunk)
+    if not modules or len(modules) % 2:
+        raise TypeError("unsupported dueling trunk layout")
+    for index, module in enumerate(modules):
+        if index % 2 == 0:
+            if not isinstance(module, torch.nn.Linear):
+                raise TypeError("expected Linear dueling trunk layers")
+        elif not isinstance(module, torch.nn.ReLU):
+            raise TypeError("expected ReLU dueling trunk activations")
+    if modules[0].in_features != OBSERVATION_INPUT_SIZE:
+        raise ValueError("value-network input size is incompatible")
+    if model.value_head.out_features != 1:
+        raise ValueError("dueling value head must have one output")
+    if model.advantage_head.out_features != ACTION_OUTPUT_SIZE:
+        raise ValueError("value-network output size is incompatible")
+    trunk_layers = tuple(
+        module for module in modules if isinstance(module, torch.nn.Linear)
+    )
+    return (*trunk_layers, model.value_head, model.advantage_head)

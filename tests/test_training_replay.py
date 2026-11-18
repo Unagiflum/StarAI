@@ -121,7 +121,7 @@ class TrainingPolicyAndOptimizationTests(unittest.TestCase):
         self.torch.manual_seed(1234)
 
     def test_epsilon_zero_selects_greedy_action(self):
-        model = build_value_network(ValueNetworkConfig(8, 1))
+        model = build_value_network(ValueNetworkConfig(8, 1, head="standard"))
         with self.torch.no_grad():
             for parameter in model.parameters():
                 parameter.zero_()

@@ -14,6 +14,7 @@ from src.training.contracts import (
     ACTION_SCHEMA_METADATA,
     ACTION_SCHEMA_VERSION,
     COMPATIBLE_OBSERVATION_SCHEMA_VERSIONS,
+    VALUE_HEAD_STANDARD,
     OBSERVATION_INPUT_SIZE,
     SHIP_TYPE_CATALOG_ORDER,
 )
@@ -22,13 +23,17 @@ from src.training.model_registry import (
     SLOT_EMPTY,
     TrainingModelRepository,
     TrainingModelSlot,
+    model_action_frame_span,
     model_architecture_metadata,
     model_slot_has_checkpoint,
     normalize_architecture_metadata,
 )
 from src.training.model_persistence import resolve_model_save
 from src.training.replay import load_training_checkpoint
-from src.training.value_network import ValueNetworkConfig, build_value_network
+from src.training.value_network import (
+    build_value_network,
+    value_network_config_from_architecture,
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +53,12 @@ class LoadedInferenceModel:
     completed_batches: int | None = None
     checkpoint_size: int | None = None
     checkpoint_mtime_ns: int | None = None
+
+    @property
+    def action_frame_span(self) -> int:
+        """Frames each inferred action is held, matching how it was trained."""
+
+        return model_action_frame_span(self.metadata)
 
 
 @dataclass(frozen=True)
@@ -169,13 +180,13 @@ def load_inference_model(
     metadata = metadata_for_slot(slot)
     validate_schema_metadata(metadata)
     architecture = normalize_architecture_metadata(
-        metadata.get("architecture", model_architecture_metadata(128, 2))
+        metadata.get(
+            "architecture",
+            model_architecture_metadata(128, 2, head=VALUE_HEAD_STANDARD),
+        )
     )
     try:
-        config = ValueNetworkConfig(
-            hidden_layer_width=int(architecture["hidden_layer_width"]),
-            hidden_layer_count=int(architecture["hidden_layer_count"]),
-        )
+        config = value_network_config_from_architecture(architecture)
         device = torch_backend.training_device(device_choice)
         model = build_value_network(config, device=device)
         load_training_checkpoint(slot.pth_path, model, map_location=device)

@@ -271,7 +271,7 @@ class StagedTrajectoryParityTests(unittest.TestCase):
                 RewardDecisionFrame(frame_id, observation, frame_id % 16),
                 trajectory_id="trajectory",
             )
-        expected_bytes = 10 * (OBSERVATION_INPUT_SIZE * 4 + 4 + 8 + 19 * 8)
+        expected_bytes = 10 * (OBSERVATION_INPUT_SIZE * 4 + 4 + 8 + 1 + 19 * 8)
         self.assertEqual(pipeline.staged_storage_bytes, expected_bytes)
         self.assertEqual(pipeline.peak_staged_frames, 10)
         self.assertEqual(pipeline.peak_staged_bytes, expected_bytes)
@@ -284,7 +284,7 @@ class StagedTrajectoryParityTests(unittest.TestCase):
                 RewardDecisionFrame(frame_id, observation, frame_id % 16),
                 trajectory_id="trajectory",
             )
-        shadow_bytes = 10 * (OBSERVATION_INPUT_SIZE * 4 + 4 + 8 + 38 * 8)
+        shadow_bytes = 10 * (OBSERVATION_INPUT_SIZE * 4 + 4 + 8 + 1 + 38 * 8)
         self.assertEqual(shadow.staged_storage_bytes, shadow_bytes)
         self.assertEqual(shadow.peak_staged_bytes, shadow_bytes)
 

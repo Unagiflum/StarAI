@@ -425,7 +425,7 @@ class DeterministicOpponentPlanTests(unittest.TestCase):
         )
         seen = []
 
-        def controls(opponent, simulation, *_args):
+        def controls(opponent, simulation, *_args, **_kwargs):
             seen.append(
                 (
                     simulation.frame_id,
@@ -470,17 +470,21 @@ class DeterministicOpponentPlanTests(unittest.TestCase):
 class ValueNetworkPolicyTests(unittest.TestCase):
     def test_exploratory_action_is_held_for_configured_frame_span(self):
         rng = SpanRng(random_values=[0.0, 0.0], randrange_values=[7, 11])
-        policy = ValueNetworkPolicy(None, epsilon=1.0, epsilon_frame_span=3, rng=rng)
+        policy = ValueNetworkPolicy(None, epsilon=1.0, action_frame_span=3, rng=rng)
 
         selections = [policy.select_action(()) for _ in range(4)]
 
         self.assertEqual([selection.action_index for selection in selections], [7, 7, 7, 11])
         self.assertTrue(all(selection.exploratory for selection in selections))
+        self.assertEqual(
+            [selection.held for selection in selections],
+            [False, True, True, False],
+        )
         self.assertEqual(rng.randrange_calls, 2)
 
     def test_reset_exploration_span_forces_next_call_to_roll_again(self):
         rng = SpanRng(random_values=[0.0, 0.0], randrange_values=[3, 9])
-        policy = ValueNetworkPolicy(None, epsilon=1.0, epsilon_frame_span=8, rng=rng)
+        policy = ValueNetworkPolicy(None, epsilon=1.0, action_frame_span=8, rng=rng)
 
         first = policy.select_action(())
         policy.reset_exploration_span()
@@ -488,16 +492,16 @@ class ValueNetworkPolicyTests(unittest.TestCase):
 
         self.assertEqual(first.action_index, 3)
         self.assertEqual(second.action_index, 9)
+        self.assertFalse(second.held)
         self.assertEqual(rng.randrange_calls, 2)
 
-    def test_greedy_span_recomputes_greedy_action_each_frame_without_extra_rolls(self):
-        rng = SpanRng(random_values=[1.0])
-        policy = ValueNetworkPolicy(object(), epsilon=0.5, epsilon_frame_span=3, rng=rng)
+    def test_greedy_action_is_held_for_frame_span_with_one_inference(self):
+        rng = SpanRng(random_values=[1.0, 1.0])
+        policy = ValueNetworkPolicy(object(), epsilon=0.5, action_frame_span=3, rng=rng)
         selections = iter(
             (
                 ActionSelection(1, exploratory=False),
                 ActionSelection(2, exploratory=False),
-                ActionSelection(3, exploratory=False),
             )
         )
 
@@ -505,12 +509,30 @@ class ValueNetworkPolicyTests(unittest.TestCase):
             "src.training.orchestration.select_action_epsilon_greedy",
             side_effect=lambda *args, **kwargs: next(selections),
         ) as select_action:
+            actions = [policy.select_action(()) for _ in range(4)]
+
+        self.assertEqual([selection.action_index for selection in actions], [1, 1, 1, 2])
+        self.assertEqual(
+            [selection.held for selection in actions],
+            [False, True, True, False],
+        )
+        self.assertFalse(any(selection.exploratory for selection in actions))
+        self.assertEqual(select_action.call_count, 2)
+        self.assertEqual(rng.random_values, [])
+
+    def test_span_of_one_decides_every_frame(self):
+        rng = SpanRng(random_values=[1.0, 1.0, 1.0])
+        policy = ValueNetworkPolicy(object(), epsilon=0.5, action_frame_span=1, rng=rng)
+        selections = iter(ActionSelection(index, exploratory=False) for index in (4, 5, 6))
+
+        with mock.patch(
+            "src.training.orchestration.select_action_epsilon_greedy",
+            side_effect=lambda *args, **kwargs: next(selections),
+        ):
             actions = [policy.select_action(()) for _ in range(3)]
 
-        self.assertEqual([selection.action_index for selection in actions], [1, 2, 3])
-        self.assertFalse(any(selection.exploratory for selection in actions))
-        self.assertEqual(select_action.call_count, 3)
-        self.assertEqual(rng.random_values, [])
+        self.assertEqual([selection.action_index for selection in actions], [4, 5, 6])
+        self.assertFalse(any(selection.held for selection in actions))
 
 
 class TrainingRoundTests(unittest.TestCase):

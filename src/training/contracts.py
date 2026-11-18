@@ -14,6 +14,18 @@ OBSERVATION_INPUT_SIZE = 621
 ACTION_SCHEMA_VERSION = 1
 ACTION_OUTPUT_SIZE = 24
 
+# Value-network output heads. Models saved before the dueling head existed
+# have no ``head`` metadata and load as ``standard``.
+VALUE_HEAD_STANDARD = "standard"
+VALUE_HEAD_DUELING = "dueling"
+VALUE_HEADS = (VALUE_HEAD_STANDARD, VALUE_HEAD_DUELING)
+DEFAULT_NEW_MODEL_VALUE_HEAD = VALUE_HEAD_DUELING
+TRAINING_LOSS = "mse"
+
+# Training regimen key for how many frames each decided action is held.
+ACTION_FRAME_SPAN_METADATA_KEY = "action_frame_span"
+LEGACY_EPSILON_FRAME_SPAN_METADATA_KEY = "epsilon_frame_span"
+
 REFLECTION_AUGMENTATION_METADATA_KEY = "reflection_augmentation"
 REFLECTION_AUGMENTATION_MODE = "original_plus_mirror"
 

@@ -6,6 +6,7 @@ from unittest import mock
 from pathlib import Path
 
 from src.training.contracts import (
+    VALUE_HEAD_STANDARD,
     ACTION_INDEX_TABLE,
     ACTION_OUTPUT_SIZE,
     ACTION_SCHEMA_METADATA,
@@ -82,7 +83,11 @@ class ValueNetworkTests(unittest.TestCase):
 
     def test_model_accepts_533_inputs_and_returns_24_raw_outputs(self):
         torch = torch_backend.require_torch()
-        config = ValueNetworkConfig(hidden_layer_width=16, hidden_layer_count=2)
+        config = ValueNetworkConfig(
+            hidden_layer_width=16,
+            hidden_layer_count=2,
+            head=VALUE_HEAD_STANDARD,
+        )
         model = build_value_network(config)
         with torch.no_grad():
             final_layer = model[-1]
@@ -97,7 +102,7 @@ class ValueNetworkTests(unittest.TestCase):
 
     def test_selected_action_regression_targets_only_selected_output_rows(self):
         torch = torch_backend.require_torch()
-        model = build_value_network(ValueNetworkConfig(8, 1))
+        model = build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD))
         observations = torch.ones((2, OBSERVATION_INPUT_SIZE))
         actions = torch.tensor([1, 3])
         returns = torch.tensor([2.0, -1.0])
@@ -112,7 +117,7 @@ class ValueNetworkTests(unittest.TestCase):
 
     def test_optimizer_step_returns_float_loss(self):
         torch = torch_backend.require_torch()
-        model = build_value_network(ValueNetworkConfig(8, 1))
+        model = build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD))
         optimizer = build_optimizer(model, learning_rate=0.001)
 
         loss = selected_action_regression_loss(
@@ -131,8 +136,8 @@ class ValueNetworkTests(unittest.TestCase):
         torch = torch_backend.require_torch()
         torch.manual_seed(100)
         models = (
-            build_value_network(ValueNetworkConfig(8, 1)),
-            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD)),
+            build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD)),
         )
         observations = (
             [0.25] * OBSERVATION_INPUT_SIZE,
@@ -154,8 +159,8 @@ class ValueNetworkTests(unittest.TestCase):
         torch = torch_backend.require_torch()
         torch.manual_seed(102)
         models = (
-            build_value_network(ValueNetworkConfig(8, 1)),
-            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD)),
+            build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD)),
         )
         observations = (
             [0.25] * OBSERVATION_INPUT_SIZE,
@@ -184,7 +189,7 @@ class ValueNetworkTests(unittest.TestCase):
 
     def test_batched_prediction_cache_evicts_least_recent_model_tuple(self):
         models = tuple(
-            build_value_network(ValueNetworkConfig(8, 1))
+            build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD))
             for _ in range(3)
         )
         cache = BatchedValueNetworkParameterCache(max_entries=2)
@@ -198,8 +203,8 @@ class ValueNetworkTests(unittest.TestCase):
         torch = torch_backend.require_torch()
         torch.manual_seed(101)
         models = [
-            build_value_network(ValueNetworkConfig(8, 1)),
-            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD)),
+            build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD)),
         ]
         sequential_models = [copy.deepcopy(model) for model in models]
         optimizers = [build_optimizer(model, learning_rate=0.001) for model in models]
@@ -249,7 +254,7 @@ class ValueNetworkTests(unittest.TestCase):
 
     def test_training_updates_original_and_reflected_actions_in_one_step(self):
         torch = torch_backend.require_torch()
-        model = build_value_network(ValueNetworkConfig(8, 1))
+        model = build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD))
         with torch.no_grad():
             for parameter in model.parameters():
                 parameter.zero_()
@@ -268,16 +273,16 @@ class ValueNetworkTests(unittest.TestCase):
                 torch.tensor([1.0]),
             )
 
-        self.assertAlmostEqual(loss, 0.5, places=6)
-        self.assertAlmostEqual(float(model[-1].bias[2]), 0.05, places=6)
-        self.assertAlmostEqual(float(model[-1].bias[4]), 0.05, places=6)
+        self.assertAlmostEqual(loss, 1.0, places=6)
+        self.assertAlmostEqual(float(model[-1].bias[2]), 0.1, places=6)
+        self.assertAlmostEqual(float(model[-1].bias[4]), 0.1, places=6)
         self.assertEqual(optimizer_step.call_count, 1)
 
     def test_batched_training_updates_original_and_reflected_actions(self):
         torch = torch_backend.require_torch()
         models = [
-            build_value_network(ValueNetworkConfig(8, 1)),
-            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD)),
+            build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD)),
         ]
         with torch.no_grad():
             for model in models:
@@ -299,10 +304,10 @@ class ValueNetworkTests(unittest.TestCase):
             [[1.0], [1.0]],
         )
 
-        self.assertEqual(losses, (0.5, 0.5))
+        self.assertEqual(losses, (1.0, 1.0))
         for model in models:
-            self.assertAlmostEqual(float(model[-1].bias[2]), 0.05, places=6)
-            self.assertAlmostEqual(float(model[-1].bias[4]), 0.05, places=6)
+            self.assertAlmostEqual(float(model[-1].bias[2]), 0.1, places=6)
+            self.assertAlmostEqual(float(model[-1].bias[4]), 0.1, places=6)
 
     def test_reflected_scalar_and_batched_training_run_on_cuda(self):
         torch = torch_backend.require_torch()
@@ -310,7 +315,7 @@ class ValueNetworkTests(unittest.TestCase):
             self.skipTest("CUDA is not available")
         device = torch.device("cuda")
         models = [
-            build_value_network(ValueNetworkConfig(8, 1), device=device)
+            build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD), device=device)
             for _ in range(3)
         ]
         with torch.no_grad():
@@ -340,17 +345,17 @@ class ValueNetworkTests(unittest.TestCase):
             [[1.0], [1.0]],
         )
 
-        self.assertAlmostEqual(scalar_loss, 0.5, places=6)
-        self.assertEqual(batched_losses, (0.5, 0.5))
+        self.assertAlmostEqual(scalar_loss, 1.0, places=6)
+        self.assertEqual(batched_losses, (1.0, 1.0))
         for model in models:
             self.assertEqual(next(model.parameters()).device.type, "cuda")
-            self.assertAlmostEqual(float(model[-1].bias[2]), 0.05, places=6)
-            self.assertAlmostEqual(float(model[-1].bias[4]), 0.05, places=6)
+            self.assertAlmostEqual(float(model[-1].bias[2]), 0.1, places=6)
+            self.assertAlmostEqual(float(model[-1].bias[4]), 0.1, places=6)
 
     def test_model_construction_fails_clearly_without_torch(self):
         with mock.patch("src.training.torch_backend._torch", None):
             with self.assertRaises(torch_backend.TorchUnavailableError):
-                build_value_network(ValueNetworkConfig(8, 1))
+                build_value_network(ValueNetworkConfig(8, 1, head=VALUE_HEAD_STANDARD))
 
 
 class TrainingModelRepositoryTests(unittest.TestCase):

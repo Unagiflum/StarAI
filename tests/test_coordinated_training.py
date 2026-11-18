@@ -1784,8 +1784,8 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
             self.skipTest("PyTorch is not installed")
         torch = torch_backend.require_torch()
         models = (
-            build_value_network(ValueNetworkConfig(8, 1)),
-            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1, head="standard")),
+            build_value_network(ValueNetworkConfig(8, 1, head="standard")),
         )
         with torch.no_grad():
             for model in models:
@@ -1851,8 +1851,8 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
             self.skipTest("PyTorch is not installed")
         torch = torch_backend.require_torch()
         models = (
-            build_value_network(ValueNetworkConfig(8, 1)),
-            build_value_network(ValueNetworkConfig(8, 1)),
+            build_value_network(ValueNetworkConfig(8, 1, head="standard")),
+            build_value_network(ValueNetworkConfig(8, 1, head="standard")),
         )
         with torch.no_grad():
             for model, action_index in zip(models, (3, 5)):
@@ -1985,7 +1985,7 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
         if torch_backend.get_torch() is None:
             self.skipTest("PyTorch is not installed")
         torch = torch_backend.require_torch()
-        model = build_value_network(ValueNetworkConfig(8, 1))
+        model = build_value_network(ValueNetworkConfig(8, 1, head="standard"))
         with torch.no_grad():
             for parameter in model.parameters():
                 parameter.zero_()

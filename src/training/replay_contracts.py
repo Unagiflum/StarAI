@@ -18,9 +18,61 @@ from src.training.observation_transfer import (
 
 @dataclass(frozen=True)
 class ActionSelection:
+    """One frame's trainee action.
+
+    ``held`` marks a frame that repeats the previous decision during an action
+    frame span. Held frames are simulated and rewarded, but only the frame that
+    made the decision becomes a replay sample.
+    """
+
     action_index: int
     exploratory: bool
     action_values: tuple[float, ...] | None = None
+    held: bool = False
+
+
+class ActionHold:
+    """Repeat one decided action for the remaining frames of its span.
+
+    ``key`` lets callers invalidate a hold when the deciding controller
+    changes, for example when an opponent plan rotates to another model.
+    """
+
+    __slots__ = ("action_index", "frames_remaining", "key")
+
+    def __init__(self) -> None:
+        self.action_index: int | None = None
+        self.frames_remaining = 0
+        self.key: object | None = None
+
+    def reset(self) -> None:
+        self.action_index = None
+        self.frames_remaining = 0
+        self.key = None
+
+    def held_action(self, key: object | None = None) -> int | None:
+        """Consume one held frame and return its action, or ``None``."""
+
+        if (
+            self.frames_remaining <= 0
+            or self.action_index is None
+            or key != self.key
+        ):
+            return None
+        self.frames_remaining -= 1
+        return self.action_index
+
+    def begin(
+        self,
+        action_index: int,
+        frame_span: int,
+        key: object | None = None,
+    ) -> None:
+        """Record a new decision that also covers ``frame_span - 1`` frames."""
+
+        self.action_index = int(action_index)
+        self.frames_remaining = max(1, int(frame_span)) - 1
+        self.key = key
 
 
 @dataclass(frozen=True)

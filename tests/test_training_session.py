@@ -240,7 +240,7 @@ class TrainingMetricsTests(unittest.TestCase):
 
         self.assertEqual(
             format_batch_summary_line(metrics, rolling),
-            "#       86 |    2 K (   2.31),    4 D (   3.62) | "
+            "#       86 |    2K (   2.31),    4D (   3.62) | "
             "Score:   0.809 (  0.819) | Epsilon: 0.26545 | "
             "LR: 0.00030 | Loss:  1.2658 ( 1.2658) |   0h:30m:04s",
         )
@@ -384,11 +384,11 @@ class TrainingMetricsTests(unittest.TestCase):
                     "Time per batch (s)",
                 ],
                 [
-                    "1000", "2", "2.31", "4", "3.62", "34.3", "33.3",
+                    "1000", "2", "2.31", "4", "3.62", "34.300", "33.300",
                     "0.00200", "0.000100", "0.0500", "0.0400", "259",
                 ],
                 [
-                    "2000", "5", "2.50", "3", "3.50", "35.0", "34.0",
+                    "2000", "5", "2.50", "3", "3.50", "35.000", "34.000",
                     "0.00300", "0.000200", "0.0600", "0.0500", "258",
                 ],
             ],
@@ -410,7 +410,7 @@ class TrainingMetricsTests(unittest.TestCase):
         self.assertEqual(
             rows[-1],
             [
-                "50", "4", "4.00", "3", "3.00", "12.5", "11.5",
+                "50", "4", "4.00", "3", "3.00", "12.500", "11.500",
                 "0.10000", "0.001000", "0.2500", "0.2000", "30",
             ],
         )
@@ -1523,7 +1523,7 @@ class TrainingSessionTests(unittest.TestCase):
                     epsilon=0.4,
                     epsilon_floor=0.05,
                     epsilon_decay=0.5,
-                    epsilon_frame_span=12,
+                    action_frame_span=12,
                 ),
                 batch_grouping=3,
                 batch_runner=batch_runner,
@@ -1543,7 +1543,8 @@ class TrainingSessionTests(unittest.TestCase):
         self.assertAlmostEqual(saved_regimen["epsilon"], 0.1)
         self.assertEqual(saved_regimen["epsilon_floor"], 0.05)
         self.assertEqual(saved_regimen["epsilon_decay"], 0.5)
-        self.assertEqual(saved_regimen["epsilon_frame_span"], 12)
+        self.assertEqual(saved_regimen["action_frame_span"], 12)
+        self.assertNotIn("epsilon_frame_span", saved_regimen)
 
     def test_session_decay_stops_at_epsilon_floor(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1649,8 +1650,11 @@ class TrainingSessionTests(unittest.TestCase):
             second = (OpponentSpec("Mycon", slot=2),)
             seen_opponents = []
 
+            seen_configs = []
+
             def batch_runner(**kwargs):
                 seen_opponents.append(kwargs["discovered_opponents"])
+                seen_configs.append(kwargs["config"])
                 return TrainingBatchResult(
                     completed_rounds=1,
                     replay_size=0,
@@ -1683,7 +1687,20 @@ class TrainingSessionTests(unittest.TestCase):
                 session.run_synchronously(max_batches=5)
 
         self.assertEqual(discover.call_count, 2)
-        self.assertEqual(seen_opponents, [first, first, first, second, second])
+        # Batch 3 closes the group and is a greedy evaluation against simple
+        # opponents, so it neither needs nor receives existing-AI opponents.
+        self.assertEqual(seen_opponents, [first, first, None, second, second])
+        self.assertEqual(
+            [config.opponent_mode for config in seen_configs],
+            [
+                OPPONENT_MODE_EXISTING_AI,
+                OPPONENT_MODE_EXISTING_AI,
+                "simple",
+                OPPONENT_MODE_EXISTING_AI,
+                OPPONENT_MODE_EXISTING_AI,
+            ],
+        )
+        self.assertEqual(seen_configs[2].epsilon, 0.0)
 
     def test_sessions_with_shared_cache_receive_same_opponent_model(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1860,14 +1877,22 @@ class TrainingSessionTests(unittest.TestCase):
                 encoding="utf-8",
             ) as file:
                 rows = list(csv.reader(file))
+            with (root / "user" / "Earthling-01-eval.csv").open(
+                newline="",
+                encoding="utf-8",
+            ) as file:
+                evaluation_rows = list(csv.reader(file))
 
+        # Batch 3 is the group's greedy evaluation batch. The training row
+        # summarizes batches 1-2 (scores 10 and 20); the evaluation scored 30.
         self.assertEqual(
             rows[-1],
             [
-                "3", "0", "0.00", "0", "0.00", "30.0", "20.0",
+                "3", "0", "0.00", "0", "0.00", "20.000", "15.000",
                 "0.10000", "0.001000", "0.1000", "0.1000", "0",
             ],
         )
+        self.assertEqual(evaluation_rows[-1][:5], ["3", "0", "0", "0.000", "30.0000"])
 
     def test_stop_abandons_current_batch_without_saving_progress(self):
         with tempfile.TemporaryDirectory() as directory:
