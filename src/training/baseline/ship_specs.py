@@ -38,6 +38,7 @@ class WeaponSpec:
     parent_velocity: float
     tracking: bool
     gun_directions: tuple[float, ...]
+    damage: float = 0.0
 
     @property
     def auto_aims(self) -> bool:
@@ -108,7 +109,36 @@ def weapon_spec(ship_name: str, action: int, form: str = FORM_BASE) -> WeaponSpe
         parent_velocity=float(definition.parent_vel or 0.0),
         tracking=bool(definition.tracking),
         gun_directions=directions or (0.0,),
+        damage=float(definition.damage[0]) if definition.damage else 0.0,
     )
+
+
+def shofixti_blast_damage(distance: float) -> int:
+    """Crew the Shofixti glory device removes at a centre-to-centre distance."""
+
+    definition = ABILITY_DEFINITIONS["ShofixtiA2"]
+    reach = float(definition.range)
+    distance = max(0.0, float(distance))
+    if distance > reach:
+        return 0
+    return 1 + math.floor(float(definition.damage[0]) * (1.0 - distance / reach))
+
+
+def shofixti_kill_distance(crew: float) -> float:
+    """Farthest distance at which the glory device removes ``crew`` crew.
+
+    Returns minus infinity when even a blast at contact falls short.
+    """
+
+    definition = ABILITY_DEFINITIONS["ShofixtiA2"]
+    reach = float(definition.range)
+    needed = math.ceil(float(crew) - 1e-6)
+    if needed <= 1:
+        return reach
+    fraction = 1.0 - (needed - 1) / float(definition.damage[0])
+    if fraction < 0.0:
+        return -math.inf
+    return reach * fraction
 
 
 @lru_cache(maxsize=None)

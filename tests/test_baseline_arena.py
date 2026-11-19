@@ -9,8 +9,10 @@ from src.training.baseline import arena
 from src.training.baseline.arena import (
     ArenaMatch,
     ArenaResult,
+    OUTCOME_DRAW,
     OUTCOME_LOSS,
     OUTCOME_TIMEOUT,
+    OUTCOME_TRADE,
     OUTCOME_WIN,
     build_matches,
     format_report,
@@ -102,6 +104,15 @@ class ArenaTests(unittest.TestCase):
         report = format_report(table, ["Spathi", "Earthling"])
         self.assertIn("ZoqFotPik [a1_first]", report)
         self.assertIn("vs Earthling", report)
+
+    def test_trades_count_apart_from_draws_and_cost_both_crews(self):
+        table = tally([_result(OUTCOME_TRADE), _result(OUTCOME_DRAW)])
+
+        overall = table[("ZoqFotPik", "default")]["all"]
+        self.assertEqual((overall.trades, overall.draws, overall.wins), (1, 1, 0))
+        self.assertAlmostEqual(overall.mean_dealt, 1.0)
+        self.assertAlmostEqual(overall.mean_taken, 1.0)
+        self.assertIn("1D 1X", overall.cell())
 
     def test_cli_expands_all_variants_for_the_chosen_ships(self):
         captured = []

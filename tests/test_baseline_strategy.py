@@ -52,7 +52,11 @@ from src.training.baseline.observation_view import (
     ObservedObject,
     wrap_degrees,
 )
-from src.training.baseline.ship_specs import weapon_spec
+from src.training.baseline.ship_specs import (
+    shofixti_blast_damage,
+    shofixti_kill_distance,
+    weapon_spec,
+)
 from src.training.baseline.strategies import UMGAH_PASS_CLEARANCE
 from src.training.contracts import ACTION_INDEX_TABLE, SHIP_TYPE_CATALOG_ORDER
 from src.training.coordinated import (
@@ -206,7 +210,7 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(weapon_spec("Mmrnmrhm", 1, "ywing").ability_name, "MmrnmrhmYWingA1")
 
 
-def _seen(bearing, distance, *, closing=0.0, group="enemy_ship"):
+def _seen(bearing, distance, *, closing=0.0, group="enemy_ship", crew_effect=0.0):
     """An object at ``bearing`` that closes straight in at ``closing``."""
 
     radians = math.radians(bearing)
@@ -222,7 +226,7 @@ def _seen(bearing, distance, *, closing=0.0, group="enemy_ship"):
         velocity_right=-closing * math.sin(radians),
         closing_speed=float(closing),
         lateral_speed=0.0,
-        crew_effect=0.0,
+        crew_effect=float(crew_effect),
         battery_effect=0.0,
         hit_points=0.0,
         expires=False,
@@ -483,6 +487,116 @@ class ShipRuleTests(unittest.TestCase):
 
         self.assertTrue(self._umgah(enemy).plan.thrust)
         self.assertFalse(self._umgah(enemy, enemy_objects=(shot,)).plan.thrust)
+
+    def _shofixti(
+        self,
+        enemy,
+        *,
+        enemy_name="Spathi",
+        enemy_crew=30.0,
+        crew=6.0,
+        battery=4.0,
+        enemy_objects=(),
+        facing=None,
+        shielded=False,
+        memory=None,
+    ):
+        context = _rule_context(
+            "Shofixti",
+            enemy=enemy,
+            enemy_name=enemy_name,
+            enemy_objects=enemy_objects,
+            battery=battery,
+            battery_fraction=battery / 4.0,
+            max_battery=4.0,
+            memory=memory,
+        )
+        context.view.me.crew = crew
+        context.view.enemy_block.crew = enemy_crew
+        context.view.enemy_block.opponent_bearing = facing
+        context.view.enemy_block.damage_shield_active = shielded
+        context.view.enemy_block.mmrnmrhm_ywing = False
+        STRATEGIES["Shofixti"](context)
+        return context
+
+    def test_glory_blast_damage_falls_off_with_distance(self):
+        self.assertEqual(shofixti_blast_damage(0.0), 19)
+        self.assertEqual(shofixti_blast_damage(360.0), 10)
+        self.assertEqual(shofixti_blast_damage(720.0), 1)
+        self.assertEqual(shofixti_blast_damage(721.0), 0)
+        self.assertAlmostEqual(shofixti_kill_distance(6.0), 520.0)
+        self.assertEqual(shofixti_blast_damage(520.0), 6)
+        self.assertEqual(shofixti_blast_damage(521.0), 5)
+        self.assertEqual(shofixti_kill_distance(1.0), 720.0)
+        self.assertEqual(shofixti_kill_distance(20.0), -math.inf)
+
+    def test_shofixti_blasts_only_where_the_blast_kills(self):
+        # Eight crew die within 720 * (1 - 7/18) = 440, less the margin.
+        self.assertTrue(self._shofixti(_seen(0.0, 400.0), enemy_crew=8.0).plan.a2)
+        self.assertFalse(self._shofixti(_seen(0.0, 450.0), enemy_crew=8.0).plan.a2)
+        # An opponent pulling away may leave the kill distance first.
+        self.assertFalse(
+            self._shofixti(_seen(0.0, 400.0, closing=-30.0), enemy_crew=8.0).plan.a2
+        )
+        self.assertFalse(
+            self._shofixti(_seen(0.0, 400.0), enemy_crew=8.0, shielded=True).plan.a2
+        )
+        self.assertFalse(self._shofixti(_seen(0.0, 100.0), enemy_crew=20.0).plan.a2)
+
+    def test_shofixti_blasts_when_a_shofixti_shot_is_about_to_kill_it(self):
+        enemy = _seen(0.0, 300.0)
+        shot = _seen(0.0, 150.0, closing=96.0, group="enemy_a1", crew_effect=-1.0)
+
+        # Blasting a Shofixti kills both ships, so a kill alone is no reason.
+        self.assertFalse(
+            self._shofixti(enemy, enemy_name="Shofixti", enemy_crew=1.0).plan.a2
+        )
+        dying = self._shofixti(
+            enemy, enemy_name="Shofixti", crew=1.0, enemy_objects=(shot,)
+        )
+        self.assertTrue(dying.plan.a2)
+        surviving = self._shofixti(
+            enemy, enemy_name="Shofixti", crew=2.0, enemy_objects=(shot,)
+        )
+        self.assertFalse(surviving.plan.a2)
+
+    def test_shofixti_blasts_before_a_laser_it_cannot_outlast(self):
+        enemy = _seen(0.0, 500.0)
+
+        def blasts(facing, crew):
+            return bool(
+                self._shofixti(
+                    enemy, enemy_name="Chmmr", enemy_crew=42.0, crew=crew, facing=facing
+                ).plan.a2
+            )
+
+        # The Chmmr laser removes two crew when its nose points at me.
+        self.assertTrue(blasts(0.0, 2.0))
+        self.assertFalse(blasts(0.0, 3.0))
+        self.assertFalse(blasts(90.0, 2.0))
+
+    def test_shofixti_backs_off_until_its_battery_is_full(self):
+        memory = BaselineMemory()
+        enemy = _seen(0.0, 2000.0, closing=5.0)
+
+        empty = self._shofixti(enemy, battery=0.0, memory=memory)
+        self.assertIn("avoid_opponent", empty.memory.sides)
+        refilling = self._shofixti(enemy, battery=3.0, memory=memory)
+        self.assertNotIn("a1_range_far", refilling.memory.sides)
+        full =self._shofixti(enemy, battery=4.0, memory=memory)
+        self.assertIn("a1_range_far", full.memory.sides)
+
+    def test_shield_ships_shield_where_a_shofixti_blast_would_kill(self):
+        def shields(distance, crew):
+            context = _rule_context("Yehat", enemy=_seen(0.0, distance), enemy_name="Shofixti")
+            context.view.me.crew = crew
+            STRATEGIES["Yehat"](context)
+            return bool(context.plan.a2)
+
+        # Five crew die within 720 * (1 - 4/18) = 560.
+        self.assertTrue(shields(550.0, 5.0))
+        self.assertFalse(shields(550.0, 20.0))
+        self.assertTrue(shields(350.0, 20.0))
 
     def test_variants_are_named_per_ship(self):
         self.assertIs(strategy_for("ZoqFotPik"), STRATEGIES["ZoqFotPik"])

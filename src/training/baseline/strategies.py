@@ -11,8 +11,12 @@ import math
 from src.training.baseline.engine import BaselineContext, StrategyFunction
 from src.training.baseline.observation_view import bearing_of, wrap_degrees
 from src.training.baseline.ship_specs import (
+    FORM_BASE,
+    FORM_BLAZER,
     FORM_XFORM,
+    FORM_YWING,
     TYPICAL_HULL_RADIUS,
+    shofixti_kill_distance,
     weapon_spec,
 )
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
@@ -51,6 +55,25 @@ PKUNK_STATION_RANGE_FACTOR = 1.27
 ZOQ_FOT_PIK_LUNGE_SECONDS = 1.0
 ZOQ_FOT_PIK_TONGUE_WIDTH = float(ABILITY_DEFINITIONS["ZoqFotPikA2"].area_width or 10)
 ZOQ_FOT_PIK_TONGUE_SKIPPED_SHIPS = frozenset({"Slylandro"})
+# Shofixti glory device. A kill blast must still kill if the opponent opens
+# the gap for this many frames first, with a margin for the blast centre
+# sitting off the hull centre. A hit due within the fatal-hit window counts
+# as about to land.
+SHOFIXTI_BLAST_LEAD_FRAMES = 2.0
+SHOFIXTI_BLAST_MARGIN = 10.0
+SHOFIXTI_FATAL_HIT_SECONDS = 0.15
+# Shield ships raise their shield against a Shofixti within at least this
+# distance, half the blast's reach, where it removes 10 crew.
+SHOFIXTI_SHIELD_DISTANCE = float(ABILITY_DEFINITIONS["ShofixtiA2"].range) / 2.0
+# Instant-hit weapons give no warning shot. Those that do not track hit only
+# when the opponent's nose points within this many degrees of the target.
+INSTANT_HIT_AIM_TOLERANCE = 20.0
+# Not counted as instant hits: the Shofixti blast is the opponent's own
+# last resort, the Slylandro A2 only hits asteroids, and the Syreen song
+# never takes the last crew.
+NOT_INSTANT_HITS = frozenset({"ShofixtiA2", "SlylandroA2", "SyreenA2"})
+# Lasers carried by escorts rather than the opponent's hull.
+ESCORT_LASERS = {"Chmmr": "ChmmrSatelliteLaser", "KzerZa": "KzerZaA2Laser"}
 
 
 def _approach_enemy_object(ctx: BaselineContext, objects) -> bool:
@@ -322,7 +345,99 @@ def pkunk(ctx: BaselineContext) -> None:
         ctx.a1(True)
 
 
+def _enemy_form(ctx: BaselineContext) -> str:
+    if ctx.enemy_name == "Mmrnmrhm":
+        return FORM_YWING if ctx.enemy_block.mmrnmrhm_ywing else FORM_XFORM
+    if ctx.enemy_name == "Androsynth" and ctx.enemy_block.androsynth_blazer:
+        return FORM_BLAZER
+    return FORM_BASE
+
+
+def _instant_hit_damage(ctx: BaselineContext) -> float:
+    """Crew the opponent's instant-hit weapons can take from me right now."""
+
+    enemy = ctx.enemy
+    name = ctx.enemy_name
+    if enemy is None or name is None:
+        return 0.0
+    form = _enemy_form(ctx)
+    facing = ctx.enemy_block.opponent_bearing
+    total = 0.0
+    for action in (1, 2):
+        weapon = weapon_spec(name, action, form)
+        if weapon.kind not in ("laser", "area") or weapon.ability_name in NOT_INSTANT_HITS:
+            continue
+        if enemy.distance > weapon.range + TYPICAL_HULL_RADIUS:
+            continue
+        if not weapon.tracking:
+            tolerance = UMGAH_CONE_HALF_ANGLE if name == "Umgah" else INSTANT_HIT_AIM_TOLERANCE
+            if facing is None or min(
+                abs(wrap_degrees(facing - gun)) for gun in weapon.gun_directions
+            ) > tolerance:
+                continue
+        total += weapon.damage
+    escort_laser = ESCORT_LASERS.get(name)
+    if escort_laser is not None:
+        definition = ABILITY_DEFINITIONS[escort_laser]
+        reach = float(definition.range) + TYPICAL_HULL_RADIUS
+        escorts = sum(
+            1 for item in ctx.view.objects("enemy_non_a1") if item.distance <= reach
+        )
+        total += float(definition.damage[0]) * escorts
+    return total
+
+
+def _about_to_die(ctx: BaselineContext) -> bool:
+    """Whether hits landing now or within the fatal-hit window take my last crew."""
+
+    incoming = sum(
+        max(0.0, -threat.crew_effect)
+        for threat in ctx.threats()
+        if ctx.imminent(threat, SHOFIXTI_FATAL_HIT_SECONDS)
+    )
+    incoming += _instant_hit_damage(ctx)
+    return incoming > 0.0 and incoming >= ctx.me.crew - 1e-6
+
+
+def _glory_blast_kills(ctx: BaselineContext) -> bool:
+    """Whether the glory device kills the opponent from here."""
+
+    enemy = ctx.enemy
+    if enemy is None or ctx.enemy_block.damage_shield_active:
+        return False
+    opening = max(0.0, -enemy.closing_speed) * SHOFIXTI_BLAST_LEAD_FRAMES
+    distance = enemy.distance + opening + SHOFIXTI_BLAST_MARGIN
+    return distance <= shofixti_kill_distance(ctx.enemy_block.crew)
+
+
 def shofixti(ctx: BaselineContext) -> None:
+    values = ctx.memory.values
+    if ctx.me.battery < ctx.spec.a1_cost:
+        values["shofixti_recharging"] = True
+    elif ctx.me.battery >= ctx.me.max_battery:
+        values["shofixti_recharging"] = False
+    recharging = bool(values.get("shofixti_recharging", False))
+    in_blast_range = ctx.enemy is not None and ctx.distance <= ctx.weapon(2).range
+    # Against another Shofixti a kill blast also kills me, so only blast
+    # there when its shots are about to kill me anyway.
+    mirror_match = ctx.enemy_name == "Shofixti"
+    if in_blast_range and (
+        _about_to_die(ctx) or (not mirror_match and _glory_blast_kills(ctx))
+    ):
+        ctx.a2(ctx.press("a2"))
+    if recharging:
+        ctx.avoid_opponent()
+    else:
+        ctx.approach_weapon_range(1)
+    if ctx.in_range(1):
+        ctx.point_weapon(1)
+    if ctx.in_range(1) and ctx.pointing(1):
+        ctx.a1(True)
+
+
+def shofixti_glory_dive(ctx: BaselineContext) -> None:
+    """Earlier rules: dive to half the blast's reach and blow up."""
+
     glory_range = ctx.weapon(2).range / 2.0
     mirror_match = ctx.enemy_name == "Shofixti"
     if not mirror_match and ctx.distance <= glory_range:
@@ -493,7 +608,12 @@ def umgah_approach_cone(ctx: BaselineContext) -> None:
 
 def _shield_rules(ctx: BaselineContext) -> None:
     enemy = ctx.enemy
-    glory_radius = weapon_spec("Shofixti", 2).range / 2.0
+    # Shield wherever a Shofixti blast would kill, and always within half
+    # its reach.
+    glory_radius = max(
+        SHOFIXTI_SHIELD_DISTANCE,
+        shofixti_kill_distance(ctx.me.crew) + SHOFIXTI_BLAST_MARGIN,
+    )
     shofixti_closing = (
         ctx.enemy_name == "Shofixti"
         and enemy is not None
@@ -668,6 +788,7 @@ DEFAULT_VARIANT = "default"
 # Training, opponents and battle mode always use ``STRATEGIES``.
 STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
     "Pkunk": {"full_range": pkunk_full_range},
+    "Shofixti": {"glory_dive": shofixti_glory_dive},
     "Umgah": {"approach_cone": umgah_approach_cone},
     "ZoqFotPik": {"a1_first": zoq_fot_pik_a1_first},
 }

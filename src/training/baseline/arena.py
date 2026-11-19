@@ -40,7 +40,11 @@ DEFAULT_SHIP_DIRECTIONS = 64
 OUTCOME_WIN = "win"
 OUTCOME_LOSS = "loss"
 OUTCOME_DRAW = "draw"
+# Both ships destroyed by the evaluated ship's own self-destruct: a Shofixti
+# glory blast that took the opponent with it.
+OUTCOME_TRADE = "trade"
 OUTCOME_TIMEOUT = "timeout"
+_BOTH_DESTROYED = (OUTCOME_DRAW, OUTCOME_TRADE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,13 +74,13 @@ class ArenaResult:
     def damage_dealt(self) -> float:
         """Share of the opponent's crew removed (1.0 for a kill)."""
 
-        if self.outcome in (OUTCOME_WIN, OUTCOME_DRAW):
+        if self.outcome == OUTCOME_WIN or self.outcome in _BOTH_DESTROYED:
             return 1.0
         return _lost_share(self.opponent_crew_start, self.opponent_crew_end)
 
     @property
     def damage_taken(self) -> float:
-        if self.outcome in (OUTCOME_LOSS, OUTCOME_DRAW):
+        if self.outcome == OUTCOME_LOSS or self.outcome in _BOTH_DESTROYED:
             return 1.0
         return _lost_share(self.crew_start, self.crew_end)
 
@@ -189,7 +193,9 @@ def run_match(match: ArenaMatch, *, seconds: float = DEFAULT_SECONDS) -> ArenaRe
             and _destroyed(simulation.player1)
             and _destroyed(simulation.player2)
         ):
-            outcome, frames = OUTCOME_DRAW, frame + 1
+            traded = bool(getattr(simulation.player1, "shofixti_self_destruct", False))
+            outcome = OUTCOME_TRADE if traded else OUTCOME_DRAW
+            frames = frame + 1
             break
     return ArenaResult(
         ship=match.ship,
@@ -263,6 +269,7 @@ class ArenaTally:
     wins: int = 0
     losses: int = 0
     draws: int = 0
+    trades: int = 0
     timeouts: int = 0
     damage_dealt: float = 0.0
     damage_taken: float = 0.0
@@ -277,6 +284,8 @@ class ArenaTally:
             self.losses += 1
         elif result.outcome == OUTCOME_DRAW:
             self.draws += 1
+        elif result.outcome == OUTCOME_TRADE:
+            self.trades += 1
         else:
             self.timeouts += 1
         self.damage_dealt += result.damage_dealt
@@ -296,7 +305,7 @@ class ArenaTally:
 
     def cell(self) -> str:
         return (
-            f"{self.wins}W {self.losses}L {self.draws}D {self.timeouts}T "
+            f"{self.wins}W {self.losses}L {self.draws}D {self.trades}X {self.timeouts}T "
             f"dealt {self.mean_dealt:4.0%} taken {self.mean_taken:4.0%}"
         )
 
