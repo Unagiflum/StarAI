@@ -16,6 +16,9 @@ PROJECTILE_RANGE_MARGIN = 0.9
 PLANET_RADIUS = 150.0
 # Contact margin for "collision imminent" checks: two typical hull radii.
 COLLISION_MARGIN = 60.0
+# A hull's typical reach from its centre: half way between the half-width
+# and half-length of a ship collision mask.
+TYPICAL_HULL_RADIUS = 20.0
 # The Umgah cone is mask-shaped and has no configured length.
 UMGAH_CONE_REACH = 180.0
 

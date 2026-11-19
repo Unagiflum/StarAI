@@ -436,6 +436,30 @@ class BaselineContext:
             return False
         return self.steer(enemy.bearing)
 
+    def intercept_seconds(self, reach: float) -> float:
+        """Seconds to bring the opponent within ``reach`` flying at it at top speed.
+
+        Uses the opponent's current motion along the line between us; returns
+        infinity when it moves away faster than this ship can follow.
+        """
+
+        enemy = self.enemy
+        if enemy is None:
+            return math.inf
+        gap = enemy.distance - float(reach)
+        if gap <= 0.0:
+            return 0.0
+        radians = math.radians(enemy.bearing)
+        own_toward = (
+            self.me.velocity_forward * math.cos(radians)
+            + self.me.velocity_right * math.sin(radians)
+        )
+        enemy_toward = enemy.closing_speed - own_toward
+        achievable = self.spec.max_thrust + enemy_toward
+        if achievable <= 0.0:
+            return math.inf
+        return gap / (achievable * const.FPS)
+
     def approach_object(self, target: ObservedObject | None) -> bool:
         if target is None:
             return False
@@ -480,8 +504,17 @@ class BaselineContext:
         heading = self.side("gravity_whip", planet.bearing, APPROACH_ANGLE_OFFSET)
         return self.steer(heading)
 
-    def approach_range(self, distance_limit: float, key: str = "range") -> bool:
-        """[Approach_Range]: close in at an angle, back off when too close."""
+    def approach_range(
+        self,
+        distance_limit: float,
+        key: str = "range",
+        inner_fraction: float = APPROACH_RANGE_INNER_FRACTION,
+    ) -> bool:
+        """[Approach_Range]: close in at an angle, back off when too close.
+
+        Between ``inner_fraction`` of ``distance_limit`` and the limit
+        itself, steering is left to later rules.
+        """
 
         enemy = self.enemy
         if enemy is None or distance_limit <= 0.0:
@@ -493,7 +526,7 @@ class BaselineContext:
                 APPROACH_ANGLE_OFFSET,
             )
             return self.steer(heading)
-        if enemy.distance < APPROACH_RANGE_INNER_FRACTION * distance_limit:
+        if enemy.distance < float(inner_fraction) * distance_limit:
             heading = self.side(
                 f"{key}_near",
                 enemy.bearing,

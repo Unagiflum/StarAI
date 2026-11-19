@@ -15,9 +15,10 @@ from src.training.contracts import TrainingAction, action_for_index
 class BaselineController:
     """Choose one action per frame from a ship's baseline strategy."""
 
-    def __init__(self, ship_name: str):
+    def __init__(self, ship_name: str, variant: str | None = None):
         self.ship_name = str(ship_name)
-        self._strategy = strategy_for(self.ship_name)
+        self.variant = variant
+        self._strategy = strategy_for(self.ship_name, variant)
         self.memory = BaselineMemory()
 
     def reset(self) -> None:

@@ -35,6 +35,7 @@ from src.training.baseline import (
     BaselineOpponentController,
     BaselinePhaseMixer,
     STRATEGIES,
+    strategy_for,
 )
 from src.training.baseline.engine import (
     ACTION_INDEX_BY_MASK,
@@ -314,15 +315,122 @@ class ShipRuleTests(unittest.TestCase):
         self.assertTrue(charged.plan.thrust)
         self.assertTrue(low.plan.thrust)
         self.assertEqual(charged.memory.sides.keys(), {"a1_range_far"})
-        self.assertEqual(low.memory.sides.keys(), {"avoid_opponent"})
+        self.assertIn("avoid_opponent", low.memory.sides)
+        self.assertNotIn("a1_range_far", low.memory.sides)
 
     def test_pkunk_fires_a_side_gun_at_an_opponent_abeam(self):
-        # Inside weapon range but outside the band where approach backs off.
-        context = _rule_context("Pkunk", enemy=_seen(90.0, 380.0))
+        # Inside firing distance but outside the band where approach backs off.
+        context = _rule_context("Pkunk", enemy=_seen(90.0, 250.0))
         STRATEGIES["Pkunk"](context)
 
         self.assertTrue(context.plan.a1)
         self.assertEqual(context.plan.turn, TURN_NONE)
+
+    def test_pkunk_holds_fire_at_long_reach_unless_the_opponent_closes(self):
+        a1_range = weapon_spec("Pkunk", 1).range
+        distance = a1_range * 0.85
+
+        def fires(closing):
+            context = _rule_context(
+                "Pkunk",
+                enemy=_seen(90.0, distance, closing=closing),
+                battery_fraction=0.2,
+            )
+            STRATEGIES["Pkunk"](context)
+            return bool(context.plan.a1)
+
+        self.assertFalse(fires(0.0))
+        self.assertTrue(fires(5.0))
+
+    def test_low_battery_pkunk_keeps_station_just_outside_weapon_range(self):
+        a1_range = weapon_spec("Pkunk", 1).range
+        far = _rule_context("Pkunk", enemy=_seen(0.0, 2000.0), battery_fraction=0.2)
+        STRATEGIES["Pkunk"](far)
+        self.assertTrue(far.plan.thrust)
+        self.assertIn("station_far", far.memory.sides)
+
+        holding = _rule_context(
+            "Pkunk",
+            enemy=_seen(90.0, a1_range * 1.1),
+            battery_fraction=0.2,
+        )
+        STRATEGIES["Pkunk"](holding)
+        self.assertFalse(holding.plan.thrust)
+        # Points the starboard gun at the opponent while it waits.
+        self.assertEqual(holding.plan.turn, TURN_NONE)
+        self.assertFalse(holding.plan.a1)
+
+    def test_zoq_fot_pik_saves_battery_for_the_tongue(self):
+        a1_range = weapon_spec("ZoqFotPik", 1).range
+        enemy = _seen(0.0, a1_range * 0.8)
+        a2_cost = SHIP_DEFINITIONS["ZoqFotPik"].a2_cost
+
+        def fires_a1(battery, enemy_name="Spathi"):
+            context = _rule_context(
+                "ZoqFotPik",
+                enemy=enemy,
+                enemy_name=enemy_name,
+                battery=battery,
+            )
+            context.view.enemy_block.trackable = True
+            context.view.enemy_block.max_thrust = 0.0
+            STRATEGIES["ZoqFotPik"](context)
+            return bool(context.plan.a1)
+
+        self.assertFalse(fires_a1(a2_cost))
+        self.assertTrue(fires_a1(a2_cost + 1))
+        # The tongue cannot catch a Slylandro, so weapon 1 fires freely.
+        self.assertTrue(fires_a1(a2_cost, enemy_name="Slylandro"))
+
+    def test_zoq_fot_pik_lunges_and_tongues_when_ready(self):
+        a2_cost = SHIP_DEFINITIONS["ZoqFotPik"].a2_cost
+
+        def context_at(bearing, distance, battery):
+            context = _rule_context(
+                "ZoqFotPik",
+                enemy=_seen(bearing, distance),
+                battery=battery,
+                battery_fraction=battery / 10.0,
+            )
+            context.view.enemy_block.trackable = True
+            context.view.enemy_block.max_thrust = 0.0
+            STRATEGIES["ZoqFotPik"](context)
+            return context
+
+        lunging = context_at(0.0, 600.0, a2_cost)
+        self.assertTrue(lunging.plan.thrust)
+        self.assertEqual(lunging.plan.turn, TURN_NONE)
+        self.assertFalse(lunging.plan.a2)
+
+        # Centre distance beyond the tongue's length still touches the hull,
+        # and the narrow tongue reaches a hull several degrees off the nose.
+        striking = context_at(6.0, weapon_spec("ZoqFotPik", 2).range + 15.0, a2_cost)
+        self.assertTrue(striking.plan.a2)
+
+        # Without tongue battery it keeps weapon 1 distance instead.
+        recharging = context_at(0.0, 600.0, a2_cost - 1)
+        self.assertIn("a1_range_near", recharging.memory.sides)
+        self.assertFalse(recharging.plan.a2)
+
+    def test_intercept_seconds_use_top_speed_and_opponent_motion(self):
+        max_thrust = SHIP_DEFINITIONS["ZoqFotPik"].max_thrust
+        idle = _rule_context("ZoqFotPik", enemy=_seen(0.0, 100.0 + max_thrust * const.FPS))
+        self.assertAlmostEqual(idle.intercept_seconds(100.0), 1.0)
+        self.assertEqual(idle.intercept_seconds(5000.0), 0.0)
+
+        fleeing = _rule_context(
+            "ZoqFotPik",
+            enemy=_seen(0.0, 1000.0, closing=-(max_thrust + 1.0)),
+        )
+        self.assertEqual(fleeing.intercept_seconds(100.0), math.inf)
+
+    def test_variants_are_named_per_ship(self):
+        self.assertIs(strategy_for("ZoqFotPik"), STRATEGIES["ZoqFotPik"])
+        self.assertIs(strategy_for("ZoqFotPik", "default"), STRATEGIES["ZoqFotPik"])
+        self.assertIsNot(strategy_for("ZoqFotPik", "a1_first"), STRATEGIES["ZoqFotPik"])
+        self.assertIsNot(strategy_for("Pkunk", "full_range"), STRATEGIES["Pkunk"])
+        with self.assertRaises(KeyError):
+            strategy_for("Spathi", "a1_first")
 
     def test_druuge_recoils_only_away_from_closing_dangers_ahead(self):
         ahead = _seen(20.0, 400.0, closing=10.0, group="enemy_non_a1")

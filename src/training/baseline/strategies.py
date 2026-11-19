@@ -6,9 +6,16 @@ shared rule 0, avoiding the planet, runs before every strategy.
 
 from __future__ import annotations
 
+import math
+
 from src.training.baseline.engine import BaselineContext, StrategyFunction
 from src.training.baseline.observation_view import bearing_of, wrap_degrees
-from src.training.baseline.ship_specs import FORM_XFORM, weapon_spec
+from src.training.baseline.ship_specs import (
+    FORM_XFORM,
+    TYPICAL_HULL_RADIUS,
+    weapon_spec,
+)
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 
 # Collision windows from the specification, in seconds. The engine adds one
 # action span to each so a reaction is never a decision late.
@@ -26,6 +33,14 @@ DRUUGE_ESCAPE_DANGER_SHIPS = frozenset({"KzerZa", "Chenjesu", "Vux"})
 # Ships whose hulls the Kzer-Za fighters should not be wasted on.
 KZER_ZA_FIGHTER_COUNTERS = frozenset({"Earthling", "Thraddash"})
 TRACTOR_IMMUNE_SHIPS = frozenset({"Arilou", "Slylandro"})
+# Pkunk shots live only briefly: fire within this fraction of their reach
+# unless the opponent is closing, and wait out recharges just beyond reach.
+PKUNK_FIRE_RANGE_FRACTION = 0.7
+PKUNK_STATION_RANGE_FACTOR = 1.27
+# Zoq-Fot-Pik dives for a tongue strike it can make within this many seconds.
+ZOQ_FOT_PIK_LUNGE_SECONDS = 1.0
+ZOQ_FOT_PIK_TONGUE_WIDTH = float(ABILITY_DEFINITIONS["ZoqFotPikA2"].area_width or 10)
+ZOQ_FOT_PIK_TONGUE_SKIPPED_SHIPS = frozenset({"Slylandro"})
 
 
 def _approach_enemy_object(ctx: BaselineContext, objects) -> bool:
@@ -271,15 +286,29 @@ def orz(ctx: BaselineContext) -> None:
 
 
 def pkunk(ctx: BaselineContext) -> None:
+    # Insults are the Pkunk's only battery source; they never block firing.
     ctx.a2(True)
-    if ctx.battery_at_least(0.50):
-        ctx.approach_weapon_range(1)
+    a1_range = ctx.weapon(1).range
+    charged = ctx.battery_at_least(0.50)
+    if charged:
+        # Close to where the short-lived shots reliably connect.
+        ctx.approach_range(a1_range * PKUNK_FIRE_RANGE_FRACTION, key="a1_range")
     else:
         ctx.avoid_opponent()
+        # Wait just outside weapon range so a recharge can strike at once.
+        ctx.approach_range(
+            a1_range * PKUNK_STATION_RANGE_FACTOR,
+            key="station",
+            inner_fraction=1.0 / PKUNK_STATION_RANGE_FACTOR,
+        )
     # Aiming uses whichever of the front and side guns is nearest the target.
-    if ctx.in_range(1):
+    if ctx.in_range(1) or not charged:
         ctx.point_weapon(1)
-    if ctx.in_range(1) and ctx.pointing(1):
+    enemy = ctx.enemy
+    closing = enemy is not None and enemy.closing_speed > 0.0
+    if ctx.pointing(1) and (
+        ctx.in_range(1, PKUNK_FIRE_RANGE_FRACTION) or (closing and ctx.in_range(1))
+    ):
         ctx.a1(True)
 
 
@@ -434,13 +463,83 @@ def vux(ctx: BaselineContext) -> None:
             ctx.avoid_opponent()
 
 
+def _tongue_reach(ctx: BaselineContext) -> float:
+    """Tongue length from my centre plus the target's hull."""
+
+    return ctx.weapon(2).range + TYPICAL_HULL_RADIUS
+
+
+def _tongue_tolerance(ctx: BaselineContext) -> float:
+    """Aim error at which the narrow tongue still touches the target hull."""
+
+    half_width = ZOQ_FOT_PIK_TONGUE_WIDTH / 2.0 + TYPICAL_HULL_RADIUS
+    return math.degrees(math.atan2(half_width, max(1.0, ctx.distance)))
+
+
+def _tongue_viable(ctx: BaselineContext) -> bool:
+    """Whether saving battery for the tongue can pay off against this opponent."""
+
+    enemy = ctx.enemy
+    if enemy is None or ctx.enemy_cloaked():
+        return False
+    if ctx.enemy_name in ZOQ_FOT_PIK_TONGUE_SKIPPED_SHIPS:
+        return False
+    outrunning = (
+        ctx.enemy_block.max_thrust > ctx.spec.max_thrust and enemy.closing_speed < 0.0
+    )
+    return not outrunning
+
+
 def zoq_fot_pik(ctx: BaselineContext) -> None:
+    tongue_ready = ctx.me.battery >= ctx.spec.a2_cost
+    tongue_viable = _tongue_viable(ctx)
+    reach = _tongue_reach(ctx)
+    in_tongue_reach = ctx.enemy is not None and ctx.distance <= reach
+    if tongue_ready and in_tongue_reach:
+        ctx.point_weapon(2)
+        if ctx.pointing(2, tolerance=_tongue_tolerance(ctx)):
+            ctx.a2(True)
+    if (
+        tongue_ready
+        and tongue_viable
+        and ctx.intercept_seconds(reach) <= ZOQ_FOT_PIK_LUNGE_SECONDS
+    ):
+        ctx.approach_opponent()
+    if ctx.battery_at_least(0.30):
+        ctx.approach_weapon_range(1)
+    else:
+        ctx.avoid_opponent()
+    if ctx.in_range(1):
+        ctx.point_weapon(1)
+    # Spend only battery above the tongue's cost while the tongue can land.
+    spare = ctx.me.battery - ctx.spec.a1_cost >= ctx.spec.a2_cost
+    if ctx.in_range(1) and ctx.pointing(1) and (spare or not tongue_viable):
+        ctx.a1(True)
+
+
+def zoq_fot_pik_a1_first(ctx: BaselineContext) -> None:
+    """Earlier rules: fire weapon 1 freely and tongue only when it is ready."""
+
     can_tongue = ctx.in_range(2) and ctx.me.battery >= ctx.spec.a2_cost
     if can_tongue:
         ctx.point_weapon(2)
     if can_tongue and ctx.pointing(2):
         ctx.a2(True)
     if ctx.battery_at_least(0.30):
+        ctx.approach_weapon_range(1)
+    else:
+        ctx.avoid_opponent()
+    if ctx.in_range(1):
+        ctx.point_weapon(1)
+    if ctx.in_range(1) and ctx.pointing(1):
+        ctx.a1(True)
+
+
+def pkunk_full_range(ctx: BaselineContext) -> None:
+    """Earlier rules: fire at full reach and drift while recharging."""
+
+    ctx.a2(True)
+    if ctx.battery_at_least(0.50):
         ctx.approach_weapon_range(1)
     else:
         ctx.avoid_opponent()
@@ -488,5 +587,23 @@ STRATEGIES: dict[str, StrategyFunction] = {
 }
 
 
-def strategy_for(ship_name: str) -> StrategyFunction:
+DEFAULT_VARIANT = "default"
+
+# Alternative rule sets per ship, for comparing strategies in the arena.
+# Training, opponents and battle mode always use ``STRATEGIES``.
+STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
+    "Pkunk": {"full_range": pkunk_full_range},
+    "ZoqFotPik": {"a1_first": zoq_fot_pik_a1_first},
+}
+
+
+def strategy_for(ship_name: str, variant: str | None = None) -> StrategyFunction:
+    if variant and variant != DEFAULT_VARIANT:
+        variants = STRATEGY_VARIANTS.get(str(ship_name), {})
+        if variant not in variants:
+            known = ", ".join(sorted(variants)) or "none"
+            raise KeyError(
+                f"Unknown strategy variant {variant!r} for {ship_name}; known: {known}"
+            )
+        return variants[variant]
     return STRATEGIES.get(str(ship_name), generic)
