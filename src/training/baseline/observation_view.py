@@ -161,6 +161,16 @@ class ShipBlock:
         return self.raw("maximum_thrust") * _velocity_scale()
 
     @property
+    def turn_wait(self) -> float:
+        """Frames between heading steps, including any limpets' penalty."""
+
+        return self.raw("turn_wait") * const.FPS
+
+    @property
+    def limpets(self) -> int:
+        return int(round(self.raw("limpet_count") * 64.0))
+
+    @property
     def speed(self) -> float:
         return self.raw("absolute_speed") * _velocity_scale()
 

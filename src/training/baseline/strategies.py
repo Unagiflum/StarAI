@@ -116,6 +116,28 @@ SUPOX_OUTRANGE_MARGIN = 150.0
 SUPOX_SLIDE_AIM_TOLERANCE = 6.0
 SUPOX_DODGE_SECONDS = 0.5
 SUPOX_FACING_TOLERANCE = 20.0
+# Vux: an opponent counts as crippled once limpets leave it slower than the
+# Vux and turning no more often than every this many frames. Until then the
+# Vux moves away, retreating at this fraction of top speed before turning
+# to face the opponent, and heading away again once below the resume
+# fraction of that. Limpets keep the laser reserve near laser reach. The
+# laser fires whenever the hull crosses the beam within its full reach (the
+# arena favoured that over holding fire to 450 units). A crippled opponent
+# is approached from beyond this angle off its nose, to the close distance.
+VUX_DISABLED_TURN_WAIT = 3.0
+VUX_RETREAT_SPEED_FRACTION = 0.8
+VUX_RETREAT_RESUME_FRACTION = 0.5
+VUX_LASER_RESERVE = 20.0
+VUX_LASER_RESERVE_MARGIN = 200.0
+VUX_BURST_DISTANCE = weapon_spec("Vux", 1).range + TYPICAL_HULL_RADIUS
+VUX_BLIND_ANGLE = 60.0
+VUX_CLOSE_DISTANCE = 300.0
+VUX_LIMPET_REACH = weapon_spec("Vux", 2).range
+VUX_SLINGSHOT_DISTANCE = 2500.0
+# Holding the beam: keep facing a target within the beam tolerance plus this
+# slack (about one heading step) while the battery lasts above this floor.
+VUX_HOLD_BEAM_SLACK = 6.0
+VUX_HOLD_BEAM_BATTERY = 4.0
 # Syreen song: sing within this distance, where it takes 6 or more crew;
 # below the grown crew count, a Syreen that cannot outrun an opponent with
 # strong short-range weapons keeps to gun range instead of diving in. The
@@ -1022,7 +1044,120 @@ def yehat(ctx: BaselineContext) -> None:
     _shield_rules(ctx)
 
 
+def _vux_disabled(ctx: BaselineContext) -> bool:
+    """Whether limpets have left the opponent slower and no nimbler than me."""
+
+    block = ctx.enemy_block
+    return (
+        block.max_thrust < ctx.spec.max_thrust
+        and block.turn_wait >= VUX_DISABLED_TURN_WAIT
+    )
+
+
+def _own_speed_toward(ctx: BaselineContext, target) -> float:
+    radians = math.radians(target.bearing)
+    return (
+        ctx.me.velocity_forward * math.cos(radians)
+        + ctx.me.velocity_right * math.sin(radians)
+    )
+
+
+def _vux_keep_away(ctx: BaselineContext) -> None:
+    """Head away from the opponent, then turn to face it while drifting away."""
+
+    enemy = ctx.enemy
+    values = ctx.memory.values
+    toward = _own_speed_toward(ctx, enemy)
+    retreat_fast = ctx.spec.max_thrust * VUX_RETREAT_SPEED_FRACTION
+    if toward <= -retreat_fast:
+        values["vux_retreating"] = False
+    elif toward > -retreat_fast * VUX_RETREAT_RESUME_FRACTION:
+        values["vux_retreating"] = True
+    if enemy.distance > VUX_LIMPET_REACH:
+        # Out past limpet reach: face it, and only thrust to stop drifting off.
+        ctx.point_at_opponent()
+        ctx.plan.claim_thrust(toward < 0.0 and abs(enemy.bearing) <= 45.0)
+        return
+    if values.get("vux_retreating", True):
+        away = wrap_degrees(enemy.bearing + 180.0)
+        # Thrust only once the nose points away, never toward the opponent.
+        ctx.steer(away, thrust=abs(away) <= 90.0)
+    else:
+        ctx.point_at_opponent()
+        ctx.plan.claim_thrust(False)
+
+
+def _vux_blind_side_approach(ctx: BaselineContext) -> None:
+    """Close in on a crippled opponent from where its nose is not pointing."""
+
+    enemy = ctx.enemy
+    if enemy.distance <= VUX_CLOSE_DISTANCE:
+        ctx.point_at_opponent()
+        ctx.plan.claim_thrust(False)
+        return
+    facing = ctx.enemy_block.opponent_bearing
+    if facing is None or abs(facing) >= VUX_BLIND_ANGLE:
+        ctx.approach_opponent()
+        return
+    # It faces me: come in off its nose line, on the side I am already on.
+    # Its right is my left when it faces me.
+    offset = -VUX_BLIND_ANGLE if facing > 0.0 else VUX_BLIND_ANGLE
+    ctx.steer(wrap_degrees(enemy.bearing + offset))
+
+
+def _vux(ctx: BaselineContext, *, slingshot: bool, hold_beam: bool) -> None:
+    enemy = ctx.enemy
+    if enemy is None:
+        return
+    disabled = _vux_disabled(ctx)
+    # Laser: whenever the hull crosses the beam within reach.
+    tolerance = math.degrees(math.atan2(TYPICAL_HULL_RADIUS, max(1.0, enemy.distance)))
+    in_reach = enemy.distance <= VUX_BURST_DISTANCE
+    if in_reach and abs(enemy.bearing) <= tolerance:
+        ctx.a1(True)
+    if (
+        hold_beam
+        and in_reach
+        and abs(enemy.bearing) <= tolerance + VUX_HOLD_BEAM_SLACK
+        and ctx.me.battery >= VUX_HOLD_BEAM_BATTERY
+    ):
+        # The beam is on it (as at the close start): keep it there and burn
+        # rather than turn away, until the battery runs low.
+        ctx.point_at_opponent()
+        ctx.plan.claim_thrust(False)
+    # Limpets until the opponent is crippled, keeping laser battery when near.
+    near = enemy.distance <= ctx.weapon(1).range + TYPICAL_HULL_RADIUS + VUX_LASER_RESERVE_MARGIN
+    spare = ctx.me.battery - ctx.spec.a2_cost >= VUX_LASER_RESERVE
+    if not disabled and ctx.in_range(2) and (spare or not near):
+        ctx.a2(True)
+    if slingshot and not disabled and enemy.distance > VUX_SLINGSHOT_DISTANCE:
+        ctx.coast_above_top_speed = True
+        ctx.gravity_whip()
+    if disabled:
+        _vux_blind_side_approach(ctx)
+    else:
+        _vux_keep_away(ctx)
+
+
 def vux(ctx: BaselineContext) -> None:
+    _vux(ctx, slingshot=False, hold_beam=True)
+
+
+def vux_keep_away(ctx: BaselineContext) -> None:
+    """Default rules, but turn away even while the laser bears on the target."""
+
+    _vux(ctx, slingshot=False, hold_beam=False)
+
+
+def vux_slingshot(ctx: BaselineContext) -> None:
+    """Default rules, plus a planet slingshot while the opponent is far off."""
+
+    _vux(ctx, slingshot=True, hold_beam=True)
+
+
+def vux_flee_or_chase(ctx: BaselineContext) -> None:
+    """Earlier rules: flee faster ships, chase slower ones facing away."""
+
     if ctx.in_range(1) and ctx.pointing(1):
         ctx.a1(True)
     enemy_faster = ctx.enemy_block.max_thrust >= ctx.spec.max_thrust
@@ -1178,6 +1313,11 @@ STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
         "pressing": syreen_pressing,
     },
     "Thraddash": {"dodge_only": thraddash_dodge_only},
+    "Vux": {
+        "flee_or_chase": vux_flee_or_chase,
+        "keep_away": vux_keep_away,
+        "slingshot": vux_slingshot,
+    },
     "Umgah": {"approach_cone": umgah_approach_cone},
     "ZoqFotPik": {"a1_first": zoq_fot_pik_a1_first},
 }

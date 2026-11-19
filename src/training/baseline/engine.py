@@ -192,6 +192,8 @@ class BaselineContext:
         self.memory = memory
         self.plan = ControlPlan()
         self.span_frames = DECISION_FRAMES
+        # Strategies may opt in for one decision; see COAST_ABOVE_TOP_SPEED_SHIPS.
+        self.coast_above_top_speed = ship_name in COAST_ABOVE_TOP_SPEED_SHIPS
 
     # ----------------------------------------------------------------- facts
 
@@ -293,7 +295,7 @@ class BaselineContext:
         heading; thrust is still needed to turn the motion itself.
         """
 
-        if self.ship_name not in COAST_ABOVE_TOP_SPEED_SHIPS or not self.overspeed():
+        if not self.coast_above_top_speed or not self.overspeed():
             return True
         motion = bearing_of(self.me.velocity_forward, self.me.velocity_right)
         return abs(wrap_degrees(float(bearing) - motion)) > OVERSPEED_COAST_ANGLE

@@ -938,6 +938,89 @@ class ShipRuleTests(unittest.TestCase):
 
         self.assertFalse(context.plan.a2)
 
+    def _vux(
+        self,
+        enemy,
+        *,
+        enemy_thrust=64.0,
+        enemy_turn_wait=0.0,
+        battery=40.0,
+        facing=None,
+        velocity_forward=0.0,
+        memory=None,
+    ):
+        context = _rule_context(
+            "Vux",
+            enemy=enemy,
+            enemy_name="Pkunk",
+            battery=battery,
+            battery_fraction=battery / 40.0,
+            max_battery=40.0,
+            memory=memory,
+        )
+        context.view.me.velocity_forward = velocity_forward
+        context.view.enemy_block.max_thrust = enemy_thrust
+        context.view.enemy_block.turn_wait = enemy_turn_wait
+        context.view.enemy_block.opponent_bearing = facing
+        STRATEGIES["Vux"](context)
+        return context
+
+    def test_vux_holds_its_beam_on_a_target_within_reach(self):
+        # As at the close start: in reach and on the beam, keep burning.
+        holding = self._vux(_seen(2.0, 600.0))
+        self.assertTrue(holding.plan.a1)
+        self.assertEqual(holding.plan.turn, TURN_NONE)
+        self.assertFalse(holding.plan.thrust)
+
+        # Out of battery, it turns away instead.
+        drained = self._vux(_seen(2.0, 600.0), battery=2.0)
+        self.assertNotEqual(drained.plan.turn, TURN_NONE)
+
+    def test_vux_turns_away_without_thrusting_toward_the_opponent(self):
+        facing_it = self._vux(_seen(0.0, 800.0))
+        self.assertNotEqual(facing_it.plan.turn, TURN_NONE)
+        self.assertFalse(facing_it.plan.thrust)
+
+        tail_on = self._vux(_seen(180.0, 800.0))
+        self.assertEqual(tail_on.plan.turn, TURN_NONE)
+        self.assertTrue(tail_on.plan.thrust)
+
+    def test_vux_faces_the_opponent_once_drifting_away(self):
+        top = SHIP_DEFINITIONS["Vux"].max_thrust
+        # Opponent dead ahead while I move straight back from it.
+        drifting = self._vux(_seen(0.0, 800.0), velocity_forward=-top)
+
+        self.assertEqual(drifting.plan.turn, TURN_NONE)
+        self.assertFalse(drifting.plan.thrust)
+
+    def test_vux_limpets_until_the_opponent_is_crippled(self):
+        enemy = _seen(0.0, 1000.0)
+
+        self.assertTrue(self._vux(enemy).plan.a2)
+        self.assertFalse(
+            self._vux(enemy, enemy_thrust=15.0, enemy_turn_wait=5.0).plan.a2
+        )
+        # Near laser reach, limpets leave the laser its reserve.
+        self.assertFalse(self._vux(_seen(0.0, 600.0), battery=20.0).plan.a2)
+        self.assertTrue(self._vux(_seen(0.0, 600.0), battery=30.0).plan.a2)
+
+    def test_vux_lasers_whenever_the_hull_crosses_the_beam(self):
+        self.assertTrue(self._vux(_seen(6.0, 300.0)).plan.a1)
+        self.assertTrue(self._vux(_seen(2.0, 650.0)).plan.a1)
+        self.assertFalse(self._vux(_seen(15.0, 300.0)).plan.a1)
+        self.assertFalse(self._vux(_seen(0.0, 800.0)).plan.a1)
+
+    def test_vux_closes_on_a_crippled_opponent_from_its_blind_side(self):
+        crippled = {"enemy_thrust": 15.0, "enemy_turn_wait": 5.0}
+
+        watched = self._vux(_seen(0.0, 1000.0), facing=5.0, **crippled)
+        # On its right, so come in to my left, off its nose line.
+        self.assertEqual(watched.plan.turn, TURN_LEFT)
+
+        unwatched = self._vux(_seen(0.0, 1000.0), facing=120.0, **crippled)
+        self.assertEqual(unwatched.plan.turn, TURN_NONE)
+        self.assertTrue(unwatched.plan.thrust)
+
     def test_variants_are_named_per_ship(self):
         self.assertIs(strategy_for("ZoqFotPik"), STRATEGIES["ZoqFotPik"])
         self.assertIs(strategy_for("ZoqFotPik", "default"), STRATEGIES["ZoqFotPik"])
