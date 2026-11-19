@@ -91,6 +91,16 @@ TRACTOR_IMMUNE_SHIPS = frozenset({"Arilou", "Slylandro"})
 # unless the opponent is closing, and wait out recharges just beyond reach.
 PKUNK_FIRE_RANGE_FRACTION = 0.7
 PKUNK_STATION_RANGE_FACTOR = 1.27
+# Recharging, the Pkunk also waits this far beyond the opponent's reach.
+# Passes aim this far beside the opponent; within gun range it thrusts only
+# while within the tolerance of side-on. An opponent whose nose points
+# within the facing angle of the Pkunk is passed away from its nose, and
+# hits due within the dodge window are sidestepped.
+PKUNK_STATION_MARGIN = 150.0
+PKUNK_PASS_OFFSET = 250.0
+PKUNK_SIDE_ON_TOLERANCE = 30.0
+PKUNK_FACING_ANGLE = 60.0
+PKUNK_DODGE_SECONDS = 0.4
 # Zoq-Fot-Pik dives for a tongue strike it can make within this many seconds.
 ZOQ_FOT_PIK_LUNGE_SECONDS = 1.0
 ZOQ_FOT_PIK_TONGUE_WIDTH = float(ABILITY_DEFINITIONS["ZoqFotPikA2"].area_width or 10)
@@ -606,19 +616,93 @@ def orz(ctx: BaselineContext) -> None:
         ctx.a1(True)
 
 
-def pkunk(ctx: BaselineContext) -> None:
+def _pkunk_dodge(ctx: BaselineContext) -> bool:
+    """Sidestep a hit about to land, away from where it will pass.
+
+    Moves across the threat's track, on the side opposite its closest
+    approach; thrust waits until the nose is within 90 degrees of the
+    sidestep, as the Pkunk has no reverse.
+    """
+
+    threats = [
+        threat for threat in ctx.threats() if ctx.imminent(threat, PKUNK_DODGE_SECONDS)
+    ]
+    if not threats:
+        return False
+    threat = min(threats, key=lambda item: item.distance)
+    frames, _ = threat.closest_approach()
+    frames = frames if math.isfinite(frames) and frames > 0.0 else 0.0
+    pass_forward = threat.forward + threat.velocity_forward * frames
+    pass_right = threat.right + threat.velocity_right * frames
+    # Across the track: perpendicular to the threat's motion.
+    across_forward, across_right = -threat.velocity_right, threat.velocity_forward
+    if across_forward == 0.0 and across_right == 0.0:
+        across_forward, across_right = -threat.right, threat.forward
+    if across_forward * pass_forward + across_right * pass_right > 0.0:
+        across_forward, across_right = -across_forward, -across_right
+    heading = bearing_of(across_forward, across_right)
+    return ctx.steer(heading, thrust=abs(heading) <= 90.0)
+
+
+def _pkunk_pass(ctx: BaselineContext, enemy) -> None:
+    """Fly past the opponent beside it, so a side gun bears as it goes by.
+
+    Within gun range steering is left to aiming, which brings the nearest of
+    the three guns onto the target; thrust then only while side-on, which
+    carries the Pkunk across the opponent's nose rather than into it. An
+    opponent that faces the Pkunk is passed on the side away from its nose.
+    """
+
+    reach = ctx.weapon(1).range + TYPICAL_HULL_RADIUS
+    if enemy.distance <= reach:
+        side_on = abs(abs(enemy.bearing) - 90.0) <= PKUNK_SIDE_ON_TOLERANCE
+        ctx.plan.claim_thrust(side_on and ctx.me.speed < ctx.spec.max_thrust)
+        return
+    facing = ctx.enemy_block.opponent_bearing
+    if facing is not None and 1.0 <= abs(facing) < PKUNK_FACING_ANGLE:
+        # Its right is my left when it faces me: pass to my left.
+        sign = -1.0 if facing > 0.0 else 1.0
+        ctx.memory.sides["pkunk_pass"] = int(sign)
+        ctx.memory.touched_sides.add("pkunk_pass")
+    else:
+        offset = math.degrees(math.asin(PKUNK_PASS_OFFSET / enemy.distance))
+        sign = 1.0 if wrap_degrees(ctx.side("pkunk_pass", enemy.bearing, offset) - enemy.bearing) > 0.0 else -1.0
+    # Aim point beside the opponent, perpendicular to the line to it.
+    scale = sign * PKUNK_PASS_OFFSET / enemy.distance
+    aim_forward = enemy.forward - enemy.right * scale
+    aim_right = enemy.right + enemy.forward * scale
+    # Seek it: thrust along the change from my velocity relative to the
+    # opponent to top speed straight at the aim point, cancelling drift.
+    aim_distance = max(1.0, math.hypot(aim_forward, aim_right))
+    speed = ctx.spec.max_thrust
+    correction_forward = aim_forward / aim_distance * speed + enemy.velocity_forward
+    correction_right = aim_right / aim_distance * speed + enemy.velocity_right
+    ctx.steer(bearing_of(correction_forward, correction_right))
+
+
+def _pkunk(ctx: BaselineContext, *, passes: bool, dodge: bool, safe_station: bool) -> None:
     # Insults are the Pkunk's only battery source; they never block firing.
     ctx.a2(True)
+    enemy = ctx.enemy
     a1_range = ctx.weapon(1).range
     charged = ctx.battery_at_least(0.50)
+    if dodge and enemy is not None:
+        _pkunk_dodge(ctx)
     if charged:
-        # Close to where the short-lived shots reliably connect.
-        ctx.approach_range(a1_range * PKUNK_FIRE_RANGE_FRACTION, key="a1_range")
+        if passes and enemy is not None:
+            _pkunk_pass(ctx, enemy)
+        else:
+            # Close to where the short-lived shots reliably connect.
+            ctx.approach_range(a1_range * PKUNK_FIRE_RANGE_FRACTION, key="a1_range")
     else:
         ctx.avoid_opponent()
-        # Wait just outside weapon range so a recharge can strike at once.
+        # Wait just outside weapon range so a recharge can strike at once,
+        # and outside the opponent's own reach.
+        station = a1_range * PKUNK_STATION_RANGE_FACTOR
+        if safe_station:
+            station = max(station, _enemy_reach(ctx) + TYPICAL_HULL_RADIUS + PKUNK_STATION_MARGIN)
         ctx.approach_range(
-            a1_range * PKUNK_STATION_RANGE_FACTOR,
+            station,
             key="station",
             inner_fraction=1.0 / PKUNK_STATION_RANGE_FACTOR,
         )
@@ -631,6 +715,24 @@ def pkunk(ctx: BaselineContext) -> None:
         ctx.in_range(1, PKUNK_FIRE_RANGE_FRACTION) or (closing and ctx.in_range(1))
     ):
         ctx.a1(True)
+
+
+def pkunk(ctx: BaselineContext) -> None:
+    _pkunk(ctx, passes=True, dodge=False, safe_station=True)
+
+
+def pkunk_head_on(ctx: BaselineContext) -> None:
+    """Earlier rules: close head-on and recharge just outside gun range."""
+
+    _pkunk(ctx, passes=False, dodge=False, safe_station=False)
+
+
+def pkunk_dodge(ctx: BaselineContext) -> None:
+    _pkunk(ctx, passes=True, dodge=True, safe_station=True)
+
+
+def pkunk_near_station(ctx: BaselineContext) -> None:
+    _pkunk(ctx, passes=True, dodge=False, safe_station=False)
 
 
 def _enemy_form(ctx: BaselineContext) -> str:
@@ -1617,7 +1719,12 @@ DEFAULT_VARIANT = "default"
 STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
     "Earthling": {"flee_whip": earthling_flee_whip},
     "Ilwrath": {"always_cloak": ilwrath_always_cloak, "chase": ilwrath_chase},
-    "Pkunk": {"full_range": pkunk_full_range},
+    "Pkunk": {
+        "dodge": pkunk_dodge,
+        "full_range": pkunk_full_range,
+        "head_on": pkunk_head_on,
+        "near_station": pkunk_near_station,
+    },
     "Shofixti": {"glory_dive": shofixti_glory_dive},
     "Supox": {"no_slide": supox_no_slide},
     "Syreen": {

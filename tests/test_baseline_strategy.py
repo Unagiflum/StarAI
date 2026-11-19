@@ -336,12 +336,12 @@ class ShipRuleTests(unittest.TestCase):
 
         self.assertTrue(charged.plan.a2)
         self.assertTrue(low.plan.a2)
-        # Approaching heads 45 degrees off the opponent; fleeing 135.
+        # Charged, it heads for a pass beside the opponent; low, it flees at 135.
         self.assertTrue(charged.plan.thrust)
         self.assertTrue(low.plan.thrust)
-        self.assertEqual(charged.memory.sides.keys(), {"a1_range_far"})
+        self.assertEqual(charged.memory.sides.keys(), {"pkunk_pass"})
         self.assertIn("avoid_opponent", low.memory.sides)
-        self.assertNotIn("a1_range_far", low.memory.sides)
+        self.assertNotIn("pkunk_pass", low.memory.sides)
 
     def test_pkunk_fires_a_side_gun_at_an_opponent_abeam(self):
         # Inside firing distance but outside the band where approach backs off.
@@ -368,15 +368,17 @@ class ShipRuleTests(unittest.TestCase):
         self.assertTrue(fires(5.0))
 
     def test_low_battery_pkunk_keeps_station_just_outside_weapon_range(self):
-        a1_range = weapon_spec("Pkunk", 1).range
         far = _rule_context("Pkunk", enemy=_seen(0.0, 2000.0), battery_fraction=0.2)
         STRATEGIES["Pkunk"](far)
         self.assertTrue(far.plan.thrust)
         self.assertIn("station_far", far.memory.sides)
 
+        # Against a short-reach opponent the station lies just beyond its
+        # reach (432) plus a hull and margin: 627, with the band from 494.
         holding = _rule_context(
             "Pkunk",
-            enemy=_seen(90.0, a1_range * 1.1),
+            enemy=_seen(90.0, 560.0),
+            enemy_name="Pkunk",
             battery_fraction=0.2,
         )
         STRATEGIES["Pkunk"](holding)
@@ -547,6 +549,60 @@ class ShipRuleTests(unittest.TestCase):
         # Seven hops reach the cone from 1000 away.
         self.assertFalse(self._umgah(enemy, battery=7.0, memory=memory).plan.a2)
         self.assertTrue(self._umgah(enemy, battery=20.0, memory=memory).plan.a2)
+
+    def _pkunk(
+        self,
+        enemy,
+        *,
+        battery_fraction=1.0,
+        enemy_name="Spathi",
+        enemy_objects=(),
+        facing=None,
+        variant=None,
+    ):
+        context = _rule_context(
+            "Pkunk",
+            enemy=enemy,
+            enemy_name=enemy_name,
+            battery_fraction=battery_fraction,
+            enemy_objects=enemy_objects,
+            max_battery=12.0,
+        )
+        context.view.enemy_block.opponent_bearing = facing
+        strategy_for("Pkunk", variant)(context)
+        return context
+
+    def test_pkunk_passes_beside_the_opponent_away_from_its_nose(self):
+        # The aim point 250 beside it is about 17 degrees off its bearing.
+        enemy = _seen(0.0, 800.0)
+        # I am on its right, so its nose points to my right: pass to my left.
+        context = self._pkunk(enemy, facing=20.0)
+        self.assertEqual(context.plan.turn, TURN_LEFT)
+        self.assertTrue(context.plan.thrust)
+        self.assertEqual(self._pkunk(enemy, facing=-20.0).plan.turn, TURN_RIGHT)
+
+    def test_pkunk_strafes_side_on_within_gun_range(self):
+        beside = self._pkunk(_seen(90.0, 300.0))
+        self.assertTrue(beside.plan.thrust)
+        self.assertTrue(beside.plan.a1)
+        self.assertFalse(self._pkunk(_seen(0.0, 300.0)).plan.thrust)
+
+    def test_pkunk_recharges_outside_the_opponents_reach(self):
+        enemy = _seen(0.0, 700.0)
+        far_reaching = self._pkunk(enemy, battery_fraction=0.3, enemy_name="Druuge")
+        self.assertIn("station_near", far_reaching.memory.sides)
+        short_reaching = self._pkunk(enemy, battery_fraction=0.3, enemy_name="Pkunk")
+        self.assertNotIn("station_near", short_reaching.memory.sides)
+
+    def test_pkunk_dodge_variant_sidesteps_a_shot_about_to_hit(self):
+        # A shot from the right flies straight at me: sidestep across its
+        # track, which is straight ahead, rather than turn for the pass.
+        shot = _seen(90.0, 60.0, closing=40.0, group="enemy_a1")
+        enemy = _seen(-60.0, 1500.0)
+        context = self._pkunk(enemy, enemy_objects=(shot,), variant="dodge")
+        self.assertEqual(context.plan.turn, TURN_NONE)
+        self.assertTrue(context.plan.thrust)
+        self.assertEqual(self._pkunk(enemy, enemy_objects=(shot,)).plan.turn, TURN_LEFT)
 
     def _earthling(self, enemy, *, battery=18.0, enemy_objects=(), planet=None):
         context = _rule_context(
