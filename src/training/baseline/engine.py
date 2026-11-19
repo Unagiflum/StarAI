@@ -54,6 +54,15 @@ PLANET_AVOID_LOOKAHEAD = 1.5
 ORBIT_DRIFT_THRESHOLD = 0.15
 # The baseline decides every frame, so a decision lasts one frame.
 DECISION_FRAMES = 1
+# Speed above top speed, in world units per frame, that counts as overspeed.
+OVERSPEED_MARGIN = 0.5
+# Above top speed, coast when the wanted heading is within this many
+# degrees of the direction of motion. With no drag, a ship pushed past top
+# speed keeps it, so beyond this angle it must still thrust to turn.
+OVERSPEED_COAST_ANGLE = 45.0
+# Ships that coast above top speed rather than thrust. Opt-in: across every
+# ship the arena showed no gain, so only the afterburner ship uses it.
+COAST_ABOVE_TOP_SPEED_SHIPS = frozenset({"Thraddash"})
 
 
 class ControlPlan:
@@ -263,6 +272,32 @@ class BaselineContext:
                 return threat
         return None
 
+    def overspeed(self) -> bool:
+        """Whether thrust would slow me: above top speed, outside a gravity well.
+
+        Above top speed, thrust in any direction pulls the speed back toward
+        it, except inside a planet's gravity range.
+        """
+
+        if not self.spec.inertial:
+            return False
+        planet = self.planet
+        if planet is not None and planet.distance <= const.GRAVITY_RANGE:
+            return False
+        return self.me.speed > self.spec.max_thrust + OVERSPEED_MARGIN
+
+    def thrust_helps(self, bearing: float) -> bool:
+        """Whether thrust toward ``bearing`` is worth its cost in speed.
+
+        Above top speed, coast while already moving roughly toward the
+        heading; thrust is still needed to turn the motion itself.
+        """
+
+        if self.ship_name not in COAST_ABOVE_TOP_SPEED_SHIPS or not self.overspeed():
+            return True
+        motion = bearing_of(self.me.velocity_forward, self.me.velocity_right)
+        return abs(wrap_degrees(float(bearing) - motion)) > OVERSPEED_COAST_ANGLE
+
     def crew_dropped(self) -> bool:
         previous = self.memory.previous_crew
         return previous is not None and self.me.crew < previous - 1e-6
@@ -345,12 +380,18 @@ class BaselineContext:
             return False
         return self.plan.claim_turn(self.turn_toward(bearing))
 
-    def steer(self, bearing: float | None, thrust: bool = True) -> bool:
-        """Claim turning and thrust to head toward ``bearing``."""
+    def steer(self, bearing: float | None, thrust: bool = True, brake: bool = False) -> bool:
+        """Claim turning and thrust to head toward ``bearing``.
+
+        Above top speed thrust only slows the ship, so it stays off unless
+        ``brake`` asks for exactly that.
+        """
 
         if bearing is None or self.plan.steering_claimed:
             return False
         self.plan.claim_turn(self.turn_toward(bearing))
+        if thrust and not brake and not self.thrust_helps(bearing):
+            thrust = False
         if self.ship_name == "Slylandro":
             # Slylandro always moves forward; a fresh thrust press reverses
             # it, which beats turning around when the target is behind.

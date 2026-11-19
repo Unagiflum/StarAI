@@ -8,7 +8,14 @@ from __future__ import annotations
 
 import math
 
-from src.training.baseline.engine import BaselineContext, StrategyFunction
+from src.training.baseline.engine import (
+    APPROACH_ANGLE_OFFSET,
+    TURN_LEFT,
+    TURN_NONE,
+    TURN_RIGHT,
+    BaselineContext,
+    StrategyFunction,
+)
 from src.training.baseline.observation_view import bearing_of, wrap_degrees
 from src.training.baseline.ship_specs import (
     FORM_BASE,
@@ -63,6 +70,52 @@ ILWRATH_FLAME_REACH = 300.0
 ILWRATH_FLAME_HALF_WIDTH = 60.0
 ILWRATH_FADE_FRAMES = float(ABILITY_DEFINITIONS["IlwrathA2"].fade_duration or 5)
 ILWRATH_CLOAK_RESERVE = 4.0
+# Thraddash: hold a standoff band and fire from it; burn away, tail first,
+# from an opponent inside the escape distance or due to arrive within the
+# escape time. Slow turners are baited in nearer so they chase into the
+# trail. A battery reserve stays for that burn. Escorts closing within the
+# swarm range get the tail, and the trail is laid once they are within the
+# trail range. Shots from this far off the nose are dodged with a burn.
+THRADDASH_STANDOFF_NEAR = 900.0
+THRADDASH_STANDOFF_FAR = 1400.0
+THRADDASH_ESCAPE_DISTANCE = 700.0
+THRADDASH_BAIT_DISTANCE = 500.0
+THRADDASH_ESCAPE_SECONDS = 1.5
+THRADDASH_BURN_RESERVE = 8.0
+THRADDASH_TAIL_TOLERANCE = 30.0
+THRADDASH_SWARM_RANGE = 700.0
+THRADDASH_TRAIL_RANGE = 350.0
+THRADDASH_DODGE_MIN_BEARING = 45.0
+# Escape and bait distances stay this far outside the opponent's reach.
+THRADDASH_REACH_MARGIN = 100.0
+# Dash in on the afterburner when this far beyond the standoff band, with
+# the nose within the alignment of the approach heading, up to the dash
+# speed, keeping the dash cost above the reserve.
+THRADDASH_DASH_MARGIN = 600.0
+THRADDASH_DASH_ALIGN = 15.0
+THRADDASH_DASH_SPEED = 60.0
+THRADDASH_DASH_COST = 6.0
+THRADDASH_SLOW_TURN_WAIT = 3
+THRADDASH_SLOW_TURNERS = frozenset(
+    name
+    for name, ship in SHIP_DEFINITIONS.items()
+    if int(ship.turn_wait) >= THRADDASH_SLOW_TURN_WAIT
+)
+# Orz marines only feed a Thraddash trail.
+ORZ_MARINE_COUNTERS = frozenset({"Thraddash"})
+# Supox: hold a distance band, by default 600-900, or just outside a
+# shorter-reaching opponent's weapons. With the gun within the slide aim
+# tolerance it holds A2 to slide instead of turning; it dodges hits due
+# within the dodge window and slides off the nose line of an opponent
+# pointing within the facing tolerance.
+SUPOX_BAND_NEAR = 600.0
+SUPOX_BAND_FAR = 900.0
+SUPOX_BAND_GUN_FRACTION = 0.95
+SUPOX_BAND_MIN_WIDTH = 150.0
+SUPOX_OUTRANGE_MARGIN = 150.0
+SUPOX_SLIDE_AIM_TOLERANCE = 6.0
+SUPOX_DODGE_SECONDS = 0.5
+SUPOX_FACING_TOLERANCE = 20.0
 # Syreen song: sing within this distance, where it takes 6 or more crew;
 # below the grown crew count, a Syreen that cannot outrun an opponent with
 # strong short-range weapons keeps to gun range instead of diving in. The
@@ -389,7 +442,11 @@ def mycon(ctx: BaselineContext) -> None:
 
 
 def orz(ctx: BaselineContext) -> None:
-    if ctx.me.orz_marines < 2 and ctx.me.crew > 2:
+    if (
+        ctx.me.orz_marines < 2
+        and ctx.me.crew > 2
+        and ctx.enemy_name not in ORZ_MARINE_COUNTERS
+    ):
         # Weapon 1 and weapon 2 together launch a marine.
         ctx.a1(True)
         ctx.a2(True)
@@ -560,7 +617,118 @@ def spathi(ctx: BaselineContext) -> None:
         ctx.a2(True)
 
 
+def _enemy_reach(ctx: BaselineContext) -> float:
+    """Longest reach of the opponent's direct weapons (not escorts)."""
+
+    name = ctx.enemy_name
+    if name is None:
+        return 0.0
+    if name == "Ilwrath":
+        return ILWRATH_FLAME_REACH
+    form = _enemy_form(ctx)
+    reach = 0.0
+    for action in (1, 2):
+        weapon = weapon_spec(name, action, form)
+        if weapon.kind in ("projectile", "laser", "area"):
+            reach = max(reach, weapon.range)
+    return reach
+
+
+def _supox_band(ctx: BaselineContext) -> tuple[float, float]:
+    """Distance band to hold: just outside a shorter-reaching opponent."""
+
+    longest = ctx.weapon(1).range * SUPOX_BAND_GUN_FRACTION
+    outside = _enemy_reach(ctx) + TYPICAL_HULL_RADIUS + SUPOX_OUTRANGE_MARGIN
+    if SUPOX_BAND_NEAR < outside <= longest - SUPOX_BAND_MIN_WIDTH:
+        return outside, max(SUPOX_BAND_FAR, min(longest, outside + SUPOX_BAND_MIN_WIDTH))
+    return SUPOX_BAND_NEAR, SUPOX_BAND_FAR
+
+
+def _supox_slide(ctx: BaselineContext, lateral: int, *, backward: bool) -> None:
+    """Hold A2 so turning keys slide the ship and thrust reverses it."""
+
+    ctx.a2(True)
+    ctx.plan.claim_turn(lateral)
+    ctx.plan.claim_thrust(backward)
+
+
+def _supox_dodge_side(ctx: BaselineContext) -> int | None:
+    """Slide direction away from the path of a hit about to land."""
+
+    threats = [
+        threat for threat in ctx.threats() if ctx.imminent(threat, SUPOX_DODGE_SECONDS)
+    ]
+    if not threats:
+        return None
+    threat = min(threats, key=lambda item: item.distance)
+    frames, _ = threat.closest_approach()
+    frames = frames if math.isfinite(frames) and frames > 0.0 else 0.0
+    passes_right = threat.right + threat.velocity_right * frames
+    return TURN_LEFT if passes_right >= 0.0 else TURN_RIGHT
+
+
+def _supox_evade_side(ctx: BaselineContext) -> int:
+    """Slide direction that moves me further off the opponent's nose line.
+
+    The opponent faces me, so its right is my left: on its right
+    (positive bearing from its nose), keep sliding to my left. When its aim
+    swings past me the sign flips and so does the slide.
+    """
+
+    facing = ctx.enemy_block.opponent_bearing
+    values = ctx.memory.values
+    if facing is not None and abs(facing) >= 1.0:
+        values["supox_evade"] = TURN_LEFT if facing > 0.0 else TURN_RIGHT
+    return int(values.get("supox_evade", TURN_LEFT))
+
+
 def supox(ctx: BaselineContext) -> None:
+    enemy = ctx.enemy
+    if enemy is None:
+        return
+    fire_tolerance = max(
+        ctx.weapon(1).pointing_tolerance,
+        math.degrees(math.atan2(TYPICAL_HULL_RADIUS, max(1.0, ctx.distance))),
+    )
+    if ctx.plan.steering_claimed:
+        # The planet rule is flying the ship; A2 would turn its turns into slides.
+        ctx.a2(False)
+    else:
+        near, far = _supox_band(ctx)
+        error = ctx.aim_error(1)
+        aimed = error is not None and abs(error) <= SUPOX_SLIDE_AIM_TOLERANCE
+        facing = ctx.enemy_block.opponent_bearing
+        faced = facing is not None and abs(facing) <= SUPOX_FACING_TOLERANCE
+        dodge = _supox_dodge_side(ctx)
+        if dodge is not None:
+            _supox_slide(ctx, dodge, backward=ctx.distance < near)
+        elif not aimed:
+            ctx.a2(False)
+            ctx.point_weapon(1)
+            ahead = error is not None and abs(error) <= 45.0
+            ctx.plan.claim_thrust(ctx.distance > far and ahead and ctx.thrust_helps(0.0))
+        elif ctx.distance < near:
+            _supox_slide(
+                ctx, _supox_evade_side(ctx) if faced else TURN_NONE, backward=True
+            )
+        elif ctx.distance > far:
+            ctx.a2(False)
+            ctx.point_weapon(1)
+            ctx.plan.claim_thrust(ctx.thrust_helps(0.0))
+        elif faced:
+            _supox_slide(ctx, _supox_evade_side(ctx), backward=False)
+        else:
+            ctx.a2(False)
+            ctx.point_weapon(1)
+            ctx.plan.claim_thrust(False)
+    error = ctx.aim_error(1)
+    if ctx.in_range(1) and error is not None and abs(error) <= fire_tolerance:
+        ctx.a1(True)
+
+
+def supox_no_slide(ctx: BaselineContext) -> None:
+    """Earlier rules: never use A2."""
+
     if ctx.battery_at_least(0.30):
         ctx.approach_weapon_range(1)
     else:
@@ -639,7 +807,89 @@ def syreen_full_reach(ctx: BaselineContext) -> None:
     ctx.point_weapon(1)
 
 
+def _thraddash_tail_burn(ctx: BaselineContext, target, *, burn: bool) -> None:
+    """Point the tail at ``target``; burn once it lines up, laying the trail."""
+
+    tail = wrap_degrees(target.bearing + 180.0)
+    ctx.point_at(tail)
+    if burn and abs(tail) <= THRADDASH_TAIL_TOLERANCE and ctx.me.battery >= ctx.spec.a2_cost:
+        ctx.a2(True)
+
+
 def thraddash(ctx: BaselineContext) -> None:
+    enemy = ctx.enemy
+    if enemy is None:
+        return
+    values = ctx.memory.values
+    # Shots about to land from the side or behind: burn forward, and the
+    # trail catches what follows.
+    for threat in ctx.view.enemy_objects:
+        if abs(threat.bearing) >= THRADDASH_DODGE_MIN_BEARING and ctx.imminent(
+            threat, THRADDASH_AFTERBURNER_SECONDS
+        ):
+            ctx.a2(True)
+            break
+    # Escape: burn away from an opponent coming too close, or arriving soon.
+    # Slow turners are baited in nearer, so they follow into the trail.
+    slow_turner = ctx.enemy_name in THRADDASH_SLOW_TURNERS
+    escape_distance = THRADDASH_BAIT_DISTANCE if slow_turner else THRADDASH_ESCAPE_DISTANCE
+    # Never wait inside the opponent's own reach.
+    outside_reach = _enemy_reach(ctx) + TYPICAL_HULL_RADIUS + THRADDASH_REACH_MARGIN
+    escape_distance = max(escape_distance, min(outside_reach, THRADDASH_STANDOFF_NEAR))
+    closing = enemy.closing_speed > 0.0
+    arriving = (
+        not slow_turner
+        and enemy.distance <= THRADDASH_STANDOFF_NEAR
+        and enemy.closing_seconds() <= THRADDASH_ESCAPE_SECONDS
+    )
+    if closing and (enemy.distance <= escape_distance or arriving):
+        values["thraddash_escaping"] = True
+    elif not closing or enemy.distance > THRADDASH_STANDOFF_NEAR:
+        values["thraddash_escaping"] = False
+    escaping = bool(values.get("thraddash_escaping", False))
+    # Escorts and homing shots chasing me (fighters, marines, Dogi,
+    # missiles): lead them through the trail.
+    pursuers = list(ctx.view.objects("enemy_non_a1"))
+    if ctx.enemy_name is not None and weapon_spec(ctx.enemy_name, 1, _enemy_form(ctx)).tracking:
+        pursuers.extend(ctx.view.objects("enemy_a1"))
+    swarm = [
+        item
+        for item in pursuers
+        if item.closing_speed > 0.0 and item.distance <= THRADDASH_SWARM_RANGE
+    ]
+    chasers = list(swarm)
+    if escaping:
+        chasers.append(enemy)
+    if chasers:
+        chaser = min(chasers, key=lambda item: item.distance)
+        burn = chaser is enemy or chaser.distance <= THRADDASH_TRAIL_RANGE
+        _thraddash_tail_burn(ctx, chaser, burn=burn)
+        return
+    # Far off: dash in on the afterburner past one side of the opponent,
+    # then coast; a few frames of burn reach the afterburner's top speed.
+    if (
+        enemy.distance > THRADDASH_STANDOFF_FAR + THRADDASH_DASH_MARGIN
+        and ctx.me.battery >= THRADDASH_BURN_RESERVE + THRADDASH_DASH_COST
+    ):
+        heading = ctx.drift_cancelling_side("standoff_far", enemy, APPROACH_ANGLE_OFFSET)
+        ctx.steer(heading)
+        if abs(heading) <= THRADDASH_DASH_ALIGN and ctx.me.speed < THRADDASH_DASH_SPEED:
+            ctx.a2(True)
+    # Hold the standoff band, coasting rather than thrusting above top speed.
+    ctx.approach_range(
+        THRADDASH_STANDOFF_FAR,
+        key="standoff",
+        inner_fraction=THRADDASH_STANDOFF_NEAR / THRADDASH_STANDOFF_FAR,
+    )
+    ctx.point_weapon(1)
+    spare = ctx.me.battery - ctx.spec.a1_cost >= THRADDASH_BURN_RESERVE
+    if ctx.distance <= THRADDASH_STANDOFF_FAR and ctx.pointing(1) and spare:
+        ctx.a1(True)
+
+
+def thraddash_dodge_only(ctx: BaselineContext) -> None:
+    """Earlier rules: close to weapon range and burn only to dodge."""
+
     ctx.approach_weapon_range(1)
     ctx.point_weapon(1)
     if ctx.in_range(1) and ctx.pointing(1):
@@ -921,11 +1171,13 @@ STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
     "Ilwrath": {"always_cloak": ilwrath_always_cloak, "chase": ilwrath_chase},
     "Pkunk": {"full_range": pkunk_full_range},
     "Shofixti": {"glory_dive": shofixti_glory_dive},
+    "Supox": {"no_slide": supox_no_slide},
     "Syreen": {
         "bold": syreen_bold,
         "full_reach": syreen_full_reach,
         "pressing": syreen_pressing,
     },
+    "Thraddash": {"dodge_only": thraddash_dodge_only},
     "Umgah": {"approach_cone": umgah_approach_cone},
     "ZoqFotPik": {"a1_first": zoq_fot_pik_a1_first},
 }

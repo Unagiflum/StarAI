@@ -58,6 +58,7 @@ from src.training.baseline.ship_specs import (
     weapon_spec,
 )
 from src.training.baseline.strategies import UMGAH_PASS_CLEARANCE
+from src.training.baseline.strategies import _supox_band as supox_band
 from src.training.contracts import ACTION_INDEX_TABLE, SHIP_TYPE_CATALOG_ORDER
 from src.training.coordinated import (
     CoordinatedActionRequest,
@@ -247,6 +248,7 @@ def _rule_context(
     ywing=False,
     max_battery=30.0,
     memory=None,
+    speed=0.0,
 ):
     view = mock.Mock()
     view.me.max_battery = max_battery
@@ -254,8 +256,8 @@ def _rule_context(
     view.planet = planet
     view.enemy_ship_type = enemy_name
     view.enemy_objects = tuple(enemy_objects)
-    view.objects.side_effect = lambda group: (
-        tuple(enemy_objects) if group == "enemy_non_a1" else ()
+    view.objects.side_effect = lambda group: tuple(
+        item for item in enemy_objects if item.group == group
     )
     view.me.held.side_effect = lambda control: control in held
     view.me.battery_fraction = battery_fraction
@@ -264,7 +266,10 @@ def _rule_context(
     view.me.androsynth_blazer = False
     view.me.velocity_forward = 0.0
     view.me.velocity_right = 0.0
+    view.me.speed = speed
     view.enemy_block.androsynth_blazer = False
+    view.enemy_block.mmrnmrhm_ywing = False
+    view.enemy_block.opponent_bearing = None
     return BaselineContext(
         ship_name=ship_name,
         view=view,
@@ -729,6 +734,209 @@ class ShipRuleTests(unittest.TestCase):
         context = self._syreen(_seen(0.0, 600.0, closing=5.0), battery=4.0)
 
         self.assertIn("avoid_opponent", context.memory.sides)
+
+    def test_no_thrust_above_top_speed_outside_gravity(self):
+        top = SHIP_DEFINITIONS["Thraddash"].max_thrust
+
+        coasting = _rule_context("Thraddash", speed=top + 10.0)
+        coasting.steer(0.0)
+        self.assertFalse(coasting.plan.thrust)
+
+        braking = _rule_context("Thraddash", speed=top + 10.0)
+        braking.steer(0.0, brake=True)
+        self.assertTrue(braking.plan.thrust)
+
+        cruising = _rule_context("Thraddash", speed=top)
+        cruising.steer(0.0)
+        self.assertTrue(cruising.plan.thrust)
+
+        # Ships that have not opted in thrust regardless.
+        other = _rule_context("Spathi", speed=SHIP_DEFINITIONS["Spathi"].max_thrust + 10.0)
+        other.steer(0.0)
+        self.assertTrue(other.plan.thrust)
+
+        # With no drag, an overspeed ship must still thrust to turn its motion.
+        turning = _rule_context("Thraddash", speed=top + 10.0)
+        turning.view.me.velocity_forward = top + 10.0
+        turning.steer(120.0)
+        self.assertTrue(turning.plan.thrust)
+
+        # Inside a gravity well thrust is not capped, so it still helps.
+        whipping = _rule_context(
+            "Thraddash",
+            speed=top + 10.0,
+            planet=_seen(90.0, const.GRAVITY_RANGE - 100.0, group="planet"),
+        )
+        whipping.steer(0.0)
+        self.assertTrue(whipping.plan.thrust)
+
+    def _thraddash(self, enemy, *, enemy_name="Spathi", battery=24.0, enemy_objects=(), speed=0.0):
+        context = _rule_context(
+            "Thraddash",
+            enemy=enemy,
+            enemy_name=enemy_name,
+            battery=battery,
+            battery_fraction=battery / 24.0,
+            max_battery=24.0,
+            enemy_objects=enemy_objects,
+            speed=speed,
+        )
+        STRATEGIES["Thraddash"](context)
+        return context
+
+    def test_thraddash_burns_away_tail_first_from_a_closing_opponent(self):
+        behind = self._thraddash(_seen(180.0, 600.0, closing=10.0))
+        self.assertTrue(behind.plan.a2)
+        self.assertEqual(behind.plan.turn, TURN_NONE)
+
+        ahead = self._thraddash(_seen(0.0, 600.0, closing=10.0))
+        self.assertFalse(ahead.plan.a2)
+        self.assertNotEqual(ahead.plan.turn, TURN_NONE)
+
+    def test_thraddash_baits_slow_turners_closer(self):
+        # The Umgah turns slowly and reaches little: it is let in nearer.
+        self.assertFalse(
+            self._thraddash(_seen(180.0, 600.0, closing=10.0), enemy_name="Umgah").plan.a2
+        )
+        self.assertTrue(
+            self._thraddash(_seen(180.0, 450.0, closing=10.0), enemy_name="Umgah").plan.a2
+        )
+
+    def test_thraddash_leads_chasers_through_its_trail(self):
+        enemy = _seen(0.0, 3000.0)
+        fighter = _seen(180.0, 300.0, closing=10.0, group="enemy_non_a1")
+        self.assertTrue(
+            self._thraddash(enemy, enemy_name="KzerZa", enemy_objects=(fighter,)).plan.a2
+        )
+        distant = _seen(180.0, 600.0, closing=10.0, group="enemy_non_a1")
+        waiting = self._thraddash(enemy, enemy_name="KzerZa", enemy_objects=(distant,))
+        self.assertFalse(waiting.plan.a2)
+        self.assertEqual(waiting.plan.turn, TURN_NONE)
+
+        # Homing missiles are led through the trail; plain shots are not.
+        missile = _seen(180.0, 300.0, closing=5.0, group="enemy_a1")
+        self.assertTrue(
+            self._thraddash(enemy, enemy_name="Earthling", enemy_objects=(missile,)).plan.a2
+        )
+        self.assertFalse(
+            self._thraddash(enemy, enemy_name="Spathi", enemy_objects=(missile,)).plan.a2
+        )
+
+    def test_thraddash_fires_from_standoff_keeping_a_burn_reserve(self):
+        enemy = _seen(0.0, 1200.0)
+
+        self.assertTrue(self._thraddash(enemy).plan.a1)
+        self.assertFalse(self._thraddash(enemy, battery=9.0).plan.a1)
+
+    def test_thraddash_dashes_in_from_afar_and_then_coasts(self):
+        # Opponent 45 degrees off the nose: the approach heading is the nose.
+        dashing = self._thraddash(_seen(45.0, 3000.0))
+        self.assertTrue(dashing.plan.a2)
+        self.assertTrue(dashing.plan.thrust)
+
+        coasting = self._thraddash(_seen(45.0, 3000.0), speed=70.0)
+        self.assertFalse(coasting.plan.a2)
+        self.assertFalse(coasting.plan.thrust)
+
+    def test_orz_keeps_its_marines_from_a_thraddash(self):
+        def launches(enemy_name):
+            context = _rule_context("Orz", enemy=_seen(0.0, 500.0), enemy_name=enemy_name)
+            context.view.me.orz_marines = 0
+            context.view.me.crew = 16.0
+            context.view.me.orz_turret_bearing = 0.0
+            STRATEGIES["Orz"](context)
+            return bool(context.plan.a2)
+
+        self.assertTrue(launches("Spathi"))
+        self.assertFalse(launches("Thraddash"))
+
+    def _supox(self, enemy, *, enemy_name="Spathi", facing=None, enemy_objects=(), memory=None):
+        context = _rule_context(
+            "Supox",
+            enemy=enemy,
+            enemy_name=enemy_name,
+            enemy_objects=enemy_objects,
+            memory=memory,
+        )
+        context.view.enemy_block.opponent_bearing = facing
+        STRATEGIES["Supox"](context)
+        return context
+
+    def test_supox_turns_to_aim_with_a2_released(self):
+        context = self._supox(_seen(30.0, 700.0))
+
+        self.assertFalse(context.plan.a2)
+        self.assertEqual(context.plan.turn, TURN_RIGHT)
+
+    def test_supox_backs_off_without_turning_when_too_close(self):
+        context = self._supox(_seen(0.0, 400.0))
+
+        self.assertTrue(context.plan.a2)
+        self.assertTrue(context.plan.thrust)
+        self.assertEqual(context.plan.turn, TURN_NONE)
+        self.assertTrue(context.plan.a1)
+
+    def test_supox_slides_off_the_nose_line_of_an_opponent_aiming_at_it(self):
+        # On the opponent's right means sliding to my left, and back again
+        # once its aim swings past.
+        right_of_nose = self._supox(_seen(0.0, 700.0), facing=5.0)
+        self.assertTrue(right_of_nose.plan.a2)
+        self.assertEqual(right_of_nose.plan.turn, TURN_LEFT)
+        self.assertFalse(right_of_nose.plan.thrust)
+        self.assertTrue(right_of_nose.plan.a1)
+
+        left_of_nose = self._supox(_seen(0.0, 700.0), facing=-5.0)
+        self.assertEqual(left_of_nose.plan.turn, TURN_RIGHT)
+
+        unwatched = self._supox(_seen(0.0, 700.0), facing=90.0)
+        self.assertFalse(unwatched.plan.a2)
+        self.assertFalse(unwatched.plan.thrust)
+
+    def test_supox_slides_out_of_the_path_of_a_hit(self):
+        # A shot crossing from the right passes on my right: slide left.
+        shot = ObservedObject(
+            group="enemy_a1",
+            distance=100.0,
+            bearing=60.0,
+            forward=50.0,
+            right=86.6,
+            velocity_forward=-40.0,
+            velocity_right=-20.0,
+            closing_speed=40.0,
+            lateral_speed=0.0,
+            crew_effect=-1.0,
+            battery_effect=0.0,
+            hit_points=1.0,
+            expires=True,
+            remaining_seconds=1.0,
+        )
+        context = self._supox(_seen(0.0, 700.0), enemy_objects=(shot,))
+
+        self.assertTrue(context.plan.a2)
+        self.assertEqual(context.plan.turn, TURN_LEFT)
+
+    def test_supox_keeps_outside_shorter_reaching_weapons(self):
+        chmmr = _rule_context("Supox", enemy=_seen(0.0, 700.0), enemy_name="Chmmr")
+        near, far = supox_band(chmmr)
+        self.assertGreater(near, weapon_spec("Chmmr", 1).range)
+        self.assertGreater(far, near)
+
+        # The Chmmr laser reaches 700: back off.
+        context = self._supox(_seen(0.0, 700.0), enemy_name="Chmmr")
+        self.assertTrue(context.plan.a2)
+        self.assertTrue(context.plan.thrust)
+
+        self.assertEqual(
+            supox_band(_rule_context("Supox", enemy=_seen(0.0, 700.0))), (600.0, 900.0)
+        )
+
+    def test_supox_leaves_a2_off_while_the_planet_rule_steers(self):
+        context = _rule_context("Supox", enemy=_seen(0.0, 400.0))
+        context.plan.claim_turn(TURN_LEFT)
+        context.plan.claim_thrust(True)
+        STRATEGIES["Supox"](context)
+
+        self.assertFalse(context.plan.a2)
 
     def test_variants_are_named_per_ship(self):
         self.assertIs(strategy_for("ZoqFotPik"), STRATEGIES["ZoqFotPik"])
