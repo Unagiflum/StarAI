@@ -50,6 +50,8 @@ PLANET_COURSE_LATERAL_FRACTION = 0.2
 PLANET_AVOID_LOOKAHEAD = 1.5
 # Sideways drift, as a fraction of top speed, that counts as orbiting.
 ORBIT_DRIFT_THRESHOLD = 0.15
+# The baseline decides every frame, so a decision lasts one frame.
+DECISION_FRAMES = 1
 
 
 class ControlPlan:
@@ -114,11 +116,18 @@ class BaselineMemory:
 
     def __init__(self) -> None:
         turn_angle = float(const.TURN_ANGLE)
-        # Degrees one decision turns: a fresh press, and a continued hold.
-        # Both start as estimates and are refined from observed headings.
-        self.tap_degrees = max(turn_angle, 15.0)
-        self.hold_degrees = 3.0 * self.tap_degrees
+        # Degrees a turning frame moves the nose: a fresh press, and a
+        # continued hold. Both start at one heading step and are refined
+        # from observed headings.
+        self.tap_degrees = turn_angle
+        self.hold_degrees = turn_angle
         self.reset_episode()
+
+    def forget_previous_frame(self) -> None:
+        """Skip turn measurement across frames other control flew."""
+
+        self.previous_heading = None
+        self.previous_turn_state = TURN_NONE
 
     def reset_episode(self) -> None:
         self.previous_heading: float | None = None
@@ -166,13 +175,12 @@ class BaselineContext:
         ship_name: str,
         view: ObservationView,
         memory: BaselineMemory,
-        action_frame_span: int,
     ):
         self.ship_name = ship_name
         self.view = view
         self.memory = memory
         self.plan = ControlPlan()
-        self.span_frames = max(1, int(action_frame_span))
+        self.span_frames = DECISION_FRAMES
 
     # ----------------------------------------------------------------- facts
 

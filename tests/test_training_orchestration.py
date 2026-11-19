@@ -494,15 +494,10 @@ class ValueNetworkPolicyTests(unittest.TestCase):
         self.assertFalse(second.held)
         self.assertEqual(rng.randrange_calls, 2)
 
-    def test_greedy_action_is_held_for_frame_span_with_one_inference(self):
-        rng = SpanRng(random_values=[1.0, 1.0])
+    def test_greedy_actions_are_decided_every_frame_and_exploration_rolled_per_span(self):
+        rng = SpanRng(random_values=[1.0, 1.0, 0.0])
         policy = ValueNetworkPolicy(object(), epsilon=0.5, action_frame_span=3, rng=rng)
-        selections = iter(
-            (
-                ActionSelection(1, exploratory=False),
-                ActionSelection(2, exploratory=False),
-            )
-        )
+        selections = iter(ActionSelection(index, exploratory=False) for index in (1, 2, 3, 4))
 
         with mock.patch(
             "src.training.orchestration.select_action_epsilon_greedy",
@@ -510,14 +505,12 @@ class ValueNetworkPolicyTests(unittest.TestCase):
         ) as select_action:
             actions = [policy.select_action(()) for _ in range(4)]
 
-        self.assertEqual([selection.action_index for selection in actions], [1, 1, 1, 2])
-        self.assertEqual(
-            [selection.held for selection in actions],
-            [False, True, True, False],
-        )
+        self.assertEqual([selection.action_index for selection in actions], [1, 2, 3, 4])
+        self.assertFalse(any(selection.held for selection in actions))
         self.assertFalse(any(selection.exploratory for selection in actions))
-        self.assertEqual(select_action.call_count, 2)
-        self.assertEqual(rng.random_values, [])
+        self.assertEqual(select_action.call_count, 4)
+        # Frames 1 and 4 start span windows; only those roll for exploration.
+        self.assertEqual(rng.random_values, [0.0])
 
     def test_span_of_one_decides_every_frame(self):
         rng = SpanRng(random_values=[1.0, 1.0, 1.0])

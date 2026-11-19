@@ -27,8 +27,6 @@ if TYPE_CHECKING:
 AI_MODE_TRAINED = "trained"
 AI_MODE_BASELINE = "baseline"
 AI_MODES = (AI_MODE_TRAINED, AI_MODE_BASELINE)
-# Decision interval for the baseline in battle mode, matching training.
-BATTLE_BASELINE_ACTION_FRAME_SPAN = 4
 
 
 def normalize_ai_setting(value) -> str | None:
@@ -50,7 +48,6 @@ class BattleAIModel:
     model: Any
     slot: TrainingModelSlot
     label: str
-    action_frame_span: int = 1
 
 
 @dataclass(frozen=True)
@@ -75,27 +72,16 @@ def controls_for_action_index(action_index: int) -> dict[str, bool]:
 
 
 class TrainedModelController:
-    """Play a trained model, holding each action for its trained frame span."""
+    """Play a trained model, deciding afresh every frame."""
 
-    def __init__(self, player: int, model, *, action_frame_span: int = 1):
+    def __init__(self, player: int, model):
         self.player = int(player)
         self.model = model
-        self.action_frame_span = max(1, int(action_frame_span))
-        self._held_action_index: int | None = None
-        self._held_frames_remaining = 0
-        self._held_ship = None
 
     def actions_for_frame(self, simulation) -> dict[str, bool]:
         from src.training.replay import select_action_epsilon_greedy
 
         self_ship, enemy_ship = _ships_for_player(simulation, self.player)
-        if (
-            self._held_action_index is not None
-            and self._held_frames_remaining > 0
-            and self._held_ship is self_ship
-        ):
-            self._held_frames_remaining -= 1
-            return controls_for_action_index(self._held_action_index)
         observation = encode_observation(
             self_ship,
             enemy_ship,
@@ -107,58 +93,34 @@ class TrainedModelController:
             observation,
             epsilon=0.0,
         )
-        self._held_action_index = int(selection.action_index)
-        self._held_frames_remaining = self.action_frame_span - 1
-        self._held_ship = self_ship
         return controls_for_action_index(selection.action_index)
 
 
 class BaselineBattleController:
-    """Fly a ship with its scripted baseline strategy."""
+    """Fly a ship with its scripted baseline strategy, deciding every frame."""
 
-    def __init__(
-        self,
-        player: int,
-        *,
-        action_frame_span: int = BATTLE_BASELINE_ACTION_FRAME_SPAN,
-    ):
+    def __init__(self, player: int):
         self.player = int(player)
-        self.action_frame_span = max(1, int(action_frame_span))
         self._controller = None
-        self._held_action_index: int | None = None
-        self._held_frames_remaining = 0
-        self._held_ship = None
+        self._ship = None
 
     def actions_for_frame(self, simulation) -> dict[str, bool]:
         from src.training.baseline import BaselineController
 
         self_ship, enemy_ship = _ships_for_player(simulation, self.player)
         ship_name = str(getattr(self_ship, "name", ""))
-        if (
-            self._held_action_index is not None
-            and self._held_frames_remaining > 0
-            and self._held_ship is self_ship
-        ):
-            self._held_frames_remaining -= 1
-            return controls_for_action_index(self._held_action_index)
         if self._controller is None or self._controller.ship_name != ship_name:
-            self._controller = BaselineController(
-                ship_name,
-                action_frame_span=self.action_frame_span,
-            )
-        elif self._held_ship is not self_ship:
+            self._controller = BaselineController(ship_name)
+        elif self._ship is not self_ship:
             self._controller.reset()
+        self._ship = self_ship
         observation = encode_observation(
             self_ship,
             enemy_ship,
             frame_id=getattr(simulation, "frame_id", None),
             game_objects=getattr(simulation, "world", None),
         )
-        action_index = int(self._controller.decide(observation))
-        self._held_action_index = action_index
-        self._held_frames_remaining = self.action_frame_span - 1
-        self._held_ship = self_ship
-        return controls_for_action_index(action_index)
+        return controls_for_action_index(int(self._controller.decide(observation)))
 
 
 class FallbackController:
@@ -265,7 +227,6 @@ class BattleAIManager:
                 self._controllers[player] = TrainedModelController(
                     player,
                     loaded.model,
-                    action_frame_span=loaded.action_frame_span,
                 )
                 self._labels[player] = loaded.label
                 self._statuses[player] = BattleControllerStatus(
@@ -329,9 +290,6 @@ class BattleAIManager:
                 model=loaded.model,
                 slot=loaded.slot,
                 label=model_basename(loaded.slot.ship, loaded.slot.slot),
-                action_frame_span=int(
-                    getattr(loaded, "action_frame_span", 1) or 1
-                ),
             ), failures
         return None, failures
 
@@ -348,7 +306,6 @@ def load_battle_ai_model(slot: TrainingModelSlot) -> BattleAIModel:
         model=loaded.model,
         slot=slot,
         label=model_basename(slot.ship, slot.slot),
-        action_frame_span=loaded.action_frame_span,
     )
 
 

@@ -53,7 +53,6 @@ from src.training.model_registry import (
     TrainingModelRepository,
     TrainingModelSlot,
     metadata_from_state,
-    model_action_frame_span,
     model_architecture_metadata,
     normalize_architecture_metadata,
 )
@@ -229,7 +228,7 @@ class CoordinatedActionHoldTests(unittest.TestCase):
         )
         return policies, requests
 
-    def test_greedy_actions_are_held_without_inference(self):
+    def test_greedy_actions_are_decided_every_frame(self):
         _requires_torch(self)
         schedule = CoordinatedExplorationSchedule(
             epsilon=0.0,
@@ -246,38 +245,56 @@ class CoordinatedActionHoldTests(unittest.TestCase):
 
         self.assertEqual(
             [result.inference_mode for result in results],
-            ["batched_value_network", "held_only", "held_only", "batched_value_network"],
+            ["batched_value_network"] * 4,
         )
-        for record_id in (1, 2):
-            first = results[0].selections[record_id]
-            self.assertFalse(first.held)
-            for held in (results[1], results[2]):
-                self.assertTrue(held.selections[record_id].held)
-                self.assertEqual(
-                    held.selections[record_id].action_index,
-                    first.action_index,
-                )
+        for result in results:
+            for record_id in (1, 2):
+                self.assertFalse(result.selections[record_id].held)
 
-    def test_reset_record_redecides_one_record_while_other_stays_held(self):
-        _requires_torch(self)
+    def test_exploration_is_rolled_once_per_span_window(self):
+        rng = mock.Mock()
+        rng.random.return_value = 0.9
         schedule = CoordinatedExplorationSchedule(
-            epsilon=0.0,
+            epsilon=0.5,
+            frame_span=3,
+            rng=rng,
+        )
+        requests = (
+            CoordinatedActionRequest(
+                record_id=1,
+                policy=SimpleNamespace(),
+                observation=ZERO_OBSERVATION,
+            ),
+        )
+
+        for _ in range(7):
+            _selections, deciders = schedule.prepare_selections(requests)
+            self.assertEqual(len(deciders), 1)
+
+        self.assertEqual(rng.random.call_count, 3)
+
+    def test_reset_record_ends_one_exploratory_hold_while_other_stays_held(self):
+        schedule = CoordinatedExplorationSchedule(
+            epsilon=1.0,
             frame_span=4,
             rng=random.Random(0),
         )
-        models = (
-            build_value_network(ValueNetworkConfig(8, 1)),
-            build_value_network(ValueNetworkConfig(8, 1)),
+        requests = tuple(
+            CoordinatedActionRequest(
+                record_id=record_id,
+                policy=SimpleNamespace(),
+                observation=ZERO_OBSERVATION,
+            )
+            for record_id in (1, 2)
         )
-        policies, requests = self._requests(schedule, models)
-        select_actions_for_records(requests)
+        schedule.prepare_selections(requests)
 
-        policies[0].reset_exploration_span()
-        result = select_actions_for_records(requests)
+        schedule.reset_record(1)
+        selections, _deciders = schedule.prepare_selections(requests)
 
-        self.assertEqual(result.inference_mode, "batched_value_network")
-        self.assertFalse(result.selections[1].held)
-        self.assertTrue(result.selections[2].held)
+        self.assertFalse(selections[1].held)
+        self.assertTrue(selections[1].exploratory)
+        self.assertTrue(selections[2].held)
 
     def test_evaluation_records_never_explore(self):
         schedule = CoordinatedExplorationSchedule(
@@ -392,21 +409,7 @@ class ModelMetadataCompatibilityTests(unittest.TestCase):
         self.assertEqual(normalized["loss"], "mse")
         self.assertEqual(model_architecture_metadata(8, 1)["head"], VALUE_HEAD_DUELING)
 
-    def test_legacy_epsilon_span_does_not_set_inference_span(self):
-        self.assertEqual(
-            model_action_frame_span(
-                {"training": {"regimen": {"epsilon_frame_span": 8}}}
-            ),
-            1,
-        )
-        self.assertEqual(
-            model_action_frame_span(
-                {"training": {"regimen": {"action_frame_span": 4}}}
-            ),
-            4,
-        )
-
-    def test_loader_rebuilds_legacy_standard_model_and_reports_span(self):
+    def test_loader_rebuilds_legacy_standard_model(self):
         _requires_torch(self)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -427,7 +430,6 @@ class ModelMetadataCompatibilityTests(unittest.TestCase):
             loaded = load_inference_model(slot, device_choice="cpu")
 
         self.assertFalse(is_dueling_value_network(loaded.model))
-        self.assertEqual(loaded.action_frame_span, 3)
 
 
 def _round_result(score, action_counts):
@@ -608,7 +610,7 @@ class TrainingSessionEvaluationTests(unittest.TestCase):
 
 
 class CoordinatedEvaluationBatchTests(unittest.TestCase):
-    def test_worker_backed_evaluation_batch_holds_greedy_actions(self):
+    def test_worker_backed_evaluation_batch_decides_greedy_actions_every_frame(self):
         torch = _requires_torch(self)
         clients = []
 
@@ -770,7 +772,7 @@ class CoordinatedEvaluationBatchTests(unittest.TestCase):
             self.assertTrue(all(step.trainee_exploratory for step in training_steps))
             self.assertEqual(
                 [step.trainee_held for step in evaluation_steps],
-                [False, True, False, True],
+                [False] * 4,
             )
             self.assertFalse(any(step.trainee_exploratory for step in evaluation_steps))
             self.assertEqual(windows[1].rng_seed, EVALUATION_SEED + 1)
@@ -794,14 +796,14 @@ class TrainingUISpanTests(unittest.TestCase):
             )
         )
 
-    def test_samples_per_batch_count_decisions(self):
+    def test_samples_per_batch_count_every_frame(self):
         state = TrainingUIState(
             rounds_per_batch=1,
             match_time_limit=3600,
             action_frame_span=4,
         )
 
-        self.assertEqual(_maximum_batch_samples(state), 3600 * 25 // 4)
+        self.assertEqual(_maximum_batch_samples(state), 3600 * 25)
 
     def test_existing_models_keep_their_head_until_reset(self):
         state = TrainingUIState(hidden_layer_size=8, hidden_layer_count=1)
@@ -846,11 +848,13 @@ class TrainingUISpanTests(unittest.TestCase):
 
 
 class BattleModeSpanTests(unittest.TestCase):
-    def test_trained_controller_holds_each_inference_for_its_span(self):
+    def test_trained_controller_decides_every_frame(self):
         ship = SimpleNamespace()
         simulation = SimpleNamespace(player1=ship, player2=SimpleNamespace(), frame_id=0)
-        controller = TrainedModelController(1, object(), action_frame_span=3)
-        decisions = iter(ActionSelection(index, exploratory=False) for index in (1, 6))
+        controller = TrainedModelController(1, object())
+        decisions = iter(
+            ActionSelection(index, exploratory=False) for index in (1, 1, 1, 6)
+        )
 
         with (
             mock.patch(
@@ -864,7 +868,7 @@ class BattleModeSpanTests(unittest.TestCase):
         ):
             controls = [controller.actions_for_frame(simulation) for _ in range(4)]
 
-        self.assertEqual(select_action.call_count, 2)
+        self.assertEqual(select_action.call_count, 4)
         self.assertEqual([control["forward"] for control in controls], [True] * 3 + [False])
         self.assertEqual([control["action1"] for control in controls], [False] * 3 + [True])
 

@@ -20,7 +20,7 @@ from src.training.action_safety import guard_training_selection
 from src.training.baseline import (
     BaselineOpponentController,
     BaselinePhaseMixer,
-    baseline_decisions_per_phase,
+    baseline_frames_per_phase,
 )
 from src.training.contracts import (
     ACTION_OUTPUT_SIZE,
@@ -47,7 +47,6 @@ from src.training.model_registry import (
     SLOT_EMPTY,
     TrainingModelRepository,
     TrainingModelSlot,
-    model_action_frame_span,
 )
 from src.training.episode_metrics import (
     PendingCombatEpisode,
@@ -123,13 +122,12 @@ class TrainingBatchResult:
 
 
 class ValueNetworkPolicy:
-    """Epsilon-greedy policy that holds each decision for a frame span.
+    """Epsilon-greedy policy whose exploration comes in frame spans.
 
-    Every decision, exploratory or greedy, is repeated for
-    ``action_frame_span`` frames. Repeated frames are marked ``held`` so only
-    the deciding frame becomes a replay sample. With a ``baseline_mixer``,
-    phases of decisions are flown by the ship's baseline strategy instead of
-    the network; exploration applies to both.
+    The network (and the baseline strategy, during baseline phases) decides
+    every frame. Exploration is rolled once per ``action_frame_span`` window;
+    an exploratory action is held for the whole window, and its repeated
+    frames are marked ``held`` so only the first becomes a replay sample.
     """
 
     def __init__(
@@ -148,8 +146,7 @@ class ValueNetworkPolicy:
         self.baseline_mixer = baseline_mixer
         self.last_selection: ActionSelection | None = None
         self._hold = ActionHold()
-        self._held_exploratory = False
-        self._held_guided = False
+        self._window_remaining = 0
 
     def select_action(self, observation: Sequence[float]) -> ActionSelection:
         prepared = self.prepare_action_selection(observation)
@@ -170,26 +167,31 @@ class ValueNetworkPolicy:
         """Return a held, exploratory or baseline action, or ``None`` when
         network inference is due."""
 
-        held_action = self._hold.held_action()
-        if held_action is not None:
-            self.last_selection = ActionSelection(
-                action_index=held_action,
-                exploratory=self._held_exploratory,
-                held=True,
-                guided=self._held_guided,
-            )
-            return self.last_selection
-
         baseline_phase = (
             self.baseline_mixer.begin_decision()
             if self.baseline_mixer is not None
             else False
         )
-        if self.epsilon >= 1.0 or (
-            self.epsilon > 0.0 and self.rng.random() < self.epsilon
+        held_action = self._hold.held_action()
+        if held_action is not None:
+            self.last_selection = ActionSelection(
+                action_index=held_action,
+                exploratory=True,
+                held=True,
+            )
+            return self.last_selection
+
+        window_start = self._window_remaining <= 0
+        if window_start:
+            self._window_remaining = self.action_frame_span
+        self._window_remaining -= 1
+        if window_start and (
+            self.epsilon >= 1.0
+            or (self.epsilon > 0.0 and self.rng.random() < self.epsilon)
         ):
             action_index = int(self.rng.randrange(ACTION_OUTPUT_SIZE))
-            self._begin_hold(action_index, exploratory=True)
+            self._hold.begin(action_index, self.action_frame_span)
+            self._window_remaining = 0
             self.last_selection = ActionSelection(
                 action_index=action_index,
                 exploratory=True,
@@ -198,7 +200,6 @@ class ValueNetworkPolicy:
 
         if baseline_phase:
             action_index = int(self.baseline_mixer.baseline_action(observation))
-            self._begin_hold(action_index, exploratory=False, guided=True)
             self.last_selection = ActionSelection(
                 action_index=action_index,
                 exploratory=False,
@@ -229,13 +230,12 @@ class ValueNetworkPolicy:
                     else None
                 ),
             )
-        self._begin_hold(completed.action_index, exploratory=False)
         self.last_selection = completed
         return completed
 
     @property
     def baseline_counts(self) -> tuple[int, int]:
-        """Return ``(baseline decisions, all decisions)`` made so far."""
+        """Return ``(baseline frames, all frames)`` seen so far."""
 
         mixer = self.baseline_mixer
         if mixer is None:
@@ -249,23 +249,11 @@ class ValueNetworkPolicy:
         """
 
         self._hold.reset()
-        self._held_exploratory = False
-        self._held_guided = False
+        self._window_remaining = 0
         if self.baseline_mixer is not None:
             self.baseline_mixer.reset()
 
     reset_action_span = reset_exploration_span
-
-    def _begin_hold(
-        self,
-        action_index: int,
-        *,
-        exploratory: bool,
-        guided: bool = False,
-    ) -> None:
-        self._hold.begin(action_index, self.action_frame_span)
-        self._held_exploratory = bool(exploratory)
-        self._held_guided = bool(guided)
 
 
 def simple_opponent_schedule(rounds_per_batch: int) -> tuple[OpponentSpec, ...]:
@@ -430,7 +418,6 @@ def discover_existing_ai_opponents(
                     slot=slot_number,
                     model=loaded,
                     description=slot.description,
-                    action_frame_span=model_action_frame_span(slot.metadata),
                 )
             )
     return OpponentDiscoveryResult(opponents=tuple(opponents), skipped=tuple(skipped))
@@ -564,8 +551,10 @@ def baseline_mixer_for_config(
     return BaselinePhaseMixer(
         config.trainee_ship,
         baseline_use=config.baseline_use,
-        decisions_per_phase=baseline_decisions_per_phase(config.frame_span_multiplier),
-        action_frame_span=config.action_frame_span,
+        frames_per_phase=baseline_frames_per_phase(
+            config.action_frame_span,
+            config.frame_span_multiplier,
+        ),
         rng=rng,
     )
 
@@ -651,10 +640,7 @@ def run_training_round(
     }
     post_death_episode: PendingCombatEpisode | None = None
     next_display_frame_time = time.perf_counter()
-    baseline_opponent_controller = BaselineOpponentController(
-        action_frame_span=config.action_frame_span
-    )
-    opponent_hold = ActionHold()
+    baseline_opponent_controller = BaselineOpponentController()
     action_counts = [0] * ACTION_OUTPUT_SIZE
 
     for match_frame in range(config.match_time_limit):
@@ -703,7 +689,6 @@ def run_training_round(
                 simulation,
                 config,
                 baseline_opponent_controller,
-                opponent_hold=opponent_hold,
             ),
         }
         state = simulation.step(actions=actions)
@@ -862,7 +847,6 @@ def run_training_round(
                     mode=config.reward_mode,
                 )
                 baseline_opponent_controller.reset()
-                opponent_hold.reset()
                 episode_start_frame = state["frame_id"]
                 episode_mature_count = 0
                 episode_return_sum = 0.0
@@ -886,7 +870,6 @@ def run_training_round(
                     mode=config.reward_mode,
                 )
             baseline_opponent_controller.reset()
-            opponent_hold.reset()
             episode_start_frame = state["frame_id"]
             episode_mature_count = 0
             episode_return_sum = 0.0
@@ -1046,39 +1029,23 @@ def _opponent_direct_controls(
     simulation,
     config: TrainingOrchestrationConfig,
     baseline_controller: BaselineOpponentController,
-    *,
-    opponent_hold: ActionHold | None = None,
 ) -> TrainingAction:
     if opponent.model is None:
         controls = baseline_controller.direct_controls_for_frame(simulation)
     else:
-        hold_key = id(opponent.model)
-        held_action = (
-            opponent_hold.held_action(hold_key)
-            if opponent_hold is not None
-            else None
+        observation = encode_observation(
+            simulation.player2,
+            simulation.player1,
+            frame_id=simulation.frame_id,
+            game_objects=simulation.world,
         )
-        if held_action is None:
-            observation = encode_observation(
-                simulation.player2,
-                simulation.player1,
-                frame_id=simulation.frame_id,
-                game_objects=simulation.world,
-            )
-            selection = select_action_epsilon_greedy(
-                opponent.model,
-                observation,
-                epsilon=0.0,
-                value_predictor=predict_action_values_read_only,
-            )
-            held_action = selection.action_index
-            if opponent_hold is not None:
-                opponent_hold.begin(
-                    held_action,
-                    opponent.action_frame_span,
-                    key=hold_key,
-                )
-        controls = direct_controls_for_action_index(held_action)
+        selection = select_action_epsilon_greedy(
+            opponent.model,
+            observation,
+            epsilon=0.0,
+            value_predictor=predict_action_values_read_only,
+        )
+        controls = direct_controls_for_action_index(selection.action_index)
     return guard_computer_controls(
         controls,
         simulation.player2,

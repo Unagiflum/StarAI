@@ -35,7 +35,6 @@ class OpponentCacheEntry:
     completed_batches: int | None
     checkpoint_size: int | None
     checkpoint_mtime_ns: int | None
-    action_frame_span: int = 1
 
 
 @dataclass(frozen=True)
@@ -189,7 +188,6 @@ class OpponentModelCache:
                 slot=entry.key.slot,
                 model=entry.model,
                 description=entry.description,
-                action_frame_span=entry.action_frame_span,
             )
             for entry in entries
         )
@@ -232,7 +230,6 @@ def _entry_from_slot(
         completed_batches=loaded.completed_batches,
         checkpoint_size=loaded.checkpoint_size,
         checkpoint_mtime_ns=loaded.checkpoint_mtime_ns,
-        action_frame_span=loaded.action_frame_span,
     )
 
 

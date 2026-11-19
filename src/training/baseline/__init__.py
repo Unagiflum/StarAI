@@ -9,7 +9,7 @@ from src.training.baseline.controller import (
     BaselineController,
     BaselineOpponentController,
     BaselinePhaseMixer,
-    baseline_decisions_per_phase,
+    baseline_frames_per_phase,
 )
 from src.training.baseline.strategies import STRATEGIES, strategy_for
 
@@ -18,6 +18,6 @@ __all__ = (
     "BaselineOpponentController",
     "BaselinePhaseMixer",
     "STRATEGIES",
-    "baseline_decisions_per_phase",
+    "baseline_frames_per_phase",
     "strategy_for",
 )

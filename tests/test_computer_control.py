@@ -140,7 +140,7 @@ class ComputerShipInitializationTests(unittest.TestCase):
             ),
             mock.patch.object(BaselineController, "decide", return_value=a2_only),
         ):
-            controller = BaselineOpponentController(action_frame_span=1)
+            controller = BaselineOpponentController()
             blocked = controller.direct_controls_for_frame(simulation)
             self.assertFalse(blocked.a2)
 

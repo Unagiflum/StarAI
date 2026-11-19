@@ -46,6 +46,8 @@ class TrainingOrchestrationConfig:
     epsilon: float = 0.1
     epsilon_floor: float = 0.05
     epsilon_decay: float = 0.998
+    # Frames each exploratory (epsilon) action is held. The network and the
+    # baseline strategy decide every frame.
     action_frame_span: int = 1
     # Baseline control of the trainee: the chance each phase is flown by the
     # baseline strategy instead of the network, and how it decays per batch.
@@ -109,7 +111,6 @@ class OpponentSpec:
     slot: int | None = None
     model: Any | None = None
     description: str = ""
-    action_frame_span: int = 1
 
 
 @dataclass(frozen=True)
@@ -181,7 +182,6 @@ class OpponentControllerPlan:
                         mode=segment.opponent.mode,
                         slot=segment.opponent.slot,
                         description=segment.opponent.description,
-                        action_frame_span=segment.opponent.action_frame_span,
                     ),
                     start_frame=segment.start_frame,
                     end_frame=segment.end_frame,

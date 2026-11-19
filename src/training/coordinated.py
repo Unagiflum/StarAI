@@ -34,7 +34,6 @@ from src.training.batched_value_network import (
     train_selected_action_regression_batched,
 )
 from src.training.contracts import (
-    ACTION_INDEX_TABLE,
     ACTION_OUTPUT_SIZE,
     OBSERVATION_INPUT_SIZE,
     TrainingAction,
@@ -156,9 +155,6 @@ from src.training.windows_qos import training_high_qos
 TRAINEE_PARAMETER_CACHE_MAX_ENTRIES = 1
 
 
-_ACTION_INDEX_BY_MASK = {
-    action.mask: index for index, action in enumerate(ACTION_INDEX_TABLE)
-}
 _THREAD_PRIORITY_BELOW_NORMAL = -1
 
 
@@ -222,12 +218,12 @@ class CoordinatedActionBatchResult:
 
 
 class CoordinatedExplorationSchedule:
-    """Shared explore/greedy gate with per-record action holds.
+    """Shared explore/greedy gate with per-record exploration windows.
 
-    Each record holds its decided action for ``frame_span`` frames, whether the
-    decision was exploratory, baseline or greedy. Records that need a new
-    decision on the same frame share one explore/greedy roll, so greedy
-    decisions still run as one batched inference call. Records listed in
+    The network, and the baseline strategy during baseline phases, decide
+    every frame. Exploration is rolled once per ``frame_span`` window for each
+    record; an exploratory action is held for the whole window. Records whose
+    windows start on the same frame share one roll. Records listed in
     ``greedy_record_ids`` are in a greedy evaluation batch and never explore.
     Records with a ``baseline_mixers`` entry fly baseline phases between
     network phases; exploration applies to both.
@@ -251,55 +247,53 @@ class CoordinatedExplorationSchedule:
             for record_id, mixer in dict(baseline_mixers or {}).items()
             if int(record_id) not in self.greedy_record_ids
         }
-        self._holds: dict[int, tuple[ActionHold, bool, bool]] = {}
+        self._holds: dict[int, ActionHold] = {}
+        self._window_remaining: dict[int, int] = {}
 
     def begin_round(self) -> None:
         self._holds.clear()
+        self._window_remaining.clear()
         for mixer in self.baseline_mixers.values():
             mixer.reset()
 
     def reset_record(self, record_id: int) -> None:
-        """Do not carry one record's held action across an episode reset."""
+        """Do not carry one record's exploration across an episode reset."""
 
         self._holds.pop(int(record_id), None)
+        self._window_remaining.pop(int(record_id), None)
         mixer = self.baseline_mixers.get(int(record_id))
         if mixer is not None:
             mixer.reset()
 
     def baseline_counts(self, record_id: int) -> tuple[int, int]:
-        """Return ``(baseline decisions, all decisions)`` for one record."""
+        """Return ``(baseline frames, all frames)`` for one record."""
 
         mixer = self.baseline_mixers.get(int(record_id))
         if mixer is None:
             return 0, 0
         return int(mixer.baseline_decisions), int(mixer.decisions)
 
-    def begin_hold(
-        self,
-        record_id: int,
-        action_index: int,
-        *,
-        exploratory: bool,
-        guided: bool = False,
-    ) -> None:
-        hold = ActionHold()
-        hold.begin(action_index, self.frame_span)
-        self._holds[int(record_id)] = (hold, bool(exploratory), bool(guided))
-
     def held_selection(self, record_id: int) -> ActionSelection | None:
-        entry = self._holds.get(int(record_id))
-        if entry is None:
+        hold = self._holds.get(int(record_id))
+        if hold is None:
             return None
-        hold, exploratory, guided = entry
         action_index = hold.held_action()
         if action_index is None:
+            del self._holds[int(record_id)]
             return None
         return ActionSelection(
             action_index=action_index,
-            exploratory=exploratory,
+            exploratory=True,
             held=True,
-            guided=guided,
         )
+
+    def _window_starts(self, record_id: int) -> bool:
+        remaining = self._window_remaining.get(record_id, 0)
+        starts = remaining <= 0
+        if starts:
+            remaining = self.frame_span
+        self._window_remaining[record_id] = remaining - 1
+        return starts
 
     def prepare_selections(
         self,
@@ -309,26 +303,26 @@ class CoordinatedExplorationSchedule:
         needing network inference."""
 
         selections: dict[int, ActionSelection] = {}
+        baseline_phase = {
+            int(request.record_id): self.baseline_mixers[
+                int(request.record_id)
+            ].begin_decision()
+            for request in requests
+            if int(request.record_id) in self.baseline_mixers
+        }
         deciders: list[CoordinatedActionRequest] = []
+        explorers: list[CoordinatedActionRequest] = []
         for request in requests:
             record_id = int(request.record_id)
             held = self.held_selection(record_id)
             if held is not None:
                 selections[record_id] = held
-            else:
-                deciders.append(request)
-        baseline_phase = {
-            int(request.record_id): self.baseline_mixers[
-                int(request.record_id)
-            ].begin_decision()
-            for request in deciders
-            if int(request.record_id) in self.baseline_mixers
-        }
-        explorers = [
-            request
-            for request in deciders
-            if int(request.record_id) not in self.greedy_record_ids
-        ]
+                continue
+            deciders.append(request)
+            if record_id not in self.greedy_record_ids and self._window_starts(
+                record_id
+            ):
+                explorers.append(request)
         if explorers and (
             self.epsilon >= 1.0
             or (self.epsilon > 0.0 and self.rng.random() < self.epsilon)
@@ -336,7 +330,10 @@ class CoordinatedExplorationSchedule:
             for request in explorers:
                 record_id = int(request.record_id)
                 action_index = int(self.rng.randrange(ACTION_OUTPUT_SIZE))
-                self.begin_hold(record_id, action_index, exploratory=True)
+                hold = ActionHold()
+                hold.begin(action_index, self.frame_span)
+                self._holds[record_id] = hold
+                self._window_remaining[record_id] = 0
                 selections[record_id] = ActionSelection(
                     action_index=action_index,
                     exploratory=True,
@@ -355,7 +352,6 @@ class CoordinatedExplorationSchedule:
             action_index = int(
                 self.baseline_mixers[record_id].baseline_action(request.observation)
             )
-            self.begin_hold(record_id, action_index, exploratory=False, guided=True)
             selections[record_id] = ActionSelection(
                 action_index=action_index,
                 exploratory=False,
@@ -383,11 +379,6 @@ class CoordinatedValueNetworkPolicy:
         self.rng = exploration_schedule.rng
 
     def complete_greedy_selection(self, action_index: int) -> ActionSelection:
-        self.coordinated_exploration_schedule.begin_hold(
-            self.record_id,
-            int(action_index),
-            exploratory=False,
-        )
         return ActionSelection(action_index=int(action_index), exploratory=False)
 
     def reset_exploration_span(self) -> None:
@@ -691,7 +682,6 @@ class _WorkerWindowRuntime:
     frame_count: int = 0
     trainee_observation: Any | None = None
     opponent_observation: Any | None = None
-    opponent_hold: ActionHold = field(default_factory=ActionHold)
 
 
 class _WorkerRuntimeError(RuntimeError):
@@ -1943,20 +1933,11 @@ class CoordinatedTrainingSession:
                     self._record_inference_batch(action_result)
 
                     opponent_started_at = _timing_started_at(timing_seconds)
-                    held_opponent_controls: dict[int, TrainingAction] = {}
                     opponent_requests = []
                     for window in active_windows:
                         if window.opponent.model is None:
                             continue
                         record_id = window.state.record.instance_id
-                        held_action = window.opponent_hold.held_action(
-                            id(window.opponent.model)
-                        )
-                        if held_action is not None:
-                            held_opponent_controls[record_id] = (
-                                direct_controls_for_action_index(held_action)
-                            )
-                            continue
                         opponent_requests.append(
                             CoordinatedOpponentActionRequest(
                                 request_id=record_id,
@@ -1973,21 +1954,6 @@ class CoordinatedTrainingSession:
                             tuple(opponent_requests),
                         )
                     )
-                    windows_by_record = {
-                        item.state.record.instance_id: item
-                        for item in active_windows
-                    }
-                    for request in opponent_requests:
-                        decided = opponent_controls.get(int(request.request_id))
-                        if decided is None:
-                            continue
-                        window = windows_by_record[request.request_id]
-                        window.opponent_hold.begin(
-                            _ACTION_INDEX_BY_MASK[int(decided.mask)],
-                            request.opponent.action_frame_span,
-                            key=id(request.opponent.model),
-                        )
-                    opponent_controls.update(held_opponent_controls)
                     _add_timing_seconds(
                         timing_seconds,
                         "opponent_inference",
@@ -2066,7 +2032,6 @@ class CoordinatedTrainingSession:
                         )
                         if frame_result.terminal_episode is not None:
                             window.policy.reset_exploration_span()
-                            window.opponent_hold.reset()
                         if frame_result.audio_events:
                             self._relay_audio_events(record_id, frame_result.audio_events)
                         progress_payload = frame_result.progress_payload
@@ -2456,7 +2421,6 @@ class CoordinatedTrainingSession:
                     slot=int(state.record.slot.slot),
                     model=state.components.model,
                     description=state.record.slot.description,
-                    action_frame_span=int(state.record.config.action_frame_span),
                 )
             )
 
@@ -3146,7 +3110,7 @@ def run_coordinated_fixed_frame_window(
             gamma=config.gamma,
             reward_weights=config.reward_weights,
             mode=config.reward_mode,
-        ), BaselineOpponentController(action_frame_span=config.action_frame_span)
+        ), BaselineOpponentController()
 
     simulation, ledger, pipeline, baseline_controller = new_battle()
     episode_start_window_frame = window_frames_consumed
@@ -3356,7 +3320,7 @@ def run_coordinated_fixed_frame_window(
                             reward_weights=config.reward_weights,
                             mode=config.reward_mode,
                         )
-                    baseline_controller = BaselineOpponentController(action_frame_span=config.action_frame_span)
+                    baseline_controller = BaselineOpponentController()
                 else:
                     simulation, ledger, pipeline, baseline_controller = new_battle()
                 episode_start_window_frame = window_frames_consumed
@@ -3776,19 +3740,6 @@ def select_opponent_controls_for_windows(
                 else window.baseline_controller.controls_for_frame(simulation)
             )
             continue
-        opponent_hold = getattr(window, "opponent_hold", None)
-        held_action = (
-            opponent_hold.held_action(id(window.opponent.model))
-            if opponent_hold is not None
-            else None
-        )
-        if held_action is not None:
-            controls[id(window)] = (
-                direct_controls_for_action_index(held_action)
-                if direct
-                else controls_for_action_index(held_action)
-            )
-            continue
         observation = encode_observation(
             simulation.player2,
             simulation.player1,
@@ -3804,13 +3755,6 @@ def select_opponent_controls_for_windows(
         )
         action_indices = values.argmax(dim=1).detach().cpu().tolist()
         for (window, _observation), action_index in zip(grouped, action_indices):
-            opponent_hold = getattr(window, "opponent_hold", None)
-            if opponent_hold is not None:
-                opponent_hold.begin(
-                    int(action_index),
-                    window.opponent.action_frame_span,
-                    key=id(window.opponent.model),
-                )
             controls[id(window)] = (
                 direct_controls_for_action_index(int(action_index))
                 if direct
@@ -4243,7 +4187,7 @@ def _new_coordinated_battle(
             reward_weights=config.reward_weights,
             mode=config.reward_mode,
         ),
-        BaselineOpponentController(action_frame_span=config.action_frame_span),
+        BaselineOpponentController(),
     )
 
 
@@ -4539,7 +4483,7 @@ def _reset_coordinated_window_battle(
                 reward_weights=config.reward_weights,
                 mode=config.reward_mode,
             )
-        runtime.baseline_controller = BaselineOpponentController(action_frame_span=config.action_frame_span)
+        runtime.baseline_controller = BaselineOpponentController()
     else:
         (
             runtime.simulation,

@@ -215,9 +215,9 @@ REGIMEN_CONTROL_TOOLTIPS = (
         "after each completed batch."
     ),
     (
-        "Action frame span: hold every chosen action, exploratory or "
-        "greedy, for this many frames. Only the deciding frame becomes a "
-        "training sample, so each batch yields fewer samples."
+        "Action frame span: exploration is rolled once per this many "
+        "frames, and an exploratory action is held for the whole span. The "
+        "network and the baseline strategy decide every frame."
     ),
     (
         "Frame span multiplier: each baseline or network phase lasts this "
@@ -724,15 +724,14 @@ def _phase_frames_suffix(state: TrainingUIState) -> str:
 
 
 def _maximum_batch_samples(state: TrainingUIState) -> int:
-    """Return replay samples per batch: one per action decision."""
+    """Return the most replay samples a batch can yield: one per frame."""
 
-    frames = (
+    return max(
+        1,
         int(state.rounds_per_batch)
         * int(state.match_time_limit)
-        * len(SHIP_DEFINITIONS)
+        * len(SHIP_DEFINITIONS),
     )
-    span = max(1, int(getattr(state, "action_frame_span", 1)))
-    return max(1, -(-frames // span))
 
 
 def _regimen_control_warnings(state: TrainingUIState) -> dict[int, str]:

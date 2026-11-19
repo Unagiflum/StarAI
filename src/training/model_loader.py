@@ -23,7 +23,6 @@ from src.training.model_registry import (
     SLOT_EMPTY,
     TrainingModelRepository,
     TrainingModelSlot,
-    model_action_frame_span,
     model_architecture_metadata,
     model_slot_has_checkpoint,
     normalize_architecture_metadata,
@@ -53,12 +52,6 @@ class LoadedInferenceModel:
     completed_batches: int | None = None
     checkpoint_size: int | None = None
     checkpoint_mtime_ns: int | None = None
-
-    @property
-    def action_frame_span(self) -> int:
-        """Frames each inferred action is held, matching how it was trained."""
-
-        return model_action_frame_span(self.metadata)
 
 
 @dataclass(frozen=True)

@@ -9,7 +9,6 @@ from typing import Any, Mapping
 import src.const as const
 from src.persistence import EXPECTED_READ_ERRORS, atomic_write_json, read_json
 from src.training.contracts import (
-    ACTION_FRAME_SPAN_METADATA_KEY,
     ACTION_OUTPUT_SIZE,
     ACTION_SCHEMA_METADATA,
     ACTION_SCHEMA_VERSION,
@@ -125,26 +124,6 @@ def normalize_architecture_metadata(architecture: Mapping[str, Any]) -> dict[str
         loss=TRAINING_LOSS,
         head=head,
     )
-
-
-def model_action_frame_span(metadata: Mapping[str, Any] | None) -> int:
-    """Return how many frames a saved model holds each inferred action.
-
-    Models saved before action frame spans existed acted every frame; their
-    legacy ``epsilon_frame_span`` only grouped exploratory actions, so it is
-    deliberately ignored here.
-    """
-
-    if not isinstance(metadata, Mapping):
-        return 1
-    training = metadata.get("training")
-    regimen = training.get("regimen") if isinstance(training, Mapping) else None
-    if not isinstance(regimen, Mapping):
-        return 1
-    try:
-        return max(1, int(regimen.get(ACTION_FRAME_SPAN_METADATA_KEY, 1)))
-    except (TypeError, ValueError):
-        return 1
 
 
 def current_game_settings_metadata() -> dict[str, int]:

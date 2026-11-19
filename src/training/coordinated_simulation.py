@@ -32,7 +32,7 @@ from src.training.cpu_contracts import (
     single_controller_opponent_plan,
 )
 from src.training.episode_metrics import PendingCombatEpisode, finalize_pending_episodes
-from src.training.replay_contracts import ActionHold, ActionSelection
+from src.training.replay_contracts import ActionSelection
 from src.training.rewards import (
     MatureTrainingSample,
     REWARD_COMPONENTS,
@@ -67,7 +67,6 @@ class CoordinatedWindowRuntime:
     action_counts: list[int] = field(
         default_factory=lambda: [0] * ACTION_OUTPUT_SIZE
     )
-    opponent_hold: ActionHold = field(default_factory=ActionHold)
     rng: Any | None = None
 
     def __post_init__(self) -> None:
@@ -168,7 +167,7 @@ def new_coordinated_battle(
             reward_weights=config.reward_weights,
             mode=config.reward_mode,
         ),
-        BaselineOpponentController(action_frame_span=config.action_frame_span),
+        BaselineOpponentController(),
     )
 
 
@@ -525,7 +524,7 @@ def reset_coordinated_window_battle(
                 reward_weights=config.reward_weights,
                 mode=config.reward_mode,
             )
-        runtime.baseline_controller = BaselineOpponentController(action_frame_span=config.action_frame_span)
+        runtime.baseline_controller = BaselineOpponentController()
     else:
         (
             runtime.simulation,
@@ -541,7 +540,6 @@ def reset_coordinated_window_battle(
             resources=resources,
             ship_factory=ship_factory,
         )
-    runtime.opponent_hold.reset()
     runtime.episode_start_frame = runtime.simulation.frame_id
     runtime.episode_mature_count = 0
     runtime.episode_return_sum = 0.0

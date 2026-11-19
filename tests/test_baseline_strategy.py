@@ -155,7 +155,6 @@ class TurningTests(unittest.TestCase):
             ship_name="Earthling",
             view=view,
             memory=memory,
-            action_frame_span=4,
         )
 
     def test_turns_toward_bearing_outside_half_a_tap(self):
@@ -180,15 +179,13 @@ class StrategyTests(unittest.TestCase):
         for ship_name in SHIP_TYPE_CATALOG_ORDER:
             with self.subTest(ship=ship_name):
                 simulation = _simulation(ship_name, "Chenjesu", seed=7)
-                controller = BaselineController(ship_name, action_frame_span=4)
-                held = 0
-                for frame in range(48):
-                    if frame % 4 == 0:
-                        held = controller.decide(_observation(simulation))
-                        self.assertIn(held, range(len(ACTION_INDEX_TABLE)))
+                controller = BaselineController(ship_name)
+                for _frame in range(48):
+                    decided = controller.decide(_observation(simulation))
+                    self.assertIn(decided, range(len(ACTION_INDEX_TABLE)))
                     simulation.step(
                         actions={
-                            1: ACTION_INDEX_TABLE[held],
+                            1: ACTION_INDEX_TABLE[decided],
                             2: ACTION_INDEX_TABLE[0],
                         }
                     )
@@ -202,14 +199,13 @@ class StrategyTests(unittest.TestCase):
 
 
 class BaselinePhaseMixerTests(unittest.TestCase):
-    def test_phases_last_the_multiplier_in_decisions(self):
+    def test_phases_last_span_times_multiplier_frames(self):
         rng = mock.Mock()
         rng.random.side_effect = [0.1, 0.9, 0.1]
         mixer = BaselinePhaseMixer(
             "Earthling",
             baseline_use=0.5,
-            decisions_per_phase=3,
-            action_frame_span=4,
+            frames_per_phase=3,
             rng=rng,
         )
 
@@ -225,14 +221,32 @@ class BaselinePhaseMixerTests(unittest.TestCase):
         mixer = BaselinePhaseMixer(
             "Earthling",
             baseline_use=0.5,
-            decisions_per_phase=10,
-            action_frame_span=4,
+            frames_per_phase=10,
             rng=rng,
         )
 
         self.assertTrue(mixer.begin_decision())
         mixer.reset()
         self.assertFalse(mixer.begin_decision())
+
+    def test_turn_memory_skips_frames_flown_by_exploration(self):
+        mixer = BaselinePhaseMixer("Earthling", baseline_use=1.0, frames_per_phase=10)
+
+        with (
+            mock.patch.object(mixer.controller, "decide", return_value=0),
+            mock.patch.object(mixer.controller, "interrupt") as interrupt,
+        ):
+            mixer.begin_decision()
+            mixer.baseline_action([0.0])
+            mixer.begin_decision()
+            mixer.baseline_action([0.0])
+            interrupt.assert_not_called()
+            mixer.begin_decision()  # An exploratory frame.
+            mixer.begin_decision()
+            mixer.baseline_action([0.0])
+
+        interrupt.assert_called_once()
+        self.assertEqual((mixer.baseline_decisions, mixer.decisions), (3, 4))
 
     def test_mixer_is_only_built_when_baseline_use_is_positive(self):
         config = TrainingOrchestrationConfig(trainee_ship="Earthling")
@@ -241,10 +255,11 @@ class BaselinePhaseMixerTests(unittest.TestCase):
             TrainingOrchestrationConfig(
                 trainee_ship="Earthling",
                 baseline_use=0.25,
+                action_frame_span=4,
                 frame_span_multiplier=7,
             )
         )
-        self.assertEqual(mixer.decisions_per_phase, 7)
+        self.assertEqual(mixer.frames_per_phase, 28)
         self.assertEqual(mixer.baseline_use, 0.25)
 
 
@@ -257,7 +272,7 @@ class PolicyMixingTests(unittest.TestCase):
         mixer.decisions = 2
         return mixer
 
-    def test_baseline_phase_supplies_a_guided_held_action(self):
+    def test_baseline_phase_decides_every_frame(self):
         rng = mock.Mock()
         rng.random.return_value = 0.9
         mixer = self._mixer(True)
@@ -269,15 +284,38 @@ class PolicyMixingTests(unittest.TestCase):
             baseline_mixer=mixer,
         )
 
-        first = policy.prepare_action_selection([0.0])
-        held = policy.prepare_action_selection([0.0])
+        selections = [policy.prepare_action_selection([0.0]) for _ in range(4)]
 
-        self.assertEqual(first.action_index, 5)
-        self.assertTrue(first.guided)
-        self.assertFalse(first.exploratory)
-        self.assertTrue(held.held)
-        self.assertTrue(held.guided)
-        mixer.begin_decision.assert_called_once()
+        for selection in selections:
+            self.assertEqual(selection.action_index, 5)
+            self.assertTrue(selection.guided)
+            self.assertFalse(selection.exploratory)
+            self.assertFalse(selection.held)
+        self.assertEqual(mixer.baseline_action.call_count, 4)
+        self.assertEqual(mixer.begin_decision.call_count, 4)
+        # Exploration is rolled once per span window, not every frame.
+        self.assertEqual(rng.random.call_count, 2)
+
+    def test_exploratory_action_is_held_for_the_span_while_phases_advance(self):
+        rng = mock.Mock()
+        rng.random.return_value = 0.0
+        rng.randrange.return_value = 2
+        mixer = self._mixer(True)
+        policy = ValueNetworkPolicy(
+            object(),
+            epsilon=0.5,
+            action_frame_span=3,
+            rng=rng,
+            baseline_mixer=mixer,
+        )
+
+        selections = [policy.prepare_action_selection([0.0]) for _ in range(3)]
+
+        self.assertEqual([s.action_index for s in selections], [2, 2, 2])
+        self.assertEqual([s.held for s in selections], [False, True, True])
+        self.assertTrue(all(s.exploratory for s in selections))
+        self.assertEqual(mixer.begin_decision.call_count, 3)
+        mixer.baseline_action.assert_not_called()
 
     def test_exploration_applies_during_baseline_phases(self):
         rng = mock.Mock()
@@ -335,9 +373,10 @@ class CoordinatedScheduleMixingTests(unittest.TestCase):
         self.assertEqual(selections[1].action_index, 4)
         self.assertTrue(selections[1].guided)
         evaluation_mixer.begin_decision.assert_not_called()
-        held, _ = schedule.prepare_selections(requests[:1])
-        self.assertTrue(held[1].held)
-        self.assertTrue(held[1].guided)
+        again, _ = schedule.prepare_selections(requests[:1])
+        self.assertFalse(again[1].held)
+        self.assertTrue(again[1].guided)
+        self.assertEqual(training_mixer.baseline_action.call_count, 2)
 
 
 class BaselineUseDecayTests(unittest.TestCase):
@@ -425,19 +464,19 @@ class BaselineUseDecayTests(unittest.TestCase):
 
 
 class BaselineOpponentControllerTests(unittest.TestCase):
-    def test_holds_each_decision_for_the_action_span(self):
+    def test_decides_every_frame(self):
         simulation = _simulation("Earthling", "Spathi")
-        controller = BaselineOpponentController(action_frame_span=3)
+        controller = BaselineOpponentController()
 
         with mock.patch.object(
             BaselineController,
             "decide",
             side_effect=[ACTION_INDEX_BY_MASK[1], ACTION_INDEX_BY_MASK[8]],
         ) as decide:
-            actions = [controller.direct_controls_for_frame(simulation) for _ in range(4)]
+            actions = [controller.direct_controls_for_frame(simulation) for _ in range(2)]
 
         self.assertEqual(decide.call_count, 2)
-        self.assertEqual([action.mask for action in actions], [1, 1, 1, 8])
+        self.assertEqual([action.mask for action in actions], [1, 8])
 
 
 class BattleModeBaselineTests(unittest.TestCase):
