@@ -1,6 +1,7 @@
 """Baseline strategy engine, trainee phase mixing, opponents and battle mode."""
 
 import json
+import math
 import random
 import tempfile
 import unittest
@@ -37,6 +38,7 @@ from src.training.baseline import (
 )
 from src.training.baseline.engine import (
     ACTION_INDEX_BY_MASK,
+    AVOID_RANGE_FRACTION,
     BaselineContext,
     BaselineMemory,
     ControlPlan,
@@ -44,7 +46,11 @@ from src.training.baseline.engine import (
     TURN_NONE,
     TURN_RIGHT,
 )
-from src.training.baseline.observation_view import ObservationView, wrap_degrees
+from src.training.baseline.observation_view import (
+    ObservationView,
+    ObservedObject,
+    wrap_degrees,
+)
 from src.training.baseline.ship_specs import weapon_spec
 from src.training.contracts import ACTION_INDEX_TABLE, SHIP_TYPE_CATALOG_ORDER
 from src.training.coordinated import (
@@ -196,6 +202,190 @@ class StrategyTests(unittest.TestCase):
         spathi = weapon_spec("Spathi", 1)
         self.assertAlmostEqual(spathi.range, 120 * 10 * 0.9)
         self.assertEqual(weapon_spec("Mmrnmrhm", 1, "ywing").ability_name, "MmrnmrhmYWingA1")
+
+
+def _seen(bearing, distance, *, closing=0.0, group="enemy_ship"):
+    """An object at ``bearing`` that closes straight in at ``closing``."""
+
+    radians = math.radians(bearing)
+    forward = distance * math.cos(radians)
+    right = distance * math.sin(radians)
+    return ObservedObject(
+        group=group,
+        distance=float(distance),
+        bearing=float(bearing),
+        forward=forward,
+        right=right,
+        velocity_forward=-closing * math.cos(radians),
+        velocity_right=-closing * math.sin(radians),
+        closing_speed=float(closing),
+        lateral_speed=0.0,
+        crew_effect=0.0,
+        battery_effect=0.0,
+        hit_points=0.0,
+        expires=False,
+        remaining_seconds=0.0,
+    )
+
+
+def _rule_context(
+    ship_name,
+    *,
+    enemy=None,
+    enemy_name="Spathi",
+    planet=None,
+    enemy_objects=(),
+    battery=None,
+    battery_fraction=1.0,
+    held=(),
+    ywing=False,
+):
+    view = mock.Mock()
+    view.enemy = enemy
+    view.planet = planet
+    view.enemy_ship_type = enemy_name
+    view.enemy_objects = tuple(enemy_objects)
+    view.objects.side_effect = lambda group: (
+        tuple(enemy_objects) if group == "enemy_non_a1" else ()
+    )
+    view.me.held.side_effect = lambda control: control in held
+    view.me.battery_fraction = battery_fraction
+    view.me.battery = 100.0 if battery is None else battery
+    view.me.mmrnmrhm_ywing = ywing
+    view.me.androsynth_blazer = False
+    view.me.velocity_forward = 0.0
+    view.me.velocity_right = 0.0
+    view.enemy_block.androsynth_blazer = False
+    return BaselineContext(ship_name=ship_name, view=view, memory=BaselineMemory())
+
+
+class AvoidOpponentTests(unittest.TestCase):
+    def test_flees_at_135_degrees_only_from_a_near_closing_opponent(self):
+        near = const.ARENA_SIZE * AVOID_RANGE_FRACTION - 100.0
+        far = const.ARENA_SIZE * AVOID_RANGE_FRACTION + 100.0
+
+        fleeing = _rule_context("Spathi", enemy=_seen(10.0, near, closing=5.0))
+        self.assertTrue(fleeing.avoid_opponent())
+        # 10 - 135 = -125 needs less turning than 10 + 135 = 145.
+        self.assertEqual(fleeing.plan.turn, TURN_LEFT)
+        self.assertTrue(fleeing.plan.thrust)
+
+        self.assertFalse(
+            _rule_context("Spathi", enemy=_seen(10.0, far, closing=5.0)).avoid_opponent()
+        )
+        self.assertFalse(
+            _rule_context("Spathi", enemy=_seen(10.0, near, closing=-5.0)).avoid_opponent()
+        )
+
+    def test_escape_toward_the_planet_turns_45_degrees_off_it_on_the_quicker_side(self):
+        # Escape heading 10 - 135 = -125 points almost at the planet at -110.
+        context = _rule_context(
+            "Spathi",
+            enemy=_seen(10.0, 500.0, closing=5.0),
+            planet=_seen(-110.0, 1200.0, group="planet"),
+        )
+        with mock.patch.object(context, "steer", return_value=True) as steer:
+            context.avoid_opponent()
+        # -110 + 45 = -65 is nearer the nose than -110 - 45 = -155.
+        self.assertAlmostEqual(steer.call_args.args[0], -65.0)
+
+    def test_escape_clear_of_the_planet_keeps_its_heading(self):
+        context = _rule_context(
+            "Spathi",
+            enemy=_seen(10.0, 500.0, closing=5.0),
+            planet=_seen(-40.0, 1200.0, group="planet"),
+        )
+        with mock.patch.object(context, "steer", return_value=True) as steer:
+            context.avoid_opponent()
+        self.assertAlmostEqual(steer.call_args.args[0], -125.0)
+
+
+class ShipRuleTests(unittest.TestCase):
+    def test_pkunk_approaches_from_half_battery_and_flees_below(self):
+        enemy = _seen(0.0, 2000.0, closing=5.0)
+        charged = _rule_context("Pkunk", enemy=enemy, battery_fraction=0.5)
+        STRATEGIES["Pkunk"](charged)
+        low = _rule_context("Pkunk", enemy=enemy, battery_fraction=0.49)
+        STRATEGIES["Pkunk"](low)
+
+        self.assertTrue(charged.plan.a2)
+        self.assertTrue(low.plan.a2)
+        # Approaching heads 45 degrees off the opponent; fleeing 135.
+        self.assertTrue(charged.plan.thrust)
+        self.assertTrue(low.plan.thrust)
+        self.assertEqual(charged.memory.sides.keys(), {"a1_range_far"})
+        self.assertEqual(low.memory.sides.keys(), {"avoid_opponent"})
+
+    def test_pkunk_fires_a_side_gun_at_an_opponent_abeam(self):
+        # Inside weapon range but outside the band where approach backs off.
+        context = _rule_context("Pkunk", enemy=_seen(90.0, 380.0))
+        STRATEGIES["Pkunk"](context)
+
+        self.assertTrue(context.plan.a1)
+        self.assertEqual(context.plan.turn, TURN_NONE)
+
+    def test_druuge_recoils_only_away_from_closing_dangers_ahead(self):
+        ahead = _seen(20.0, 400.0, closing=10.0, group="enemy_non_a1")
+        behind = _seen(160.0, 400.0, closing=10.0, group="enemy_non_a1")
+        opening = _seen(20.0, 400.0, closing=-10.0, group="enemy_non_a1")
+        enemy = _seen(90.0, 3000.0)
+
+        def fires(enemy_name, *dangers):
+            context = _rule_context(
+                "Druuge",
+                enemy=enemy,
+                enemy_name=enemy_name,
+                enemy_objects=dangers,
+            )
+            STRATEGIES["Druuge"](context)
+            return bool(context.plan.a1)
+
+        self.assertTrue(fires("KzerZa", ahead))
+        self.assertTrue(fires("Vux", ahead))
+        self.assertFalse(fires("KzerZa", ahead, behind))
+        self.assertFalse(fires("KzerZa", opening))
+        self.assertFalse(fires("Spathi", ahead))
+
+    def test_druuge_points_at_the_nearest_target_and_burns_crew_when_drained(self):
+        dogi = _seen(-60.0, 900.0, group="enemy_non_a1")
+        context = _rule_context(
+            "Druuge",
+            enemy=_seen(60.0, 1500.0),
+            enemy_name="Chenjesu",
+            enemy_objects=(dogi,),
+            battery=1.0,
+        )
+        STRATEGIES["Druuge"](context)
+
+        self.assertEqual(context.plan.turn, TURN_LEFT)
+        self.assertFalse(context.plan.a1)
+        self.assertTrue(context.plan.a2)
+
+    def test_mmrnmrhm_switches_forms_around_xform_range(self):
+        x_range = weapon_spec("Mmrnmrhm", 1, "xform").range
+        near = _seen(30.0, x_range - 50.0, closing=5.0)
+        far = _seen(30.0, x_range + 500.0, closing=5.0)
+
+        x_near = _rule_context("Mmrnmrhm", enemy=near)
+        STRATEGIES["Mmrnmrhm"](x_near)
+        self.assertTrue(x_near.plan.a1)
+        self.assertTrue(x_near.plan.thrust)
+        self.assertEqual(x_near.plan.turn, TURN_RIGHT)
+        self.assertFalse(x_near.plan.a2)
+
+        x_far = _rule_context("Mmrnmrhm", enemy=far)
+        STRATEGIES["Mmrnmrhm"](x_far)
+        self.assertTrue(x_far.plan.a2)
+
+        y_near = _rule_context("Mmrnmrhm", enemy=near, ywing=True)
+        STRATEGIES["Mmrnmrhm"](y_near)
+        self.assertTrue(y_near.plan.a2)
+
+        y_far = _rule_context("Mmrnmrhm", enemy=far, ywing=True)
+        STRATEGIES["Mmrnmrhm"](y_far)
+        self.assertFalse(y_far.plan.a2)
+        self.assertTrue(y_far.plan.a1)
+        self.assertEqual(y_far.memory.sides.keys(), {"avoid_opponent"})
 
 
 class BaselinePhaseMixerTests(unittest.TestCase):

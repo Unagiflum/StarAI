@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from src.training.baseline.engine import BaselineContext, StrategyFunction
 from src.training.baseline.observation_view import bearing_of, wrap_degrees
-from src.training.baseline.ship_specs import weapon_spec
+from src.training.baseline.ship_specs import FORM_XFORM, weapon_spec
 
 # Collision windows from the specification, in seconds. The engine adds one
 # action span to each so a reaction is never a decision late.
@@ -20,8 +20,9 @@ UMGAH_RETRO_SECONDS = 0.2
 # Distances from the specification, in world units.
 LONG_RANGE = 1000.0
 FAR_RANGE = 2000.0
-DRUUGE_RECOIL_THREAT_RANGE = 400.0
-DRUUGE_RECOIL_SAFE_TAIL_ANGLE = 45.0
+DRUUGE_ESCAPE_RANGE = 500.0
+# Ships whose fighters, Dogi or limpets the Druuge recoils away from.
+DRUUGE_ESCAPE_DANGER_SHIPS = frozenset({"KzerZa", "Chenjesu", "Vux"})
 # Ships whose hulls the Kzer-Za fighters should not be wasted on.
 KZER_ZA_FIGHTER_COUNTERS = frozenset({"Earthling", "Thraddash"})
 TRACTOR_IMMUNE_SHIPS = frozenset({"Arilou", "Slylandro"})
@@ -117,37 +118,40 @@ def chmmr(ctx: BaselineContext) -> None:
 
 
 def druuge(ctx: BaselineContext) -> None:
-    close_threats = [
-        threat
-        for threat in ctx.view.objects("enemy_non_a1")
-        if threat.distance <= DRUUGE_RECOIL_THREAT_RANGE and threat.closing_speed > 0.0
-    ]
-    if close_threats:
-        # Recoil pushes the ship backward; fire only if no threat sits behind.
-        tail_clear = all(
-            abs(wrap_degrees(threat.bearing - 180.0)) > DRUUGE_RECOIL_SAFE_TAIL_ANGLE
-            for threat in close_threats
-        )
-        if tail_clear:
-            ctx.a1(True)
-    ctx.avoid_opponent()
-    if ctx.me.battery < ctx.spec.a1_cost:
-        ctx.a2(True)
+    dangers = (
+        [
+            danger
+            for danger in ctx.view.objects("enemy_non_a1")
+            if danger.distance < DRUUGE_ESCAPE_RANGE
+        ]
+        if ctx.enemy_name in DRUUGE_ESCAPE_DANGER_SHIPS
+        else []
+    )
+    if any(danger.closing_speed > 0.0 for danger in dangers) and all(
+        # Recoil pushes the ship backward, so every danger must sit ahead.
+        abs(danger.bearing) <= 90.0
+        for danger in dangers
+    ):
+        ctx.a1(True)
     targets = [ctx.enemy] if ctx.enemy is not None else []
     if ctx.enemy_name == "Chenjesu":
         targets.extend(ctx.view.objects("enemy_non_a1"))
     target = min(targets, key=lambda item: item.distance, default=None)
-    if target is not None and target.distance <= ctx.weapon(1).range:
+    if target is not None:
         if target is ctx.enemy:
+            ctx.point_weapon(1)
             aimed = ctx.pointing(1)
         else:
+            ctx.point_at(target.bearing)
             tolerance = max(
                 ctx.weapon(1).pointing_tolerance,
                 ctx.memory.tap_degrees / 2.0,
             )
             aimed = abs(wrap_degrees(target.bearing)) <= tolerance
-        if aimed:
+        if aimed and target.distance <= ctx.weapon(1).range:
             ctx.a1(True)
+    if ctx.me.battery < ctx.spec.a1_cost:
+        ctx.a2(True)
 
 
 def earthling(ctx: BaselineContext) -> None:
@@ -200,23 +204,21 @@ def kzer_za(ctx: BaselineContext) -> None:
 
 
 def mmrnmrhm(ctx: BaselineContext) -> None:
-    enemy = ctx.enemy
     x_form = not ctx.me.mmrnmrhm_ywing
-    closing_seconds = enemy.closing_seconds() if enemy is not None else float("inf")
-    if x_form and ctx.in_range(1):
+    seen = ctx.enemy is not None
+    in_x_range = seen and ctx.distance <= weapon_spec("Mmrnmrhm", 1, FORM_XFORM).range
+    if x_form and in_x_range:
         ctx.a1(True)
-    if x_form and not ctx.in_range(1) and closing_seconds > 3.0:
+        ctx.approach_opponent()
+    if x_form and seen and not in_x_range:
+        # Weapon 2 toggles the form on a fresh press.
         ctx.a2(ctx.press("a2"))
-    if (
-        not x_form
-        and enemy is not None
-        and closing_seconds < 1.0
-        and abs(enemy.lateral_speed) < 0.2 * enemy.closing_speed
-    ):
+    if not x_form and in_x_range:
         ctx.a2(ctx.press("a2"))
     if not x_form:
         ctx.avoid_opponent()
         ctx.a1(True)
+    ctx.point_at_opponent()
 
 
 def melnorme(ctx: BaselineContext) -> None:
@@ -270,12 +272,14 @@ def orz(ctx: BaselineContext) -> None:
 
 def pkunk(ctx: BaselineContext) -> None:
     ctx.a2(True)
-    battery = ctx.me.battery_fraction
-    if battery < 0.30:
-        ctx.avoid_opponent()
-    if battery > 0.30 and not ctx.in_range(1):
+    if ctx.battery_at_least(0.50):
         ctx.approach_weapon_range(1)
-    if battery > 0.30 and ctx.in_range(1) and ctx.pointing(1):
+    else:
+        ctx.avoid_opponent()
+    # Aiming uses whichever of the front and side guns is nearest the target.
+    if ctx.in_range(1):
+        ctx.point_weapon(1)
+    if ctx.in_range(1) and ctx.pointing(1):
         ctx.a1(True)
 
 

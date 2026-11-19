@@ -41,6 +41,8 @@ TURN_RIGHT = 1
 # Heading offsets used by the shared behaviors, in degrees.
 APPROACH_ANGLE_OFFSET = 45.0
 AVOID_ANGLE_OFFSET = 135.0
+# [Avoid_Opponent] applies only within this fraction of the arena size.
+AVOID_RANGE_FRACTION = 0.3
 PERPENDICULAR_AWAY_OFFSET = 110.0
 PLANET_SIDESTEP_OFFSET = 45.0
 # Fraction of a range below which [Approach_Range] backs off.
@@ -440,24 +442,34 @@ class BaselineContext:
         return self.steer(target.bearing)
 
     def avoid_opponent(self) -> bool:
+        """[Avoid_Opponent]: flee a closing opponent at 135 degrees off its bearing.
+
+        Applies only while the opponent closes and is nearer than
+        ``AVOID_RANGE_FRACTION`` of the arena. If the escape heading would
+        lead within 45 degrees of a nearby planet, fly 45 degrees to the side
+        of the planet instead, on whichever side the nose reaches sooner.
+        """
+
         enemy = self.enemy
-        if enemy is None or enemy.closing_speed <= 0.0:
+        if (
+            enemy is None
+            or enemy.closing_speed <= 0.0
+            or enemy.distance >= float(const.ARENA_SIZE) * AVOID_RANGE_FRACTION
+        ):
             return False
         heading = self.side("avoid_opponent", enemy.bearing, AVOID_ANGLE_OFFSET)
         planet = self.planet
         if (
             planet is not None
             and planet.distance < const.GRAVITY_RANGE * PLANET_AVOID_LOOKAHEAD
-            and abs(wrap_degrees(planet.bearing - heading)) < PLANET_SIDESTEP_OFFSET
+            and abs(wrap_degrees(heading - planet.bearing)) < PLANET_SIDESTEP_OFFSET
         ):
-            # Sidestep the planet on the side away from the opponent.
-            candidates = (
-                wrap_degrees(planet.bearing + PLANET_SIDESTEP_OFFSET),
-                wrap_degrees(planet.bearing - PLANET_SIDESTEP_OFFSET),
-            )
-            heading = max(
-                candidates,
-                key=lambda candidate: abs(wrap_degrees(candidate - enemy.bearing)),
+            heading = min(
+                (
+                    wrap_degrees(planet.bearing + PLANET_SIDESTEP_OFFSET),
+                    wrap_degrees(planet.bearing - PLANET_SIDESTEP_OFFSET),
+                ),
+                key=abs,
             )
         return self.steer(heading)
 
