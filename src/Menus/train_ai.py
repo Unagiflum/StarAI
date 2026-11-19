@@ -125,24 +125,9 @@ GO_TO_EPSILON_NO_DECAY_WARNING = (
 GO_TO_BATCH_REACHED_WARNING = "This batch target has already been reached."
 OPPONENT_CONTROL_TOOLTIPS = (
     (
-        "Simple vs. AI: set the percentage of each opponent matchup controlled "
-        "by a trained AI. The remainder uses the simple behavior below."
-    ),
-    (
-        "Forward Activity: set how actively the simple opponent toggles its "
-        "thrust control."
-    ),
-    (
-        "A1 Activity: set how actively the simple opponent uses its primary "
-        "ability."
-    ),
-    (
-        "A2 Activity: set how actively the simple opponent uses its secondary "
-        "ability."
-    ),
-    (
-        "Face opponent: set how consistently the simple opponent turns toward "
-        "the trainee."
+        "Baseline opponent: set the percentage of each opponent matchup flown "
+        "by that ship's baseline strategy. The remainder uses trained AI "
+        "models where they exist."
     ),
 )
 REWARD_CONTROL_TOOLTIPS = {
@@ -217,9 +202,27 @@ REGIMEN_CONTROL_TOOLTIPS = (
         "completed batch."
     ),
     (
+        "Starting baseline use: set the initial chance that each phase of "
+        "trainee control is flown by the ship's baseline strategy instead of "
+        "the network. Exploration applies to both. The value in parentheses "
+        "is the current baseline use."
+    ),
+    (
+        "Baseline floor: set the lowest baseline use allowed as it decays."
+    ),
+    (
+        "Baseline use decay: multiply the current baseline use by this value "
+        "after each completed batch."
+    ),
+    (
         "Action frame span: hold every chosen action, exploratory or "
         "greedy, for this many frames. Only the deciding frame becomes a "
         "training sample, so each batch yields fewer samples."
+    ),
+    (
+        "Frame span multiplier: each baseline or network phase lasts this "
+        "many action frame spans. The value shows the phase length in "
+        "frames."
     ),
     (
         "Gamma: set how strongly future rewards contribute to the training "
@@ -256,8 +259,16 @@ TRAINING_LOG_EVEN_ROW_COLOR = (155, 155, 255)
 TRAINING_LOG_SPEED_COLOR = (0, 255, 0)
 TRAINING_LOG_EVALUATION_COLOR = (255, 215, 0)
 
-SIMPLE_ACTIVITY_VALUES = tuple(float(value) for value in range(0, 101, 5))
-AI_OPPONENT_PERCENT_VALUES = SIMPLE_ACTIVITY_VALUES
+RETIRED_OPPONENT_SETTING_KEYS = (
+    "forward_activity",
+    "a1_activity",
+    "a2_activity",
+    "face_opponent_activity",
+)
+# Percent of opponent frames flown by the baseline strategy. The training
+# config stores the complement as ``ai_opponent_chance``.
+BASELINE_OPPONENT_PERCENT_VALUES = tuple(float(value) for value in range(0, 101, 5))
+AI_OPPONENT_PERCENT_VALUES = BASELINE_OPPONENT_PERCENT_VALUES
 TRAINING_DEVICE_LABELS = (
     (torch_backend.DEVICE_AUTO, "Auto"),
     (torch_backend.DEVICE_CPU, "CPU"),
@@ -281,7 +292,11 @@ LEARNING_RATE_VALUES = (0.00001, 0.00003, 0.00010, 0.00030, 0.00100, 0.00300, 0.
 EPSILON_VALUES = tuple(round(i * 0.025, 3) for i in range(41))
 EPSILON_FLOOR_VALUES = tuple(round(i * 0.005, 3) for i in range(31))
 EPSILON_DECAY_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
+STARTING_BASELINE_USE_VALUES = tuple(round(i * 0.01, 3) for i in range(101))
+BASELINE_FLOOR_VALUES = tuple(round(i * 0.005, 3) for i in range(51))
+BASELINE_DECAY_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
 ACTION_FRAME_SPAN_VALUES = tuple(range(1, 49))
+FRAME_SPAN_MULTIPLIER_VALUES = tuple(range(1, 121))
 GAMMA_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(50))
 HIDDEN_LAYER_SIZE_VALUES = (16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
 HIDDEN_LAYER_COUNT_VALUES = tuple(range(1, 9, 1))
@@ -292,13 +307,18 @@ REGIMEN_REPLAY_BUFFER_INDEX = 3
 REGIMEN_STARTING_EPSILON_INDEX = 4
 REGIMEN_EPSILON_FLOOR_INDEX = 5
 REGIMEN_EPSILON_DECAY_INDEX = 6
-REGIMEN_ACTION_FRAME_SPAN_INDEX = 7
-REGIMEN_GAMMA_INDEX = 8
-REGIMEN_MINIBATCH_SIZE_INDEX = 9
-REGIMEN_REPLAY_UPDATES_INDEX = 10
-REGIMEN_LEARNING_RATE_INDEX = 11
-REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 12
-REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 13
+REGIMEN_STARTING_BASELINE_USE_INDEX = 7
+REGIMEN_BASELINE_FLOOR_INDEX = 8
+REGIMEN_BASELINE_DECAY_INDEX = 9
+REGIMEN_ACTION_FRAME_SPAN_INDEX = 10
+REGIMEN_FRAME_SPAN_MULTIPLIER_INDEX = 11
+REGIMEN_GAMMA_INDEX = 12
+REGIMEN_MINIBATCH_SIZE_INDEX = 13
+REGIMEN_REPLAY_UPDATES_INDEX = 14
+REGIMEN_LEARNING_RATE_INDEX = 15
+REGIMEN_HIDDEN_LAYER_SIZE_INDEX = 16
+REGIMEN_HIDDEN_LAYER_COUNT_INDEX = 17
+REGIMEN_SLIDER_COUNT = REGIMEN_HIDDEN_LAYER_COUNT_INDEX + 1
 START_ALL_GREEN = tuple(max(0, channel - 50) for channel in ui.OK_GREEN[:3]) + (
     ui.OK_GREEN[3],
 )
@@ -315,7 +335,11 @@ REGIMEN_CONTROLLED_FIELDS = (
     "starting_epsilon",
     "epsilon_floor",
     "epsilon_decay",
+    "starting_baseline_use",
+    "baseline_floor",
+    "baseline_decay",
     "action_frame_span",
+    "frame_span_multiplier",
     "gamma",
     "minibatch_size",
     "replay_updates_per_batch",
@@ -335,10 +359,6 @@ FUTURE_CHANGE_SCALAR_FIELDS = (
     "go_to_epsilon_value",
     "opponent_mode",
     "ai_opponent_chance",
-    "forward_activity",
-    "a1_activity",
-    "a2_activity",
-    "face_opponent_activity",
     "replay_buffer_size",
     "starting_epsilon",
     "epsilon_floor",
@@ -456,11 +476,9 @@ class TrainingUIState:
         }
     )
     opponent_mode: str = "all"
+    # Trained-AI share of opponent frames; the UI shows its complement as the
+    # baseline opponent percentage.
     ai_opponent_chance: float = 100.0
-    forward_activity: float = 0.0
-    a1_activity: float = 25.0
-    a2_activity: float = 0.0
-    face_opponent_activity: float = 100.0
     rounds_per_batch: int = 1
     batch_grouping: int = 10
     match_time_limit: int = 1200
@@ -469,7 +487,12 @@ class TrainingUIState:
     current_epsilon: float = 0.500
     epsilon_floor: float = 0.050
     epsilon_decay: float = 0.998
+    starting_baseline_use: float = 0.50
+    current_baseline_use: float = 0.50
+    baseline_floor: float = 0.0
+    baseline_decay: float = 0.995
     action_frame_span: int = 4
+    frame_span_multiplier: int = 6
     gamma: float = 0.990
     minibatch_size: int = 2048
     replay_updates_per_batch: int = 15
@@ -490,8 +513,15 @@ class TrainingUIState:
     loaded_training: dict | None = None
 
     @property
-    def simple_behavior_controls_enabled(self):
-        return not self.running
+    def baseline_opponent_chance(self) -> float:
+        """Percent of opponent frames flown by the baseline strategy."""
+
+        return 100.0 - float(self.ai_opponent_chance)
+
+    @baseline_opponent_chance.setter
+    def baseline_opponent_chance(self, value) -> None:
+        self.ai_opponent_chance = 100.0 - max(0.0, min(100.0, float(value)))
+        self.opponent_mode = "all" if self.ai_opponent_chance > 0 else "simple"
 
     @property
     def epsilon(self):
@@ -683,6 +713,16 @@ def _go_to_epsilon_warning(state: TrainingUIState):
     return None
 
 
+def _phase_frames_suffix(state: TrainingUIState) -> str:
+    """Label suffix showing one baseline/network phase length in frames."""
+
+    frames = max(1, int(state.action_frame_span)) * max(
+        1,
+        int(state.frame_span_multiplier),
+    )
+    return f" ({frames} frames)"
+
+
 def _maximum_batch_samples(state: TrainingUIState) -> int:
     """Return replay samples per batch: one per action decision."""
 
@@ -775,6 +815,18 @@ def _sync_instance_current_epsilon(instance, status=None) -> float:
         )
         instance.state.current_epsilon = current_epsilon
     return current_epsilon
+
+
+def _sync_instance_current_baseline_use(instance, status=None) -> float:
+    """Refresh one UI state's current baseline use from its live session."""
+
+    if status is None and instance.session is not None:
+        status = instance.session.status
+    current = float(instance.state.current_baseline_use)
+    if status is not None and getattr(status, "running", False):
+        current = float(getattr(status, "current_baseline_use", current))
+        instance.state.current_baseline_use = current
+    return current
 
 
 def coordinated_architecture_signature(architecture) -> tuple[tuple[str, object], ...]:
@@ -2529,6 +2581,12 @@ def _normalized_training_settings(training):
             regimen["starting_epsilon"] = regimen["epsilon"]
         regimen.pop("current_epsilon", None)
         regimen.pop("epsilon", None)
+        regimen.pop("current_baseline_use", None)
+    opponent = normalized.get("opponent")
+    if isinstance(opponent, dict):
+        # The simple opponent's activity settings were retired with it.
+        for key in RETIRED_OPPONENT_SETTING_KEYS:
+            opponent.pop(key, None)
     return normalized
 
 
@@ -2582,25 +2640,11 @@ def apply_model_conditions_to_state(state, metadata):
                     opponent["ai_opponent_chance"],
                     float,
                     AI_OPPONENT_PERCENT_VALUES,
-                    "Simple vs. AI",
+                    "Baseline opponent",
                 )
             elif opponent.get("mode") in {"all", "simple"}:
                 state.ai_opponent_chance = 100.0 if opponent["mode"] == "all" else 0.0
             state.opponent_mode = "all" if state.ai_opponent_chance > 0 else "simple"
-            for key, label in (
-                ("forward_activity", "Forward Activity"),
-                ("a1_activity", "A1 Activity"),
-                ("a2_activity", "A2 Activity"),
-                ("face_opponent_activity", "Face opponent"),
-            ):
-                if key in opponent:
-                    assign_allowed(
-                        key,
-                        opponent[key],
-                        float,
-                        SIMPLE_ACTIVITY_VALUES,
-                        label,
-                    )
 
         rewards = training.get("rewards", {})
         if isinstance(rewards, dict):
@@ -2632,12 +2676,28 @@ def apply_model_conditions_to_state(state, metadata):
                 ("learning_rate", float, LEARNING_RATE_VALUES),
                 ("epsilon_floor", float, EPSILON_FLOOR_VALUES),
                 ("epsilon_decay", float, EPSILON_DECAY_VALUES),
+                ("starting_baseline_use", float, STARTING_BASELINE_USE_VALUES),
+                ("baseline_floor", float, BASELINE_FLOOR_VALUES),
+                ("baseline_decay", float, BASELINE_DECAY_VALUES),
                 ("action_frame_span", int, ACTION_FRAME_SPAN_VALUES),
+                ("frame_span_multiplier", int, FRAME_SPAN_MULTIPLIER_VALUES),
                 ("gamma", float, GAMMA_VALUES),
             )
             for key, caster, allowed in regimen_fields:
                 if key in regimen:
                     assign_allowed(key, regimen[key], caster, allowed, key.replace("_", " "))
+            if "starting_baseline_use" in regimen:
+                try:
+                    state.current_baseline_use = float(
+                        regimen.get("current_baseline_use", state.starting_baseline_use)
+                    )
+                except (TypeError, ValueError):
+                    state.current_baseline_use = state.starting_baseline_use
+                    skipped.append("current baseline use")
+            else:
+                # Models trained before baseline control existed start fresh
+                # at the current starting value.
+                state.current_baseline_use = state.starting_baseline_use
             starting_key = "starting_epsilon" if "starting_epsilon" in regimen else "epsilon"
             if starting_key in regimen:
                 assign_allowed(
@@ -3797,6 +3857,14 @@ def _current_batch_console_lines(status):
             _current_batch_row("Gamma", f"{getattr(status, 'gamma', 0.0):>15.3f}"),
             _current_batch_row("Eps decay", f"{getattr(status, 'epsilon_decay', 0.0):>15.3f}"),
             _current_batch_row("Epsilon", f"{getattr(status, 'current_epsilon', 0.0):>17.5f}"),
+            _current_batch_row(
+                "Baseline",
+                f"{getattr(status, 'current_baseline_use', 0.0):>17.5f}",
+            ),
+            _current_batch_row(
+                "Base share",
+                f"{getattr(status, 'last_baseline_share', 0.0):>17.1%}",
+            ),
             _current_batch_row("Learning", f"{getattr(status, 'learning_rate', 0.0):>17.5f}"),
             "",
         ]
@@ -4125,7 +4193,7 @@ def _training_hud_badges(status):
             opponent_mode == OPPONENT_MODE_EXISTING_AI
             and opponent_slot is not None
         )
-        else HudBadge("simple")
+        else HudBadge("baseline")
     )
     return {
         1: HudBadge("countdown", remaining_seconds),
@@ -4176,10 +4244,6 @@ def training_config_from_state(
         reward_weights=dict(state.rewards),
         opponent_mode=state.opponent_mode,
         ai_opponent_chance=state.ai_opponent_chance,
-        forward_activity=state.forward_activity,
-        a1_activity=state.a1_activity,
-        a2_activity=state.a2_activity,
-        face_opponent_activity=state.face_opponent_activity,
         rounds_per_batch=state.rounds_per_batch,
         gamma=state.gamma,
         match_time_limit=state.match_time_limit,
@@ -4189,7 +4253,15 @@ def training_config_from_state(
         epsilon=state.current_epsilon,
         epsilon_floor=state.epsilon_floor,
         epsilon_decay=state.epsilon_decay,
+        starting_baseline_use=state.starting_baseline_use,
+        baseline_use=max(
+            float(state.baseline_floor),
+            min(1.0, float(state.current_baseline_use)),
+        ),
+        baseline_floor=state.baseline_floor,
+        baseline_decay=state.baseline_decay,
         action_frame_span=state.action_frame_span,
+        frame_span_multiplier=state.frame_span_multiplier,
         hidden_layer_width=state.hidden_layer_size,
         hidden_layer_count=state.hidden_layer_count,
         minibatch_size=state.minibatch_size,
@@ -4283,13 +4355,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         maximum=32,
     )
     opponent_font = largest_fitting_font(
-        (
-            "Simple vs. AI",
-            "Forward Activity",
-            "A1 Activity",
-            "A2 Activity",
-            "Face opponent",
-        ),
+        ("Baseline opponent",),
         142,
         max_height=30,
         maximum=28,
@@ -4308,6 +4374,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         max_height=min(26, step),
         maximum=min(24, step - 4),
     )
+    regimen_spacing = (
+        min(38, (available_height - 30) // max(1, REGIMEN_SLIDER_COUNT - 1))
+        if REGIMEN_SLIDER_COUNT > 1
+        else 38
+    )
     regimen_font = largest_fitting_font(
         (
             "Match frame length: 12000",
@@ -4317,17 +4388,21 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Minibatch size: 4096",
             "Gradient steps: 500 (UTD=999.99)",
             "Learning rate: 0.01000",
-            "Starting Epsilon: 1.000",
+            "Starting Epsilon: 1.000 (1.000)",
             "Epsilon floor: 0.150",
             "Epsilon decay: 1.000",
-            "Epsilon frame span: 48",
+            "Starting baseline use: 1.00 (1.000)",
+            "Baseline floor: 0.250",
+            "Baseline use decay: 1.000",
+            "Action frame span: 48",
+            "Frame span multiplier: 120 (5760 frames)",
             "Gamma: 0.999",
             "Hidden layer size: 4096",
             "Hidden layer count: 8",
         ),
         320,
-        max_height=24,
-        maximum=22,
+        max_height=min(24, regimen_spacing - 4),
+        maximum=min(22, regimen_spacing - 6),
     )
     apply_all_font = largest_fitting_font(
         ("Apply actions to all instances",),
@@ -4624,89 +4699,32 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     ]
     rewards_content_height = reward_sliders[-1].rect.bottom + 8
     rewards_scroll_y = 0
-    opponent_panels = (
-        pygame.Rect(12, 12, CONTROL_WIDTH - 24, 70),
-        pygame.Rect(12, 92, CONTROL_WIDTH - 24, 222),
-    )
+    opponent_panels = (pygame.Rect(12, 12, CONTROL_WIDTH - 24, 70),)
     opponent_label_width = 170
     opponent_value_width = 58
-    ai_opponent_slider = SliderRow(
+    baseline_opponent_slider = SliderRow(
         (20, 22, CONTROL_WIDTH - 40, 44),
-        "Simple vs. AI",
-        AI_OPPONENT_PERCENT_VALUES[0],
-        AI_OPPONENT_PERCENT_VALUES[-1],
-        state.ai_opponent_chance,
+        "Baseline opponent",
+        BASELINE_OPPONENT_PERCENT_VALUES[0],
+        BASELINE_OPPONENT_PERCENT_VALUES[-1],
+        state.baseline_opponent_chance,
         is_int=True,
         step=5.0,
-        values=AI_OPPONENT_PERCENT_VALUES,
+        values=BASELINE_OPPONENT_PERCENT_VALUES,
         value_formatter=_format_percent,
         label_width=opponent_label_width,
         value_width=opponent_value_width,
     )
-    simple_activity_sliders = (
-        SliderRow(
-            (20, 102, CONTROL_WIDTH - 40, 44),
-            "Forward Activity",
-            SIMPLE_ACTIVITY_VALUES[0],
-            SIMPLE_ACTIVITY_VALUES[-1],
-            state.forward_activity,
-            step=5.0,
-            values=SIMPLE_ACTIVITY_VALUES,
-            value_formatter=_format_percent,
-            label_width=opponent_label_width,
-            value_width=opponent_value_width,
-        ),
-        SliderRow(
-            (20, 152, CONTROL_WIDTH - 40, 44),
-            "A1 Activity",
-            SIMPLE_ACTIVITY_VALUES[0],
-            SIMPLE_ACTIVITY_VALUES[-1],
-            state.a1_activity,
-            step=5.0,
-            values=SIMPLE_ACTIVITY_VALUES,
-            value_formatter=_format_percent,
-            label_width=opponent_label_width,
-            value_width=opponent_value_width,
-        ),
-        SliderRow(
-            (20, 202, CONTROL_WIDTH - 40, 44),
-            "A2 Activity",
-            SIMPLE_ACTIVITY_VALUES[0],
-            SIMPLE_ACTIVITY_VALUES[-1],
-            state.a2_activity,
-            step=5.0,
-            values=SIMPLE_ACTIVITY_VALUES,
-            value_formatter=_format_percent,
-            label_width=opponent_label_width,
-            value_width=opponent_value_width,
-        ),
-        SliderRow(
-            (20, 252, CONTROL_WIDTH - 40, 44),
-            "Face opponent",
-            SIMPLE_ACTIVITY_VALUES[0],
-            SIMPLE_ACTIVITY_VALUES[-1],
-            state.face_opponent_activity,
-            step=5.0,
-            values=SIMPLE_ACTIVITY_VALUES,
-            value_formatter=_format_percent,
-            label_width=opponent_label_width,
-            value_width=opponent_value_width,
-        )
-    )
 
-    grouped_controls = (
-        ai_opponent_slider,
-        *simple_activity_sliders,
-    )
+    grouped_controls = (baseline_opponent_slider,)
     for control in grouped_controls:
         control.bg_color = (0, 0, 0, 0)
         control.hover_color = (45, 45, 45, 160)
 
     regimen_left = 16
     regimen_width = CONTROL_WIDTH - 32
-    regimen_top = 14
-    regimen_spacing = 38
-    regimen_height = 36
+    regimen_top = 10
+    regimen_height = regimen_spacing - 2
     regimen_slider_width = 204
     regimen_layout = SliderRow.LABEL_VALUE_SLIDER
 
@@ -4751,14 +4769,49 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
         regimen_slider(5, "Epsilon floor", EPSILON_FLOOR_VALUES, state.epsilon_floor, step=0.005, decimal_places=3),
         regimen_slider(6, "Epsilon decay", EPSILON_DECAY_VALUES, state.epsilon_decay, step=0.001, decimal_places=3),
-        regimen_slider(7, "Action frame span", ACTION_FRAME_SPAN_VALUES, state.action_frame_span, is_int=True),
-        regimen_slider(8, "Gamma", GAMMA_VALUES, state.gamma, step=0.001, decimal_places=3),
-        regimen_slider(9, "Minibatch size", MINIBATCH_SIZE_VALUES, state.minibatch_size, is_int=True),
-        regimen_slider(10, "Gradient steps", REPLAY_UPDATES_PER_BATCH_VALUES, state.replay_updates_per_batch, is_int=True),
-        regimen_slider(11, "Learning rate", LEARNING_RATE_VALUES, state.learning_rate, step=0.00001, decimal_places=5),
-        regimen_slider(12, "Hidden layer size", HIDDEN_LAYER_SIZE_VALUES, state.hidden_layer_size, is_int=True),
-        regimen_slider(13, "Hidden layer count", HIDDEN_LAYER_COUNT_VALUES, state.hidden_layer_count, is_int=True),
+        regimen_slider(
+            REGIMEN_STARTING_BASELINE_USE_INDEX,
+            "Starting baseline use",
+            STARTING_BASELINE_USE_VALUES,
+            state.starting_baseline_use,
+            step=0.01,
+            decimal_places=2,
+            value_suffix=f" ({state.current_baseline_use:.3f})",
+        ),
+        regimen_slider(
+            REGIMEN_BASELINE_FLOOR_INDEX,
+            "Baseline floor",
+            BASELINE_FLOOR_VALUES,
+            state.baseline_floor,
+            step=0.005,
+            decimal_places=3,
+        ),
+        regimen_slider(
+            REGIMEN_BASELINE_DECAY_INDEX,
+            "Baseline use decay",
+            BASELINE_DECAY_VALUES,
+            state.baseline_decay,
+            step=0.001,
+            decimal_places=3,
+        ),
+        regimen_slider(REGIMEN_ACTION_FRAME_SPAN_INDEX, "Action frame span", ACTION_FRAME_SPAN_VALUES, state.action_frame_span, is_int=True),
+        regimen_slider(
+            REGIMEN_FRAME_SPAN_MULTIPLIER_INDEX,
+            "Frame span multiplier",
+            FRAME_SPAN_MULTIPLIER_VALUES,
+            state.frame_span_multiplier,
+            is_int=True,
+            value_suffix=_phase_frames_suffix(state),
+        ),
+        regimen_slider(REGIMEN_GAMMA_INDEX, "Gamma", GAMMA_VALUES, state.gamma, step=0.001, decimal_places=3),
+        regimen_slider(REGIMEN_MINIBATCH_SIZE_INDEX, "Minibatch size", MINIBATCH_SIZE_VALUES, state.minibatch_size, is_int=True),
+        regimen_slider(REGIMEN_REPLAY_UPDATES_INDEX, "Gradient steps", REPLAY_UPDATES_PER_BATCH_VALUES, state.replay_updates_per_batch, is_int=True),
+        regimen_slider(REGIMEN_LEARNING_RATE_INDEX, "Learning rate", LEARNING_RATE_VALUES, state.learning_rate, step=0.00001, decimal_places=5),
+        regimen_slider(REGIMEN_HIDDEN_LAYER_SIZE_INDEX, "Hidden layer size", HIDDEN_LAYER_SIZE_VALUES, state.hidden_layer_size, is_int=True),
+        regimen_slider(REGIMEN_HIDDEN_LAYER_COUNT_INDEX, "Hidden layer count", HIDDEN_LAYER_COUNT_VALUES, state.hidden_layer_count, is_int=True),
     )
+    if len(regimen_sliders) != REGIMEN_SLIDER_COUNT:
+        raise RuntimeError("regimen slider indices are out of date")
     regimen_content_height = regimen_sliders[-1].rect.bottom + 14
     regimen_scroll_y = 0
     apply_all_checkbox = TabScopeCheckbox(
@@ -4774,6 +4827,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     exited = [False]
     application_close_requested = [False]
     last_starting_epsilon_slider_value = [state.starting_epsilon]
+    last_starting_baseline_slider_value = [state.starting_baseline_use]
     batch_log_box = TrainingBatchLogBox()
 
     def sync_state_from_ui():
@@ -4796,12 +4850,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.rewards.update(
             (slider.reward_key, slider.value) for slider in reward_sliders
         )
-        state.ai_opponent_chance = ai_opponent_slider.value
-        state.opponent_mode = "all" if state.ai_opponent_chance > 0 else "simple"
-        state.forward_activity = simple_activity_sliders[0].value
-        state.a1_activity = simple_activity_sliders[1].value
-        state.a2_activity = simple_activity_sliders[2].value
-        state.face_opponent_activity = simple_activity_sliders[3].value
+        state.baseline_opponent_chance = baseline_opponent_slider.value
         state.match_time_limit = int(regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX].value)
         state.rounds_per_batch = int(regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX].value)
         state.batch_grouping = int(regimen_sliders[REGIMEN_BATCH_GROUPING_INDEX].value)
@@ -4825,8 +4874,22 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             state.starting_epsilon = starting_epsilon
         state.epsilon_floor = regimen_sliders[REGIMEN_EPSILON_FLOOR_INDEX].value
         state.epsilon_decay = regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX].value
+        starting_baseline_use = regimen_sliders[
+            REGIMEN_STARTING_BASELINE_USE_INDEX
+        ].value
+        if starting_baseline_use != last_starting_baseline_slider_value[0]:
+            # A new starting value restarts the decay, like epsilon. Running
+            # sessions pick it up on their next start.
+            state.current_baseline_use = starting_baseline_use
+            last_starting_baseline_slider_value[0] = starting_baseline_use
+        state.starting_baseline_use = starting_baseline_use
+        state.baseline_floor = regimen_sliders[REGIMEN_BASELINE_FLOOR_INDEX].value
+        state.baseline_decay = regimen_sliders[REGIMEN_BASELINE_DECAY_INDEX].value
         state.action_frame_span = int(
             regimen_sliders[REGIMEN_ACTION_FRAME_SPAN_INDEX].value
+        )
+        state.frame_span_multiplier = int(
+            regimen_sliders[REGIMEN_FRAME_SPAN_MULTIPLIER_INDEX].value
         )
         state.gamma = regimen_sliders[REGIMEN_GAMMA_INDEX].value
         state.hidden_layer_size = int(
@@ -4870,11 +4933,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         for slider in reward_sliders:
             slider.set_ship(state.selected_ship)
             _set_slider_value(slider, state.rewards.get(slider.reward_key, 0.0))
-        _set_slider_value(ai_opponent_slider, state.ai_opponent_chance)
-        _set_slider_value(simple_activity_sliders[0], state.forward_activity)
-        _set_slider_value(simple_activity_sliders[1], state.a1_activity)
-        _set_slider_value(simple_activity_sliders[2], state.a2_activity)
-        _set_slider_value(simple_activity_sliders[3], state.face_opponent_activity)
+        _set_slider_value(baseline_opponent_slider, state.baseline_opponent_chance)
         _set_slider_value(
             regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX],
             state.replay_buffer_size,
@@ -4889,8 +4948,24 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         _set_slider_value(regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX], state.epsilon_decay)
         _set_slider_value(
+            regimen_sliders[REGIMEN_STARTING_BASELINE_USE_INDEX],
+            state.starting_baseline_use,
+        )
+        _set_slider_value(
+            regimen_sliders[REGIMEN_BASELINE_FLOOR_INDEX],
+            state.baseline_floor,
+        )
+        _set_slider_value(
+            regimen_sliders[REGIMEN_BASELINE_DECAY_INDEX],
+            state.baseline_decay,
+        )
+        _set_slider_value(
             regimen_sliders[REGIMEN_ACTION_FRAME_SPAN_INDEX],
             state.action_frame_span,
+        )
+        _set_slider_value(
+            regimen_sliders[REGIMEN_FRAME_SPAN_MULTIPLIER_INDEX],
+            state.frame_span_multiplier,
         )
         _set_slider_value(regimen_sliders[REGIMEN_GAMMA_INDEX], state.gamma)
         _set_slider_value(
@@ -4911,6 +4986,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             instance_manager.batch_scheduling.apply_to_all_open_instances
         )
         last_starting_epsilon_slider_value[0] = state.starting_epsilon
+        last_starting_baseline_slider_value[0] = state.starting_baseline_use
         trainee_scroll_y = 0
         rewards_scroll_y = 0
         regimen_scroll_y = 0
@@ -4941,14 +5017,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             training_state.current_epsilon,
             reset_checkpoint=reset_checkpoint,
         )
+        current_baseline_use = (
+            training_state.starting_baseline_use
+            if reset_checkpoint
+            else training_state.current_baseline_use
+        )
         return {
             "opponent": {
                 "mode": training_state.opponent_mode,
                 "ai_opponent_chance": training_state.ai_opponent_chance,
-                "forward_activity": training_state.forward_activity,
-                "a1_activity": training_state.a1_activity,
-                "a2_activity": training_state.a2_activity,
-                "face_opponent_activity": training_state.face_opponent_activity,
             },
             "rewards": dict(training_state.rewards),
             "regimen": {
@@ -4967,7 +5044,12 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 "epsilon": current_epsilon,
                 "epsilon_floor": training_state.epsilon_floor,
                 "epsilon_decay": training_state.epsilon_decay,
+                "starting_baseline_use": training_state.starting_baseline_use,
+                "current_baseline_use": current_baseline_use,
+                "baseline_floor": training_state.baseline_floor,
+                "baseline_decay": training_state.baseline_decay,
                 ACTION_FRAME_SPAN_METADATA_KEY: training_state.action_frame_span,
+                "frame_span_multiplier": training_state.frame_span_multiplier,
                 "gamma": training_state.gamma,
             },
         }
@@ -5375,34 +5457,19 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             if isinstance(opponent, dict):
                 if "ai_opponent_chance" in opponent:
                     try:
-                        value = float(opponent["ai_opponent_chance"])
+                        value = 100.0 - float(opponent["ai_opponent_chance"])
                     except (TypeError, ValueError):
-                        skipped.append(ai_opponent_slider.label)
+                        skipped.append(baseline_opponent_slider.label)
                     else:
-                        if not _set_slider_value(ai_opponent_slider, value):
-                            skipped.append(ai_opponent_slider.label)
+                        if not _set_slider_value(baseline_opponent_slider, value):
+                            skipped.append(baseline_opponent_slider.label)
                 else:
                     mode = opponent.get("mode")
                     if mode in {"all", "simple"}:
                         _set_slider_value(
-                            ai_opponent_slider,
-                            100.0 if mode == "all" else 0.0,
+                            baseline_opponent_slider,
+                            0.0 if mode == "all" else 100.0,
                         )
-                for key, slider in (
-                    ("forward_activity", simple_activity_sliders[0]),
-                    ("a1_activity", simple_activity_sliders[1]),
-                    ("a2_activity", simple_activity_sliders[2]),
-                    ("face_opponent_activity", simple_activity_sliders[3]),
-                ):
-                    if key not in opponent:
-                        continue
-                    try:
-                        value = float(opponent[key])
-                    except (TypeError, ValueError):
-                        skipped.append(slider.label)
-                        continue
-                    if not _set_slider_value(slider, value):
-                        skipped.append(slider.label)
 
             rewards = training.get("rewards", {})
             if isinstance(rewards, dict):
@@ -5477,8 +5544,28 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         float,
                     ),
                     (
+                        "starting_baseline_use",
+                        regimen_sliders[REGIMEN_STARTING_BASELINE_USE_INDEX],
+                        float,
+                    ),
+                    (
+                        "baseline_floor",
+                        regimen_sliders[REGIMEN_BASELINE_FLOOR_INDEX],
+                        float,
+                    ),
+                    (
+                        "baseline_decay",
+                        regimen_sliders[REGIMEN_BASELINE_DECAY_INDEX],
+                        float,
+                    ),
+                    (
                         ACTION_FRAME_SPAN_METADATA_KEY,
                         regimen_sliders[REGIMEN_ACTION_FRAME_SPAN_INDEX],
+                        int,
+                    ),
+                    (
+                        "frame_span_multiplier",
+                        regimen_sliders[REGIMEN_FRAME_SPAN_MULTIPLIER_INDEX],
                         int,
                     ),
                     ("gamma", regimen_sliders[REGIMEN_GAMMA_INDEX], float),
@@ -5552,7 +5639,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     )
                 except (TypeError, ValueError):
                     state.current_epsilon = state.starting_epsilon
+                try:
+                    state.current_baseline_use = float(
+                        regimen.get("current_baseline_use", state.starting_baseline_use)
+                    )
+                except (TypeError, ValueError):
+                    state.current_baseline_use = state.starting_baseline_use
         last_starting_epsilon_slider_value[0] = state.starting_epsilon
+        last_starting_baseline_slider_value[0] = state.starting_baseline_use
         state.loaded_ship = state.selected_ship
         state.loaded_slot = state.selected_slot
         state.loaded_architecture = architecture_metadata()
@@ -6879,13 +6973,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     slider.handle_event(translated, menu_sound_manager)
             elif instance_manager.active_tab == "opponent":
                 translated = _translated_event(event, layout.content_rect, 0)
-                enabled = not state.running
-                ai_opponent_slider.enabled = enabled
-                ai_opponent_slider.handle_event(translated, menu_sound_manager)
-                enabled = state.simple_behavior_controls_enabled
-                for slider in simple_activity_sliders:
-                    slider.enabled = enabled
-                    slider.handle_event(translated, menu_sound_manager)
+                baseline_opponent_slider.enabled = not state.running
+                baseline_opponent_slider.handle_event(translated, menu_sound_manager)
             elif instance_manager.active_tab == "regimen":
                 if (
                     event.type == pygame.MOUSEBUTTONDOWN
@@ -6916,10 +7005,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 startup_job[0] = None
 
         sync_state_from_ui()
-        controls_enabled = state.simple_behavior_controls_enabled
-        ai_opponent_slider.enabled = not state.running
-        for slider in simple_activity_sliders:
-            slider.enabled = controls_enabled
+        baseline_opponent_slider.enabled = not state.running
 
         for slider in reward_sliders:
             slider.set_ship(state.selected_ship)
@@ -6945,6 +7031,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         regimen_sliders[REGIMEN_REPLAY_UPDATES_INDEX].value_suffix = (
             f" (UTD={utd_ratio})"
         )
+        regimen_sliders[REGIMEN_FRAME_SPAN_MULTIPLIER_INDEX].value_suffix = (
+            _phase_frames_suffix(state)
+        )
         for index in regimen_warnings:
             regimen_sliders[index].value_color = SliderRow.WARNING_VALUE_COLOR
 
@@ -6959,6 +7048,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
             instance.state.running = status.running
             _sync_instance_current_epsilon(instance, status)
+            _sync_instance_current_baseline_use(instance, status)
             if instance.instance_id == instance_manager.active_instance_id:
                 console_lines, console_colors = _display_off_console_content(
                     status,
@@ -6996,6 +7086,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             apply_state_to_ui()
         regimen_sliders[REGIMEN_STARTING_EPSILON_INDEX].value_suffix = (
             f" ({state.current_epsilon:.3f})"
+        )
+        regimen_sliders[REGIMEN_STARTING_BASELINE_USE_INDEX].value_suffix = (
+            f" ({state.current_baseline_use:.3f})"
         )
 
         active_instance = instance_manager.active_instance
@@ -7518,9 +7611,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     and not transition_in_progress
                 )
                 _draw_group_panel(content, panel, hovered, enabled)
-            ai_opponent_slider.draw(content, opponent_font)
-            for slider in simple_activity_sliders:
-                slider.draw(content, opponent_font)
+            baseline_opponent_slider.draw(content, opponent_font)
             screen.blit(content, layout.content_rect)
         elif instance_manager.active_tab == "regimen":
             content = pygame.Surface(

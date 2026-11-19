@@ -702,6 +702,8 @@ def _hud_badge_text(badge):
         return None
     if badge.kind == "simple":
         return "S"
+    if badge.kind == "baseline":
+        return "B"
     if badge.kind == "ai" and badge.value is not None:
         return str(int(badge.value))
     if badge.kind == "countdown" and badge.value is not None:
@@ -753,7 +755,13 @@ def _draw_human_badge_icon(screen, center):
 
 
 def draw_hud_badge(screen, hud_rect, player_id, badge):
-    if badge is None or badge.kind not in {"countdown", "simple", "ai", "human"}:
+    if badge is None or badge.kind not in {
+        "countdown",
+        "simple",
+        "baseline",
+        "ai",
+        "human",
+    }:
         return
 
     radius = HUD_BADGE_SIZE // 2
@@ -801,7 +809,7 @@ def draw_hud_badge(screen, hud_rect, player_id, badge):
         return
     max_font_size = (
         HUD_BADGE_CONTROLLER_FONT_SIZE
-        if badge.kind in {"ai", "simple"}
+        if badge.kind in {"ai", "simple", "baseline"}
         else HUD_BADGE_FONT_SIZE
     )
     countdown_font_options = (

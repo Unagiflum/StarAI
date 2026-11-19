@@ -5,17 +5,15 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 import math
-import random
 import time
 from typing import Any
 
-import src.const as const
 from src.Battle.battle import BattleSimulation
 from src.Battle.computer_control import guard_computer_controls
 from src.Objects.Ships.registry import create_ship
-from src.toroidal import wrapped_delta
 from src.training import event_ledger
 from src.training.action_safety import guard_training_selection
+from src.training.baseline import BaselineOpponentController
 from src.training.causal_credit import REWARD_MODE_LEGACY
 from src.training.contracts import (
     ACTION_OUTPUT_SIZE,
@@ -52,7 +50,7 @@ class CoordinatedWindowRuntime:
     simulation: Any
     ledger: Any
     pipeline: StagedTrajectoryPipeline
-    simple_controller: "SimpleOpponentController"
+    baseline_controller: BaselineOpponentController
     opponent_plan: OpponentControllerPlan | None = None
     frames_consumed: int = 0
     total_mature_count: int = 0
@@ -121,82 +119,6 @@ def controls_for_action_index(action_index: int) -> dict[str, bool]:
     return _controls_mapping_from_action(action_for_index(int(action_index)))
 
 
-class SimpleOpponentController:
-    def __init__(self, config: TrainingOrchestrationConfig, *, rng=None):
-        self.config = config
-        self.rng = rng or random
-        self.forward_held = False
-        self.action1_held = False
-        self.action2_held = False
-        self.face_opponent_active = False
-        self.next_face_decision_frame: int | None = None
-
-    def controls_for_frame(self, simulation):
-        return _controls_mapping_from_action(self.direct_controls_for_frame(simulation))
-
-    def direct_controls_for_frame(self, simulation):
-        self.forward_held = self._next_key_state(
-            self.forward_held, self.config.forward_activity
-        )
-        self.action1_held = self._next_key_state(
-            self.action1_held, self.config.a1_activity
-        )
-        self.action2_held = self._next_key_state(
-            self.action2_held, self.config.a2_activity
-        )
-        left = right = False
-        if self._should_face_opponent(getattr(simulation, "frame_id", 0)):
-            left, right = _turn_toward_target(simulation.player2, simulation.player1)
-        mask = (
-            (1 if self.forward_held else 0)
-            | (2 if left else 0)
-            | (4 if right else 0)
-            | (8 if self.action1_held else 0)
-            | (16 if self.action2_held else 0)
-        )
-        return guard_computer_controls(
-            TrainingAction.from_mask(mask),
-            simulation.player2,
-            simulation.player1,
-        )
-
-    def _next_key_state(self, held: bool, activity: float) -> bool:
-        probability = _activity_probability(activity)
-        if probability <= 0.0:
-            return False
-        if probability >= 1.0 or self.rng.random() < probability:
-            return not held
-        return held
-
-    def _should_face_opponent(self, frame_id: int) -> bool:
-        probability = _activity_probability(self.config.face_opponent_activity)
-        if probability <= 0.0:
-            self.face_opponent_active = False
-            return False
-        if probability >= 1.0:
-            self.face_opponent_active = True
-            return True
-        frame_id = int(frame_id)
-        if self.next_face_decision_frame is None or frame_id >= self.next_face_decision_frame:
-            self.face_opponent_active = self.rng.random() < probability
-            self.next_face_decision_frame = frame_id + max(1, int(const.FPS))
-        return self.face_opponent_active
-
-
-def _turn_toward_target(ship, target) -> tuple[bool, bool]:
-    dx, dy = wrapped_delta(ship.position, target.position)
-    target_angle = math.degrees(math.atan2(dx, -dy)) % 360.0
-    rotation = float(getattr(ship, "rotation", 0.0)) % 360.0
-    diff = (target_angle - rotation + 540.0) % 360.0 - 180.0
-    if abs(diff) <= max(1.0, const.TURN_ANGLE / 2.0):
-        return False, False
-    return diff < 0.0, diff > 0.0
-
-
-def _activity_probability(activity: float) -> float:
-    return max(0.0, min(1.0, float(activity) / 100.0))
-
-
 def initialize_training_simulation_ships(simulation, rng) -> None:
     if getattr(simulation, "training_spawn_initialized", False):
         return
@@ -246,7 +168,7 @@ def new_coordinated_battle(
             reward_weights=config.reward_weights,
             mode=config.reward_mode,
         ),
-        SimpleOpponentController(config, rng=rng),
+        BaselineOpponentController(action_frame_span=config.action_frame_span),
     )
 
 
@@ -261,7 +183,7 @@ def create_coordinated_window_runtime(
     opponent_plan: OpponentControllerPlan | None = None,
     ship_factory: Callable[..., Any] = create_ship,
 ) -> CoordinatedWindowRuntime:
-    simulation, ledger, pipeline, simple_controller = new_coordinated_battle(
+    simulation, ledger, pipeline, baseline_controller = new_coordinated_battle(
         state.record.config,
         opponent,
         rng=rng,
@@ -276,7 +198,7 @@ def create_coordinated_window_runtime(
         simulation=simulation,
         ledger=ledger,
         pipeline=pipeline,
-        simple_controller=simple_controller,
+        baseline_controller=baseline_controller,
         opponent_plan=opponent_plan,
         component_sums={component: 0.0 for component in REWARD_COMPONENTS},
         episode_component_sums={component: 0.0 for component in REWARD_COMPONENTS},
@@ -603,13 +525,13 @@ def reset_coordinated_window_battle(
                 reward_weights=config.reward_weights,
                 mode=config.reward_mode,
             )
-        runtime.simple_controller = SimpleOpponentController(config, rng=rng)
+        runtime.baseline_controller = BaselineOpponentController(action_frame_span=config.action_frame_span)
     else:
         (
             runtime.simulation,
             runtime.ledger,
             runtime.pipeline,
-            runtime.simple_controller,
+            runtime.baseline_controller,
         ) = new_coordinated_battle(
             config,
             runtime.opponent,

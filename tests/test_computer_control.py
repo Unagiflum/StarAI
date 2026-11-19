@@ -9,13 +9,11 @@ from src.Battle.computer_control import (
     guard_computer_controls,
 )
 from src.training.action_safety import guard_training_selection
-from src.training.coordinated_simulation import (
-    SimpleOpponentController as CoordinatedSimpleOpponentController,
-)
-from src.training.contracts import TrainingAction
-from src.training.cpu_contracts import TrainingOrchestrationConfig
-from src.training.orchestration import (
-    SimpleOpponentController as StandardSimpleOpponentController,
+from src.training.baseline import BaselineController, BaselineOpponentController
+from src.training.contracts import (
+    ACTION_INDEX_TABLE,
+    OBSERVATION_INPUT_SIZE,
+    TrainingAction,
 )
 from src.training.replay_contracts import ActionSelection
 
@@ -125,31 +123,30 @@ class ComputerShipInitializationTests(unittest.TestCase):
         self.assertTrue(actions[1]["action1"])
         self.assertFalse(actions[1]["action2"])
 
-    def test_all_simple_training_controllers_apply_druuge_guard(self):
-        config = TrainingOrchestrationConfig(
-            trainee_ship="Earthling",
-            a2_activity=100.0,
-        )
+    def test_baseline_opponent_controller_applies_druuge_guard(self):
         simulation = SimpleNamespace(
             frame_id=0,
+            world=(),
             player1=ship("Earthling"),
             player2=ship("Druuge", current_energy=4, a1_cost=4),
         )
-
-        for controller_type in (
-            StandardSimpleOpponentController,
-            CoordinatedSimpleOpponentController,
+        a2_only = next(
+            index for index, action in enumerate(ACTION_INDEX_TABLE) if action.mask == 16
+        )
+        with (
+            mock.patch(
+                "src.training.observation.encode_observation",
+                return_value=[0.0] * OBSERVATION_INPUT_SIZE,
+            ),
+            mock.patch.object(BaselineController, "decide", return_value=a2_only),
         ):
-            with self.subTest(controller=controller_type.__module__):
-                controller = controller_type(config)
-                blocked = controller.direct_controls_for_frame(simulation)
-                self.assertFalse(blocked.a2)
+            controller = BaselineOpponentController(action_frame_span=1)
+            blocked = controller.direct_controls_for_frame(simulation)
+            self.assertFalse(blocked.a2)
 
-                controller.action2_held = False
-                simulation.player2.current_energy = 3
-                allowed = controller.direct_controls_for_frame(simulation)
-                self.assertTrue(allowed.a2)
-                simulation.player2.current_energy = 4
+            simulation.player2.current_energy = 3
+            allowed = controller.direct_controls_for_frame(simulation)
+            self.assertTrue(allowed.a2)
 
 
 if __name__ == "__main__":

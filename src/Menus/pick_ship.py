@@ -10,7 +10,7 @@ from src.UI.ship_sprites import (
     scale_ship_sprites,
 )
 import src.const as Const
-from src.configuration import FleetsRepository
+from src.configuration import FLEET_AI_MODE_BASELINE, FleetsRepository
 from src.menu_state import ShipSelectionState
 
 from src.Battle import battle
@@ -187,6 +187,20 @@ def selection_prompt(selection_state):
     return "Players: Select Your Ships", None
 
 
+def _ai_setting(value):
+    """``False`` (human), ``True`` (trained AI) or ``"baseline"``."""
+
+    return FLEET_AI_MODE_BASELINE if value == FLEET_AI_MODE_BASELINE else bool(value)
+
+
+def _fleet_ai_setting(player_data):
+    if not isinstance(player_data, dict) or not player_data.get("ai", False):
+        return False
+    if player_data.get("ai_mode") == FLEET_AI_MODE_BASELINE:
+        return FLEET_AI_MODE_BASELINE
+    return True
+
+
 class ShipSelectionAutomation:
     """Non-blocking AI selection timers for the ship-pick menu."""
 
@@ -301,16 +315,16 @@ def run(
     if player1_ships is None or player2_ships is None:
         fleet_data, player1_ships, player2_ships = load_fleet_data(audio_service)
         if player1_ai is None:
-            player1_ai = bool(fleet_data.get("Player1", {}).get("ai", False))
+            player1_ai = _fleet_ai_setting(fleet_data.get("Player1", {}))
         if player2_ai is None:
-            player2_ai = bool(fleet_data.get("Player2", {}).get("ai", False))
+            player2_ai = _fleet_ai_setting(fleet_data.get("Player2", {}))
     else:
         fleet_data = {
             "Player1": {"ships": list(fleet_slots_for_ships(player1_ships))},
             "Player2": {"ships": list(fleet_slots_for_ships(player2_ships))},
         }
-        player1_ai = bool(player1_ai)
-        player2_ai = bool(player2_ai)
+        player1_ai = _ai_setting(player1_ai)
+        player2_ai = _ai_setting(player2_ai)
     ships_data, original_sprites = load_ships_data(SHIP_DEFINITIONS)
     if not fleet_data or not ships_data or not original_sprites:
         return

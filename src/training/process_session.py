@@ -28,6 +28,7 @@ from src.audio import NullAudioService, RecordingAudioService
 from src.resources import HeadlessAssetManager
 from src.training import torch_backend
 from src.training.contracts import SHIP_TYPE_CATALOG_ORDER
+from src.training.cpu_contracts import initial_baseline_use
 from src.training.model_registry import (
     MODEL_SLOT_COUNT,
     SLOT_EMPTY,
@@ -861,6 +862,7 @@ class ProcessTrainingSession:
             current_epsilon=float(config.epsilon),
             epsilon_decay=float(config.epsilon_decay),
             gamma=float(config.gamma),
+            current_baseline_use=initial_baseline_use(config),
         )
         self._completed_batches_at_run_start = self._status.completed_batches
         self._elapsed_anchor_seconds = 0.0

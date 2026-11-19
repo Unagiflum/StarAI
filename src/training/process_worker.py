@@ -345,7 +345,7 @@ class CoordinatedSimulationWorker:
                 replay_buffer=collector,
             ),
         )
-        simulation, ledger, pipeline, simple_controller = new_coordinated_battle(
+        simulation, ledger, pipeline, baseline_controller = new_coordinated_battle(
             config,
             command.opponent,
             rng=self._window_rng,
@@ -362,7 +362,7 @@ class CoordinatedSimulationWorker:
             simulation=simulation,
             ledger=ledger,
             pipeline=pipeline,
-            simple_controller=simple_controller,
+            baseline_controller=baseline_controller,
             opponent_plan=(
                 command.opponent_plan
                 or single_controller_opponent_plan(
@@ -718,7 +718,7 @@ class CoordinatedSimulationWorker:
             )
             self._simple_opponent_controls = None
         else:
-            controls = runtime.simple_controller.direct_controls_for_frame(simulation)
+            controls = runtime.baseline_controller.direct_controls_for_frame(simulation)
             self._packed_opponent_observation = None
             self._simple_opponent_controls = {
                 "forward": bool(controls.thrust),

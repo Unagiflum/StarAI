@@ -15,9 +15,13 @@ from src.Battle.battle import BattleSimulation
 from src.Battle.computer_control import guard_computer_controls
 from src.Objects.Ships.registry import create_ship
 from src.audio import NullAudioService
-from src.toroidal import wrapped_delta
 from src.training import event_ledger, torch_backend
 from src.training.action_safety import guard_training_selection
+from src.training.baseline import (
+    BaselineOpponentController,
+    BaselinePhaseMixer,
+    baseline_decisions_per_phase,
+)
 from src.training.contracts import (
     ACTION_OUTPUT_SIZE,
     SHIP_TYPE_CATALOG_ORDER,
@@ -102,6 +106,14 @@ class TrainingBatchResult:
     replay_size: int
     optimization_losses: tuple[float, ...]
     round_results: tuple[TrainingRoundResult, ...]
+    baseline_decisions: int = 0
+    total_decisions: int = 0
+
+    @property
+    def baseline_share(self) -> float:
+        if self.total_decisions <= 0:
+            return 0.0
+        return self.baseline_decisions / self.total_decisions
 
     @property
     def average_loss(self) -> float | None:
@@ -115,7 +127,9 @@ class ValueNetworkPolicy:
 
     Every decision, exploratory or greedy, is repeated for
     ``action_frame_span`` frames. Repeated frames are marked ``held`` so only
-    the deciding frame becomes a replay sample.
+    the deciding frame becomes a replay sample. With a ``baseline_mixer``,
+    phases of decisions are flown by the ship's baseline strategy instead of
+    the network; exploration applies to both.
     """
 
     def __init__(
@@ -125,14 +139,17 @@ class ValueNetworkPolicy:
         epsilon: float,
         action_frame_span: int = 1,
         rng: Any | None = None,
+        baseline_mixer: BaselinePhaseMixer | None = None,
     ):
         self.model = model
         self.epsilon = float(epsilon)
         self.action_frame_span = max(1, int(action_frame_span))
         self.rng = rng or random
+        self.baseline_mixer = baseline_mixer
         self.last_selection: ActionSelection | None = None
         self._hold = ActionHold()
         self._held_exploratory = False
+        self._held_guided = False
 
     def select_action(self, observation: Sequence[float]) -> ActionSelection:
         prepared = self.prepare_action_selection(observation)
@@ -150,18 +167,24 @@ class ValueNetworkPolicy:
         self,
         observation: Sequence[float],
     ) -> ActionSelection | None:
-        """Return a held or exploratory action, or ``None`` when inference is due."""
+        """Return a held, exploratory or baseline action, or ``None`` when
+        network inference is due."""
 
-        del observation
         held_action = self._hold.held_action()
         if held_action is not None:
             self.last_selection = ActionSelection(
                 action_index=held_action,
                 exploratory=self._held_exploratory,
                 held=True,
+                guided=self._held_guided,
             )
             return self.last_selection
 
+        baseline_phase = (
+            self.baseline_mixer.begin_decision()
+            if self.baseline_mixer is not None
+            else False
+        )
         if self.epsilon >= 1.0 or (
             self.epsilon > 0.0 and self.rng.random() < self.epsilon
         ):
@@ -170,6 +193,16 @@ class ValueNetworkPolicy:
             self.last_selection = ActionSelection(
                 action_index=action_index,
                 exploratory=True,
+            )
+            return self.last_selection
+
+        if baseline_phase:
+            action_index = int(self.baseline_mixer.baseline_action(observation))
+            self._begin_hold(action_index, exploratory=False, guided=True)
+            self.last_selection = ActionSelection(
+                action_index=action_index,
+                exploratory=False,
+                guided=True,
             )
             return self.last_selection
 
@@ -200,17 +233,39 @@ class ValueNetworkPolicy:
         self.last_selection = completed
         return completed
 
+    @property
+    def baseline_counts(self) -> tuple[int, int]:
+        """Return ``(baseline decisions, all decisions)`` made so far."""
+
+        mixer = self.baseline_mixer
+        if mixer is None:
+            return 0, 0
+        return int(mixer.baseline_decisions), int(mixer.decisions)
+
     def reset_exploration_span(self) -> None:
-        """Drop any held action so the next frame makes a fresh decision."""
+        """Drop any held action so the next frame makes a fresh decision.
+
+        Called at episode boundaries, so a new baseline phase roll follows.
+        """
 
         self._hold.reset()
         self._held_exploratory = False
+        self._held_guided = False
+        if self.baseline_mixer is not None:
+            self.baseline_mixer.reset()
 
     reset_action_span = reset_exploration_span
 
-    def _begin_hold(self, action_index: int, *, exploratory: bool) -> None:
+    def _begin_hold(
+        self,
+        action_index: int,
+        *,
+        exploratory: bool,
+        guided: bool = False,
+    ) -> None:
         self._hold.begin(action_index, self.action_frame_span)
         self._held_exploratory = bool(exploratory)
+        self._held_guided = bool(guided)
 
 
 def simple_opponent_schedule(rounds_per_batch: int) -> tuple[OpponentSpec, ...]:
@@ -426,6 +481,7 @@ def run_training_batch(
         epsilon=config.epsilon,
         action_frame_span=config.action_frame_span,
         rng=rng,
+        baseline_mixer=baseline_mixer_for_config(config, rng=rng),
     )
     round_results: list[TrainingRoundResult] = []
     total_rounds = len(opponent_plans)
@@ -485,11 +541,32 @@ def run_training_batch(
         if result is not None:
             losses.append(result.loss)
 
+    baseline_decisions, total_decisions = trainee_policy.baseline_counts
     return TrainingBatchResult(
         completed_rounds=len(round_results),
         replay_size=len(replay_buffer),
         optimization_losses=tuple(losses),
         round_results=tuple(round_results),
+        baseline_decisions=baseline_decisions,
+        total_decisions=total_decisions,
+    )
+
+
+def baseline_mixer_for_config(
+    config: TrainingOrchestrationConfig,
+    *,
+    rng: Any | None = None,
+) -> BaselinePhaseMixer | None:
+    """Return the trainee's baseline phase mixer, or ``None`` when unused."""
+
+    if float(config.baseline_use) <= 0.0:
+        return None
+    return BaselinePhaseMixer(
+        config.trainee_ship,
+        baseline_use=config.baseline_use,
+        decisions_per_phase=baseline_decisions_per_phase(config.frame_span_multiplier),
+        action_frame_span=config.action_frame_span,
+        rng=rng,
     )
 
 
@@ -574,7 +651,9 @@ def run_training_round(
     }
     post_death_episode: PendingCombatEpisode | None = None
     next_display_frame_time = time.perf_counter()
-    simple_opponent_controller = SimpleOpponentController(config, rng=rng)
+    baseline_opponent_controller = BaselineOpponentController(
+        action_frame_span=config.action_frame_span
+    )
     opponent_hold = ActionHold()
     action_counts = [0] * ACTION_OUTPUT_SIZE
 
@@ -623,7 +702,7 @@ def run_training_round(
                 active_opponent,
                 simulation,
                 config,
-                simple_opponent_controller,
+                baseline_opponent_controller,
                 opponent_hold=opponent_hold,
             ),
         }
@@ -782,9 +861,7 @@ def run_training_round(
                     reward_weights=config.reward_weights,
                     mode=config.reward_mode,
                 )
-                simple_opponent_controller = SimpleOpponentController(
-                    config, rng=rng
-                )
+                baseline_opponent_controller.reset()
                 opponent_hold.reset()
                 episode_start_frame = state["frame_id"]
                 episode_mature_count = 0
@@ -808,7 +885,7 @@ def run_training_round(
                     reward_weights=config.reward_weights,
                     mode=config.reward_mode,
                 )
-            simple_opponent_controller = SimpleOpponentController(config, rng=rng)
+            baseline_opponent_controller.reset()
             opponent_hold.reset()
             episode_start_frame = state["frame_id"]
             episode_mature_count = 0
@@ -929,87 +1006,6 @@ def controls_for_action_index(action_index: int) -> dict[str, bool]:
     return _controls_mapping_from_action(action)
 
 
-class SimpleOpponentController:
-    def __init__(self, config: TrainingOrchestrationConfig, *, rng=None):
-        self.config = config
-        self.rng = rng or random
-        self.forward_held = False
-        self.action1_held = False
-        self.action2_held = False
-        self.face_opponent_active = False
-        self.next_face_decision_frame: int | None = None
-
-    def controls_for_frame(self, simulation):
-        return _controls_mapping_from_action(self.direct_controls_for_frame(simulation))
-
-    def direct_controls_for_frame(self, simulation):
-        self.forward_held = self._next_key_state(
-            self.forward_held,
-            self.config.forward_activity,
-        )
-        self.action1_held = self._next_key_state(
-            self.action1_held,
-            self.config.a1_activity,
-        )
-        self.action2_held = self._next_key_state(
-            self.action2_held,
-            self.config.a2_activity,
-        )
-
-        left = right = False
-        if self._should_face_opponent(getattr(simulation, "frame_id", 0)):
-            left, right = _turn_toward_target(
-                simulation.player2,
-                simulation.player1,
-            )
-        mask = (
-            (1 if self.forward_held else 0)
-            | (2 if left else 0)
-            | (4 if right else 0)
-            | (8 if self.action1_held else 0)
-            | (16 if self.action2_held else 0)
-        )
-        return guard_computer_controls(
-            TrainingAction.from_mask(mask),
-            simulation.player2,
-            simulation.player1,
-        )
-
-    def _next_key_state(self, held: bool, activity: float) -> bool:
-        probability = _activity_probability(activity)
-        if probability <= 0.0:
-            return False
-        if probability >= 1.0 or self.rng.random() < probability:
-            return not held
-        return held
-
-    def _should_face_opponent(self, frame_id: int) -> bool:
-        probability = _activity_probability(self.config.face_opponent_activity)
-        if probability <= 0.0:
-            self.face_opponent_active = False
-            return False
-        if probability >= 1.0:
-            self.face_opponent_active = True
-            return True
-        frame_id = int(frame_id)
-        if (
-            self.next_face_decision_frame is None
-            or frame_id >= self.next_face_decision_frame
-        ):
-            self.face_opponent_active = self.rng.random() < probability
-            self.next_face_decision_frame = frame_id + max(1, int(const.FPS))
-        return self.face_opponent_active
-
-
-def controls_for_simple_behavior(
-    simulation,
-    config: TrainingOrchestrationConfig,
-    *,
-    rng=None,
-):
-    return SimpleOpponentController(config, rng=rng).controls_for_frame(simulation)
-
-
 def build_training_components(config: TrainingOrchestrationConfig):
     """Construct the model, optimizer, and replay buffer for a new session."""
 
@@ -1038,10 +1034,10 @@ def _opponent_controls(
     opponent: OpponentSpec,
     simulation,
     config: TrainingOrchestrationConfig,
-    simple_controller: SimpleOpponentController,
+    baseline_controller: BaselineOpponentController,
 ) -> dict[str, bool]:
     return _controls_mapping_from_action(
-        _opponent_direct_controls(opponent, simulation, config, simple_controller)
+        _opponent_direct_controls(opponent, simulation, config, baseline_controller)
     )
 
 
@@ -1049,12 +1045,12 @@ def _opponent_direct_controls(
     opponent: OpponentSpec,
     simulation,
     config: TrainingOrchestrationConfig,
-    simple_controller: SimpleOpponentController,
+    baseline_controller: BaselineOpponentController,
     *,
     opponent_hold: ActionHold | None = None,
 ) -> TrainingAction:
     if opponent.model is None:
-        controls = simple_controller.direct_controls_for_frame(simulation)
+        controls = baseline_controller.direct_controls_for_frame(simulation)
     else:
         hold_key = id(opponent.model)
         held_action = (
@@ -1088,20 +1084,6 @@ def _opponent_direct_controls(
         simulation.player2,
         simulation.player1,
     )
-
-
-def _turn_toward_target(ship, target) -> tuple[bool, bool]:
-    dx, dy = wrapped_delta(ship.position, target.position)
-    target_angle = math.degrees(math.atan2(dx, -dy)) % 360.0
-    rotation = float(getattr(ship, "rotation", 0.0)) % 360.0
-    diff = (target_angle - rotation + 540.0) % 360.0 - 180.0
-    if abs(diff) <= max(1.0, const.TURN_ANGLE / 2.0):
-        return False, False
-    return diff < 0.0, diff > 0.0
-
-
-def _activity_probability(activity: float) -> float:
-    return max(0.0, min(1.0, float(activity) / 100.0))
 
 
 def _round_terminal_state(simulation, *, elapsed_frames: int, frame_limit: int):

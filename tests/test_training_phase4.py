@@ -93,6 +93,13 @@ class TrainingCombatAdapterTests(unittest.TestCase):
                     ),
                 )
 
+    def test_chmmr_tractor_beam_never_counts_as_in_range(self):
+        trainee = ship("Chmmr", position=(1000, 1000))
+        enemy = ship("Earthling", position=(1000, 1100))
+
+        self.assertFalse(is_enemy_in_effective_range(trainee, enemy, action_number=2))
+        self.assertFalse(reward_combat_flags(trainee, enemy).a2_in_range)
+
     def test_conventional_projectile_pointing_uses_quantized_toroidal_bearing(self):
         trainee = ship("Chenjesu", position=(const.ARENA_SIZE - 20, 100), rotation=90)
         enemy = ship("Chenjesu", position=(20, 100))

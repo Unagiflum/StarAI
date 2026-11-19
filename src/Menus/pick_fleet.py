@@ -10,7 +10,13 @@ from src.UI.ship_sprites import (
 )
 import src.const as const
 from src.frame_timing import PresentationClock
-from src.configuration import Fleets, FleetsRepository, PlayerFleet
+from src.configuration import (
+    FLEET_AI_MODE_BASELINE,
+    FLEET_AI_MODE_TRAINED,
+    Fleets,
+    FleetsRepository,
+    PlayerFleet,
+)
 from src.Menus import pick_ship
 from src.persistence import PersistenceValidationError
 from src.Objects.Ships.catalog import SHIP_DEFINITIONS
@@ -44,6 +50,56 @@ FLEET_CONTROL_WEIGHTS = {
     "fill": 15,
     "clear": 18,
 }
+
+
+AI_TOGGLE_LABEL = "AI"
+BASELINE_AI_TOGGLE_LABEL = "Base AI"
+
+
+class AIModeToggleButton(ui_button.ToggleButton):
+    """AI switch that cycles human -> trained AI -> baseline AI -> human."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.baseline = False
+
+    def set_setting(self, setting) -> None:
+        self.is_on = bool(setting)
+        self.baseline = setting == FLEET_AI_MODE_BASELINE
+        self._refresh_label()
+
+    def handle_event(self, event, sound_manager=None):
+        if not self.enabled:
+            return
+        if event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos):
+            if sound_manager:
+                sound_manager.play_sound("menu")
+            if not self.is_on:
+                self.is_on, self.baseline = True, False
+            elif not self.baseline:
+                self.baseline = True
+            else:
+                self.is_on, self.baseline = False, False
+            self._refresh_label()
+            if self.callback:
+                self.callback(self.value)
+
+    def _refresh_label(self) -> None:
+        self.text = (
+            BASELINE_AI_TOGGLE_LABEL if self.is_on and self.baseline else AI_TOGGLE_LABEL
+        )
+
+    @property
+    def value(self):
+        """``False`` for a human, ``True`` for trained AI, or ``"baseline"``."""
+
+        if not self.is_on:
+            return False
+        return FLEET_AI_MODE_BASELINE if self.baseline else True
+
+    @property
+    def ai_mode(self) -> str:
+        return FLEET_AI_MODE_BASELINE if self.baseline else FLEET_AI_MODE_TRAINED
 
 
 def fleet_control_rects(column_start, top, width, height, gap):
@@ -301,13 +357,27 @@ def create_sprite_sets(ships_data):
 scale_sprites = scale_ship_sprites
 
 
+def _player_fleet(fleet_panel: ui_box.Fleet, ai_setting) -> PlayerFleet:
+    return PlayerFleet(
+        fleet_panel.model.ship_slots,
+        bool(ai_setting),
+        FLEET_AI_MODE_BASELINE
+        if ai_setting == FLEET_AI_MODE_BASELINE
+        else FLEET_AI_MODE_TRAINED,
+    )
+
+
 def save_fleets(
-    left_fleet: ui_box.Fleet, right_fleet: ui_box.Fleet, left_ai: bool, right_ai: bool
+    left_fleet: ui_box.Fleet, right_fleet: ui_box.Fleet, left_ai, right_ai
 ):
-    """Save the current fleets and AI settings to fleets.json."""
+    """Save the current fleets and AI settings to fleets.json.
+
+    Each AI setting is ``False`` (human), ``True`` (trained AI) or
+    ``"baseline"``.
+    """
     fleets = Fleets(
-        PlayerFleet(left_fleet.model.ship_slots, left_ai),
-        PlayerFleet(right_fleet.model.ship_slots, right_ai),
+        _player_fleet(left_fleet, left_ai),
+        _player_fleet(right_fleet, right_ai),
     )
     try:
         FleetsRepository(const.FLEETS_JSON_PATH, SHIP_DEFINITIONS).save(fleets)
@@ -330,7 +400,7 @@ def load_fleets(left_fleet, right_fleet, fleet_sprites, ships_data):
         populate_fleet_panel(fleet_panel, player_fleet.ships, fleet_sprites, ships_data)
 
     print("Fleets loaded from fleets.json")
-    return fleets.player1.ai, fleets.player2.ai
+    return fleets.player1.ai_setting, fleets.player2.ai_setting
 
 
 def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
@@ -378,9 +448,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         FLEET_ICON_SIZE,
     )
     ai_toggles = {
-        player: ui_button.ToggleButton(
+        player: AIModeToggleButton(
             *control_rects[player]["ai"],
-            "AI",
+            AI_TOGGLE_LABEL,
             initial_state=False,
             bg_color=(*const.P1_COLOR, 75) if player == 1 else (*const.P2_COLOR, 75),
             hover_color=(
@@ -458,7 +528,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
     loaded_ai = load_fleets(fleets[1], fleets[2], fleet_sprites, ships_data)
     for player, ai in zip((1, 2), loaded_ai):
-        ai_toggles[player].is_on = ai
+        ai_toggles[player].set_setting(ai)
 
     # Create buttons
     def confirm_callback():

@@ -309,8 +309,9 @@ def _special_effective_range(
     if distance is None:
         distance = wrapped_distance(_position(ship), _position(enemy))
     if name == "Chmmr" and action_number == 2:
-        base_speed = definition.base_speed or 0.0
-        return base_speed > 0 and distance <= base_speed * max(1.0, definition.life_time)
+        # The tractor beam pulls from any distance, so "In A2 range" has no
+        # meaningful boundary for it and is not rewarded.
+        return False
     if name == "Androsynth" and action_number == 2:
         return distance <= max(_radius(ship), _radius(enemy)) + 80
     return False

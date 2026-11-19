@@ -1318,7 +1318,7 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
                 return_value=encoded,
             ) as encode,
             mock.patch(
-                "src.training.coordinated_simulation.SimpleOpponentController."
+                "src.training.coordinated_simulation.BaselineOpponentController."
                 "direct_controls_for_frame",
                 return_value=action_for_index(0),
             ) as simple_controls,
@@ -2002,7 +2002,7 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
                 frame_id=0,
                 world=(),
             ),
-            simple_controller=simple_controller,
+            baseline_controller=simple_controller,
         )
         ai_window = SimpleNamespace(
             opponent=OpponentSpec("Androsynth", model=model),
@@ -2012,7 +2012,7 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
                 frame_id=0,
                 world=(),
             ),
-            simple_controller=mock.Mock(),
+            baseline_controller=mock.Mock(),
         )
 
         with mock.patch(
@@ -2026,7 +2026,7 @@ class CoordinatedActionSelectionTests(unittest.TestCase):
         self.assertIs(controls[id(simple_window)], simple_controls)
         self.assertEqual(controls[id(ai_window)]["right"], True)
         simple_controller.controls_for_frame.assert_called_once()
-        ai_window.simple_controller.controls_for_frame.assert_not_called()
+        ai_window.baseline_controller.controls_for_frame.assert_not_called()
 
 
 class CoordinatedTimingCsvTests(unittest.TestCase):

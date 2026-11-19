@@ -14,7 +14,10 @@ from typing import Any
 from src.training.causal_credit import REWARD_MODE_CAUSAL, REWARD_MODES
 
 
+# Opponents controlled by the per-ship baseline strategy. The persisted value
+# predates the baseline, when this mode used a simple scripted opponent.
 OPPONENT_MODE_SIMPLE = "simple"
+OPPONENT_MODE_BASELINE = OPPONENT_MODE_SIMPLE
 OPPONENT_MODE_EXISTING_AI = "all"
 
 DEVICE_AUTO = "auto"
@@ -31,11 +34,9 @@ class TrainingOrchestrationConfig:
     trainee_ship: str
     reward_weights: Mapping[str, float] = field(default_factory=dict)
     opponent_mode: str = OPPONENT_MODE_SIMPLE
+    # Share of each match's frames given to trained opponents; the baseline
+    # strategy controls the rest.
     ai_opponent_chance: float = 100.0
-    forward_activity: float = 0.0
-    a1_activity: float = 0.0
-    a2_activity: float = 0.0
-    face_opponent_activity: float = 0.0
     rounds_per_batch: int = 1
     gamma: float = 0.99
     match_time_limit: int = 2400
@@ -46,6 +47,14 @@ class TrainingOrchestrationConfig:
     epsilon_floor: float = 0.05
     epsilon_decay: float = 0.998
     action_frame_span: int = 1
+    # Baseline control of the trainee: the chance each phase is flown by the
+    # baseline strategy instead of the network, and how it decays per batch.
+    starting_baseline_use: float = 0.0
+    baseline_use: float = 0.0
+    baseline_floor: float = 0.0
+    baseline_decay: float = 1.0
+    # Each baseline/network phase lasts action_frame_span x this many frames.
+    frame_span_multiplier: int = 1
     hidden_layer_width: int = 128
     hidden_layer_count: int = 2
     minibatch_size: int = DEFAULT_MINIBATCH_SIZE
@@ -76,23 +85,21 @@ class TrainingOrchestrationConfig:
             ("epsilon", self.epsilon),
             ("epsilon_floor", self.epsilon_floor),
             ("epsilon_decay", self.epsilon_decay),
+            ("starting_baseline_use", self.starting_baseline_use),
+            ("baseline_use", self.baseline_use),
+            ("baseline_floor", self.baseline_floor),
+            ("baseline_decay", self.baseline_decay),
         ):
             if not 0.0 <= float(value) <= 1.0:
                 raise ValueError(f"{label} must be in [0, 1]")
         if int(self.action_frame_span) <= 0:
             raise ValueError("action_frame_span must be positive")
+        if int(self.frame_span_multiplier) <= 0:
+            raise ValueError("frame_span_multiplier must be positive")
         if self.training_device not in DEVICE_CHOICES:
             raise ValueError("unsupported training device")
         if self.reward_mode not in REWARD_MODES:
             raise ValueError("unsupported reward mode")
-        for label, value in (
-            ("forward_activity", self.forward_activity),
-            ("a1_activity", self.a1_activity),
-            ("a2_activity", self.a2_activity),
-            ("face_opponent_activity", self.face_opponent_activity),
-        ):
-            if not 0.0 <= float(value) <= 100.0:
-                raise ValueError(f"{label} must be in [0, 100]")
 
 
 @dataclass(frozen=True)
@@ -202,6 +209,19 @@ def single_controller_opponent_plan(
             ),
         ),
     )
+
+
+def advance_baseline_use(config: TrainingOrchestrationConfig, current: float) -> float:
+    """Return the baseline use for the next batch after one completed batch."""
+
+    return max(
+        float(config.baseline_floor),
+        min(1.0, float(current) * float(config.baseline_decay)),
+    )
+
+
+def initial_baseline_use(config: TrainingOrchestrationConfig) -> float:
+    return max(float(config.baseline_floor), min(1.0, float(config.baseline_use)))
 
 
 class TrainingBatchAborted(RuntimeError):

@@ -112,8 +112,9 @@ simulation = SimpleNamespace(
     ),
 )
 manager.bind_round(simulation)
-assert manager.status_for_player(2).kind == "simple"
-assert manager.actions_for_frame(simulation)[2]["forward"]
+assert manager.status_for_player(2).kind == "baseline"
+actions = manager.actions_for_frame(simulation)[2]
+assert set(actions) == {"forward", "left", "right", "action1", "action2"}
 """
         result = subprocess.run(
             [sys.executable, "-c", script],
@@ -257,7 +258,7 @@ assert manager.actions_for_frame(simulation)[2]["forward"]
         self.assertEqual(manager.label_for_player(1), "None found")
         self.assertEqual(
             manager.status_for_player(1),
-            BattleControllerStatus("simple"),
+            BattleControllerStatus("baseline"),
         )
         self.assertEqual(
             set(manager.actions_for_frame(simulation)[1]),

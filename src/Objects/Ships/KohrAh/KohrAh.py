@@ -54,9 +54,13 @@ class KohrAh(SpaceShip):
             for obj in self.friendly_objects
             if isinstance(obj, KohrAhA1) and obj.currently_alive and obj.current_hp > 0
         ]
-        for proj in self.active_projectiles:
+        # Only the saw still in flight stops on release. Saws that already
+        # stopped are tracking the enemy, and stopping them again would
+        # restart their deceleration and interrupt that tracking.
+        released = [proj for proj in self.active_projectiles if proj.is_moving]
+        for proj in released:
             proj.stop_and_track()
-        return tuple(self.active_projectiles)
+        return tuple(released)
 
     def plan_action2(self):
         return self.validate_action(

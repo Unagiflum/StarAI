@@ -39,6 +39,7 @@ from src.training.model_persistence import (
     resolve_model_save,
     rotate_previous_model_save,
 )
+from src.training.cpu_contracts import advance_baseline_use, initial_baseline_use
 from src.training.orchestration import (
     OPPONENT_MODE_EXISTING_AI,
     OPPONENT_MODE_SIMPLE,
@@ -179,14 +180,31 @@ def is_evaluation_batch(batch_number: int, batch_grouping: int) -> bool:
 def evaluation_batch_config(
     config: TrainingOrchestrationConfig,
 ) -> TrainingOrchestrationConfig:
-    """Return a no-exploration config that faces only simple opponents."""
+    """Return a network-only, no-exploration config against baseline opponents."""
 
     return replace(
         config,
         epsilon=0.0,
+        baseline_use=0.0,
         opponent_mode=OPPONENT_MODE_SIMPLE,
         ai_opponent_chance=0.0,
     )
+
+
+def baseline_regimen_metadata(
+    config: TrainingOrchestrationConfig,
+    *,
+    current_baseline_use: float,
+) -> dict[str, Any]:
+    """Return the persisted regimen keys for baseline control."""
+
+    return {
+        "starting_baseline_use": float(config.starting_baseline_use),
+        "current_baseline_use": float(current_baseline_use),
+        "baseline_floor": float(config.baseline_floor),
+        "baseline_decay": float(config.baseline_decay),
+        "frame_span_multiplier": int(config.frame_span_multiplier),
+    }
 
 
 def evaluation_rng(round_index: int = 0) -> random.Random:
@@ -428,6 +446,8 @@ class TrainingSessionStatus:
     current_epsilon: float = 0.0
     epsilon_decay: float = 0.0
     gamma: float = 0.0
+    current_baseline_use: float = 0.0
+    last_baseline_share: float = 0.0
     last_action_exploratory: bool | None = None
     weighted_total_return: float = 0.0
     component_totals: dict[str, float] = field(default_factory=dict)
@@ -750,6 +770,7 @@ class TrainingSession:
             float(config.epsilon_floor),
             min(1.0, float(config.epsilon)),
         )
+        self._current_baseline_use = initial_baseline_use(config)
         self.batch_grouping = max(1, int(batch_grouping))
         self.stop_at_batch = (
             max(1, int(stop_at_batch)) if stop_at_batch is not None else None
@@ -772,6 +793,7 @@ class TrainingSession:
             current_epsilon=self._current_epsilon,
             epsilon_decay=float(config.epsilon_decay),
             gamma=float(config.gamma),
+            current_baseline_use=self._current_baseline_use,
         )
         self._opponent_batch_origin_completed = self._status.completed_batches
         self._configured_opponent_batch_anchor = (
@@ -866,6 +888,8 @@ class TrainingSession:
                 current_epsilon=self._status.current_epsilon,
                 epsilon_decay=self._status.epsilon_decay,
                 gamma=self._status.gamma,
+                current_baseline_use=self._status.current_baseline_use,
+                last_baseline_share=self._status.last_baseline_share,
                 last_action_exploratory=self._status.last_action_exploratory,
                 weighted_total_return=self._status.weighted_total_return,
                 component_totals=dict(self._status.component_totals),
@@ -1012,6 +1036,7 @@ class TrainingSession:
                 batch_config = replace(
                     self.config,
                     epsilon=self._current_epsilon,
+                    baseline_use=self._current_baseline_use,
                     display_on=False,
                 )
                 if evaluation:
@@ -1171,13 +1196,25 @@ class TrainingSession:
                 elapsed_training_seconds
             )
             if not evaluation:
-                # Evaluation batches do not explore, so they do not consume
-                # exploration decay.
+                # Evaluation batches neither explore nor use the baseline, so
+                # they consume neither decay.
                 self._current_epsilon = max(
                     float(self.config.epsilon_floor),
                     min(1.0, self._current_epsilon * float(self.config.epsilon_decay)),
                 )
+                self._current_baseline_use = advance_baseline_use(
+                    self.config,
+                    getattr(self, "_current_baseline_use", 0.0),
+                )
+                self._status.last_baseline_share = float(
+                    getattr(result, "baseline_share", 0.0)
+                )
             self._status.current_epsilon = self._current_epsilon
+            self._status.current_baseline_use = getattr(
+                self,
+                "_current_baseline_use",
+                0.0,
+            )
             self._status.evaluation_batch = False
             current_epsilon = self._current_epsilon
         evaluation_metrics = None
@@ -1373,6 +1410,10 @@ class TrainingSession:
             epsilon_floor = float(self.config.epsilon_floor)
             epsilon_decay = float(self.config.epsilon_decay)
             action_frame_span = int(self.config.action_frame_span)
+            baseline_metadata = baseline_regimen_metadata(
+                self.config,
+                current_baseline_use=getattr(self, "_current_baseline_use", 0.0),
+            )
         regimen.update(
             {
                 "starting_epsilon": starting_epsilon,
@@ -1380,6 +1421,7 @@ class TrainingSession:
                 "epsilon": current_epsilon,
                 "epsilon_floor": epsilon_floor,
                 "epsilon_decay": epsilon_decay,
+                **baseline_metadata,
             }
         )
         training["regimen"] = regimen_with_action_frame_span(

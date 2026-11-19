@@ -22,13 +22,15 @@ class ActionSelection:
 
     ``held`` marks a frame that repeats the previous decision during an action
     frame span. Held frames are simulated and rewarded, but only the frame that
-    made the decision becomes a replay sample.
+    made the decision becomes a replay sample. ``guided`` marks a decision made
+    by the baseline strategy during a baseline phase.
     """
 
     action_index: int
     exploratory: bool
     action_values: tuple[float, ...] | None = None
     held: bool = False
+    guided: bool = False
 
 
 class ActionHold:

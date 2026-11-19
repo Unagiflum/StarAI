@@ -231,10 +231,25 @@ class DisplaySettingsRepository:
         atomic_write_json(self.path, self.codec.encode(settings))
 
 
+FLEET_AI_MODE_TRAINED = "trained"
+FLEET_AI_MODE_BASELINE = "baseline"
+FLEET_AI_MODES = (FLEET_AI_MODE_TRAINED, FLEET_AI_MODE_BASELINE)
+
+
 @dataclass(frozen=True)
 class PlayerFleet:
     ships: tuple[str | None, ...] = ()
     ai: bool = False
+    # Which AI flies the fleet when ``ai`` is on.
+    ai_mode: str = FLEET_AI_MODE_TRAINED
+
+    @property
+    def ai_setting(self) -> bool | str:
+        """``False`` for a human, ``True`` for trained AI, or ``"baseline"``."""
+
+        if not self.ai:
+            return False
+        return FLEET_AI_MODE_BASELINE if self.ai_mode == FLEET_AI_MODE_BASELINE else True
 
 
 @dataclass(frozen=True)
@@ -244,8 +259,12 @@ class Fleets:
 
     def to_json_dict(self) -> dict[str, dict[str, Any]]:
         return {
-            "Player1": {"ships": list(self.player1.ships), "ai": self.player1.ai},
-            "Player2": {"ships": list(self.player2.ships), "ai": self.player2.ai},
+            f"Player{index}": {
+                "ships": list(player.ships),
+                "ai": player.ai,
+                "ai_mode": player.ai_mode,
+            }
+            for index, player in ((1, self.player1), (2, self.player2))
         }
 
 
@@ -267,7 +286,10 @@ class FleetsCodec:
         ai = value.get("ai", False)
         if not isinstance(ai, bool):
             ai = False
-        return PlayerFleet(ships, ai)
+        ai_mode = value.get("ai_mode", FLEET_AI_MODE_TRAINED)
+        if ai_mode not in FLEET_AI_MODES:
+            ai_mode = FLEET_AI_MODE_TRAINED
+        return PlayerFleet(ships, ai, ai_mode)
 
     def decode(self, value: Any) -> Fleets:
         loaded = require_object(value, "Fleets")
@@ -280,6 +302,10 @@ class FleetsCodec:
         for player in (fleets.player1, fleets.player2):
             if not isinstance(player.ai, bool):
                 raise PersistenceValidationError("Fleet AI flags must be booleans")
+            if player.ai_mode not in FLEET_AI_MODES:
+                raise PersistenceValidationError(
+                    f"Fleet AI mode must be one of {FLEET_AI_MODES}"
+                )
             for ship_name in player.ships:
                 if ship_name is not None and (
                     not isinstance(ship_name, str) or ship_name not in self.ship_names

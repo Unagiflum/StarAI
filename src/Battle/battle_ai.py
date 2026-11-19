@@ -22,6 +22,29 @@ if TYPE_CHECKING:
     from src.training.model_registry import TrainingModelRepository, TrainingModelSlot
 
 
+# Per-player AI choice in battle mode: a trained model when one exists, or the
+# ship's scripted baseline strategy.
+AI_MODE_TRAINED = "trained"
+AI_MODE_BASELINE = "baseline"
+AI_MODES = (AI_MODE_TRAINED, AI_MODE_BASELINE)
+# Decision interval for the baseline in battle mode, matching training.
+BATTLE_BASELINE_ACTION_FRAME_SPAN = 4
+
+
+def normalize_ai_setting(value) -> str | None:
+    """Return ``None`` for a human player, otherwise the player's AI mode.
+
+    Accepts the legacy boolean AI flag (``True`` means a trained model) and
+    the explicit mode strings.
+    """
+
+    if value is None or value is False:
+        return None
+    if isinstance(value, str):
+        return value if value in AI_MODES else None
+    return AI_MODE_TRAINED if bool(value) else None
+
+
 @dataclass(frozen=True)
 class BattleAIModel:
     model: Any
@@ -90,7 +113,57 @@ class TrainedModelController:
         return controls_for_action_index(selection.action_index)
 
 
+class BaselineBattleController:
+    """Fly a ship with its scripted baseline strategy."""
+
+    def __init__(
+        self,
+        player: int,
+        *,
+        action_frame_span: int = BATTLE_BASELINE_ACTION_FRAME_SPAN,
+    ):
+        self.player = int(player)
+        self.action_frame_span = max(1, int(action_frame_span))
+        self._controller = None
+        self._held_action_index: int | None = None
+        self._held_frames_remaining = 0
+        self._held_ship = None
+
+    def actions_for_frame(self, simulation) -> dict[str, bool]:
+        from src.training.baseline import BaselineController
+
+        self_ship, enemy_ship = _ships_for_player(simulation, self.player)
+        ship_name = str(getattr(self_ship, "name", ""))
+        if (
+            self._held_action_index is not None
+            and self._held_frames_remaining > 0
+            and self._held_ship is self_ship
+        ):
+            self._held_frames_remaining -= 1
+            return controls_for_action_index(self._held_action_index)
+        if self._controller is None or self._controller.ship_name != ship_name:
+            self._controller = BaselineController(
+                ship_name,
+                action_frame_span=self.action_frame_span,
+            )
+        elif self._held_ship is not self_ship:
+            self._controller.reset()
+        observation = encode_observation(
+            self_ship,
+            enemy_ship,
+            frame_id=getattr(simulation, "frame_id", None),
+            game_objects=getattr(simulation, "world", None),
+        )
+        action_index = int(self._controller.decide(observation))
+        self._held_action_index = action_index
+        self._held_frames_remaining = self.action_frame_span - 1
+        self._held_ship = self_ship
+        return controls_for_action_index(action_index)
+
+
 class FallbackController:
+    """Last-resort controller if the baseline cannot run."""
+
     def __init__(self, player: int, *, rng=None):
         self.player = int(player)
         self.rng = rng or random
@@ -134,9 +207,14 @@ class BattleAIManager:
         model_cache: InferenceModelCache | None = None,
         model_inference_available: bool = True,
     ):
+        self.ai_modes = {
+            player: normalize_ai_setting(
+                ai_enabled.get(player, ai_enabled.get(str(player), False))
+            )
+            for player in (1, 2)
+        }
         self.ai_enabled = {
-            1: bool(ai_enabled.get(1, ai_enabled.get("1", False))),
-            2: bool(ai_enabled.get(2, ai_enabled.get("2", False))),
+            player: mode is not None for player, mode in self.ai_modes.items()
         }
         self.rng = rng or random
         self.model_inference_available = bool(model_inference_available)
@@ -169,6 +247,10 @@ class BattleAIManager:
                 continue
             ship, _ = _ships_for_player(simulation, player)
             prepare_computer_controlled_ship(ship)
+            if self.ai_modes.get(player) == AI_MODE_BASELINE:
+                self.load_failures[player] = ()
+                self._use_baseline(player, label="Baseline")
+                continue
             if self.model_inference_available:
                 loaded, failures = self._resolve_model(
                     str(getattr(ship, "name", ""))
@@ -177,9 +259,8 @@ class BattleAIManager:
                 loaded, failures = None, []
             self.load_failures[player] = tuple(failures)
             if loaded is None:
-                self._controllers[player] = FallbackController(player, rng=self.rng)
-                self._labels[player] = "None found"
-                self._statuses[player] = BattleControllerStatus("simple")
+                # No trained model: fly the baseline strategy instead.
+                self._use_baseline(player, label="None found")
             else:
                 self._controllers[player] = TrainedModelController(
                     player,
@@ -198,14 +279,23 @@ class BattleAIManager:
             try:
                 controls = controller.actions_for_frame(simulation)
             except Exception:
-                fallback = FallbackController(player, rng=self.rng)
-                self._controllers[player] = fallback
-                self._labels[player] = "None found"
-                self._statuses[player] = BattleControllerStatus("simple")
-                controls = fallback.actions_for_frame(simulation)
+                if isinstance(controller, BaselineBattleController):
+                    fallback = FallbackController(player, rng=self.rng)
+                    self._controllers[player] = fallback
+                    self._labels[player] = "None found"
+                    self._statuses[player] = BattleControllerStatus("simple")
+                    controls = fallback.actions_for_frame(simulation)
+                else:
+                    self._use_baseline(player, label="None found")
+                    controls = self._controllers[player].actions_for_frame(simulation)
             ship, enemy = _ships_for_player(simulation, player)
             actions[player] = guard_computer_controls(controls, ship, enemy)
         return actions
+
+    def _use_baseline(self, player: int, *, label: str) -> None:
+        self._controllers[player] = BaselineBattleController(player)
+        self._labels[player] = label
+        self._statuses[player] = BattleControllerStatus("baseline")
 
     def is_ai_player(self, player: int) -> bool:
         return bool(self.ai_enabled.get(int(player), False))
@@ -217,7 +307,7 @@ class BattleAIManager:
         player = int(player)
         if not self.is_ai_player(player):
             return BattleControllerStatus("human")
-        return self._statuses.get(player, BattleControllerStatus("simple"))
+        return self._statuses.get(player, BattleControllerStatus("baseline"))
 
     def _resolve_model(self, ship_name: str) -> tuple[BattleAIModel | None, list[str]]:
         from src.training.model_registry import model_basename

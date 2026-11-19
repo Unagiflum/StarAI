@@ -28,7 +28,6 @@ from src.training.orchestration import (
     OPPONENT_MODE_EXISTING_AI,
     OPPONENT_MODE_SIMPLE,
     OpponentSpec,
-    SimpleOpponentController,
     TrainingBatchAborted,
     TrainingOrchestrationConfig,
     ValueNetworkPolicy,
@@ -600,7 +599,6 @@ class TrainingRoundTests(unittest.TestCase):
         config = TrainingOrchestrationConfig(
             trainee_ship="Earthling",
             match_time_limit=3,
-            forward_activity=100.0,
         )
 
         result = run_training_round(
@@ -639,53 +637,6 @@ class TrainingRoundTests(unittest.TestCase):
         self.assertEqual(policy.selection_count, 2)
         self.assertEqual(len(replay), 2)
 
-    def test_simple_opponent_activity_toggles_keys_per_frame(self):
-        config = TrainingOrchestrationConfig(
-            trainee_ship="Earthling",
-            forward_activity=100.0,
-            a1_activity=50.0,
-            a2_activity=0.0,
-        )
-        controller = SimpleOpponentController(config, rng=SequenceRng([0.0, 1.0]))
-        simulation = SimpleNamespace(
-            frame_id=0,
-            player1=SimpleNamespace(position=(4000, 3900), rotation=0.0),
-            player2=SimpleNamespace(position=(4000, 4000), rotation=0.0),
-        )
-
-        first = controller.controls_for_frame(simulation)
-        simulation.frame_id = 1
-        second = controller.controls_for_frame(simulation)
-
-        self.assertTrue(first["forward"])
-        self.assertFalse(second["forward"])
-        self.assertTrue(first["action1"])
-        self.assertTrue(second["action1"])
-        self.assertFalse(first["action2"])
-        self.assertFalse(second["action2"])
-
-    def test_simple_opponent_face_activity_resamples_every_fps_frames(self):
-        config = TrainingOrchestrationConfig(
-            trainee_ship="Earthling",
-            face_opponent_activity=50.0,
-        )
-        controller = SimpleOpponentController(config, rng=SequenceRng([0.0, 1.0]))
-        simulation = SimpleNamespace(
-            frame_id=0,
-            player1=SimpleNamespace(position=(4100, 4000), rotation=0.0),
-            player2=SimpleNamespace(position=(4000, 4000), rotation=0.0),
-        )
-
-        first = controller.controls_for_frame(simulation)
-        simulation.frame_id = const.FPS - 1
-        before_resample = controller.controls_for_frame(simulation)
-        simulation.frame_id = const.FPS
-        after_resample = controller.controls_for_frame(simulation)
-
-        self.assertTrue(first["right"])
-        self.assertTrue(before_resample["right"])
-        self.assertFalse(after_resample["left"])
-        self.assertFalse(after_resample["right"])
 
     def test_shofixti_is_fully_armed_for_training(self):
         ship = create_ship("Shofixti", 1)

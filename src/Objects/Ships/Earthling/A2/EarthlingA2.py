@@ -6,6 +6,11 @@ from src.toroidal import wrapped_delta, wrapped_distance
 
 
 class EarthlingA2(Ability):
+    # Point defense ignores the ship's own nukes for this many frames after
+    # launch so it cannot shoot them down as they leave the gun. Afterwards a
+    # nuke that turns back toward the ship can still be intercepted.
+    OWN_NUKE_GRACE_FRAMES = const.FPS
+
     def __init__(self, parent, target=None):
         super().__init__("EarthlingA2", parent)
         definition = ABILITY_DEFINITIONS["EarthlingA2"]
@@ -40,7 +45,7 @@ class EarthlingA2(Ability):
                 valid_targets.append(obj)
 
         for obj, distance in self._targets_by_distance(self.parent.friendly_objects):
-            if distance <= self.LASER_RANGE:
+            if distance <= self.LASER_RANGE and not self._is_new_own_nuke(obj):
                 valid_targets.append(obj)
 
         for obj, distance in self._targets_by_distance(self.parent.asteroids):
@@ -51,6 +56,17 @@ class EarthlingA2(Ability):
             return None
 
         return [EarthlingA2(self.parent, target) for target in valid_targets]
+
+    def _is_new_own_nuke(self, obj):
+        if getattr(obj, "name", None) != "EarthlingA1":
+            return False
+        if getattr(obj, "parent", None) is not self.parent:
+            return False
+        duration = getattr(obj, "_duration", None)
+        remaining = getattr(obj, "expiration_timer", None)
+        if duration is None or remaining is None:
+            return False
+        return duration - remaining < self.OWN_NUKE_GRACE_FRAMES
 
     def _targets_by_distance(self, targets):
         return sorted(

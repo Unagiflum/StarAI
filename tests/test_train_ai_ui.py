@@ -54,7 +54,7 @@ from src.Menus.train_ai import (
     DeviceRadioSelector,
     InstanceDropdown,
     AI_OPPONENT_PERCENT_VALUES,
-    SIMPLE_ACTIVITY_VALUES,
+    BASELINE_OPPONENT_PERCENT_VALUES,
     TRAINING_INSTANCE_SOFT_MAX,
     TRAINING_INSTANCE_SUPPORTED_MAX,
     TRAINING_BATCH_LOG_FONT_SIZE,
@@ -273,10 +273,13 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.rewards, expected_rewards)
         self.assertEqual(state.opponent_mode, "all")
         self.assertEqual(state.ai_opponent_chance, 100.0)
-        self.assertEqual(state.forward_activity, 0.0)
-        self.assertEqual(state.a1_activity, 25.0)
-        self.assertEqual(state.a2_activity, 0.0)
-        self.assertEqual(state.face_opponent_activity, 100.0)
+        self.assertEqual(state.baseline_opponent_chance, 0.0)
+        self.assertFalse(hasattr(state, "forward_activity"))
+        self.assertEqual(state.starting_baseline_use, 0.5)
+        self.assertEqual(state.current_baseline_use, 0.5)
+        self.assertEqual(state.baseline_floor, 0.0)
+        self.assertEqual(state.baseline_decay, 0.995)
+        self.assertEqual(state.frame_span_multiplier, 6)
         self.assertEqual(state.rounds_per_batch, 1)
         self.assertEqual(state.batch_grouping, 10)
         self.assertEqual(state.match_time_limit, 1200)
@@ -337,21 +340,20 @@ class TrainingUIStateTests(unittest.TestCase):
             torch_backend.DEVICE_AUTO,
         )
 
-    def test_ai_opponent_mode_keeps_simple_behavior_controls_available(self):
+    def test_baseline_opponent_slider_value_is_the_ai_share_complement(self):
         state = TrainingUIState()
-        self.assertTrue(state.simple_behavior_controls_enabled)
 
-        state.opponent_mode = "all"
+        state.baseline_opponent_chance = 35.0
 
-        self.assertTrue(state.simple_behavior_controls_enabled)
+        self.assertEqual(state.ai_opponent_chance, 65.0)
+        self.assertEqual(state.opponent_mode, "all")
+        state.baseline_opponent_chance = 100.0
+        self.assertEqual(state.ai_opponent_chance, 0.0)
+        self.assertEqual(state.opponent_mode, "simple")
 
-        state.running = True
-
-        self.assertFalse(state.simple_behavior_controls_enabled)
-
-    def test_simple_activity_values_are_five_percent_steps(self):
+    def test_baseline_opponent_values_are_five_percent_steps(self):
         self.assertEqual(
-            SIMPLE_ACTIVITY_VALUES,
+            BASELINE_OPPONENT_PERCENT_VALUES,
             tuple(float(value) for value in range(0, 101, 5)),
         )
 
@@ -3483,8 +3485,11 @@ class TrainingTooltipTests(unittest.TestCase):
         self.assertEqual(const.SHIP_TOOLTIP_ALPHA, 255)
 
     def test_every_opponent_and_regimen_control_has_help(self):
-        self.assertEqual(len(train_ai.OPPONENT_CONTROL_TOOLTIPS), 5)
-        self.assertEqual(len(train_ai.REGIMEN_CONTROL_TOOLTIPS), 14)
+        self.assertEqual(len(train_ai.OPPONENT_CONTROL_TOOLTIPS), 1)
+        self.assertEqual(
+            len(train_ai.REGIMEN_CONTROL_TOOLTIPS),
+            train_ai.REGIMEN_SLIDER_COUNT,
+        )
         self.assertTrue(all(train_ai.OPPONENT_CONTROL_TOOLTIPS))
         self.assertTrue(all(train_ai.REGIMEN_CONTROL_TOOLTIPS))
 
@@ -4188,7 +4193,7 @@ class TrainingHudBadgeTests(unittest.TestCase):
             _training_hud_badges(status),
             {
                 1: HudBadge("countdown", 150),
-                2: HudBadge("simple"),
+                2: HudBadge("baseline"),
             },
         )
 
@@ -4677,10 +4682,11 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         state.rewards["Kill enemy"] = 2.56
         state.ai_opponent_chance = 50.0
         state.opponent_mode = "all"
-        state.forward_activity = 25.0
-        state.a1_activity = 50.0
-        state.a2_activity = 75.0
-        state.face_opponent_activity = 100.0
+        state.starting_baseline_use = 0.6
+        state.current_baseline_use = 0.4
+        state.baseline_floor = 0.05
+        state.baseline_decay = 0.98
+        state.frame_span_multiplier = 9
         state.rounds_per_batch = 2
         state.gamma = 0.995
         state.minibatch_size = 128
@@ -4700,10 +4706,11 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         self.assertEqual(config.reward_weights["Kill enemy"], 2.56)
         self.assertEqual(config.opponent_mode, "all")
         self.assertEqual(config.ai_opponent_chance, 50.0)
-        self.assertEqual(config.forward_activity, 25.0)
-        self.assertEqual(config.a1_activity, 50.0)
-        self.assertEqual(config.a2_activity, 75.0)
-        self.assertEqual(config.face_opponent_activity, 100.0)
+        self.assertEqual(config.starting_baseline_use, 0.6)
+        self.assertEqual(config.baseline_use, 0.4)
+        self.assertEqual(config.baseline_floor, 0.05)
+        self.assertEqual(config.baseline_decay, 0.98)
+        self.assertEqual(config.frame_span_multiplier, 9)
         self.assertEqual(config.rounds_per_batch, 2)
         self.assertEqual(config.gamma, 0.995)
         self.assertEqual(config.minibatch_size, 128)
@@ -4830,7 +4837,7 @@ class TrainingConsoleTests(unittest.TestCase):
         )
         current_batch_index = lines.index("Current batch")
         self.assertEqual(
-            lines[current_batch_index : current_batch_index + 16],
+            lines[current_batch_index : current_batch_index + 18],
             (
                 "Current batch",
                 "Ship      | Androsynth",
@@ -4847,6 +4854,8 @@ class TrainingConsoleTests(unittest.TestCase):
                 "Gamma     |          0.990",
                 "Eps decay |          0.990",
                 "Epsilon   |          0.36577",
+                "Baseline  |          0.00000",
+                "Base share|             0.0%",
                 "Learning  |          0.00030",
             ),
         )

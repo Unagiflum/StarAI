@@ -41,6 +41,8 @@ from src.training.contracts import (
 )
 from src.training.cpu_contracts import (
     OpponentControllerPlan,
+    advance_baseline_use,
+    initial_baseline_use,
     single_controller_opponent_plan,
 )
 from src.training.coordinated_contracts import (
@@ -72,7 +74,7 @@ from src.training.observation import encode_observation
 from src.training.orchestration import (
     OPPONENT_MODE_EXISTING_AI,
     OpponentSpec,
-    SimpleOpponentController,
+    BaselineOpponentController,
     TrainingBatchAborted,
     TrainingBatchResult,
     TrainingOrchestrationConfig,
@@ -89,8 +91,10 @@ from src.training.orchestration import (
     deterministic_opponent_plan_schedule,
     direct_controls_for_action_index,
     _battle_view_from_simulation,
+    baseline_mixer_for_config,
     simple_opponent_schedule,
 )
+from src.training.baseline import BaselinePhaseMixer
 from src.training.opponent_cache import OpponentModelKey
 from src.training.render_view import freeze_battle_view
 from src.training.replay import (
@@ -119,6 +123,7 @@ from src.training.session import (
     advance_display_frame_deadline,
     append_evaluation_metrics_csv,
     append_grouped_metrics_csv,
+    baseline_regimen_metadata,
     batch_metrics_to_metadata,
     batch_metrics_history_from_metadata,
     evaluation_metrics_csv_path,
@@ -220,10 +225,12 @@ class CoordinatedExplorationSchedule:
     """Shared explore/greedy gate with per-record action holds.
 
     Each record holds its decided action for ``frame_span`` frames, whether the
-    decision was exploratory or greedy. Records that need a new decision on the
-    same frame share one explore/greedy roll, so greedy decisions still run as
-    one batched inference call. Records listed in ``greedy_record_ids`` are in
-    a greedy evaluation batch and never explore.
+    decision was exploratory, baseline or greedy. Records that need a new
+    decision on the same frame share one explore/greedy roll, so greedy
+    decisions still run as one batched inference call. Records listed in
+    ``greedy_record_ids`` are in a greedy evaluation batch and never explore.
+    Records with a ``baseline_mixers`` entry fly baseline phases between
+    network phases; exploration applies to both.
     """
 
     def __init__(
@@ -233,20 +240,39 @@ class CoordinatedExplorationSchedule:
         frame_span: int,
         rng: Any,
         greedy_record_ids: Sequence[int] = (),
+        baseline_mixers: Mapping[int, BaselinePhaseMixer] | None = None,
     ):
         self.epsilon = max(0.0, min(1.0, float(epsilon)))
         self.frame_span = max(1, int(frame_span))
         self.rng = rng
         self.greedy_record_ids = frozenset(int(item) for item in greedy_record_ids)
-        self._holds: dict[int, tuple[ActionHold, bool]] = {}
+        self.baseline_mixers = {
+            int(record_id): mixer
+            for record_id, mixer in dict(baseline_mixers or {}).items()
+            if int(record_id) not in self.greedy_record_ids
+        }
+        self._holds: dict[int, tuple[ActionHold, bool, bool]] = {}
 
     def begin_round(self) -> None:
         self._holds.clear()
+        for mixer in self.baseline_mixers.values():
+            mixer.reset()
 
     def reset_record(self, record_id: int) -> None:
         """Do not carry one record's held action across an episode reset."""
 
         self._holds.pop(int(record_id), None)
+        mixer = self.baseline_mixers.get(int(record_id))
+        if mixer is not None:
+            mixer.reset()
+
+    def baseline_counts(self, record_id: int) -> tuple[int, int]:
+        """Return ``(baseline decisions, all decisions)`` for one record."""
+
+        mixer = self.baseline_mixers.get(int(record_id))
+        if mixer is None:
+            return 0, 0
+        return int(mixer.baseline_decisions), int(mixer.decisions)
 
     def begin_hold(
         self,
@@ -254,16 +280,17 @@ class CoordinatedExplorationSchedule:
         action_index: int,
         *,
         exploratory: bool,
+        guided: bool = False,
     ) -> None:
         hold = ActionHold()
         hold.begin(action_index, self.frame_span)
-        self._holds[int(record_id)] = (hold, bool(exploratory))
+        self._holds[int(record_id)] = (hold, bool(exploratory), bool(guided))
 
     def held_selection(self, record_id: int) -> ActionSelection | None:
         entry = self._holds.get(int(record_id))
         if entry is None:
             return None
-        hold, exploratory = entry
+        hold, exploratory, guided = entry
         action_index = hold.held_action()
         if action_index is None:
             return None
@@ -271,13 +298,15 @@ class CoordinatedExplorationSchedule:
             action_index=action_index,
             exploratory=exploratory,
             held=True,
+            guided=guided,
         )
 
     def prepare_selections(
         self,
         requests: Sequence[CoordinatedActionRequest],
     ) -> tuple[dict[int, ActionSelection], list[CoordinatedActionRequest]]:
-        """Return held/exploratory selections and the requests needing inference."""
+        """Return held/exploratory/baseline selections and the requests
+        needing network inference."""
 
         selections: dict[int, ActionSelection] = {}
         deciders: list[CoordinatedActionRequest] = []
@@ -288,6 +317,13 @@ class CoordinatedExplorationSchedule:
                 selections[record_id] = held
             else:
                 deciders.append(request)
+        baseline_phase = {
+            int(request.record_id): self.baseline_mixers[
+                int(request.record_id)
+            ].begin_decision()
+            for request in deciders
+            if int(request.record_id) in self.baseline_mixers
+        }
         explorers = [
             request
             for request in deciders
@@ -310,7 +346,22 @@ class CoordinatedExplorationSchedule:
                 for request in deciders
                 if int(request.record_id) not in selections
             ]
-        return selections, deciders
+        network_deciders: list[CoordinatedActionRequest] = []
+        for request in deciders:
+            record_id = int(request.record_id)
+            if not baseline_phase.get(record_id, False):
+                network_deciders.append(request)
+                continue
+            action_index = int(
+                self.baseline_mixers[record_id].baseline_action(request.observation)
+            )
+            self.begin_hold(record_id, action_index, exploratory=False, guided=True)
+            selections[record_id] = ActionSelection(
+                action_index=action_index,
+                exploratory=False,
+                guided=True,
+            )
+        return selections, network_deciders
 
 
 _PADDED_COORDINATED_OBSERVATION = (0.0,) * OBSERVATION_INPUT_SIZE
@@ -668,7 +719,11 @@ def _coordinated_regimen_signature(
         float(config.starting_epsilon),
         float(config.epsilon_floor),
         float(config.epsilon_decay),
+        float(config.starting_baseline_use),
+        float(config.baseline_floor),
+        float(config.baseline_decay),
         int(config.action_frame_span),
+        int(config.frame_span_multiplier),
         float(config.gamma),
         int(config.minibatch_size),
         int(config.replay_updates_per_batch),
@@ -984,6 +1039,9 @@ class CoordinatedTrainingSession:
             ),
         )
         self._shared_current_epsilon = shared_current_epsilon
+        self._shared_current_baseline_use = sum(
+            initial_baseline_use(record.config) for record in records
+        ) / len(records)
         self._states = {
             int(record.instance_id): _CoordinatedRecordState(
                 record=record,
@@ -997,6 +1055,7 @@ class CoordinatedTrainingSession:
                     current_epsilon=shared_current_epsilon,
                     epsilon_decay=float(record.config.epsilon_decay),
                     gamma=float(record.config.gamma),
+                    current_baseline_use=self._shared_current_baseline_use,
                 ),
                 history=list(
                     record.initial_history
@@ -1282,6 +1341,8 @@ class CoordinatedTrainingSession:
                 current_epsilon=status.current_epsilon,
                 epsilon_decay=status.epsilon_decay,
                 gamma=status.gamma,
+                current_baseline_use=status.current_baseline_use,
+                last_baseline_share=status.last_baseline_share,
                 last_action_exploratory=status.last_action_exploratory,
                 weighted_total_return=status.weighted_total_return,
                 component_totals=dict(status.component_totals),
@@ -1426,6 +1487,7 @@ class CoordinatedTrainingSession:
             frame_span=next(iter(self._states.values())).record.config.action_frame_span,
             rng=self._rng,
             greedy_record_ids=evaluation_ids,
+            baseline_mixers=self._baseline_mixers_for_batch(evaluation_ids),
         )
         schedules = self._opponent_schedules_for_batch(evaluation_ids)
         if any(not schedule for schedule in schedules.values()):
@@ -1622,6 +1684,7 @@ class CoordinatedTrainingSession:
 
         if len(evaluation_ids) < len(self._states):
             self._advance_shared_epsilon()
+            self._advance_shared_baseline_use()
         completed_batch_numbers: dict[int, int] = {}
         preliminary_batch_seconds = max(
             0.0,
@@ -1638,6 +1701,8 @@ class CoordinatedTrainingSession:
                     replay_size=len(components.replay_buffer),
                     optimization_losses=optimization_losses[instance_id],
                     round_results=tuple(results[instance_id]),
+                    baseline_decisions=exploration_schedule.baseline_counts(instance_id)[0],
+                    total_decisions=exploration_schedule.baseline_counts(instance_id)[1],
                 ),
                 batch_seconds=preliminary_batch_seconds,
                 emit_outputs=False,
@@ -1723,6 +1788,7 @@ class CoordinatedTrainingSession:
             frame_span=next(iter(self._states.values())).record.config.action_frame_span,
             rng=self._rng,
             greedy_record_ids=evaluation_ids,
+            baseline_mixers=self._baseline_mixers_for_batch(evaluation_ids),
         )
         workers: dict[int, Any] = self._cpu_workers
         results: dict[int, list[CoordinatedFixedFrameWindowResult]] = {
@@ -2114,6 +2180,7 @@ class CoordinatedTrainingSession:
 
         if len(evaluation_ids) < len(self._states):
             self._advance_shared_epsilon()
+            self._advance_shared_baseline_use()
         completed_batch_numbers: dict[int, int] = {}
         preliminary_batch_seconds = max(
             0.0,
@@ -2130,6 +2197,8 @@ class CoordinatedTrainingSession:
                     replay_size=len(components.replay_buffer),
                     optimization_losses=optimization_losses[instance_id],
                     round_results=tuple(results[instance_id]),
+                    baseline_decisions=exploration_schedule.baseline_counts(instance_id)[0],
+                    total_decisions=exploration_schedule.baseline_counts(instance_id)[1],
                 ),
                 batch_seconds=preliminary_batch_seconds,
                 emit_outputs=False,
@@ -2431,6 +2500,11 @@ class CoordinatedTrainingSession:
                 elapsed,
             )
             state.status.current_epsilon = state.current_epsilon
+            state.status.current_baseline_use = self._shared_current_baseline_use
+            if not evaluation:
+                state.status.last_baseline_share = float(
+                    getattr(result, "baseline_share", 0.0)
+                )
             state.status.evaluation_batch = False
             current_epsilon = state.current_epsilon
 
@@ -2590,6 +2664,36 @@ class CoordinatedTrainingSession:
                 state.current_epsilon = self._shared_current_epsilon
                 state.status.current_epsilon = self._shared_current_epsilon
 
+    def _advance_shared_baseline_use(self) -> None:
+        with self._lock:
+            config = next(iter(self._states.values())).record.config
+            self._shared_current_baseline_use = advance_baseline_use(
+                config,
+                self._shared_current_baseline_use,
+            )
+            for state in self._states.values():
+                state.status.current_baseline_use = self._shared_current_baseline_use
+
+    def _baseline_mixers_for_batch(
+        self,
+        evaluation_ids: Sequence[int],
+    ) -> dict[int, BaselinePhaseMixer]:
+        """Per-record baseline phase mixers; evaluation records fly alone."""
+
+        mixers: dict[int, BaselinePhaseMixer] = {}
+        with self._lock:
+            baseline_use = float(self._shared_current_baseline_use)
+        for instance_id, state in self._states.items():
+            if int(instance_id) in set(evaluation_ids):
+                continue
+            mixer = baseline_mixer_for_config(
+                replace(state.record.config, baseline_use=baseline_use),
+                rng=self._rng,
+            )
+            if mixer is not None:
+                mixers[int(instance_id)] = mixer
+        return mixers
+
     def _optimize_record(self, state: _CoordinatedRecordState) -> tuple[float, ...]:
         components = state.components
         if components is None:
@@ -2734,6 +2838,10 @@ class CoordinatedTrainingSession:
                 "epsilon": float(current_epsilon),
                 "epsilon_floor": float(config.epsilon_floor),
                 "epsilon_decay": float(config.epsilon_decay),
+                **baseline_regimen_metadata(
+                    config,
+                    current_baseline_use=self._shared_current_baseline_use,
+                ),
             }
         )
         training["regimen"] = regimen_with_action_frame_span(
@@ -3038,9 +3146,9 @@ def run_coordinated_fixed_frame_window(
             gamma=config.gamma,
             reward_weights=config.reward_weights,
             mode=config.reward_mode,
-        ), SimpleOpponentController(config, rng=rng)
+        ), BaselineOpponentController(action_frame_span=config.action_frame_span)
 
-    simulation, ledger, pipeline, simple_controller = new_battle()
+    simulation, ledger, pipeline, baseline_controller = new_battle()
     episode_start_window_frame = window_frames_consumed
     episode_start_frame_id = simulation.frame_id
     episode_mature_count = 0
@@ -3097,7 +3205,7 @@ def run_coordinated_fixed_frame_window(
                     opponent,
                     simulation,
                     config,
-                    simple_controller,
+                    baseline_controller,
                 ),
             }
         )
@@ -3240,7 +3348,7 @@ def run_coordinated_fixed_frame_window(
             post_death_episode = None
             if window_frames_consumed < window_frame_limit:
                 if handled_post_death:
-                    simulation, ledger, pipeline, simple_controller = new_battle()
+                    simulation, ledger, pipeline, baseline_controller = new_battle()
                 elif training_deaths:
                     if reward_terminal:
                         pipeline = StagedTrajectoryPipeline(
@@ -3248,9 +3356,9 @@ def run_coordinated_fixed_frame_window(
                             reward_weights=config.reward_weights,
                             mode=config.reward_mode,
                         )
-                    simple_controller = SimpleOpponentController(config, rng=rng)
+                    baseline_controller = BaselineOpponentController(action_frame_span=config.action_frame_span)
                 else:
-                    simulation, ledger, pipeline, simple_controller = new_battle()
+                    simulation, ledger, pipeline, baseline_controller = new_battle()
                 episode_start_window_frame = window_frames_consumed
                 episode_start_frame_id = simulation.frame_id
                 episode_mature_count = 0
@@ -3551,11 +3659,12 @@ def select_actions_for_records(
         inference_requests = greedy_requests
 
     if not greedy_requests:
-        inference_mode = (
-            "held_only"
-            if selections and all(selection.held for selection in selections.values())
-            else "exploration_only"
-        )
+        if selections and all(selection.held for selection in selections.values()):
+            inference_mode = "held_only"
+        elif any(selection.exploratory for selection in selections.values()):
+            inference_mode = "exploration_only"
+        else:
+            inference_mode = "baseline_only"
     else:
         greedy_ids = {int(request.record_id) for request in greedy_requests}
         models = tuple(request.policy.model for request in inference_requests)
@@ -3662,9 +3771,9 @@ def select_opponent_controls_for_windows(
         simulation = window.simulation
         if window.opponent.model is None:
             controls[id(window)] = (
-                window.simple_controller.direct_controls_for_frame(simulation)
+                window.baseline_controller.direct_controls_for_frame(simulation)
                 if direct
-                else window.simple_controller.controls_for_frame(simulation)
+                else window.baseline_controller.controls_for_frame(simulation)
             )
             continue
         opponent_hold = getattr(window, "opponent_hold", None)
@@ -4065,7 +4174,7 @@ def _create_coordinated_window_runtime(
     audio_service: Any,
     ship_factory: Callable[..., Any] = create_ship,
 ) -> _CoordinatedWindowRuntime:
-    simulation, ledger, pipeline, simple_controller = _new_coordinated_battle(
+    simulation, ledger, pipeline, baseline_controller = _new_coordinated_battle(
         state.record.config,
         opponent,
         rng=rng,
@@ -4080,7 +4189,7 @@ def _create_coordinated_window_runtime(
         simulation=simulation,
         ledger=ledger,
         pipeline=pipeline,
-        simple_controller=simple_controller,
+        baseline_controller=baseline_controller,
         component_sums={component: 0.0 for component in REWARD_COMPONENTS},
         episode_component_sums={
             component: 0.0
@@ -4134,7 +4243,7 @@ def _new_coordinated_battle(
             reward_weights=config.reward_weights,
             mode=config.reward_mode,
         ),
-        SimpleOpponentController(config, rng=rng),
+        BaselineOpponentController(action_frame_span=config.action_frame_span),
     )
 
 
@@ -4215,7 +4324,7 @@ def _advance_coordinated_window_frame(
             runtime.opponent,
             simulation,
             config,
-            runtime.simple_controller,
+            runtime.baseline_controller,
         )
         _add_timing_seconds(
             timing_seconds,
@@ -4430,13 +4539,13 @@ def _reset_coordinated_window_battle(
                 reward_weights=config.reward_weights,
                 mode=config.reward_mode,
             )
-        runtime.simple_controller = SimpleOpponentController(config, rng=rng)
+        runtime.baseline_controller = BaselineOpponentController(action_frame_span=config.action_frame_span)
     else:
         (
             runtime.simulation,
             runtime.ledger,
             runtime.pipeline,
-            runtime.simple_controller,
+            runtime.baseline_controller,
         ) = _new_coordinated_battle(
             config,
             runtime.opponent,

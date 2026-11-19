@@ -301,6 +301,42 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertEqual(ship.action2_timer, 0)
         point_defense.launch_sound.play.assert_not_called()
 
+    def test_earthling_point_defense_spares_its_own_new_nukes(self):
+        from src.Objects.Ships.Earthling.A2.EarthlingA2 import EarthlingA2
+
+        ship = create_ship("Earthling", 1)
+        ship.position = [1000.0, 1000.0]
+        ship.opponent = None
+        ship.enemy_objects = []
+        ship.asteroids = []
+        nuke = create_ability("EarthlingA1", ship)
+        nuke.position = [1000.0, 800.0]
+        ship.friendly_objects = [nuke]
+
+        nuke.expiration_timer = nuke._duration - (EarthlingA2.OWN_NUKE_GRACE_FRAMES - 1)
+        self.assertIsNone(EarthlingA2(ship).get_shots())
+
+        nuke.expiration_timer = nuke._duration - EarthlingA2.OWN_NUKE_GRACE_FRAMES
+        shots = EarthlingA2(ship).get_shots()
+        self.assertEqual([shot.target for shot in shots], [nuke])
+
+    def test_earthling_point_defense_still_targets_new_enemy_objects(self):
+        from src.Objects.Ships.Earthling.A2.EarthlingA2 import EarthlingA2
+
+        ship = create_ship("Earthling", 1)
+        enemy = create_ship("Earthling", 2)
+        ship.position = [1000.0, 1000.0]
+        ship.opponent = None
+        ship.friendly_objects = []
+        ship.asteroids = []
+        enemy_nuke = create_ability("EarthlingA1", enemy)
+        enemy_nuke.position = [1000.0, 800.0]
+        ship.enemy_objects = [enemy_nuke]
+
+        shots = EarthlingA2(ship).get_shots()
+
+        self.assertEqual([shot.target for shot in shots], [enemy_nuke])
+
     def test_earthling_point_defense_beam_ends_at_exact_target(self):
         from src.Objects.Ships.Earthling.A2.EarthlingA2 import EarthlingA2
 
@@ -712,6 +748,24 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         ship.perform_action1_release()
         saw.stop_and_track.assert_called_once_with()
         self.assertFalse(ship.last_action1_state)
+
+    def test_kohr_ah_release_stops_only_the_saw_in_flight(self):
+        ship = create_ship("KohrAh", 1)
+        parked = create_ability("KohrAhA1", ship)
+        parked.is_moving = False
+        parked.deceleration_timer = 0
+        parked.track_timer = 3
+        flying = create_ability("KohrAhA1", ship)
+        ship.friendly_objects = [parked, flying]
+
+        released = ship.perform_action1_release()
+
+        self.assertEqual(released, (flying,))
+        self.assertFalse(flying.is_moving)
+        self.assertGreater(flying.deceleration_timer, 0)
+        # The parked saw keeps tracking undisturbed.
+        self.assertEqual(parked.deceleration_timer, 0)
+        self.assertEqual(parked.track_timer, 3)
 
     def test_kohr_ah_saw_decelerates_before_tracking(self):
         ship = create_ship("KohrAh", 1)
