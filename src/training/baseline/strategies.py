@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import math
 
+import src.const as const
 from src.training.baseline.engine import (
     APPROACH_ANGLE_OFFSET,
+    AVOID_ANGLE_OFFSET,
+    PERPENDICULAR_AWAY_OFFSET,
     TURN_LEFT,
     TURN_NONE,
     TURN_RIGHT,
@@ -45,9 +48,39 @@ UMGAH_CONE_HALF_ANGLE = 40.0
 UMGAH_HOSTILE_RANGE = 1200.0
 # Ahead and this close, thrust in rather than turn around to hop.
 UMGAH_CLOSE_APPROACH_RANGE = 400.0
+# Hop runs: each hop moves this far, one every few frames. Within the
+# lateral-aim distance a run must pass the opponent this far to the side
+# (within the lateral limits, beyond which the cone misses or the hulls
+# bump); farther off, pointing the tail near it is enough. Enemy objects
+# within the corridor half-width of the path block a run, and an opponent
+# whose nose points within the facing angle of me is passed on the side
+# away from its nose.
+UMGAH_HOP_DISTANCE = float(ABILITY_DEFINITIONS["UmgahA2"].backup_speed)
+UMGAH_HOP_FRAMES = SHIP_DEFINITIONS["Umgah"].a2_wait + 1
+UMGAH_LATERAL_AIM_DISTANCE = 1000.0
+UMGAH_RUN_CLEARANCE = 90.0
+UMGAH_RUN_MIN_LATERAL = 40.0
+UMGAH_RUN_MAX_LATERAL = 160.0
+UMGAH_CORRIDOR_HALF_WIDTH = 2.0 * TYPICAL_HULL_RADIUS + 10.0
+# Hops ahead checked for a clear path, even when hopping only once.
+UMGAH_PATH_LOOKAHEAD_HOPS = 4
+UMGAH_FACING_ANGLE = 60.0
+# Short-reach opponents that must come to the cone; the Umgah waits facing them.
+UMGAH_AMBUSH_SHIPS = frozenset({"Ilwrath", "Pkunk", "Shofixti"})
 # Distances from the specification, in world units.
 LONG_RANGE = 1000.0
 FAR_RANGE = 2000.0
+# Earthling standoff: hold the opponent between the band's edges, inside nuke
+# range; nukes need this much room to turn onto the target and not catch the
+# Earthling, and launch within the tolerance as they home. Whip only off a
+# planet at least this far around from the opponent. Point defense also
+# fires at objects within this fraction of its reach even when not closing.
+EARTHLING_BAND_NEAR = 1200.0
+EARTHLING_BAND_FAR = 2000.0
+EARTHLING_NUKE_MIN_DISTANCE = 400.0
+EARTHLING_NUKE_TOLERANCE = 30.0
+EARTHLING_WHIP_AWAY_ANGLE = 120.0
+EARTHLING_PD_CLOSE_FRACTION = 0.5
 DRUUGE_ESCAPE_RANGE = 500.0
 # Ships whose fighters, Dogi or limpets the Druuge recoils away from.
 DRUUGE_ESCAPE_DANGER_SHIPS = frozenset({"KzerZa", "Chenjesu", "Vux"})
@@ -300,7 +333,100 @@ def druuge(ctx: BaselineContext) -> None:
         ctx.a2(True)
 
 
+def _earthling_point_defense(ctx: BaselineContext) -> None:
+    """Fire point defense only at something it can reach and that matters.
+
+    It spares the Earthling's own nukes, but every shot costs battery the
+    next nuke needs, so leave alone objects already flying away.
+    """
+
+    reach = ctx.weapon(2).range + TYPICAL_HULL_RADIUS
+    enemy = ctx.enemy
+    if enemy is not None and enemy.distance <= reach:
+        ctx.a2(True)
+        return
+    for obj in ctx.view.enemy_objects:
+        if obj.distance <= reach and (
+            obj.closing_speed > 0.0 or obj.distance <= reach * EARTHLING_PD_CLOSE_FRACTION
+        ):
+            ctx.a2(True)
+            return
+
+
+def _earthling_whip(ctx: BaselineContext) -> bool:
+    """Gravity-whip only when the planet lies away from the opponent.
+
+    Pass the planet on the side that leaves heading further from the
+    opponent, so the speed gained carries the ship away rather than at it.
+    """
+
+    planet = ctx.planet
+    enemy = ctx.enemy
+    if planet is None or enemy is None or planet.distance <= const.GRAVITY_RANGE:
+        return False
+    if ctx.me.speed >= ctx.spec.max_thrust:
+        return False
+    if abs(wrap_degrees(planet.bearing - enemy.bearing)) < EARTHLING_WHIP_AWAY_ANGLE:
+        return False
+    heading = max(
+        (
+            wrap_degrees(planet.bearing + APPROACH_ANGLE_OFFSET),
+            wrap_degrees(planet.bearing - APPROACH_ANGLE_OFFSET),
+        ),
+        key=lambda bearing: abs(wrap_degrees(bearing - enemy.bearing)),
+    )
+    return ctx.steer(heading)
+
+
 def earthling(ctx: BaselineContext) -> None:
+    """Keep a nuke-range standoff, whipping off the planet away from the opponent.
+
+    Above top speed it coasts, thrusting only to bend its path; it turns
+    quickly enough to face the opponent for a nuke and turn back without
+    losing speed.
+    """
+
+    ctx.coast_above_top_speed = True
+    _earthling_point_defense(ctx)
+    enemy = ctx.enemy
+    if enemy is None:
+        return
+    nuke_range = ctx.weapon(1).range
+    distance = enemy.distance
+    can_nuke = (
+        ctx.me.battery >= ctx.spec.a1_cost
+        and ctx.me.a1_ready
+        and EARTHLING_NUKE_MIN_DISTANCE <= distance <= nuke_range
+    )
+    if can_nuke:
+        ctx.point_weapon(1)
+        ctx.plan.claim_thrust(False)
+        if ctx.pointing(1, tolerance=EARTHLING_NUKE_TOLERANCE):
+            ctx.a1(True)
+        return
+    if _earthling_whip(ctx):
+        return
+    toward = _own_speed_toward(ctx, enemy)
+    if distance < EARTHLING_BAND_NEAR:
+        ctx.steer(ctx.side("earthling_away", enemy.bearing, AVOID_ANGLE_OFFSET))
+    elif distance <= EARTHLING_BAND_FAR:
+        if toward > 0.0 or enemy.closing_speed > 0.0:
+            # Bend the path so the opponent stays off to the side.
+            ctx.steer(ctx.side("earthling_away", enemy.bearing, PERPENDICULAR_AWAY_OFFSET))
+        else:
+            ctx.point_at_opponent()
+            ctx.plan.claim_thrust(False)
+    elif enemy.closing_speed > 0.0:
+        # It comes to me: face it for the next nuke.
+        ctx.point_at_opponent()
+        ctx.plan.claim_thrust(False)
+    else:
+        ctx.approach_range(EARTHLING_BAND_FAR, key="earthling_band")
+
+
+def earthling_flee_whip(ctx: BaselineContext) -> None:
+    """Earlier rules: flee a closing opponent, whip whenever slow."""
+
     # Point defense spares its own new nukes, so it can stay on.
     ctx.a2(True)
     if ctx.distance <= FAR_RANGE:
@@ -935,22 +1061,208 @@ def _umgah_dodge(ctx: BaselineContext) -> None:
             return
 
 
-def umgah(ctx: BaselineContext) -> None:
-    """Hop backward past the opponent so it ends up in front of the cone.
-
-    The backward hop (weapon 2) jumps 160 units per battery point but only
-    while thrust is released; the cone (weapon 1) is free yet stops the
-    all-at-once battery refill while it fires.
-    """
-
-    enemy = ctx.enemy
+def _umgah_recharging(ctx: BaselineContext) -> bool:
     me = ctx.me
     values = ctx.memory.values
     if me.battery <= UMGAH_HOP_RESERVE:
         values["umgah_recharging"] = True
     elif me.battery >= me.max_battery:
         values["umgah_recharging"] = False
-    recharging = bool(values.get("umgah_recharging", False))
+    return bool(values.get("umgah_recharging", False))
+
+
+def _umgah_cone_entry(lateral: float) -> float:
+    """How far in front the opponent must be, beside my path, to sit in the cone."""
+
+    return max(abs(lateral), UMGAH_RUN_CLEARANCE) / math.tan(
+        math.radians(UMGAH_CONE_HALF_ANGLE)
+    )
+
+
+def _umgah_hops_needed(enemy) -> int:
+    """Backward hops until the opponent is far enough in front for the cone."""
+
+    entry = _umgah_cone_entry(enemy.right)
+    if enemy.forward >= entry:
+        return 0
+    gain = UMGAH_HOP_DISTANCE + enemy.velocity_forward * UMGAH_HOP_FRAMES
+    if gain <= 0.0:
+        return 0
+    return math.ceil((entry - enemy.forward) / gain)
+
+
+def _umgah_path_clear(ctx: BaselineContext, hops: int) -> bool:
+    """Whether ``hops`` backward hops would run into an enemy shot, mine or blade.
+
+    Hops carry the ship straight back ``UMGAH_HOP_DISTANCE`` every
+    ``UMGAH_HOP_FRAMES``, so an object meets it about where their relative
+    tracks pass closest. Only objects that would otherwise miss count: one
+    already coming straight at me hits whether I hop or wait.
+    """
+
+    if hops <= 0:
+        return True
+    duration = float(max(hops, UMGAH_PATH_LOOKAHEAD_HOPS) * UMGAH_HOP_FRAMES)
+    for obj in ctx.view.enemy_objects:
+        if _closest_miss(obj.forward, obj.right, obj.velocity_forward, obj.velocity_right, duration) <= UMGAH_CORRIDOR_HALF_WIDTH:
+            continue
+        hop_miss = _closest_miss(
+            obj.forward,
+            obj.right,
+            obj.velocity_forward + UMGAH_HOP_DISTANCE / UMGAH_HOP_FRAMES,
+            obj.velocity_right,
+            duration,
+        )
+        if hop_miss <= UMGAH_CORRIDOR_HALF_WIDTH:
+            return False
+    return True
+
+
+def _closest_miss(
+    forward: float, right: float, speed_forward: float, speed_right: float, frames: float
+) -> float:
+    """Closest distance to me of a point moving steadily, within ``frames``."""
+
+    speed_squared = speed_forward * speed_forward + speed_right * speed_right
+    when = 0.0
+    if speed_squared > 1e-9:
+        when = -(forward * speed_forward + right * speed_right) / speed_squared
+        when = min(max(when, 0.0), float(frames))
+    return math.hypot(forward + speed_forward * when, right + speed_right * when)
+
+
+def _umgah_pass_sign(ctx: BaselineContext) -> int:
+    """Side of my backward path to keep the opponent on (the sign of its right).
+
+    When the opponent faces me, pass on the side its nose turns away from,
+    so the run ends behind its guns. Its right is my left when it faces me,
+    and my right flips again once my tail points at it. Zero: no preference.
+    """
+
+    facing = ctx.enemy_block.opponent_bearing
+    if facing is None or abs(facing) >= UMGAH_FACING_ANGLE or abs(facing) < 1.0:
+        return 0
+    return -1 if facing > 0.0 else 1
+
+
+def _umgah_tail_heading(ctx: BaselineContext, enemy) -> float:
+    """Nose bearing that points the tail just beside the opponent."""
+
+    clearance = min(UMGAH_RUN_CLEARANCE, enemy.distance)
+    offset = math.degrees(math.asin(clearance / max(enemy.distance, clearance)))
+    base = wrap_degrees(enemy.bearing + 180.0)
+    sign = _umgah_pass_sign(ctx)
+    if sign == 0:
+        # No preference: keep the side that needs the least turning.
+        return ctx.side("umgah_run", base, offset)
+    return wrap_degrees(base + sign * offset)
+
+
+def _umgah_run(ctx: BaselineContext, enemy) -> bool:
+    """Hop past the opponent so it lands just in front of the cone.
+
+    Far off, the tail need only point near the opponent, and the run steers
+    as it closes; within ``UMGAH_LATERAL_AIM_DISTANCE`` the path itself must
+    pass beside the opponent. A run starts with the battery for all of its
+    hops, never crosses an enemy shot, and stops as soon as the opponent is
+    far enough in front, so it never overshoots by more than one hop.
+    """
+
+    values = ctx.memory.values
+    hops = _umgah_hops_needed(enemy)
+    heading = _umgah_tail_heading(ctx, enemy)
+    lateral = enemy.right + enemy.velocity_right * hops * UMGAH_HOP_FRAMES
+    far = enemy.distance > UMGAH_LATERAL_AIM_DISTANCE
+    if far:
+        lined_up = abs(heading) <= UMGAH_HOP_ALIGN_TOLERANCE
+    else:
+        lined_up = enemy.forward < 0.0 and abs(lateral) <= UMGAH_RUN_MAX_LATERAL
+    running = bool(values.get("umgah_running", False))
+    if running:
+        go = hops > 0 and lined_up and ctx.me.battery >= ctx.spec.a2_cost
+    else:
+        sign = _umgah_pass_sign(ctx)
+        go = (
+            hops > 0
+            and lined_up
+            and ctx.me.battery >= hops * ctx.spec.a2_cost + 1.0
+            and (
+                far
+                or (
+                    # Too near its line and the hulls bump, which stops the hop.
+                    abs(lateral) >= UMGAH_RUN_MIN_LATERAL
+                    and (
+                        sign == 0
+                        or lateral * sign >= 0.0
+                        or abs(lateral) <= UMGAH_RUN_CLEARANCE
+                    )
+                )
+            )
+        )
+    go = go and _umgah_path_clear(ctx, hops)
+    values["umgah_running"] = go
+    if not go:
+        return False
+    if far:
+        ctx.point_at(heading)
+    else:
+        ctx.plan.claim_turn(TURN_NONE)
+    ctx.plan.claim_thrust(False)
+    ctx.a2(True)
+    return True
+
+
+def umgah(ctx: BaselineContext) -> None:
+    """Hop backward past the opponent, landing it just in front of the cone.
+
+    The backward hop (weapon 2) jumps 160 units every other frame per
+    battery point, only while thrust is released; the cone (weapon 1) is
+    free yet stops the all-at-once battery refill while it fires.
+    """
+
+    enemy = ctx.enemy
+    recharging = _umgah_recharging(ctx)
+    _umgah_dodge(ctx)
+    if any(item.distance <= UMGAH_HOSTILE_RANGE for item in ctx.view.enemy_objects):
+        ctx.plan.claim_thrust(False)
+    if enemy is None:
+        return
+    ahead = abs(enemy.bearing) <= 90.0
+    cone_reach = ctx.weapon(1).range + TYPICAL_HULL_RADIUS
+    if ahead and ctx.distance <= cone_reach:
+        ctx.memory.values["umgah_running"] = False
+        ctx.point_at_opponent()
+        if abs(enemy.bearing) <= UMGAH_CONE_HALF_ANGLE:
+            ctx.a1(True)
+        return
+    if ahead and ctx.distance <= UMGAH_CLOSE_APPROACH_RANGE:
+        ctx.memory.values["umgah_running"] = False
+        ctx.approach_opponent()
+        return
+    if ctx.enemy_name in UMGAH_AMBUSH_SHIPS and (
+        ahead or ctx.distance > UMGAH_LATERAL_AIM_DISTANCE
+    ):
+        # Short-reach ships come to me: wait facing them, cone ready.
+        ctx.memory.values["umgah_running"] = False
+        ctx.point_at_opponent()
+        ctx.plan.claim_thrust(False)
+        return
+    if _umgah_run(ctx, enemy):
+        return
+    if recharging:
+        ctx.avoid_opponent()
+        ctx.point_at_opponent()
+        return
+    # Line the tail up beside the opponent, ready for a run.
+    ctx.point_at(_umgah_tail_heading(ctx, enemy))
+    ctx.plan.claim_thrust(False)
+
+
+def umgah_hop_in(ctx: BaselineContext) -> None:
+    """Earlier rules: hop backward past the opponent from any distance."""
+
+    enemy = ctx.enemy
+    recharging = _umgah_recharging(ctx)
     # The reserve is kept for dodges, which need thrust released.
     _umgah_dodge(ctx)
     if any(item.distance <= UMGAH_HOSTILE_RANGE for item in ctx.view.enemy_objects):
@@ -1303,6 +1615,7 @@ DEFAULT_VARIANT = "default"
 # Alternative rule sets per ship, for comparing strategies in the arena.
 # Training, opponents and battle mode always use ``STRATEGIES``.
 STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
+    "Earthling": {"flee_whip": earthling_flee_whip},
     "Ilwrath": {"always_cloak": ilwrath_always_cloak, "chase": ilwrath_chase},
     "Pkunk": {"full_range": pkunk_full_range},
     "Shofixti": {"glory_dive": shofixti_glory_dive},
@@ -1318,7 +1631,7 @@ STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
         "keep_away": vux_keep_away,
         "slingshot": vux_slingshot,
     },
-    "Umgah": {"approach_cone": umgah_approach_cone},
+    "Umgah": {"approach_cone": umgah_approach_cone, "hop_in": umgah_hop_in},
     "ZoqFotPik": {"a1_first": zoq_fot_pik_a1_first},
 }
 

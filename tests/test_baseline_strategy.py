@@ -1,5 +1,6 @@
 """Baseline strategy engine, trainee phase mixing, opponents and battle mode."""
 
+import dataclasses
 import json
 import math
 import random
@@ -57,7 +58,14 @@ from src.training.baseline.ship_specs import (
     shofixti_kill_distance,
     weapon_spec,
 )
-from src.training.baseline.strategies import UMGAH_PASS_CLEARANCE
+from src.training.baseline.strategies import (
+    EARTHLING_NUKE_MIN_DISTANCE,
+    UMGAH_CONE_HALF_ANGLE,
+    UMGAH_PASS_CLEARANCE,
+    UMGAH_RUN_CLEARANCE,
+)
+from src.training.baseline.strategies import _umgah_hops_needed as umgah_hops_needed
+from src.training.baseline.strategies import _umgah_tail_heading as umgah_tail_heading
 from src.training.baseline.strategies import _supox_band as supox_band
 from src.training.contracts import ACTION_INDEX_TABLE, SHIP_TYPE_CATALOG_ORDER
 from src.training.coordinated import (
@@ -441,14 +449,25 @@ class ShipRuleTests(unittest.TestCase):
         )
         self.assertEqual(fleeing.intercept_seconds(100.0), math.inf)
 
-    def _umgah(self, enemy, *, battery=30.0, enemy_objects=(), memory=None):
+    def _umgah(
+        self,
+        enemy,
+        *,
+        battery=30.0,
+        enemy_objects=(),
+        memory=None,
+        enemy_name="Spathi",
+        facing=None,
+    ):
         context = _rule_context(
             "Umgah",
             enemy=enemy,
+            enemy_name=enemy_name,
             battery=battery,
             enemy_objects=enemy_objects,
             memory=memory,
         )
+        context.view.enemy_block.opponent_bearing = facing
         STRATEGIES["Umgah"](context)
         return context
 
@@ -457,6 +476,47 @@ class ShipRuleTests(unittest.TestCase):
 
         offset = math.degrees(math.asin(UMGAH_PASS_CLEARANCE / distance))
         return _seen(180.0 - offset, distance)
+
+    def test_umgah_hops_only_until_the_opponent_will_sit_in_the_cone(self):
+        entry = UMGAH_RUN_CLEARANCE / math.tan(math.radians(UMGAH_CONE_HALF_ANGLE))
+        behind = dataclasses.replace(_seen(180.0, 300.0), right=UMGAH_RUN_CLEARANCE)
+        # 300 behind plus the entry distance, at 160 a hop: three hops.
+        self.assertEqual(umgah_hops_needed(behind), math.ceil((300.0 + entry) / 160.0))
+        in_front = dataclasses.replace(_seen(0.0, entry + 1.0), right=UMGAH_RUN_CLEARANCE)
+        self.assertEqual(umgah_hops_needed(in_front), 0)
+
+    def test_umgah_blitzes_from_afar_only_with_the_battery_for_the_whole_run(self):
+        enemy = self._umgah_tail_aligned_enemy(3000.0)
+
+        self.assertTrue(self._umgah(enemy).plan.a2)
+        self.assertFalse(self._umgah(enemy, battery=12.0).plan.a2)
+
+    def test_umgah_will_not_hop_onto_a_mine_but_hops_through_an_incoming_shot(self):
+        enemy = self._umgah_tail_aligned_enemy(1000.0)
+        mine = _seen(180.0, 400.0, group="enemy_a2")
+        shot = _seen(180.0, 400.0, closing=30.0, group="enemy_a1")
+
+        self.assertFalse(self._umgah(enemy, enemy_objects=(mine,)).plan.a2)
+        # It hits whether the Umgah hops or waits.
+        self.assertTrue(self._umgah(enemy, enemy_objects=(shot,)).plan.a2)
+
+    def test_umgah_passes_on_the_side_away_from_the_opponents_nose(self):
+        enemy = _seen(0.0, 1000.0)
+        # I am to its right, so its nose points to my right: pass on my left,
+        # which keeps the opponent on the right once the tail points at it.
+        right_of_nose = _rule_context("Umgah", enemy=enemy)
+        right_of_nose.view.enemy_block.opponent_bearing = 20.0
+        self.assertGreater(umgah_tail_heading(right_of_nose, enemy), 0.0)
+        left_of_nose = _rule_context("Umgah", enemy=enemy)
+        left_of_nose.view.enemy_block.opponent_bearing = -20.0
+        self.assertLess(umgah_tail_heading(left_of_nose, enemy), 0.0)
+
+    def test_umgah_waits_facing_a_short_reach_opponent(self):
+        context = self._umgah(_seen(30.0, 1000.0), enemy_name="Pkunk")
+
+        self.assertEqual(context.plan.turn, TURN_RIGHT)
+        self.assertFalse(context.plan.thrust)
+        self.assertFalse(context.plan.a2)
 
     def test_umgah_hops_backward_past_an_opponent_behind_it(self):
         context = self._umgah(self._umgah_tail_aligned_enemy(1000.0))
@@ -478,13 +538,65 @@ class ShipRuleTests(unittest.TestCase):
         self.assertEqual(context.plan.turn, TURN_RIGHT)
         self.assertFalse(context.plan.a2)
 
-    def test_umgah_waits_for_a_full_refill_after_spending_its_hops(self):
+    def test_umgah_hops_while_recharging_only_with_the_battery_for_a_run(self):
         memory = BaselineMemory()
         enemy = self._umgah_tail_aligned_enemy(1000.0)
 
         self.assertFalse(self._umgah(enemy, battery=5.0, memory=memory).plan.a2)
-        self.assertFalse(self._umgah(enemy, battery=20.0, memory=memory).plan.a2)
-        self.assertTrue(self._umgah(enemy, battery=30.0, memory=memory).plan.a2)
+        self.assertTrue(memory.values["umgah_recharging"])
+        # Seven hops reach the cone from 1000 away.
+        self.assertFalse(self._umgah(enemy, battery=7.0, memory=memory).plan.a2)
+        self.assertTrue(self._umgah(enemy, battery=20.0, memory=memory).plan.a2)
+
+    def _earthling(self, enemy, *, battery=18.0, enemy_objects=(), planet=None):
+        context = _rule_context(
+            "Earthling",
+            enemy=enemy,
+            battery=battery,
+            enemy_objects=enemy_objects,
+            planet=planet,
+            max_battery=18.0,
+        )
+        context.view.me.a1_ready = True
+        STRATEGIES["Earthling"](context)
+        return context
+
+    def test_earthling_point_defense_ignores_shots_flying_away(self):
+        enemy = _seen(0.0, 3000.0)
+        leaving = _seen(90.0, 300.0, closing=-10.0, group="enemy_a1")
+        coming = _seen(90.0, 300.0, closing=10.0, group="enemy_a1")
+
+        self.assertFalse(self._earthling(enemy, enemy_objects=(leaving,)).plan.a2)
+        self.assertTrue(self._earthling(enemy, enemy_objects=(coming,)).plan.a2)
+
+    def test_earthling_nukes_only_with_room_for_the_nuke_to_home(self):
+        self.assertTrue(self._earthling(_seen(0.0, 1500.0)).plan.a1)
+        near = _seen(0.0, EARTHLING_NUKE_MIN_DISTANCE - 50.0)
+        self.assertFalse(self._earthling(near).plan.a1)
+
+    def test_earthling_turns_to_nuke_without_thrusting_and_coasts_above_top_speed(self):
+        context = self._earthling(_seen(60.0, 1500.0))
+
+        self.assertEqual(context.plan.turn, TURN_RIGHT)
+        self.assertFalse(context.plan.thrust)
+        self.assertTrue(context.coast_above_top_speed)
+
+    def test_earthling_whips_only_off_a_planet_away_from_the_opponent(self):
+        enemy = _seen(10.0, 3000.0)
+        behind = _seen(180.0, 2000.0, group="planet")
+        # 180 - 45 = 135 and 180 + 45 = -135: -135 leaves heading further
+        # from the opponent at 10.
+        whip = self._earthling(enemy, battery=0.0, planet=behind)
+        self.assertEqual(whip.plan.turn, TURN_LEFT)
+        self.assertTrue(whip.plan.thrust)
+        toward = _seen(30.0, 2000.0, group="planet")
+        no_whip = self._earthling(enemy, battery=0.0, planet=toward)
+        # Far off and not closing, it approaches the opponent instead, 45
+        # degrees off on the nearer side (10 - 45 = -35), not the planet's
+        # sides at -15 or 75.
+        self.assertNotIn("gravity_whip", no_whip.memory.sides)
+        self.assertEqual(no_whip.plan.turn, TURN_LEFT)
+        self.assertTrue(no_whip.plan.thrust)
 
     def test_umgah_keeps_thrust_off_while_hostile_shots_fly(self):
         enemy = _seen(0.0, 300.0)
