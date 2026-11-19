@@ -661,6 +661,75 @@ class ShipRuleTests(unittest.TestCase):
         chasing = self._ilwrath(_seen(0.0, 1000.0), enemy_thrust=40.0, variant="chase")
         self.assertTrue(chasing.plan.thrust)
 
+    def _syreen(
+        self,
+        enemy,
+        *,
+        enemy_name="Spathi",
+        enemy_crew=20.0,
+        enemy_thrust=20.0,
+        crew=12.0,
+        battery=16.0,
+        pods=(),
+    ):
+        context = _rule_context(
+            "Syreen",
+            enemy=enemy,
+            enemy_name=enemy_name,
+            battery=battery,
+            battery_fraction=battery / 16.0,
+            max_battery=16.0,
+        )
+        context.view.me.crew = crew
+        context.view.crew_pods = tuple(pods)
+        context.view.enemy_block.crew = enemy_crew
+        context.view.enemy_block.max_thrust = enemy_thrust
+        STRATEGIES["Syreen"](context)
+        return context
+
+    def test_syreen_sings_only_up_close_at_crew_it_can_take(self):
+        self.assertTrue(self._syreen(_seen(0.0, 250.0)).plan.a2)
+        self.assertFalse(self._syreen(_seen(0.0, 600.0)).plan.a2)
+        self.assertFalse(self._syreen(_seen(0.0, 250.0), battery=4.0).plan.a2)
+        self.assertFalse(self._syreen(_seen(0.0, 250.0), enemy_crew=1.0).plan.a2)
+        self.assertFalse(
+            self._syreen(_seen(0.0, 250.0), enemy_name="Slylandro").plan.a2
+        )
+
+    def test_syreen_closes_to_sing_and_keeps_battery_for_the_song(self):
+        approaching = self._syreen(_seen(0.0, 600.0))
+        self.assertIn("song_far", approaching.memory.sides)
+        self.assertTrue(approaching.plan.a1)
+
+        a2_cost = SHIP_DEFINITIONS["Syreen"].a2_cost
+        self.assertFalse(self._syreen(_seen(0.0, 600.0), battery=a2_cost).plan.a1)
+        # With no crew to take, weapon 1 fires freely.
+        self.assertTrue(
+            self._syreen(_seen(0.0, 600.0), battery=a2_cost, enemy_crew=1.0).plan.a1
+        )
+
+    def test_syreen_collects_crew_pods_first(self):
+        pod = _seen(-60.0, 200.0, group="syreen_crew")
+        context = self._syreen(_seen(0.0, 600.0), pods=(pod,))
+
+        self.assertEqual(context.plan.turn, TURN_LEFT)
+        self.assertTrue(context.plan.thrust)
+
+    def test_small_syreen_keeps_gun_range_from_fast_close_fighters(self):
+        enemy = _seen(0.0, 2000.0)
+
+        cautious = self._syreen(enemy, enemy_name="ZoqFotPik", enemy_thrust=40.0)
+        self.assertIn("gun_far", cautious.memory.sides)
+        grown = self._syreen(enemy, enemy_name="ZoqFotPik", enemy_thrust=40.0, crew=24.0)
+        self.assertIn("song_far", grown.memory.sides)
+        slower = self._syreen(enemy, enemy_name="ZoqFotPik", enemy_thrust=20.0)
+        self.assertIn("song_far", slower.memory.sides)
+
+    def test_syreen_backs_off_while_the_song_recharges(self):
+        context = self._syreen(_seen(0.0, 600.0, closing=5.0), battery=4.0)
+
+        self.assertIn("avoid_opponent", context.memory.sides)
+
     def test_variants_are_named_per_ship(self):
         self.assertIs(strategy_for("ZoqFotPik"), STRATEGIES["ZoqFotPik"])
         self.assertIs(strategy_for("ZoqFotPik", "default"), STRATEGIES["ZoqFotPik"])

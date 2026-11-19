@@ -19,7 +19,7 @@ from src.training.baseline.ship_specs import (
     shofixti_kill_distance,
     weapon_spec,
 )
-from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 
 # Collision windows from the specification, in seconds. The engine adds one
 # action span to each so a reaction is never a decision late.
@@ -63,6 +63,21 @@ ILWRATH_FLAME_REACH = 300.0
 ILWRATH_FLAME_HALF_WIDTH = 60.0
 ILWRATH_FADE_FRAMES = float(ABILITY_DEFINITIONS["IlwrathA2"].fade_duration or 5)
 ILWRATH_CLOAK_RESERVE = 4.0
+# Syreen song: sing within this distance, where it takes 6 or more crew;
+# below the grown crew count, a Syreen that cannot outrun an opponent with
+# strong short-range weapons keeps to gun range instead of diving in. The
+# arena showed caution costs fights against the Androsynth and Pkunk, so
+# they are left out.
+SYREEN_SONG_DISTANCE = 300.0
+SYREEN_GROWN_CREW = 20.0
+SYREEN_CLOSE_DANGER_SHIPS = frozenset(
+    {"Ilwrath", "KohrAh", "Orz", "Shofixti", "Umgah", "ZoqFotPik"}
+)
+SONG_IMMUNE_SHIPS = frozenset(
+    name
+    for name, ship in SHIP_DEFINITIONS.items()
+    if getattr(ship, "immune_to_psychic", False)
+)
 # Shofixti glory device. A kill blast must still kill if the opponent opens
 # the gap for this many frames first, with a margin for the blast centre
 # sitting off the hull centre. A hit due within the fatal-hit window counts
@@ -556,7 +571,55 @@ def supox(ctx: BaselineContext) -> None:
         ctx.a1(True)
 
 
+def _song_viable(ctx: BaselineContext) -> bool:
+    return ctx.enemy_block.crew > 1 and ctx.enemy_name not in SONG_IMMUNE_SHIPS
+
+
+def _syreen(ctx: BaselineContext, *, cautious: bool, keep_away: bool) -> None:
+    enemy = ctx.enemy
+    song_viable = _song_viable(ctx)
+    song_ready = ctx.me.battery >= ctx.spec.a2_cost
+    if song_viable and song_ready and ctx.distance <= SYREEN_SONG_DISTANCE:
+        ctx.a2(True)
+    pods = ctx.view.crew_pods
+    if pods:
+        ctx.approach_object(min(pods, key=lambda pod: pod.distance))
+    small = ctx.me.crew < SYREEN_GROWN_CREW
+    outpaced = enemy is not None and ctx.enemy_block.max_thrust >= ctx.spec.max_thrust
+    risky = cautious and small and ctx.enemy_name in SYREEN_CLOSE_DANGER_SHIPS and outpaced
+    gun_range = ctx.weapon(1).range
+    if keep_away and not song_ready:
+        ctx.avoid_opponent()
+        ctx.approach_range(gun_range, key="gun")
+    elif song_viable and not risky:
+        ctx.approach_range(SYREEN_SONG_DISTANCE, key="song")
+    else:
+        ctx.approach_range(gun_range, key="gun")
+    ctx.point_weapon(1)
+    spare = ctx.me.battery - ctx.spec.a1_cost >= ctx.spec.a2_cost
+    if ctx.in_range(1) and ctx.pointing(1) and (spare or not song_viable):
+        ctx.a1(True)
+
+
 def syreen(ctx: BaselineContext) -> None:
+    _syreen(ctx, cautious=True, keep_away=True)
+
+
+def syreen_bold(ctx: BaselineContext) -> None:
+    """Default rules, but dive to sing at dangerous opponents while small."""
+
+    _syreen(ctx, cautious=False, keep_away=True)
+
+
+def syreen_pressing(ctx: BaselineContext) -> None:
+    """Default rules, but stay close while the song recharges."""
+
+    _syreen(ctx, cautious=True, keep_away=False)
+
+
+def syreen_full_reach(ctx: BaselineContext) -> None:
+    """Earlier rules: fire constantly and sing at the song's full reach."""
+
     ctx.a1(True)
     enemy = ctx.enemy
     pods = ctx.view.crew_pods
@@ -858,6 +921,11 @@ STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
     "Ilwrath": {"always_cloak": ilwrath_always_cloak, "chase": ilwrath_chase},
     "Pkunk": {"full_range": pkunk_full_range},
     "Shofixti": {"glory_dive": shofixti_glory_dive},
+    "Syreen": {
+        "bold": syreen_bold,
+        "full_reach": syreen_full_reach,
+        "pressing": syreen_pressing,
+    },
     "Umgah": {"approach_cone": umgah_approach_cone},
     "ZoqFotPik": {"a1_first": zoq_fot_pik_a1_first},
 }
