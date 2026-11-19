@@ -24,6 +24,16 @@ SHIELD_SECONDS = 0.2
 THRADDASH_AFTERBURNER_SECONDS = 0.5
 UMGAH_CONE_THREAT_SECONDS = 1.0
 UMGAH_RETRO_SECONDS = 0.2
+# Umgah hop tactics: battery kept for dodges, how far beside the opponent
+# the hops pass, how well the tail must line up before hopping, the cone's
+# useful half-angle, and the reach of hostile shots that keep thrust off.
+UMGAH_HOP_RESERVE = 5.0
+UMGAH_PASS_CLEARANCE = 80.0
+UMGAH_HOP_ALIGN_TOLERANCE = 10.0
+UMGAH_CONE_HALF_ANGLE = 40.0
+UMGAH_HOSTILE_RANGE = 1200.0
+# Ahead and this close, thrust in rather than turn around to hop.
+UMGAH_CLOSE_APPROACH_RANGE = 400.0
 # Distances from the specification, in world units.
 LONG_RANGE = 1000.0
 FAR_RANGE = 2000.0
@@ -392,7 +402,72 @@ def thraddash(ctx: BaselineContext) -> None:
         ctx.a2(True)
 
 
+def _umgah_dodge(ctx: BaselineContext) -> None:
+    """Hop backward out of the way of a hit about to land from the side."""
+
+    if ctx.me.battery < ctx.spec.a2_cost:
+        return
+    side_threats = list(ctx.view.enemy_objects)
+    if ctx.enemy is not None:
+        side_threats.append(ctx.enemy)
+    for threat in side_threats:
+        broadside = abs(abs(wrap_degrees(threat.bearing)) - 90.0) <= 45.0
+        if broadside and ctx.imminent(threat, UMGAH_RETRO_SECONDS):
+            ctx.a2(True)
+            return
+
+
 def umgah(ctx: BaselineContext) -> None:
+    """Hop backward past the opponent so it ends up in front of the cone.
+
+    The backward hop (weapon 2) jumps 160 units per battery point but only
+    while thrust is released; the cone (weapon 1) is free yet stops the
+    all-at-once battery refill while it fires.
+    """
+
+    enemy = ctx.enemy
+    me = ctx.me
+    values = ctx.memory.values
+    if me.battery <= UMGAH_HOP_RESERVE:
+        values["umgah_recharging"] = True
+    elif me.battery >= me.max_battery:
+        values["umgah_recharging"] = False
+    recharging = bool(values.get("umgah_recharging", False))
+    # The reserve is kept for dodges, which need thrust released.
+    _umgah_dodge(ctx)
+    if any(item.distance <= UMGAH_HOSTILE_RANGE for item in ctx.view.enemy_objects):
+        ctx.plan.claim_thrust(False)
+    if enemy is None:
+        return
+    ahead = abs(enemy.bearing) <= 90.0
+    cone_reach = ctx.weapon(1).range + TYPICAL_HULL_RADIUS
+    if ahead and ctx.distance <= cone_reach:
+        ctx.point_at_opponent()
+        if abs(enemy.bearing) <= UMGAH_CONE_HALF_ANGLE:
+            ctx.a1(True)
+        return
+    if recharging:
+        # Back off and leave both weapons alone until the battery refills.
+        ctx.avoid_opponent()
+        ctx.point_at_opponent()
+        return
+    if ahead and ctx.distance <= UMGAH_CLOSE_APPROACH_RANGE:
+        ctx.approach_opponent()
+        return
+    # Point the tail just beside the opponent so the hops pass it by.
+    pass_angle = math.degrees(
+        math.asin(UMGAH_PASS_CLEARANCE / max(ctx.distance, UMGAH_PASS_CLEARANCE))
+    )
+    nose = ctx.side("umgah_pass", wrap_degrees(enemy.bearing + 180.0), pass_angle)
+    ctx.point_at(nose)
+    if abs(nose) <= UMGAH_HOP_ALIGN_TOLERANCE:
+        ctx.plan.claim_thrust(False)
+        ctx.a2(True)
+
+
+def umgah_approach_cone(ctx: BaselineContext) -> None:
+    """Earlier rules: thrust at the opponent and cone when aimed."""
+
     if ctx.in_range(1) and ctx.pointing(1):
         ctx.a1(True)
     frontal_threats = [
@@ -593,6 +668,7 @@ DEFAULT_VARIANT = "default"
 # Training, opponents and battle mode always use ``STRATEGIES``.
 STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
     "Pkunk": {"full_range": pkunk_full_range},
+    "Umgah": {"approach_cone": umgah_approach_cone},
     "ZoqFotPik": {"a1_first": zoq_fot_pik_a1_first},
 }
 

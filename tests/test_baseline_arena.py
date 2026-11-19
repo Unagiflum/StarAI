@@ -43,6 +43,24 @@ class ArenaTests(unittest.TestCase):
         self.assertGreater(result.crew_start, 0.0)
         self.assertGreater(result.opponent_crew_start, 0.0)
 
+    def test_fights_use_real_ship_assets_like_training(self):
+        captured = {}
+        original = arena._arena_resources
+
+        def spy():
+            captured["resources"] = original()
+            return captured["resources"]
+
+        with mock.patch.object(arena, "_arena_resources", side_effect=spy):
+            run_match(ArenaMatch("Umgah", "Spathi", seed=0), seconds=1 / 24)
+
+        from src.resources import HeadlessAssetManager
+
+        self.assertIsInstance(captured["resources"], HeadlessAssetManager)
+        # Real Umgah sprites differ from the 30x50 placeholder rectangle.
+        ship = arena._arena_resources().ship("Umgah")
+        self.assertNotEqual(tuple(ship.size), (30, 50))
+
     def test_variants_meet_the_same_battles(self):
         default = arena._match_rng(ArenaMatch("Pkunk", "Spathi", 3))
         variant = arena._match_rng(ArenaMatch("Pkunk", "Spathi", 3, "full_range"))

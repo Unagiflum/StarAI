@@ -105,6 +105,24 @@ def _match_rng(match: ArenaMatch) -> random.Random:
     return random.Random(f"{match.ship}|{match.opponent}|{match.seed}")
 
 
+_RESOURCES = None
+
+
+def _arena_resources():
+    """One headless asset cache per process, as training workers use.
+
+    Without it ships fall back to placeholder sprites and collision masks,
+    which changes every hull and weapon shape.
+    """
+
+    global _RESOURCES
+    if _RESOURCES is None:
+        from src.resources import HeadlessAssetManager
+
+        _RESOURCES = HeadlessAssetManager()
+    return _RESOURCES
+
+
 def _destroyed(ship) -> bool:
     return not getattr(ship, "currently_alive", True) or ship.current_hp <= 0
 
@@ -122,13 +140,15 @@ def run_match(match: ArenaMatch, *, seconds: float = DEFAULT_SECONDS) -> ArenaRe
     from src.training.orchestration import _fully_arm_training_shofixti
 
     audio = NullAudioService()
+    resources = _arena_resources()
     simulation = BattleSimulation(
         None,
-        create_ship(match.ship, 1, audio_service=audio),
-        create_ship(match.opponent, 2, audio_service=audio),
+        create_ship(match.ship, 1, resources=resources, audio_service=audio),
+        create_ship(match.opponent, 2, resources=resources, audio_service=audio),
         audio_service=audio,
         rng=_match_rng(match),
         include_stars=False,
+        resources=resources,
     )
     _fully_arm_training_shofixti(simulation.player1)
     _fully_arm_training_shofixti(simulation.player2)

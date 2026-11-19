@@ -53,6 +53,7 @@ from src.training.baseline.observation_view import (
     wrap_degrees,
 )
 from src.training.baseline.ship_specs import weapon_spec
+from src.training.baseline.strategies import UMGAH_PASS_CLEARANCE
 from src.training.contracts import ACTION_INDEX_TABLE, SHIP_TYPE_CATALOG_ORDER
 from src.training.coordinated import (
     CoordinatedActionRequest,
@@ -240,8 +241,11 @@ def _rule_context(
     battery_fraction=1.0,
     held=(),
     ywing=False,
+    max_battery=30.0,
+    memory=None,
 ):
     view = mock.Mock()
+    view.me.max_battery = max_battery
     view.enemy = enemy
     view.planet = planet
     view.enemy_ship_type = enemy_name
@@ -257,7 +261,11 @@ def _rule_context(
     view.me.velocity_forward = 0.0
     view.me.velocity_right = 0.0
     view.enemy_block.androsynth_blazer = False
-    return BaselineContext(ship_name=ship_name, view=view, memory=BaselineMemory())
+    return BaselineContext(
+        ship_name=ship_name,
+        view=view,
+        memory=memory or BaselineMemory(),
+    )
 
 
 class AvoidOpponentTests(unittest.TestCase):
@@ -423,6 +431,58 @@ class ShipRuleTests(unittest.TestCase):
             enemy=_seen(0.0, 1000.0, closing=-(max_thrust + 1.0)),
         )
         self.assertEqual(fleeing.intercept_seconds(100.0), math.inf)
+
+    def _umgah(self, enemy, *, battery=30.0, enemy_objects=(), memory=None):
+        context = _rule_context(
+            "Umgah",
+            enemy=enemy,
+            battery=battery,
+            enemy_objects=enemy_objects,
+            memory=memory,
+        )
+        STRATEGIES["Umgah"](context)
+        return context
+
+    def _umgah_tail_aligned_enemy(self, distance):
+        """An opponent placed so the hop line passes just beside it."""
+
+        offset = math.degrees(math.asin(UMGAH_PASS_CLEARANCE / distance))
+        return _seen(180.0 - offset, distance)
+
+    def test_umgah_hops_backward_past_an_opponent_behind_it(self):
+        context = self._umgah(self._umgah_tail_aligned_enemy(1000.0))
+
+        self.assertTrue(context.plan.a2)
+        self.assertFalse(context.plan.thrust)
+        self.assertFalse(context.plan.a1)
+
+    def test_umgah_turns_its_tail_toward_a_distant_opponent_ahead(self):
+        context = self._umgah(_seen(0.0, 1000.0))
+
+        self.assertNotEqual(context.plan.turn, TURN_NONE)
+        self.assertFalse(context.plan.a2)
+
+    def test_umgah_cones_an_opponent_ahead_within_reach(self):
+        context = self._umgah(_seen(30.0, 200.0))
+
+        self.assertTrue(context.plan.a1)
+        self.assertEqual(context.plan.turn, TURN_RIGHT)
+        self.assertFalse(context.plan.a2)
+
+    def test_umgah_waits_for_a_full_refill_after_spending_its_hops(self):
+        memory = BaselineMemory()
+        enemy = self._umgah_tail_aligned_enemy(1000.0)
+
+        self.assertFalse(self._umgah(enemy, battery=5.0, memory=memory).plan.a2)
+        self.assertFalse(self._umgah(enemy, battery=20.0, memory=memory).plan.a2)
+        self.assertTrue(self._umgah(enemy, battery=30.0, memory=memory).plan.a2)
+
+    def test_umgah_keeps_thrust_off_while_hostile_shots_fly(self):
+        enemy = _seen(0.0, 300.0)
+        shot = _seen(10.0, 600.0, group="enemy_a1")
+
+        self.assertTrue(self._umgah(enemy).plan.thrust)
+        self.assertFalse(self._umgah(enemy, enemy_objects=(shot,)).plan.thrust)
 
     def test_variants_are_named_per_ship(self):
         self.assertIs(strategy_for("ZoqFotPik"), STRATEGIES["ZoqFotPik"])
