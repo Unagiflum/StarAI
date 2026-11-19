@@ -598,6 +598,69 @@ class ShipRuleTests(unittest.TestCase):
         self.assertFalse(shields(550.0, 20.0))
         self.assertTrue(shields(350.0, 20.0))
 
+    def _ilwrath(
+        self,
+        enemy,
+        *,
+        cloaked=False,
+        fading=0,
+        battery=16.0,
+        enemy_thrust=0.0,
+        variant=None,
+    ):
+        context = _rule_context(
+            "Ilwrath",
+            enemy=enemy,
+            battery=battery,
+            battery_fraction=battery / 16.0,
+            max_battery=16.0,
+        )
+        context.view.me.trackable = not cloaked
+        context.view.me.cloak_transition_direction = fading
+        context.view.enemy_block.max_thrust = enemy_thrust
+        strategy_for("Ilwrath", variant)(context)
+        return context
+
+    def test_cloaked_ilwrath_flames_at_any_bearing_within_reach(self):
+        # The flame from the cloak turns the nose onto the opponent.
+        context = self._ilwrath(_seen(120.0, 250.0), cloaked=True)
+
+        self.assertTrue(context.plan.a1)
+        self.assertFalse(context.plan.a2)
+
+    def test_visible_ilwrath_flames_only_when_aimed(self):
+        aimed = self._ilwrath(_seen(5.0, 250.0))
+        self.assertTrue(aimed.plan.a1)
+        self.assertFalse(aimed.plan.a2)
+
+        wide = self._ilwrath(_seen(40.0, 250.0))
+        self.assertFalse(wide.plan.a1)
+        self.assertEqual(wide.plan.turn, TURN_RIGHT)
+
+    def test_ilwrath_cloaks_only_beyond_reach_with_battery_to_spare(self):
+        far = _seen(0.0, 1000.0)
+
+        self.assertTrue(self._ilwrath(far).plan.a2)
+        self.assertFalse(self._ilwrath(far, battery=6.0).plan.a2)
+        self.assertFalse(self._ilwrath(far, fading=1).plan.a2)
+        self.assertFalse(self._ilwrath(far, cloaked=True).plan.a2)
+        self.assertFalse(self._ilwrath(_seen(0.0, 250.0)).plan.a2)
+
+    def test_ilwrath_waits_for_a_faster_opponent_that_keeps_away(self):
+        waiting = self._ilwrath(_seen(0.0, 1000.0), enemy_thrust=40.0)
+        self.assertFalse(waiting.plan.thrust)
+
+        # An opponent already coming in is met.
+        coming = self._ilwrath(_seen(0.0, 1000.0, closing=5.0), enemy_thrust=40.0)
+        self.assertTrue(coming.plan.thrust)
+
+        slower = self._ilwrath(_seen(0.0, 1000.0), enemy_thrust=10.0)
+        self.assertTrue(slower.plan.thrust)
+        self.assertIn("flame_far", slower.memory.sides)
+
+        chasing = self._ilwrath(_seen(0.0, 1000.0), enemy_thrust=40.0, variant="chase")
+        self.assertTrue(chasing.plan.thrust)
+
     def test_variants_are_named_per_ship(self):
         self.assertIs(strategy_for("ZoqFotPik"), STRATEGIES["ZoqFotPik"])
         self.assertIs(strategy_for("ZoqFotPik", "default"), STRATEGIES["ZoqFotPik"])

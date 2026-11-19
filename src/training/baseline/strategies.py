@@ -55,6 +55,14 @@ PKUNK_STATION_RANGE_FACTOR = 1.27
 ZOQ_FOT_PIK_LUNGE_SECONDS = 1.0
 ZOQ_FOT_PIK_TONGUE_WIDTH = float(ABILITY_DEFINITIONS["ZoqFotPikA2"].area_width or 10)
 ZOQ_FOT_PIK_TONGUE_SKIPPED_SHIPS = frozenset({"Slylandro"})
+# Ilwrath flames, measured on the real collision masks: held flames reach a
+# hull about 300 units ahead centre to centre, and a hull about 60 units to
+# the side of the nose line. The cloak takes this many frames to fade in,
+# and is used only with battery left for this many flames afterwards.
+ILWRATH_FLAME_REACH = 300.0
+ILWRATH_FLAME_HALF_WIDTH = 60.0
+ILWRATH_FADE_FRAMES = float(ABILITY_DEFINITIONS["IlwrathA2"].fade_duration or 5)
+ILWRATH_CLOAK_RESERVE = 4.0
 # Shofixti glory device. A kill blast must still kill if the opponent opens
 # the gap for this many frames first, with a margin for the blast centre
 # sitting off the hull centre. A hit due within the fatal-hit window counts
@@ -214,7 +222,67 @@ def earthling(ctx: BaselineContext) -> None:
         ctx.a1(True)
 
 
+def _ilwrath_flame_tolerance(ctx: BaselineContext) -> float:
+    """Aim error at which the flame stream still reaches the opponent's hull."""
+
+    return math.degrees(math.atan2(ILWRATH_FLAME_HALF_WIDTH, max(1.0, ctx.distance)))
+
+
+def _ilwrath(ctx: BaselineContext, *, hang_back: bool) -> None:
+    enemy = ctx.enemy
+    if enemy is None:
+        return
+    cloaked = not ctx.me.trackable
+    fading = ctx.me.cloak_transition_direction != 0
+    in_reach = ctx.distance <= ILWRATH_FLAME_REACH
+    tolerance = _ilwrath_flame_tolerance(ctx)
+    if cloaked and in_reach:
+        # The first flame from the cloak turns the nose onto the opponent.
+        ctx.a1(True)
+    elif in_reach and ctx.pointing(1, tolerance=tolerance):
+        ctx.a1(True)
+    # Cloak only while the fade can finish before the opponent is in reach,
+    # with battery left for a burst of flames afterwards.
+    fade_frames = ILWRATH_FADE_FRAMES + ctx.span_frames
+    cloak_distance = ILWRATH_FLAME_REACH + max(0.0, enemy.closing_speed) * fade_frames
+    if (
+        not cloaked
+        and not fading
+        and ctx.distance > cloak_distance
+        and ctx.me.battery >= ctx.spec.a2_cost + ILWRATH_CLOAK_RESERVE
+    ):
+        ctx.a2(ctx.press("a2"))
+    if (
+        hang_back
+        and not in_reach
+        and enemy.closing_speed <= 0.0
+        and ctx.enemy_block.max_thrust > ctx.spec.max_thrust
+    ):
+        # A faster opponent that is not coming cannot be caught; wait for it.
+        ctx.plan.claim_thrust(False)
+        ctx.point_at_opponent()
+        return
+    if not in_reach:
+        ctx.approach_range(ILWRATH_FLAME_REACH, key="flame", inner_fraction=0.0)
+    elif enemy.closing_speed < 0.0 and ctx.pointing(1, tolerance=tolerance):
+        # Follow an opponent pulling out of reach.
+        ctx.approach_opponent()
+    ctx.point_weapon(1)
+
+
 def ilwrath(ctx: BaselineContext) -> None:
+    _ilwrath(ctx, hang_back=True)
+
+
+def ilwrath_chase(ctx: BaselineContext) -> None:
+    """Default rules, but chase faster opponents rather than wait for them."""
+
+    _ilwrath(ctx, hang_back=False)
+
+
+def ilwrath_always_cloak(ctx: BaselineContext) -> None:
+    """Earlier rules: recloak whenever visible and fly straight in."""
+
     cloaked = not ctx.me.trackable or ctx.me.cloak_transition_direction > 0
     if ctx.in_range(1) and (cloaked or ctx.pointing(1)):
         ctx.a1(True)
@@ -787,6 +855,7 @@ DEFAULT_VARIANT = "default"
 # Alternative rule sets per ship, for comparing strategies in the arena.
 # Training, opponents and battle mode always use ``STRATEGIES``.
 STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
+    "Ilwrath": {"always_cloak": ilwrath_always_cloak, "chase": ilwrath_chase},
     "Pkunk": {"full_range": pkunk_full_range},
     "Shofixti": {"glory_dive": shofixti_glory_dive},
     "Umgah": {"approach_cone": umgah_approach_cone},
