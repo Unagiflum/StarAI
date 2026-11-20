@@ -15,6 +15,7 @@ import src.const as const
 from src.training.baseline.engine import (
     APPROACH_ANGLE_OFFSET,
     AVOID_ANGLE_OFFSET,
+    CHMMR_LASER_RANGE,
     PERPENDICULAR_AWAY_OFFSET,
     ORZ_TURRET_STEP,
     SATELLITE_HIT_RADIUS,
@@ -202,6 +203,13 @@ ORZ_KITE_OPPONENTS = frozenset(
 )
 ORZ_KITE_NEAR = 700.0
 ORZ_KITE_FAR = 1100.0
+# Utwig against a Chmmr: hold it in this band, beyond its laser and under
+# the tractor's 1000, firing from inside the bolts' 1080 reach. While
+# running from it, shield whenever within this margin of the Chmmr laser's
+# reach, which also covers its satellites': the hits charge the battery.
+UTWIG_CHMMR_NEAR = 800.0
+UTWIG_CHMMR_FAR = 1050.0
+UTWIG_CHMMR_EXPOSURE_MARGIN = 50.0
 # Supox: hold a distance band, by default 600-900, or just outside a
 # shorter-reaching opponent's weapons. With the gun within the slide aim
 # tolerance it holds A2 to slide instead of turning; it dodges hits due
@@ -1713,7 +1721,28 @@ def _shield_rules(ctx: BaselineContext) -> None:
 
 
 def utwig(ctx: BaselineContext) -> None:
+    if ctx.enemy_name == "Chmmr":
+        _utwig_vs_chmmr(ctx)
+        return
     _shield_rules(ctx)
+
+
+def _utwig_vs_chmmr(ctx: BaselineContext) -> None:
+    """Outrange the Chmmr, and shield while running so its lasers charge
+    the battery. Its laser drains the Chmmr's own battery, which leaves it
+    open to the bolts once spent."""
+
+    if ctx.imminent_threat(SHIELD_SECONDS) is not None or ctx.crew_dropped():
+        ctx.a2(True)
+    running = ctx.keep_standoff("utwig_chmmr", UTWIG_CHMMR_NEAR, UTWIG_CHMMR_FAR)
+    # A satellite reaches no farther from the Chmmr (orbit 256 plus laser
+    # 256) than the Chmmr laser does.
+    if running and ctx.distance <= CHMMR_LASER_RANGE + UTWIG_CHMMR_EXPOSURE_MARGIN:
+        ctx.a2(True)
+    ctx.point_weapon(1)
+    # The shield blocks the bolts.
+    if not ctx.plan.a2 and ctx.in_range(1) and ctx.pointing(1):
+        ctx.a1(True)
 
 
 def _utwig_may_evade(ctx: BaselineContext) -> bool:

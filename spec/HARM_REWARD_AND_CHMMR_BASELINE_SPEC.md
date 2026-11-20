@@ -261,6 +261,35 @@ average time alive. A win isn't required.
     away from it;
   - a satellite brought to 0 HP is destroyed.
 
+#### 2.10a Chmmr tractor timing
+
+- Today the Chmmr baseline holds the tractor (A2) only while the opponent is
+  beyond 1000 (`LONG_RANGE`), its battery is at least 30%, the opponent isn't
+  tractor-immune (Arilou, Slylandro) and isn't cloaked. Each frame held costs
+  1 battery and pulls the opponent 12 ÷ its mass toward the Chmmr, at any
+  range.
+- Change it to use the tractor where it helps the laser (range 600):
+  - **Bring a mid-range opponent closer:** the opponent is beyond laser reach
+    but near enough that the pull brings it into reach soon (a mid-range band
+    starting at 600; its outer edge to be measured, for example 900, 1200 or
+    1500).
+  - **Keep a close opponent from escaping:** the opponent is within laser reach
+    (or just beyond it) and moving away (closing speed below 0).
+- Keep the battery, immunity and cloak gates. Measure whether the battery
+  threshold should differ between the two uses, and whether the long-range use
+  beyond the mid-range band is still worth its battery.
+- The tractor pulls inertial ships only, so skip it against inertialess ones,
+  where it costs battery for nothing.
+- Measure the Chmmr against every opponent, before and after, 20–40 seeds each.
+  Then re-measure the Phase 2 ships whose plans depend on the tractor's reach:
+  the Orz holds 900–1250 and the Utwig 800–1050, chosen partly to stay under
+  today's 1000; re-tune their bands if the new tractor changes their results.
+- Tests:
+  - pulls an opponent in the mid-range band, and not one beyond it;
+  - pulls a close opponent moving away, and not one closing in;
+  - no pull against a tractor-immune, cloaked or inertialess opponent, or below
+    the battery threshold.
+
 ### Measurement
 
 - Measure each ship before and after, 20–40 fights against the Chmmr. Metrics:
@@ -871,7 +900,8 @@ Recorded 2026-11-20.
 | 2.8a | Blazer intercept steering, all opponents but the Supox and Mmrnmrhm | Implemented | `ANDROSYNTH_STRAIGHT_RAM_OPPONENTS` keeps the Supox and Mmrnmrhm on a straight ram; every other blazer steers at `_blazer_intercept_bearing`. 20 seeds against all opponents: 209-169-3D-119T (before: 177-186-6D-131T). Thraddash 13-5 → 16-0, Melnorme 3-17 → 10-10, Vux 6-0 → 10-0, Syreen 12-8 → 15-5; Supox and Mmrnmrhm unchanged; Slylandro 16-2 → 15-4. Tests: `AndrosynthBlazerSteeringTests`. |
 | 2.8b | Blazer damages satellites, then re-evaluate the Androsynth against the Chmmr | Implemented | Rule: `ChmmrSatellite.should_collide_with_ship` accepts only an enemy blazer; `ram_contact_allowed` allows one ram (3 HP) per contact, checked in `_apply_ramming_damage_to_projectile_like`; the blazer bounces off the satellite as off a planet (`bounce_off_static_body`, velocity kept in `collision_velocity`) and takes no damage; the satellite keeps its orbit. Other hulls and the base Androsynth pass through. Tests: `BlazerRamsSatelliteTests` in `tests/test_chmmr.py`. Re-evaluation with the bounce, 80 seeds, scored as 0.5 × crew dealt + 0.5 × satellite HP ÷ 30: ram the Chmmr 39% crew, 0.9 satellite HP (0.21); ram the satellite met soonest 8%, 5.5 (0.13); prograde 10%, 2.5 (0.09); retrograde 6%, 3.4 (0.09). Prograde and retrograde steer at a point 200 ahead of or behind the satellite on its orbit (relative to the Chmmr), then straight at it within 300; measured at contact, prograde rams met the satellite's orbital motion at a median 50° and retrograde at 150°. The blazer lands only one or two rams before the lasers kill it, so the Chmmr ram is kept. |
 | 2.9 | Ilwrath | Investigated, no change | 40 seeds against the Chmmr: today 0% crew dealt, 0 satellite HP, 12 s alive. Every flame (1 HP) dies on its first frame: the satellites shoot enemy objects with the lowest HP first, and three of them, each firing every 3 frames, match the Ilwrath's one flame a frame; head-on, the Chmmr laser hits the flame in its line before the hull. The Chmmr baseline also sees the cloaked Ilwrath (observations carry a cloaked ship's position) and lasers it from 500–600, so the cloak doesn't protect it. Variants tried: nose on the Chmmr while closing, no holding back (1% crew, 0.2 satellite HP, 5 s alive); the same without recloaking once in reach (0%, 0.2, 5 s). Even against a Chmmr that holds fire on a cloaked target the best variant deals 9% (6 s alive), and against one fully blind to it 4% (0.5 satellite HP). Point blank, 40 seeds each: stay cloaked until the next decision would be within 150, 200 or 250; uncloak by the first flame (which snaps the nose to the 4-frame look-ahead) or by A2; then flame every frame without recloaking, with or without thrusting back in after the bounce off the Chmmr. All twelve deal 0–2% crew and 0–0.2 satellite HP, and the Ilwrath dies in 5 s: it arrives with about half its crew after the Chmmr laser, the bounce (about 45 outward, against 5 thrust a frame) carries it out of reach, and it fires only 2–7 flames before dying, most shot down by the satellites. No variant raises harm without shortening the time alive, so the default strategy is kept. |
-| 2.10 | Utwig | Not started | |
+| 2.10 | Utwig | Implemented | `_utwig_vs_chmmr` in `strategies.py`, used against the Chmmr with or without satellites. It holds the Chmmr between 800 and 1050 (`keep_standoff`): beyond its 600 laser, under the 1000 at which the Chmmr tractors, and within the bolts' 1080. From the band it fires at the Chmmr. While running from it within 650 (the Chmmr laser plus 50, which also covers the satellites: orbit 256 plus laser 256) it holds the shield, so the lasers charge its battery instead of taking crew; the Chmmr drains its own battery on the shield and is then open to the bolts. Other shield triggers (imminent hit, crew lost) are kept. Other opponents keep `_shield_rules`. 80 seeds: 80-0, 100% crew dealt, 0% taken, 7.1 satellite HP, 27 s, against 0-80, 15%, 1.4 and 11 s before. Measured on the way (80 seeds): the band alone, shielding only on imminent hits or lost crew, 36-44 and 50% crew dealt (700–1000: 31-49; 850–1080: 32-48; 900–1080: 28-52; 1000–1250, beyond the bolts: 0-38); the band without any shield 20-60; firing at satellites instead of the Chmmr 14-66 with 9.9 satellite HP; waiting without thrust beyond the band (40 seeds) 5-35, as a still Utwig can't build speed to run. Tests: `UtwigChmmrTests` in `tests/test_baseline_strategy.py`. |
+| 2.10a | Chmmr tractor: pull mid-range opponents in, keep close ones from escaping | Not started | |
 | 2.11 | Earthling | Not started | |
 | 2.12 | Umgah | Not started | |
 | 2.13 | Slylandro, ZoqFotPik, Spathi, Syreen, Yehat | Not started | |

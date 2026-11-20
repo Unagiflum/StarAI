@@ -2010,6 +2010,57 @@ class AndrosynthChmmrTests(unittest.TestCase):
         self.assertTrue(context.plan.thrust)
 
 
+class UtwigChmmrTests(unittest.TestCase):
+    def _context(self, enemy, *, enemy_name="Chmmr"):
+        # The satellite on the far side of the Chmmr.
+        satellites = (_satellite(enemy, 0.0),) if enemy_name == "Chmmr" else ()
+        context = _rule_context(
+            "Utwig",
+            enemy=enemy,
+            enemy_name=enemy_name,
+            enemy_objects=satellites,
+            battery=10.0,
+            max_battery=20.0,
+        )
+        context.view.me.crew = 20.0
+        return context
+
+    def test_runs_shielded_from_a_chmmr_within_laser_reach(self):
+        context = self._context(_seen(0.0, 550.0, closing=40.0))
+
+        STRATEGIES["Utwig"](context)
+
+        self.assertTrue(context.memory.values.get("utwig_chmmr_running"))
+        self.assertTrue(context.plan.a2)
+        self.assertFalse(context.plan.a1)
+
+    def test_runs_unshielded_while_out_of_every_laser_reach(self):
+        # Closing fast enough to run from, but beyond the Chmmr laser.
+        context = self._context(_seen(0.0, 900.0, closing=60.0))
+
+        STRATEGIES["Utwig"](context)
+
+        self.assertTrue(context.memory.values.get("utwig_chmmr_running"))
+        self.assertFalse(context.plan.a2)
+
+    def test_fires_on_the_chmmr_from_the_band(self):
+        context = self._context(_seen(0.0, 950.0))
+
+        STRATEGIES["Utwig"](context)
+
+        self.assertFalse(context.memory.values.get("utwig_chmmr_running", False))
+        self.assertTrue(context.plan.a1)
+        self.assertFalse(context.plan.a2)
+
+    def test_other_opponents_keep_the_shield_rules(self):
+        context = self._context(_seen(0.0, 550.0, closing=40.0), enemy_name="Spathi")
+
+        STRATEGIES["Utwig"](context)
+
+        self.assertNotIn("utwig_chmmr_running", context.memory.values)
+        self.assertFalse(context.plan.a2)
+
+
 class AndrosynthBlazerSteeringTests(unittest.TestCase):
     def _blazer(self, enemy_name):
         # Off to the right, crossing ahead of me.
