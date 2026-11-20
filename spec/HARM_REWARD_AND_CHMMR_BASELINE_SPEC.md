@@ -9,6 +9,8 @@ This document is the implementation source of truth and progress tracker for:
 3. A planet-avoidance lookahead scaled to each ship's agility.
    3A. Pre-emptible held weapons (Chenjesu, Kohr-Ah, Melnorme).
 4. A discount half-life setting in seconds, replacing raw gamma.
+   4A. Reward magnitude steps from ±0.001 to ±1.024.
+   4B. Epsilon and baseline-use decay as half-lives in batches.
 5. A "harm" reward scheme that rewards only lasting harm to the opponent.
 6. A gradual refactor of baseline strategies into shared, prioritised
    behaviours.
@@ -210,6 +212,51 @@ average time alive. A win isn't required.
 | 12 | Umgah | Point at the Chmmr and keep the cone on. | No real hope. Verify whether the cone damages satellites. |
 | 13 | Slylandro, ZoqFotPik, Spathi, Syreen, Yehat | Try the shared helpers: ring plus satellite targeting. | Keep per ship only if it helps. |
 
+### Follow-ups added during implementation
+
+#### 2.8a Blazer intercept steering (all opponents but two)
+
+- The Androsynth blazer steers toward the intercept point, as it does against
+  the Chmmr: the bearing on which the blazer, at its own speed, meets the
+  opponent moving as it is. It falls back to the opponent's bearing when no
+  intercept exists.
+- Exceptions: against the Supox and the Mmrnmrhm it keeps steering straight at
+  the opponent.
+- Evidence (20 seeds per opponent, intercept everywhere): 202-174 against
+  177-186. Gains include the Thraddash 13-5 → 16-0, Melnorme 3-17 → 10-10 and
+  Vux 6-0 → 10-0. Losses: Supox 12-8 → 8-12, Mmrnmrhm 7-12 → 4-13.
+- Measure again after the change, against all opponents.
+- Tests: the blazer turns toward the intercept point against a crossing
+  opponent; against the Supox and the Mmrnmrhm it turns toward the bearing.
+
+#### 2.8b Blazer damages Chmmr satellites
+
+- Today satellites collide only with enemy projectiles, so a blazer passes
+  through them unharmed. Change the game rule so a blazer touching an enemy
+  satellite deals it the blazer's ramming damage (3), as a blazer already
+  rams asteroids and projectiles (`_apply_ramming_damage_to_*` in
+  `collision_responses.py`).
+- The satellite stays on its orbit; the blazer doesn't bounce off it or take
+  damage from it.
+- One hit per contact: a satellite already touching the blazer isn't hit again
+  until the contact ends. A blazer at speed 60 overlaps a satellite for about a
+  frame, so this guards slow or glancing passes.
+- Only the blazer form rams satellites; the base Androsynth hull, like other
+  ships, still passes through them.
+- Satellite HP bars and the arena satellite-HP metric show the hits.
+- Then evaluate the Androsynth strategy against the Chmmr again. Candidates:
+  - the current single ram on the Chmmr (38% crew dealt, 80 seeds);
+  - ram satellites on the way in (each takes 4 hits), then the Chmmr;
+  - hit-and-run passes through the ring aimed at satellites.
+
+  Keep whichever deals the most harm, counting satellite HP as the harm scheme
+  does.
+- Tests:
+  - a blazer touching an enemy satellite takes 3 HP from it, once per contact;
+  - the base form and other ships still pass through satellites;
+  - the satellite's orbit and the blazer's motion are unchanged by the contact;
+  - a satellite brought to 0 HP is destroyed.
+
 ### Measurement
 
 - Measure each ship before and after, 20–40 fights against the Chmmr. Metrics:
@@ -386,6 +433,103 @@ lost falls without crew dealt falling more.
 
 ---
 
+## Phase 4A: Reward Magnitude Steps
+
+### Requirements
+
+- Every reward and penalty weight slider, in both the Classic and Harm schemes,
+  takes one of 23 values:
+
+  ```text
+  -1.024, -0.512, -0.256, -0.128, -0.064, -0.032, -0.016, -0.008, -0.004, -0.002, -0.001,
+  0.000,
+  0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128, 0.256, 0.512, 1.024
+  ```
+
+  That is ±0.001 × 2^k for k = 0–10, and 0. Today's values are ±0.01 × 2^k
+  for k = 0–12 (up to ±40.96).
+- Labels show three decimals ("0.001", "1.024").
+- Classic defaults, divided by 40 so they land on the new steps with their
+  ratios kept:
+
+  | Component | Today | New |
+  |---|---|---|
+  | Kill enemy | 40.96 | 1.024 |
+  | Reduce enemy crew | 5.12 | 0.128 |
+  | Get debuffed | -1.28 | -0.032 |
+  | Lose crew | -2.56 | -0.064 |
+  | Die | -20.48 | -0.512 |
+
+- Harm defaults: D_enemy and K_enemy 1.024 (1.28 is no longer a step);
+  D_self and K_self 0.
+- Old configs: divide each stored classic weight by 40 and snap it to the
+  nearest step on the log scale, keeping its sign. 0.01 and 0.02 become 0.001
+  (the smallest step); 0 stays 0. Every other old step maps exactly, so the
+  ratios between components are kept.
+- The reward scale falls 40-fold, and so do the value targets. A model trained
+  on the old scale predicts values 40 times too large, so resuming one needs
+  time to relearn magnitudes. Record a reward scale version in the model
+  metadata and warn when resuming a model saved under the old scale.
+
+### Tests
+
+- The value list, its order and labels.
+- Classic and Harm defaults.
+- Old config migration: 40.96 → 1.024, 5.12 → 0.128, -1.28 → -0.032,
+  0.01 → 0.001, 0 → 0.
+- The warning on resuming a model saved under the old scale.
+
+---
+
+## Phase 4B: Decay Half-Lives In Batches
+
+### Requirements
+
+- The "Epsilon decay" and "Baseline use decay" Regimen sliders show a half-life
+  in batches instead of a per-batch multiplier: the number of batches over
+  which the value halves.
+- Values: 10, 30, 100, 300, 1,000, 3,000, 10,000, 30,000 and 100,000 batches,
+  plus "Off" (no decay), which keeps today's 1.000 setting available.
+- Per-batch factor: d = 0.5 ^ (1 / n).
+
+  | Half-life (batches) | Factor per batch |
+  |---|---|
+  | 10 | 0.93303 |
+  | 30 | 0.97716 |
+  | 100 | 0.99309 |
+  | 300 | 0.99769 |
+  | 1,000 | 0.999307 |
+  | 3,000 | 0.999769 |
+  | 10,000 | 0.9999307 |
+  | 30,000 | 0.9999769 |
+  | 100,000 | 0.9999931 |
+  | Off | 1 |
+
+- Defaults: epsilon 300 batches (today 0.998, a half-life of 346); baseline
+  use 100 batches (today 0.995, 138).
+- Today's range, 0.950–1.000, covers half-lives from 13.5 batches to Off, with
+  most steps below 700 batches. The new list reaches much slower decay.
+- Saved configs:
+  - Store the half-life ("off" for no decay).
+  - When loading an old config with only a factor d, derive n = ln 0.5 ÷ ln d,
+    snap it to the nearest value on the log scale, and treat 1.000 as Off.
+- Training uses the derived factor, so the decay code is unchanged. The
+  current-batch status row shows the half-life.
+- The "go to epsilon" no-decay warning uses Off.
+- A coordinated run requires equal half-lives, as it now requires equal decay
+  factors.
+- Tooltips: "Epsilon decay half-life: batches over which epsilon halves.", and
+  the same for baseline use.
+
+### Tests
+
+- Half-life ↔ factor round trip for every value.
+- Old configs: 0.998 → 300, 0.995 → 100, 0.95 → 10, 1.000 → Off.
+- The no-decay warning fires for Off.
+- The coordinated mismatch check uses the half-lives.
+
+---
+
 ## Phase 5: Harm Reward Scheme
 
 ### Concept
@@ -411,8 +555,8 @@ Penalty weights are set separately from reward weights, as they are today.
 
 | Weight | Meaning | Default |
 |---|---|---|
-| D_enemy | Damage to the opponent | 1.28 |
-| K_enemy | Kill of the opponent | 1.28 |
+| D_enemy | Damage to the opponent | 1.024 (Phase 4A) |
+| K_enemy | Kill of the opponent | 1.024 (Phase 4A) |
 | D_self | Damage taken, as a penalty | 0 |
 | K_self | Own death, as a penalty | 0 |
 
@@ -719,7 +863,9 @@ Recorded 2026-11-20.
 | 2.6 | Orz | Implemented | Marines only with ≤ 1 satellite left; standoff 900–1,250 with `keep_standoff`; turret at satellites. 40 seeds: 0-23-17, crew dealt 1%, satellite HP 0.0, fight 73 s (before, 20 seeds: 0-20-0, 4%, 0.0, 7 s). With marines ungated it dealt 4% but survived only 9 of 40. It spends most of the fight running, as the Chmmr matches its top speed; firing the turret backward while running is a possible next step. |
 | 2.6a | Orz turret (all opponents) | Implemented | Fixed the observed turret angle: the encoder subtracted the hull rotation in degrees from the turret heading in ship directions, so `orz_turret_relative_sine/cosine` was wrong at any nonzero heading. This affected trained networks as well as the baseline. Baseline: `turn_turret` turns the turret (A2 + turn) only while the hull holds its heading and nothing fires. Strategy aims with the hull when steering is free (twice as quick) and with the turret while a rule holds the heading (approach, back-off, running). The Kohr-Ah and Chenjesu keep hull-only aiming, as their 10-HP shots must be dodged and the turret cost about 12 wins there. Kites (standoff 700–1,100, turret firing back) Arilou, Druuge, Kzer-Za, Orz, Pkunk, Shofixti, Spathi, Syreen and Yehat, chosen from a 40-seed kite-versus-default comparison. The evade rule can shoot a threat down with the turret, keeping course; the arena shows almost no effect from this. 20 seeds against all opponents: 341-109-1D-49T (before: 219-249-7D-25T); bug fix alone with hull aiming: 273-200. Chmmr: 0-10-10, crew dealt 4%, satellite HP 0.8. Shells (2 HP) are shot down by satellite lasers (one every 3 frames each) and the Chmmr laser before they land. A laser-survival filter was tried and dropped, as the shells still died. |
 | 2.7 | Kzer-Za (confirm only) | Confirmed | Already launches fighters only with 0 satellites left. 20 seeds before: 0-6-14, crew dealt 25%, satellite HP 2.1. |
-| 2.8 | Androsynth | Not started | |
+| 2.8 | Androsynth | Implemented | The blazer can't hit satellites: they collide only with projectiles, and in a simulated pass a blazer within 72 of one left it at 10 HP. Inside their ring the lasers take about 1 crew a frame, so the crew buys one ram. With satellites up: no bubbles, the nose kept on the Chmmr, blaze from 800 on a battery at least 90% full, then ram at the intercept point for the blazer's speed. 80 seeds: 0-80-0, crew dealt 38%, fight 3 s (old rules on the same seeds: 0-78-2T, 15%, satellite HP 0.4, 18 s). Blaze ranges 600–1,300 gave 33–39% with leading; steering straight at the Chmmr gave 26–28%. |
+| 2.8a | Blazer intercept steering, all opponents but the Supox and Mmrnmrhm | Not started | |
+| 2.8b | Blazer damages satellites, then re-evaluate the Androsynth against the Chmmr | Not started | |
 | 2.9 | Ilwrath | Not started | |
 | 2.10 | Utwig | Not started | |
 | 2.11 | Earthling | Not started | |
@@ -728,5 +874,7 @@ Recorded 2026-11-20.
 | 3 | Planet lookahead by agility | Not started | |
 | 3A | Pre-emptible held weapons (Chenjesu, Kohr-Ah, Melnorme) | Not started | |
 | 4 | Discount half-life setting | Not started | |
+| 4A | Reward magnitude steps ±0.001–1.024 | Not started | |
+| 4B | Decay half-lives in batches | Not started | |
 | 5 | Harm reward scheme | Not started | |
 | 6 | Shared behaviours, per ship | Not started | |

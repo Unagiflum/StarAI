@@ -25,6 +25,7 @@ from src.training.baseline.engine import (
     UMGAH_HOP_FRAMES,
     BaselineContext,
     StrategyFunction,
+    _smallest_positive_root,
 )
 from src.training.baseline.observation_view import bearing_of, wrap_degrees
 from src.training.baseline.ship_specs import (
@@ -187,6 +188,10 @@ ORZ_CHMMR_FAR = 1250.0
 # the Orz aims with the hull alone, its turret kept as it is, which the
 # arena shows dodges them better.
 ORZ_HULL_AIM_OPPONENTS = frozenset({"Chenjesu", "KohrAh"})
+# Androsynth against a Chmmr: blaze in from this range once the battery is
+# at least this full.
+ANDROSYNTH_CHMMR_BLAZE_RANGE = 800.0
+ANDROSYNTH_CHMMR_BLAZE_BATTERY = 0.9
 # Opponents the Orz kites, as the arena favours: it holds them in a band,
 # running hull away from one closing in while the turret fires back.
 ORZ_KITE_OPPONENTS = frozenset(
@@ -307,6 +312,9 @@ def _shot_in_flight(ctx: BaselineContext, minimum_speed: float) -> bool:
 
 
 def androsynth(ctx: BaselineContext) -> None:
+    if ctx.chmmr_satellites():
+        _androsynth_vs_chmmr(ctx)
+        return
     blazer = ctx.me.androsynth_blazer
     battery = ctx.me.battery_fraction
     if blazer and battery > 0.10:
@@ -319,6 +327,46 @@ def androsynth(ctx: BaselineContext) -> None:
         ctx.avoid_opponent()
     if battery >= 0.50:
         ctx.a1(True)
+
+
+def _androsynth_vs_chmmr(ctx: BaselineContext) -> None:
+    """Save the battery, then blaze into the Chmmr once and keep ramming.
+
+    The blazer passes through satellites without harming them, and inside
+    their ring the lasers take about a crew a frame, so the crew buys one
+    ram: from close in, on a full battery, at where the Chmmr will be.
+    """
+
+    if ctx.me.androsynth_blazer:
+        ctx.steer(_blazer_intercept_bearing(ctx))
+        return
+    ctx.point_at_opponent()
+    if (
+        ctx.distance <= ANDROSYNTH_CHMMR_BLAZE_RANGE
+        and ctx.me.battery >= ANDROSYNTH_CHMMR_BLAZE_BATTERY * ctx.me.max_battery
+    ):
+        ctx.a2(True)
+
+
+def _blazer_intercept_bearing(ctx: BaselineContext) -> float:
+    """Bearing on which the blazer, at its constant speed, meets the
+    opponent moving as it is; the opponent's bearing if it can't."""
+
+    enemy = ctx.enemy
+    speed = ctx.spec.max_thrust
+    # The opponent's motion over the arena, in my frame.
+    drift_forward = enemy.velocity_forward + ctx.me.velocity_forward
+    drift_right = enemy.velocity_right + ctx.me.velocity_right
+    frames = _smallest_positive_root(
+        drift_forward * drift_forward + drift_right * drift_right - speed * speed,
+        2.0 * (enemy.forward * drift_forward + enemy.right * drift_right),
+        enemy.forward * enemy.forward + enemy.right * enemy.right,
+    )
+    if frames is None:
+        return enemy.bearing
+    return bearing_of(
+        enemy.forward + drift_forward * frames, enemy.right + drift_right * frames
+    )
 
 
 def arilou(ctx: BaselineContext) -> None:

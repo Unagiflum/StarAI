@@ -80,6 +80,9 @@ from src.training.baseline.strategies import (
 from src.training.baseline.strategies import _umgah_hops_needed as umgah_hops_needed
 from src.training.baseline.strategies import _umgah_tail_heading as umgah_tail_heading
 from src.training.baseline.strategies import _supox_band as supox_band
+from src.training.baseline.strategies import (
+    _blazer_intercept_bearing as blazer_intercept_bearing,
+)
 from src.training.contracts import ACTION_INDEX_TABLE, SHIP_TYPE_CATALOG_ORDER
 from src.training.coordinated import (
     CoordinatedActionRequest,
@@ -1961,6 +1964,50 @@ class ChmmrMatchupMoreTests(unittest.TestCase):
         self.assertFalse(settled.keep_standoff("test", 900.0, 1250.0))
         self.assertIsNone(settled.plan.turn)
         self.assertIsNone(settled.plan.thrust)
+
+
+class AndrosynthChmmrTests(unittest.TestCase):
+    def _context(self, enemy, *, blazer=False, battery=24.0):
+        context = _rule_context(
+            "Androsynth",
+            enemy=enemy,
+            enemy_name="Chmmr",
+            enemy_objects=(_satellite(enemy, 90.0),),
+            battery=battery,
+            max_battery=24.0,
+        )
+        context.view.me.androsynth_blazer = blazer
+        return context
+
+    def test_saves_the_battery_and_blazes_in_from_close_on_a_full_battery(self):
+        far = self._context(_seen(30.0, 1500.0))
+        STRATEGIES["Androsynth"](far)
+        self.assertFalse(far.plan.a1)
+        self.assertFalse(far.plan.a2)
+        # The nose comes round to the Chmmr meanwhile.
+        self.assertEqual(far.plan.turn, TURN_RIGHT)
+
+        close = self._context(_seen(0.0, 700.0))
+        STRATEGIES["Androsynth"](close)
+        self.assertTrue(close.plan.a2)
+        self.assertFalse(close.plan.a1)
+
+        drained = self._context(_seen(0.0, 700.0), battery=12.0)
+        STRATEGIES["Androsynth"](drained)
+        self.assertFalse(drained.plan.a2)
+
+    def test_blazer_rams_where_the_chmmr_will_be(self):
+        # Off to the right, crossing ahead of me.
+        crossing = dataclasses.replace(_seen(90.0, 600.0), velocity_forward=30.0)
+        context = self._context(crossing, blazer=True)
+
+        bearing = blazer_intercept_bearing(context)
+        STRATEGIES["Androsynth"](context)
+
+        self.assertGreater(bearing, 0.0)
+        self.assertLess(bearing, 90.0)
+        self.assertEqual(context.plan.turn, TURN_RIGHT)
+        self.assertTrue(context.plan.thrust)
 
 
 class OrzTurretTests(unittest.TestCase):
