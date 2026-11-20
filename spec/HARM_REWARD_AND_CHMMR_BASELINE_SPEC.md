@@ -7,6 +7,7 @@ This document is the implementation source of truth and progress tracker for:
 1. Satellite HP bars on Chmmr satellites.
 2. Baseline behaviours for fighting a Chmmr that still has satellites.
 3. A planet-avoidance lookahead scaled to each ship's agility.
+   3A. Pre-emptible held weapons (Chenjesu, Kohr-Ah, Melnorme).
 4. A discount half-life setting in seconds, replacing raw gamma.
 5. A "harm" reward scheme that rewards only lasting harm to the opponent.
 6. A gradual refactor of baseline strategies into shared, prioritised
@@ -240,6 +241,86 @@ Acceptance:
 - Frames claimed by the planet rule fall for agile ships (Arilou, Pkunk, Supox).
 
 Tests: horizon values for an agile ship, a slow ship and a non-inertial ship.
+
+---
+
+## Phase 3A: Pre-emptible Held Weapons
+
+### Problem
+
+Three ships fire weapon 1 by holding it, and can't fire again until they let
+go:
+
+| Ship | While A1 is held | On release | Today's baseline |
+|---|---|---|---|
+| Chenjesu | The crystal flies on. | It bursts into shards. A new crystal needs a release, then a fresh press. | <ul><li>Holds while the crystal still closes on the enemy (`_hold_while_closing_on_enemy`).</li><li>The rule 1 shoot-down includes the Chenjesu, but it presses A1. While a crystal is held, pressing only keeps holding it, so the planned new shot never fires.</li></ul> |
+| Kohr-Ah | The saw flies on. | It parks where it is. A new saw needs a release, then a fresh press. | <ul><li>Holds while the saw still closes on the enemy.</li><li>Excluded from the shoot-down (`SHOOT_DOWN_EXCLUDED_SHIPS`).</li></ul> |
+| Melnorme | The shot charges. | It fires at the current charge, in the nose direction. | <ul><li>Held from the start, released only when in range and pointing at the enemy.</li><li>Excluded from the shoot-down.</li></ul> |
+
+A shot in flight or charging is kept even when something matters more:
+- shooting down an incoming projectile or enemy object, such as a fighter,
+  marine, mine or Dogi;
+- a better shot at the enemy.
+
+This applies especially when the held shot has little chance of hitting.
+
+### Requirements
+
+1. **Value of the held shot.** Estimate its expected damage to the enemy:
+   - Chenjesu and Kohr-Ah: from the predicted closest approach of the shot in
+     flight to the enemy, whether it is still closing, and the time to reach it.
+   - Melnorme: from the current charge level and whether the enemy is in range
+     along the nose.
+
+   A shot that is receding or predicted to miss is worth about 0.
+2. **Pre-emption.**
+   - A competing goal may take weapon 1 when its value exceeds the held shot's
+     value. Competing goals include a shoot-down from the dodge rule and a new
+     shot at the enemy or another enemy object.
+   - When the held shot is worth about 0, any useful goal wins.
+3. **Release mechanics are modelled.**
+   - A new shot needs one frame with A1 released, then a fresh press once A1 is
+     ready.
+   - Plans that fire a new shot (shoot-down options, the dodge rule's
+     simulation) start from that release frame. They must not assume holding A1
+     fires.
+   - The release has its own effect, and options include it:
+     - the Chenjesu crystal bursts, and its shards may themselves stop a threat;
+     - the Kohr-Ah saw parks as an obstacle;
+     - the Melnorme shot fires at its current charge.
+4. **Melnorme release as the shot.** An option releases the charging shot
+   itself at the threat or enemy once the nose points at it, without waiting
+   for full charge or for the enemy to be in range.
+5. **Shoot-down exclusions.**
+   - Remove the Kohr-Ah and Melnorme from `SHOOT_DOWN_EXCLUDED_SHIPS` once 3 and
+     4 model them correctly.
+   - Keep a ship excluded if measurement shows the release costs more than it
+     saves.
+6. **No change for other ships.**
+
+### Measurement
+
+For each of the three ships, before and after:
+- crew lost per minute to shots that could be shot down;
+- crew dealt per minute;
+- W-L.
+
+Use opponents with projectiles or launched objects: Druuge, Kzer-Za, Orz,
+Spathi, Chenjesu, Mycon and Earthling. Keep the change per ship only if crew
+lost falls without crew dealt falling more.
+
+### Tests
+
+- Chenjesu with a crystal held and an imminent threat on a shoot-down line:
+  - it releases, then presses again once ready, firing a new crystal at the
+    threat;
+  - with no competing goal and the crystal closing, it keeps holding.
+- A receding crystal or saw is released for a new shot at the enemy.
+- Kohr-Ah: the same release-then-fire sequence; the parked saw remains.
+- Melnorme: it releases a partial charge at an imminent threat it points at,
+  and keeps charging when nothing competes.
+- The dodge rule's simulation includes the release frame for held weapons.
+- Strategies for other ships are unchanged.
 
 ---
 
@@ -614,8 +695,8 @@ Recorded 2026-11-20.
 
 | Phase | Item | Status | Evidence |
 |---|---|---|---|
-| 1 | Satellite HP bars | Not started | |
-| 1 | Supox end animation on hit only | Not started | |
+| 1 | Satellite HP bars | Implemented | `hp_bar_appearance` and `ChmmrSatellite._draw_hp_bar`; `SatelliteHpBarTests` in `tests/test_chmmr.py`; render checked at 10, 9, 7, 5, 3 and 1 HP. Full suite 1,502 tests OK. |
+| 1 | Supox end animation on hit only | Implemented | `end_anim_on_hit_only` ability field, set for `SupoxA1`; `destroy_projectile(dealt_damage=...)` is false for laser, area and planet deaths and for pair contacts that dealt no damage; `tests/test_supox_end_animation.py`. |
 | 2 | Shared satellite helpers | Not started | |
 | 2.1 | Thraddash | Not started | |
 | 2.2 | Arilou | Not started | |
@@ -631,6 +712,7 @@ Recorded 2026-11-20.
 | 2.12 | Umgah | Not started | |
 | 2.13 | Slylandro, ZoqFotPik, Spathi, Syreen, Yehat | Not started | |
 | 3 | Planet lookahead by agility | Not started | |
+| 3A | Pre-emptible held weapons (Chenjesu, Kohr-Ah, Melnorme) | Not started | |
 | 4 | Discount half-life setting | Not started | |
 | 5 | Harm reward scheme | Not started | |
 | 6 | Shared behaviours, per ship | Not started | |
