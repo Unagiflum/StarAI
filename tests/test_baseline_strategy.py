@@ -47,6 +47,8 @@ from src.training.baseline.engine import (
     TURN_LEFT,
     TURN_NONE,
     TURN_RIGHT,
+    planet_contact_distance,
+    simulate_planet_pass,
 )
 from src.training.baseline.observation_view import (
     ObservationView,
@@ -54,6 +56,9 @@ from src.training.baseline.observation_view import (
     wrap_degrees,
 )
 from src.training.baseline.ship_specs import (
+    PLANET_HULL_REACH,
+    PLANET_RADIUS,
+    ship_spec,
     shofixti_blast_damage,
     shofixti_kill_distance,
     weapon_spec,
@@ -324,6 +329,140 @@ class AvoidOpponentTests(unittest.TestCase):
         with mock.patch.object(context, "steer", return_value=True) as steer:
             context.avoid_opponent()
         self.assertAlmostEqual(steer.call_args.args[0], -125.0)
+
+
+def _planet(bearing, distance, *, own_forward=0.0, own_right=0.0):
+    """The planet at ``bearing``, seen by a ship moving at ``own_*``."""
+
+    radians = math.radians(bearing)
+    return dataclasses.replace(
+        _seen(bearing, distance, group="planet"),
+        velocity_forward=-own_forward,
+        velocity_right=-own_right,
+        closing_speed=own_forward * math.cos(radians) + own_right * math.sin(radians),
+    )
+
+
+class PlanetRuleTests(unittest.TestCase):
+    def test_coasting_prediction_matches_the_simulation(self):
+        simulation = _simulation("Chenjesu", "Spathi")
+        # Asteroids spawn at random and could cross the path.
+        simulation.world.objects[:] = [
+            obj for obj in simulation.world.objects if type(obj).__name__ != "Asteroid"
+        ]
+        planet = simulation.world.planets[0]
+        me = simulation.player1
+        me.position = [planet.position[0], planet.position[1] - 900.0]
+        me.velocity = [6.0, 0.0]
+        simulation.player2.position = [
+            (planet.position[0] + 3500.0) % const.ARENA_SIZE,
+            planet.position[1],
+        ]
+        seen = ObservationView(_observation(simulation)).planet
+        predicted = simulate_planet_pass(
+            (-seen.forward, -seen.right),
+            (-seen.velocity_forward, -seen.velocity_right),
+            96,
+            ship_spec("Chenjesu"),
+        )
+
+        contact_frame = None
+        for frame in range(96):
+            simulation.step(actions={1: ACTION_INDEX_TABLE[0], 2: ACTION_INDEX_TABLE[0]})
+            if me.distance_to(planet)[1] <= planet_contact_distance(ship_spec("Chenjesu")):
+                contact_frame = frame + 1
+                break
+        self.assertIsNotNone(contact_frame)
+        self.assertAlmostEqual(predicted.impact_frame, contact_frame, delta=1.0)
+
+    def test_hull_reach_table_matches_the_real_collision_masks(self):
+        from src.Battle.collision_geometry import (
+            invalidate_geometry,
+            objects_overlap_at_positions,
+        )
+        from src.resources import HeadlessAssetManager
+
+        resources = HeadlessAssetManager()
+        audio = NullAudioService()
+        planet = _simulation().world.planets[0]
+        # 16 headings and 24 approach directions, 2 units apart.
+        heading_step = max(1, const.SHIP_DIRECTIONS // 16)
+        for ship_name in SHIP_TYPE_CATALOG_ORDER:
+            ship = create_ship(ship_name, 1, resources=resources, audio_service=audio)
+            reach = 0.0
+            for heading in range(0, const.SHIP_DIRECTIONS, heading_step):
+                ship.heading = heading
+                ship.rotation = heading * const.TURN_ANGLE
+                invalidate_geometry(ship)
+                for direction in range(0, 360, 15):
+                    radians = math.radians(direction)
+                    for distance in range(300, int(PLANET_RADIUS), -2):
+                        position = [
+                            planet.position[0] + math.sin(radians) * distance,
+                            planet.position[1] - math.cos(radians) * distance,
+                        ]
+                        if objects_overlap_at_positions(
+                            ship, planet, position, planet.position
+                        ):
+                            reach = max(reach, distance - PLANET_RADIUS)
+                            break
+            with self.subTest(ship=ship_name):
+                self.assertAlmostEqual(PLANET_HULL_REACH[ship_name], reach, delta=6.0)
+
+    def test_leaves_a_pass_that_misses_the_planet_to_the_strategy(self):
+        # Inside the well, but moving across it fast enough to swing past.
+        context = _rule_context("Chenjesu", planet=_planet(0.0, 900.0, own_right=30.0))
+
+        self.assertFalse(context.avoid_planet())
+        self.assertIsNone(context.plan.turn)
+        self.assertIsNone(context.plan.thrust)
+
+    def test_steps_in_when_the_coasting_path_hits_the_surface(self):
+        context = _rule_context("Chenjesu", planet=_planet(0.0, 900.0))
+
+        self.assertTrue(context.avoid_planet())
+        self.assertIsNotNone(context.plan.turn)
+
+    def test_ships_without_inertia_are_not_pulled_in(self):
+        context = _rule_context("Arilou", planet=_planet(0.0, 600.0))
+
+        self.assertFalse(context.avoid_planet())
+
+    def test_escapes_on_the_side_of_the_drift_already_carried(self):
+        # The left escape heading (20 - 90 = -70) needs less turning, but
+        # the ship already drifts right, toward the other (20 + 90 = 110).
+        context = _rule_context(
+            "Chenjesu", planet=_planet(20.0, 700.0, own_right=10.0)
+        )
+
+        self.assertTrue(context.avoid_planet())
+        self.assertEqual(context.plan.turn, TURN_RIGHT)
+        self.assertEqual(context.memory.sides["avoid_planet"], 1)
+
+    def test_holds_thrust_while_the_nose_turns_toward_the_escape(self):
+        # Drifting left, it escapes left of the planet at -30, more than 90
+        # degrees round from the nose: thrust now would push it inward.
+        context = _rule_context(
+            "Chenjesu", planet=_planet(-30.0, 700.0, own_right=-10.0)
+        )
+
+        self.assertTrue(context.avoid_planet())
+        self.assertEqual(context.plan.turn, TURN_LEFT)
+        self.assertFalse(context.plan.thrust)
+
+    def test_keeps_its_escape_unless_another_is_clearly_better(self):
+        # Dead ahead, both sides are equally good: a fresh choice goes right.
+        fresh = _rule_context("Chenjesu", planet=_planet(0.0, 700.0))
+        self.assertTrue(fresh.avoid_planet())
+        self.assertEqual(fresh.plan.turn, TURN_RIGHT)
+
+        memory = BaselineMemory()
+        memory.sides["avoid_planet"] = -1
+        memory.sides["avoid_planet_offset"] = fresh.memory.sides["avoid_planet_offset"]
+        kept = _rule_context("Chenjesu", planet=_planet(0.0, 700.0), memory=memory)
+
+        self.assertTrue(kept.avoid_planet())
+        self.assertEqual(kept.plan.turn, TURN_LEFT)
 
 
 class ShipRuleTests(unittest.TestCase):

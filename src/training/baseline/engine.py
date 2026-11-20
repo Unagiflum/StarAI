@@ -8,6 +8,7 @@ whose condition is false claims nothing. Controls nobody claims stay off.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import math
 from typing import Callable
 
@@ -24,6 +25,7 @@ from src.training.baseline.ship_specs import (
     FORM_BLAZER,
     FORM_XFORM,
     FORM_YWING,
+    PLANET_GRAVITY,
     PLANET_RADIUS,
     ShipSpec,
     WeaponSpec,
@@ -47,9 +49,24 @@ PERPENDICULAR_AWAY_OFFSET = 110.0
 PLANET_SIDESTEP_OFFSET = 45.0
 # Fraction of a range below which [Approach_Range] backs off.
 APPROACH_RANGE_INNER_FRACTION = 0.7
-PLANET_COLLISION_SECONDS = 2.0
-PLANET_COURSE_LATERAL_FRACTION = 0.2
 PLANET_AVOID_LOOKAHEAD = 1.5
+# Rule 0, the planet: it steps in only when the ship's coasting path,
+# followed this far ahead, brings the hull within the clearance of the
+# surface (the hull's own reach plus the margin), and lets go once that path
+# clears it by the release margin too.
+PLANET_AVOID_HORIZON_SECONDS = 4.0
+PLANET_CLEARANCE_MARGIN = 20.0
+PLANET_RELEASE_MARGIN = 40.0
+# Escape headings tried, in degrees off the planet's bearing: straight across
+# the well, where thrust deepens the pass most quickly, and mostly out of it.
+PLANET_ESCAPE_OFFSETS = (90.0, 135.0)
+# Thrust only while the nose is within this many degrees of the escape
+# heading, so a ship still turning away does not push itself further in.
+PLANET_ESCAPE_THRUST_ANGLE = 90.0
+# Escapes are compared by their closest predicted pass, so when every one
+# hits, the shallowest graze wins. An escape, once chosen, is kept unless
+# another's pass comes this much less close.
+PLANET_SIDE_SWITCH_MARGIN = 30.0
 # Sideways drift, as a fraction of top speed, that counts as orbiting.
 ORBIT_DRIFT_THRESHOLD = 0.15
 # The baseline decides every frame, so a decision lasts one frame.
@@ -452,26 +469,64 @@ class BaselineContext:
     # -------------------------------------------------------- shared behaviors
 
     def avoid_planet(self) -> bool:
-        """Rule 0: steer clear of the planet's gravity well and surface."""
+        """Rule 0: keep the hull off the planet's surface.
+
+        Steps in only when the coasting path hits the surface within the
+        horizon, so a pass that already misses is left to the strategy.
+        Gravity outpulls the weakest engines, so climbing straight out
+        rarely works; speed across the line to the planet is what carries
+        a ship past it. Each escape heading is flown ahead with the ship's
+        own turn and thrust timing, so the side chosen weighs both how far
+        the nose must turn and the drift the ship already carries. Thrust
+        waits until the nose is within ``PLANET_ESCAPE_THRUST_ANGLE`` of the
+        escape heading, rather than pushing the ship in while it turns.
+        """
 
         planet = self.planet
         if planet is None:
             return False
-        inside_well = planet.distance <= const.GRAVITY_RANGE
-        surface = max(0.0, planet.distance - PLANET_RADIUS)
-        on_course = (
-            planet.closing_speed > 0.0
-            and abs(planet.lateral_speed)
-            < PLANET_COURSE_LATERAL_FRACTION * planet.closing_speed
-        )
-        collision_soon = (
-            planet.closing_seconds(surface)
-            < PLANET_COLLISION_SECONDS + self.span_seconds
-        )
-        if not inside_well and not (on_course and collision_soon):
+        frames = int(round(PLANET_AVOID_HORIZON_SECONDS * const.FPS))
+        if planet.distance - planet.relative_speed * frames > const.GRAVITY_RANGE:
             return False
-        heading = self.side("avoid_planet", planet.bearing, PERPENDICULAR_AWAY_OFFSET)
-        return self.steer(heading)
+        spec = self.spec
+        position = (-planet.forward, -planet.right)
+        velocity = (-planet.velocity_forward, -planet.velocity_right)
+        active = "avoid_planet" in self.memory.sides
+        coast = simulate_planet_pass(position, velocity, frames, spec)
+        release = planet_contact_distance(spec)
+        if active:
+            release += PLANET_RELEASE_MARGIN
+        if coast.closest >= release:
+            return False
+
+        # Each plan is one side and one offset, flown as the simulation
+        # flies it; keeping the plan keeps the prediction true.
+        plans: dict[tuple[int, int], tuple[float, float]] = {}
+        for sign in (1, -1):
+            for index, offset in enumerate(PLANET_ESCAPE_OFFSETS):
+                result = simulate_planet_pass(
+                    position, velocity, frames, spec, escape=(sign, offset)
+                )
+                heading = wrap_degrees(planet.bearing + sign * offset)
+                # Ties go to the heading the nose reaches soonest.
+                plans[(sign, index)] = (result.closest, -abs(heading))
+        chosen = max(plans, key=plans.__getitem__)
+        previous = (
+            self.memory.sides.get("avoid_planet"),
+            self.memory.sides.get("avoid_planet_offset"),
+        )
+        if (
+            previous in plans
+            and previous != chosen
+            and plans[chosen][0] < plans[previous][0] + PLANET_SIDE_SWITCH_MARGIN
+        ):
+            chosen = previous
+        sign, index = chosen
+        for key, value in (("avoid_planet", sign), ("avoid_planet_offset", index)):
+            self.memory.touched_sides.add(key)
+            self.memory.sides[key] = value
+        heading = wrap_degrees(planet.bearing + sign * PLANET_ESCAPE_OFFSETS[index])
+        return self.steer(heading, thrust=abs(heading) <= PLANET_ESCAPE_THRUST_ANGLE)
 
     def approach_opponent(self) -> bool:
         enemy = self.enemy
@@ -591,6 +646,133 @@ class BaselineContext:
 
 
 StrategyFunction = Callable[[BaselineContext], None]
+
+
+@dataclass(frozen=True, slots=True)
+class PlanetPass:
+    """Predicted pass by the planet: nearest centre distance, and the frame
+    the hull first comes within the clearance of the surface."""
+
+    closest: float
+    impact_frame: float = math.inf
+
+
+def planet_contact_distance(spec: ShipSpec) -> float:
+    """Centre distance from the planet that rule 0 keeps this hull beyond."""
+
+    return PLANET_RADIUS + spec.planet_reach + PLANET_CLEARANCE_MARGIN
+
+
+def _planet_gravity(x: float, y: float, distance: float, pull: float) -> tuple[float, float]:
+    if pull <= 0.0 or distance < PLANET_RADIUS or distance > const.GRAVITY_RANGE:
+        return 0.0, 0.0
+    return -pull * x / distance, -pull * y / distance
+
+
+def simulate_planet_pass(
+    position: tuple[float, float],
+    velocity: tuple[float, float],
+    frames: int,
+    spec: ShipSpec,
+    escape: tuple[int, float] | None = None,
+) -> PlanetPass:
+    """Fly the ship past the planet for up to ``frames`` frames.
+
+    ``position`` is the ship's offset from the planet and ``velocity`` its
+    motion, both in the ship's frame at the start (forward, right). With no
+    ``escape`` the ship coasts. With ``escape = (sign, offset)`` it flies as
+    rule 0 does: every frame it aims ``offset`` degrees off the planet's
+    bearing on the ``sign`` side, turning one heading step and thrusting one
+    increment at the ship's own cadences, and thrusting only while the nose
+    is within ``PLANET_ESCAPE_THRUST_ANGLE`` of that heading. This follows
+    the simulation's thrust caps and Verlet step; non-inertial ships feel no
+    gravity and stop whenever they do not thrust.
+    """
+
+    x, y = float(position[0]), float(position[1])
+    vx, vy = float(velocity[0]), float(velocity[1])
+    inertial = spec.inertial
+    pull = const.GRAVITY_MULTIPLIER * PLANET_GRAVITY if inertial else 0.0
+    contact = planet_contact_distance(spec)
+    turn_step = float(const.TURN_ANGLE) * const.DIRECTIONS_MULTIPLIER
+    turn_period = spec.turn_wait + 1
+    thrust_period = spec.thrust_wait + 1
+    next_turn = 0
+    next_thrust = 0
+    nose = 0.0
+    distance = math.hypot(x, y)
+    closest = distance
+    impact_frame = math.inf
+    gx, gy = _planet_gravity(x, y, distance, pull)
+    for frame in range(frames):
+        if escape is not None:
+            sign, offset = escape
+            target = bearing_of(-x, -y) + sign * offset
+            error = wrap_degrees(target - nose)
+            thrusting = abs(error) <= PLANET_ESCAPE_THRUST_ANGLE
+            if frame >= next_turn and abs(error) > turn_step / 2.0:
+                nose = wrap_degrees(nose + math.copysign(turn_step, error))
+                next_turn = frame + turn_period
+            if thrusting and frame >= next_thrust:
+                next_thrust = frame + thrust_period
+                radians = math.radians(nose)
+                dx, dy = math.cos(radians), math.sin(radians)
+                if inertial:
+                    vx, vy = _thrusted_velocity(
+                        vx, vy, dx, dy, spec, inside_well=distance <= const.GRAVITY_RANGE
+                    )
+                else:
+                    vx, vy = dx * spec.max_thrust, dy * spec.max_thrust
+            elif not inertial and not thrusting:
+                vx, vy = 0.0, 0.0
+        x += vx + 0.5 * gx
+        y += vy + 0.5 * gy
+        distance = math.hypot(x, y)
+        nx, ny = _planet_gravity(x, y, distance, pull)
+        vx += 0.5 * (gx + nx)
+        vy += 0.5 * (gy + ny)
+        gx, gy = nx, ny
+        speed = math.hypot(vx, vy)
+        if speed > const.SPEED_LIMIT:
+            vx *= const.SPEED_LIMIT / speed
+            vy *= const.SPEED_LIMIT / speed
+        closest = min(closest, distance)
+        if distance <= contact and math.isinf(impact_frame):
+            impact_frame = float(frame + 1)
+        if distance <= PLANET_RADIUS:
+            # Through the surface: no pass comes any closer.
+            break
+        if distance > const.GRAVITY_RANGE and x * vx + y * vy > 0.0:
+            # Out of the well and leaving: nothing pulls it back.
+            break
+    return PlanetPass(closest=closest, impact_frame=impact_frame)
+
+
+def _thrusted_velocity(
+    vx: float,
+    vy: float,
+    dx: float,
+    dy: float,
+    spec: ShipSpec,
+    *,
+    inside_well: bool,
+) -> tuple[float, float]:
+    """Velocity after one thrust increment, as ``apply_thrust`` caps it."""
+
+    increment = spec.thrust_increment
+    nx, ny = vx + dx * increment, vy + dy * increment
+    speed = math.hypot(nx, ny)
+    scale = 1.0
+    if speed > spec.max_thrust and not inside_well:
+        scale = spec.max_thrust / speed
+    if speed > const.MAX_GRAV_WHIP:
+        scale = const.MAX_GRAV_WHIP / speed
+    change_x, change_y = nx * scale - vx, ny * scale - vy
+    change = math.hypot(change_x, change_y)
+    if change > increment > 0.0:
+        change_x *= increment / change
+        change_y *= increment / change
+    return vx + change_x, vy + change_y
 
 
 def _smallest_positive_root(a: float, b: float, c: float) -> float | None:

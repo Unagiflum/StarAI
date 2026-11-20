@@ -12,8 +12,40 @@ from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 # Projectile reach is speed x lifetime; the margin keeps the baseline from
 # firing at targets the shot would only just reach.
 PROJECTILE_RANGE_MARGIN = 0.9
-# All planets share one diameter.
+# All planets share one diameter and one gravity, a pull of this many
+# world units per frame per frame on inertial ships inside the well.
 PLANET_RADIUS = 150.0
+PLANET_GRAVITY = 1.0
+# How far each hull reaches toward the planet at first contact, beyond the
+# planet's radius: the largest over headings and approach directions,
+# measured on the real collision masks of the base form.
+PLANET_HULL_REACH = {
+    "Androsynth": 50.0,
+    "Arilou": 34.0,
+    "Chenjesu": 72.0,
+    "Chmmr": 86.0,
+    "Druuge": 72.0,
+    "Earthling": 70.0,
+    "Ilwrath": 82.0,
+    "KohrAh": 78.0,
+    "KzerZa": 66.0,
+    "Mmrnmrhm": 52.0,
+    "Melnorme": 64.0,
+    "Mycon": 54.0,
+    "Orz": 68.0,
+    "Pkunk": 54.0,
+    "Shofixti": 28.0,
+    "Slylandro": 86.0,
+    "Spathi": 64.0,
+    "Supox": 58.0,
+    "Syreen": 74.0,
+    "Thraddash": 48.0,
+    "Umgah": 30.0,
+    "Utwig": 78.0,
+    "Vux": 46.0,
+    "Yehat": 38.0,
+    "ZoqFotPik": 54.0,
+}
 # Contact margin for "collision imminent" checks: two typical hull radii.
 COLLISION_MARGIN = 60.0
 # A hull's typical reach from its centre: the mean over all ships of half
@@ -65,6 +97,10 @@ class ShipSpec:
     a2_cost: float
     hp_gain: float
     inertial: bool
+    thrust_increment: float = 0.0
+    thrust_wait: int = 0
+    turn_wait: int = 0
+    planet_reach: float = 0.0
 
 
 _NO_WEAPON = WeaponSpec("", "none", 0.0, 0.0, 0.0, False, (0.0,))
@@ -148,6 +184,9 @@ def ship_spec(ship_name: str, form: str = FORM_BASE) -> ShipSpec:
     a1_cost = float(ship.a1_cost)
     a2_cost = float(ship.a2_cost)
     inertial = bool(ship.inertia)
+    thrust_increment = float(ship.thrust_increment)
+    thrust_wait = int(ship.thrust_wait)
+    turn_wait = int(ship.turn_wait)
     forms = getattr(ship, "forms", None) or {}
     form_key = {
         FORM_BLAZER: "A2",
@@ -162,6 +201,12 @@ def ship_spec(ship_name: str, form: str = FORM_BASE) -> ShipSpec:
             a1_cost = float(form_definition.a1_cost)
         if form_definition.inertia is not None:
             inertial = bool(form_definition.inertia)
+        if form_definition.thrust_increment is not None:
+            thrust_increment = float(form_definition.thrust_increment)
+        if form_definition.thrust_wait is not None:
+            thrust_wait = int(form_definition.thrust_wait)
+        if form_definition.turn_wait is not None:
+            turn_wait = int(form_definition.turn_wait)
     a2_definition = ABILITY_DEFINITIONS.get(f"{ship_name}A2")
     hp_gain = float(getattr(a2_definition, "hp_gain", 0.0) or 0.0)
     return ShipSpec(
@@ -171,4 +216,8 @@ def ship_spec(ship_name: str, form: str = FORM_BASE) -> ShipSpec:
         a2_cost=a2_cost,
         hp_gain=hp_gain,
         inertial=inertial,
+        thrust_increment=thrust_increment,
+        thrust_wait=thrust_wait,
+        turn_wait=turn_wait,
+        planet_reach=PLANET_HULL_REACH.get(ship_name, TYPICAL_HULL_RADIUS),
     )
