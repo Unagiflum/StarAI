@@ -104,7 +104,8 @@ class TrainingObservationTests(unittest.TestCase):
             position=[1100.0, 1700.0],
             rotation=45.0,
             velocity=[30.0, -20.0],
-            turret_heading=100.0,
+            # Ship directions, like the hull heading.
+            turret_heading=5,
             turn_left_active=True,
             turn_right_active=False,
             input_pressed_frames={"turn_left": 9},
@@ -140,7 +141,7 @@ class TrainingObservationTests(unittest.TestCase):
                 "position": [(-trainee.position[0]) % const.ARENA_SIZE, trainee.position[1]],
                 "rotation": (-trainee.rotation) % 360.0,
                 "velocity": [-trainee.velocity[0], trainee.velocity[1]],
-                "turret_heading": (-trainee.turret_heading) % 360.0,
+                "turret_heading": (-trainee.turret_heading) % const.SHIP_DIRECTIONS,
                 "turn_left_active": trainee.turn_right_active,
                 "turn_right_active": trainee.turn_left_active,
                 "input_pressed_frames": {"turn_right": 9},
@@ -691,7 +692,8 @@ class TrainingObservationTests(unittest.TestCase):
             player=1,
             position=[100.0, 100.0],
             rotation=0,
-            turret_heading=90,
+            # A quarter turn clockwise, in ship directions.
+            turret_heading=const.SHIP_DIRECTIONS // 4,
         )
         enemy = _ship("Mycon", player=2, position=[200.0, 100.0], boarded_marines=[])
         floating_marine = _obj("OrzA3", parent=trainee, player=1, mode="outbound")

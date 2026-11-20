@@ -109,6 +109,7 @@ EVADE_HEADING = 1
 EVADE_SHOOT = 2
 EVADE_SLIDE = 3
 EVADE_HOP = 4
+EVADE_TURRET = 5
 # With weapon 2 held, the Supox turning keys and thrust push it sideways
 # and backward: (turn key, thrust key, degrees off the nose pushed).
 SUPOX_SLIDES = (
@@ -131,6 +132,11 @@ EVADE_NO_HEADING_SHIPS = frozenset({"Umgah"})
 SHOOT_DOWN_EXCLUDED_SHIPS = frozenset(
     {"Androsynth", "Arilou", "Earthling", "KohrAh", "Melnorme", "Mycon", "Umgah"}
 )
+# The Orz turret: weapon 2 held with a turn key turns the turret, not the
+# hull, one sprite facing every ORZ_TURRET_STEP_FRAMES frames. Weapon 1
+# cannot fire while weapon 2 is held (both together launch a marine).
+ORZ_TURRET_STEP = 360.0 / const.ASSET_SPRITE_DIRECTIONS
+ORZ_TURRET_STEP_FRAMES = SHIP_DEFINITIONS["Orz"].a2_wait + 1
 # Chmmr satellites, as observed: enemy objects that never expire and orbit
 # the Chmmr at its satellite distance, one turn every satellite period frames.
 # A satellite laser reaches SATELLITE_LASER_RANGE and the Chmmr laser
@@ -538,6 +544,27 @@ class BaselineContext:
             )
         return abs(error) <= float(tolerance)
 
+    def turn_turret(self, bearing: float) -> bool:
+        """Turn the Orz turret a step toward ``bearing`` (from the nose);
+        True once it points there, within half a step.
+
+        The turn key serves the turret only with weapon 2 held, which keeps
+        the hull from turning and weapon 1 from firing. So the turret turns
+        only while no rule turns the hull, fires, or uses weapon 2 this
+        frame; a hull held on its heading keeps it, and thrust is unaffected.
+        """
+
+        error = wrap_degrees(float(bearing) - self.me.orz_turret_bearing)
+        if abs(error) <= ORZ_TURRET_STEP / 2.0 + 1e-6:
+            return True
+        plan = self.plan
+        if plan.turn not in (None, TURN_NONE) or plan.a1 or plan.a2 is not None:
+            return False
+        plan.turn = TURN_RIGHT if error > 0.0 else TURN_LEFT
+        plan.a2 = True
+        plan.a1 = False
+        return False
+
     # ---------------------------------------------------------- satellites
 
     def chmmr_satellites(self) -> tuple[ObservedObject, ...]:
@@ -819,8 +846,9 @@ class BaselineContext:
         does better. The moves are coasting, flying one of
         ``EVADE_HEADINGS`` (thrusting once the nose is within
         ``EVADE_THRUST_ANGLE`` of it), and turning to shoot one threat down
-        with weapon 1 where the shot can destroy it before it lands; the
-        Druuge's shots also kick it backward. The Supox may also slide with
+        with weapon 1 where the shot can destroy it before it lands (the Orz
+        may turn its turret instead, keeping its course); the Druuge's shots
+        also kick it backward. The Supox may also slide with
         weapon 2 held, the Umgah hops backward in place of headings, and the
         Slylandro turns, or turns about, at its constant speed. Moves are
         scored by the crew they lose, plus for a shot the battery it costs,
@@ -897,7 +925,7 @@ class BaselineContext:
         best_score = best[0] + best[1]
         if best_score >= baseline_damage and not active:
             return False
-        if not active and best[3][0] != EVADE_SHOOT:
+        if not active and best[3][0] not in (EVADE_SHOOT, EVADE_TURRET):
             # Leave the ship to its strategy while a dodge begun a little
             # later still does as well.
             hold = lambda flight: (None, held_thrust, False)
@@ -1083,7 +1111,77 @@ class BaselineContext:
                     lambda nose=nose: self._shoot_down(nose),
                 )
             )
+        if self.ship_name == "Orz":
+            options.extend(
+                self._turret_shoot_down_options(tracks, coast_path, judge, ready_frame)
+            )
         return options
+
+    def _turret_shoot_down_options(self, tracks, coast_path, judge, ready_frame):
+        """Options that turn the Orz turret, not the hull, to fire weapon 1
+        at one threat; the hull coasts on, keeping its heading for the
+        strategy, so among equal outcomes these beat turning the hull."""
+
+        weapon = self.weapon(1)
+        turret = self.me.orz_turret_bearing
+        turret_ready = int(
+            math.ceil(max(0.0, self.me.timer_seconds("a2_timer")) * const.FPS)
+        )
+        cost = EVADE_SHOT_COST * self.spec.a1_cost / max(1.0, self.me.max_battery)
+        options = []
+        for index, track in enumerate(tracks):
+            if weapon.damage < track.hit_points:
+                continue
+            aim = _lead_bearing(track, coast_path, weapon, 0)
+            if aim is None:
+                continue
+            fire_frame = None
+            for _ in range(2):
+                # Refine once: lead the threat from the frame the shot leaves.
+                steps = int(round(wrap_degrees(aim - turret) / ORZ_TURRET_STEP))
+                if steps == 0:
+                    break
+                fire_frame = max(
+                    ready_frame,
+                    turret_ready + (abs(steps) - 1) * ORZ_TURRET_STEP_FRAMES + 1,
+                )
+                if fire_frame >= len(coast_path.xs) - 1:
+                    fire_frame = None
+                    break
+                refined = _lead_bearing(track, coast_path, weapon, fire_frame)
+                if refined is None:
+                    break
+                aim = refined
+            if fire_frame is None or steps == 0:
+                # Already on it: the hull option with the nose kept covers it.
+                continue
+            direction = wrap_degrees(turret + steps * ORZ_TURRET_STEP)
+
+            def controller(flight, fire_frame=fire_frame):
+                return None, False, flight.frame == fire_frame
+
+            _, outcome = judge(
+                controller, shot=(fire_frame, weapon, direction, index)
+            )
+            options.append(
+                (
+                    outcome.damage,
+                    cost,
+                    0.0,
+                    (EVADE_TURRET, int(round((self.me.heading + direction) % 360.0))),
+                    lambda direction=direction: self._turret_shoot_down(direction),
+                )
+            )
+        return options
+
+    def _turret_shoot_down(self, bearing: float) -> bool:
+        self.plan.claim_thrust(False)
+        if self.turn_turret(bearing):
+            self.plan.claim_turn(TURN_NONE)
+            if self.me.a1_ready:
+                self.a1(True)
+                self.a2(False)
+        return True
 
     def _shoot_down(self, nose: float) -> bool:
         self.point_at(nose)

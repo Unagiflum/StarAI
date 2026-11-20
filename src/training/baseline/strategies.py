@@ -16,6 +16,7 @@ from src.training.baseline.engine import (
     APPROACH_ANGLE_OFFSET,
     AVOID_ANGLE_OFFSET,
     PERPENDICULAR_AWAY_OFFSET,
+    ORZ_TURRET_STEP,
     SATELLITE_HIT_RADIUS,
     TURN_LEFT,
     TURN_NONE,
@@ -182,6 +183,17 @@ ORZ_CHMMR_MARINE_SATELLITES = 1
 # satellite.
 ORZ_CHMMR_NEAR = 900.0
 ORZ_CHMMR_FAR = 1250.0
+# Opponents whose shots are too tough to shoot down and must be dodged:
+# the Orz aims with the hull alone, its turret kept as it is, which the
+# arena shows dodges them better.
+ORZ_HULL_AIM_OPPONENTS = frozenset({"Chenjesu", "KohrAh"})
+# Opponents the Orz kites, as the arena favours: it holds them in a band,
+# running hull away from one closing in while the turret fires back.
+ORZ_KITE_OPPONENTS = frozenset(
+    {"Arilou", "Druuge", "KzerZa", "Orz", "Pkunk", "Shofixti", "Spathi", "Syreen", "Yehat"}
+)
+ORZ_KITE_NEAR = 700.0
+ORZ_KITE_FAR = 1100.0
 # Supox: hold a distance band, by default 600-900, or just outside a
 # shorter-reaching opponent's weapons. With the gun within the slide aim
 # tolerance it holds A2 to slide instead of turning; it dodges hits due
@@ -680,9 +692,10 @@ def orz(ctx: BaselineContext) -> None:
         # Weapon 1 and weapon 2 together launch a marine.
         ctx.a1(True)
         ctx.a2(True)
-    ctx.a2(False)
     if satellites:
         ctx.keep_standoff("orz_chmmr", ORZ_CHMMR_NEAR, ORZ_CHMMR_FAR)
+    elif ctx.enemy_name in ORZ_KITE_OPPONENTS:
+        ctx.keep_standoff("orz_kite", ORZ_KITE_NEAR, ORZ_KITE_FAR)
     else:
         ctx.approach_weapon_range(1)
     shot = ctx.satellite_shot(1) if satellites else None
@@ -693,13 +706,33 @@ def orz(ctx: BaselineContext) -> None:
             ctx.weapon(1).pointing_tolerance,
             math.degrees(math.atan2(SATELLITE_HIT_RADIUS, max(1.0, satellite.distance))),
         )
-        if ctx.aim_gun(1, bearing, tolerance):
+        if _orz_aim(ctx, bearing, tolerance):
             ctx.a1(True)
         return
-    # Aim the hull so the turret faces the target; never turn the turret.
-    ctx.point_weapon(1)
-    if ctx.pointing(1) and ctx.in_range(1):
+    bearing = ctx.aim_bearing(1)
+    if bearing is None:
+        return
+    if _orz_aim(ctx, bearing) and ctx.in_range(1):
         ctx.a1(True)
+
+
+def _orz_aim(ctx: BaselineContext, bearing: float, tolerance: float | None = None) -> bool:
+    """Bring the turret's line of fire onto ``bearing``; True once on it.
+
+    With steering free the hull turns, twice as quick as the turret. While
+    a rule holds the hull on a heading of its own (approaching, backing off,
+    running) the turret turns instead, so the Orz fires off its course.
+    """
+
+    if tolerance is None:
+        tolerance = max(ctx.weapon(1).pointing_tolerance, ctx.memory.tap_degrees / 2.0)
+    if not ctx.plan.steering_claimed or ctx.enemy_name in ORZ_HULL_AIM_OPPONENTS:
+        return ctx.aim_gun(1, bearing, tolerance)
+    tolerance = max(float(tolerance), ORZ_TURRET_STEP / 2.0)
+    if abs(ctx.gun_error(1, bearing)) <= tolerance:
+        return True
+    ctx.turn_turret(bearing)
+    return False
 
 
 def _pkunk_dodge(ctx: BaselineContext) -> bool:

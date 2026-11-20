@@ -694,7 +694,9 @@ def _orz_turret_relative_angle(ship) -> tuple[float, float]:
         turret_heading = getattr(turret, "absolute_heading", None)
     if not isinstance(turret_heading, (int, float)) or not math.isfinite(turret_heading):
         return 0.0, 0.0
-    relative = math.radians((float(turret_heading) - _rotation_degrees(ship)) % 360.0)
+    # The turret heading counts ship directions, like the hull heading.
+    turret_degrees = float(turret_heading) * const.TURN_ANGLE
+    relative = math.radians((turret_degrees - _rotation_degrees(ship)) % 360.0)
     return math.sin(relative), math.cos(relative)
 
 

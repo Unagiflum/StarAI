@@ -44,6 +44,7 @@ from src.training.baseline.engine import (
     BaselineContext,
     BaselineMemory,
     ControlPlan,
+    ORZ_TURRET_STEP,
     TURN_LEFT,
     TURN_NONE,
     TURN_RIGHT,
@@ -1960,6 +1961,101 @@ class ChmmrMatchupMoreTests(unittest.TestCase):
         self.assertFalse(settled.keep_standoff("test", 900.0, 1250.0))
         self.assertIsNone(settled.plan.turn)
         self.assertIsNone(settled.plan.thrust)
+
+
+class OrzTurretTests(unittest.TestCase):
+    def _context(self, enemy=None, *, turret=0.0, enemy_name="Spathi", **kwargs):
+        context = _rule_context(
+            "Orz", enemy=enemy or _seen(0.0, 2000.0), enemy_name=enemy_name, **kwargs
+        )
+        context.view.me.orz_turret_bearing = turret
+        # No marine to launch.
+        context.view.me.orz_marines = 2
+        context.view.me.crew = 16.0
+        return context
+
+    def test_observes_the_turret_bearing_from_the_nose(self):
+        simulation = _duel("Orz", "Spathi")
+        me = simulation.player1
+        me.heading = const.SHIP_DIRECTIONS // 8
+        me.rotation = me.heading * const.TURN_ANGLE
+        # Three facings clockwise of the nose.
+        me.turret.relative_heading = 3
+
+        view = ObservationView(_observation(simulation))
+
+        self.assertAlmostEqual(view.me.orz_turret_bearing, 3 * ORZ_TURRET_STEP)
+
+    def test_turns_the_turret_while_the_hull_holds_its_heading(self):
+        context = self._context()
+        context.plan.claim_turn(TURN_NONE)
+        context.plan.claim_thrust(True)
+
+        self.assertFalse(context.turn_turret(90.0))
+
+        plan = context.plan
+        self.assertEqual((plan.turn, plan.a2, plan.a1, plan.thrust), (TURN_RIGHT, True, False, True))
+
+    def test_leaves_the_turret_while_the_hull_turns_or_a_shot_fires(self):
+        turning = self._context()
+        turning.plan.claim_turn(TURN_LEFT)
+        self.assertFalse(turning.turn_turret(90.0))
+        self.assertEqual(turning.plan.turn, TURN_LEFT)
+        self.assertIsNone(turning.plan.a2)
+
+        firing = self._context()
+        firing.plan.claim_a1(True)
+        self.assertFalse(firing.turn_turret(-90.0))
+        self.assertIsNone(firing.plan.turn)
+        self.assertIsNone(firing.plan.a2)
+
+    def test_turret_points_within_half_a_facing(self):
+        context = self._context(turret=45.0)
+
+        self.assertTrue(context.turn_turret(45.0 + 0.4 * ORZ_TURRET_STEP))
+        self.assertIsNone(context.plan.turn)
+        self.assertIsNone(context.plan.a2)
+
+    def test_runs_from_a_kited_opponent_and_fires_back_with_the_turret(self):
+        chaser = _seen(180.0, 800.0, closing=30.0)
+        turning = self._context(chaser, enemy_name="KzerZa")
+        STRATEGIES["Orz"](turning)
+        # Hull straight away and thrusting; the turret swings round.
+        self.assertTrue(turning.plan.thrust)
+        self.assertIn(turning.plan.turn, (TURN_LEFT, TURN_RIGHT))
+        self.assertTrue(turning.plan.a2)
+        self.assertFalse(turning.plan.a1)
+
+        facing_back = self._context(chaser, enemy_name="KzerZa", turret=180.0)
+        STRATEGIES["Orz"](facing_back)
+        self.assertTrue(facing_back.plan.thrust)
+        self.assertEqual(facing_back.plan.turn, TURN_NONE)
+        self.assertTrue(facing_back.plan.a1)
+        self.assertFalse(facing_back.plan.a2)
+
+    def test_turret_aims_on_the_approach_except_at_shots_it_must_dodge(self):
+        ahead = _seen(45.0, 3000.0)
+        approach = self._context(ahead)
+        STRATEGIES["Orz"](approach)
+        self.assertEqual(approach.plan.turn, TURN_RIGHT)
+        self.assertTrue(approach.plan.a2)
+
+        dodger = self._context(ahead, enemy_name="KohrAh")
+        STRATEGIES["Orz"](dodger)
+        self.assertIsNone(dodger.plan.a2)
+
+    def test_shoots_a_threat_down_with_the_turret_keeping_its_course(self):
+        shell = _shot(ORZ_TURRET_STEP, 300.0, closing=60.0, damage=3.0, hit_points=2.0)
+        turning = self._context(enemy_objects=[shell])
+
+        self.assertTrue(turning.evade_threats())
+        plan = turning.plan
+        self.assertEqual((plan.turn, plan.a2, plan.a1, plan.thrust), (TURN_RIGHT, True, False, False))
+
+        on_it = self._context(enemy_objects=[shell], turret=ORZ_TURRET_STEP)
+        self.assertTrue(on_it.evade_threats())
+        self.assertTrue(on_it.plan.a1)
+        self.assertFalse(on_it.plan.a2)
 
 
 class BaselinePhaseMixerTests(unittest.TestCase):
