@@ -50,6 +50,7 @@ from src.training.baseline.engine import (
     planet_contact_distance,
     simulate_planet_pass,
 )
+from src.training.baseline.flight import ShipFlight
 from src.training.baseline.threats import (
     fly_move,
     judge_move,
@@ -70,6 +71,7 @@ from src.training.baseline.ship_specs import (
 )
 from src.training.baseline.strategies import (
     EARTHLING_NUKE_MIN_DISTANCE,
+    may_evade,
     UMGAH_CONE_HALF_ANGLE,
     UMGAH_PASS_CLEARANCE,
     UMGAH_RUN_CLEARANCE,
@@ -640,6 +642,128 @@ class EvadeRuleTests(unittest.TestCase):
         context.plan.claim_turn(TURN_LEFT)
 
         self.assertFalse(context.evade_threats())
+
+    def test_flight_slides_hops_and_turns_about_as_the_ships_do(self):
+        slide = ShipFlight(ship_spec("Supox"), (0.0, 0.0), (0.0, 0.0))
+        slide.thrust_angle = 90.0
+        for _ in range(3):
+            slide.step(None, True)
+        self.assertGreater(slide.y, 0.0)
+        self.assertAlmostEqual(slide.x, 0.0, places=6)
+        self.assertEqual(slide.nose, 0.0)
+
+        hop = ShipFlight(ship_spec("Umgah"), (0.0, 0.0), (5.0, 3.0))
+        hop.step(None, False, hop=160.0)
+        self.assertEqual((hop.x, hop.y, hop.vx, hop.vy), (-160.0, 0.0, 0.0, 0.0))
+
+        probe = ShipFlight(ship_spec("Slylandro"), (0.0, 0.0), (0.0, 0.0))
+        probe.step(None, False)
+        self.assertAlmostEqual(probe.vx, ship_spec("Slylandro").max_thrust)
+        probe.step(None, True)
+        self.assertEqual(abs(probe.nose), 180.0)
+        self.assertAlmostEqual(probe.vx, -ship_spec("Slylandro").max_thrust)
+
+    def test_supox_slides_off_a_shot_dead_ahead(self):
+        # Too close to turn away: only a slide clears the hull in time.
+        shell = _shot(0.0, 300.0, closing=40.0, hit_points=5.0)
+        context = _rule_context("Supox", enemy_objects=[shell])
+
+        self.assertTrue(context.evade_threats())
+        self.assertTrue(context.plan.a2)
+        self.assertIn(context.plan.turn, (TURN_LEFT, TURN_RIGHT))
+
+    def test_umgah_hops_back_from_a_shot_from_the_side(self):
+        context = _rule_context("Umgah", enemy_objects=[_shot(90.0, 150.0, closing=40.0)])
+
+        self.assertTrue(context.evade_threats())
+        self.assertTrue(context.plan.a2)
+        self.assertEqual(context.plan.turn, TURN_NONE)
+        self.assertFalse(context.plan.thrust)
+
+    def test_umgah_without_battery_has_no_dodge(self):
+        context = _rule_context(
+            "Umgah", enemy_objects=[_shot(90.0, 150.0, closing=40.0)], battery=0.0
+        )
+
+        context.evade_threats()
+        self.assertIsNone(context.plan.a2)
+
+    def test_slylandro_turns_off_a_shot_dead_ahead(self):
+        shell = _shot(0.0, 600.0, closing=40.0)
+        context = _rule_context("Slylandro", enemy_objects=[shell])
+
+        self.assertTrue(context.evade_threats())
+        self.assertIn(context.plan.turn, (TURN_LEFT, TURN_RIGHT))
+        self.assertFalse(context.plan.thrust)
+
+    def test_utwig_dodges_only_without_the_battery_to_shield(self):
+        self.assertFalse(may_evade(_rule_context("Utwig", battery=5.0)))
+        self.assertTrue(may_evade(_rule_context("Utwig", battery=0.0)))
+
+    def test_syreen_dodges_except_while_closing_in_to_sing(self):
+        def syreen(battery):
+            context = _rule_context("Syreen", battery=battery, enemy_name="Spathi")
+            context.view.me.crew = 30.0
+            context.view.enemy_block.crew = 10.0
+            context.view.enemy_block.max_thrust = 10.0
+            return context
+
+        self.assertFalse(may_evade(syreen(battery=16.0)))
+        self.assertTrue(may_evade(syreen(battery=0.0)))
+        self.assertTrue(may_evade(_rule_context("Pkunk")))
+
+
+class KeepMovingRuleTests(unittest.TestCase):
+    def test_a_ship_at_rest_turns_across_the_line_to_the_opponent(self):
+        context = _rule_context("Chenjesu", enemy=_seen(10.0, 1500.0))
+
+        self.assertTrue(context.keep_moving())
+        # 10 - 90 = -80 needs less turning than 10 + 90 = 100.
+        self.assertEqual(context.plan.turn, TURN_LEFT)
+        self.assertFalse(context.plan.thrust)
+
+    def test_thrusts_once_the_nose_points_across(self):
+        context = _rule_context("Chenjesu", enemy=_seen(90.0, 1500.0))
+
+        self.assertTrue(context.keep_moving())
+        self.assertEqual(context.plan.turn, TURN_NONE)
+        self.assertTrue(context.plan.thrust)
+
+    def test_builds_on_the_drift_already_carried(self):
+        context = _rule_context("Chenjesu", enemy=_seen(0.0, 1500.0))
+        # Drifting to port: keep building that way, not toward the nearer side.
+        context.view.me.velocity_right = -5.0
+
+        self.assertTrue(context.keep_moving())
+        self.assertEqual(context.plan.turn, TURN_LEFT)
+
+    def test_leaves_a_ship_that_moves_or_already_has_speed_alone(self):
+        claimed = _rule_context("Chenjesu", enemy=_seen(10.0, 1500.0))
+        claimed.plan.claim_thrust(False)
+        self.assertFalse(claimed.keep_moving())
+
+        quick = ship_spec("Chenjesu").max_thrust
+        fast = _rule_context("Chenjesu", enemy=_seen(10.0, 1500.0), speed=quick)
+        self.assertFalse(fast.keep_moving())
+
+        self.assertFalse(_rule_context("Umgah", enemy=_seen(10.0, 1500.0)).keep_moving())
+
+    def test_takes_the_turn_from_an_aim_only_while_the_weapon_cannot_fire(self):
+        in_range = _rule_context("Chenjesu", enemy=_seen(10.0, 400.0))
+        in_range.plan.claim_turn(TURN_RIGHT)
+        self.assertFalse(in_range.keep_moving())
+        self.assertEqual(in_range.plan.turn, TURN_RIGHT)
+
+        reloading = _rule_context("Chenjesu", enemy=_seen(10.0, 400.0), a1_timer=0.5)
+        reloading.plan.claim_turn(TURN_RIGHT)
+        self.assertTrue(reloading.keep_moving())
+        self.assertEqual(reloading.plan.turn, TURN_LEFT)
+
+        # Only some ships leave their aim.
+        druuge = _rule_context("Druuge", enemy=_seen(10.0, 400.0), a1_timer=0.5)
+        druuge.plan.claim_turn(TURN_RIGHT)
+        self.assertFalse(druuge.keep_moving())
+        self.assertEqual(druuge.plan.turn, TURN_RIGHT)
 
 
 class ShipRuleTests(unittest.TestCase):

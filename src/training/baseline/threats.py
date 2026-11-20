@@ -201,7 +201,9 @@ class FlownPath:
     noses: list[float]
 
 
-Controller = Callable[[ShipFlight], tuple[float | None, bool, bool]]
+# A controller returns ``(turn_error, thrust, fire)`` for the frame, or
+# ``(turn_error, thrust, fire, hop)`` to hop ``hop`` units backward.
+Controller = Callable[[ShipFlight], tuple]
 
 
 def fly_move(
@@ -215,9 +217,10 @@ def fly_move(
 ) -> tuple[FlownPath, list[int]]:
     """Fly ``frames`` frames under ``controller``.
 
-    The controller returns ``(turn_error, thrust, fire)`` for the frame;
-    a fire with ``recoil = (increment, max_speed)`` kicks the ship backward
-    as the Druuge cannon does. Returns the path and the frames fired on.
+    The controller returns ``(turn_error, thrust, fire)`` for the frame,
+    with an optional fourth value, a backward hop's length; a fire with
+    ``recoil = (increment, max_speed)`` kicks the ship backward as the
+    Druuge cannon does. Returns the path and the frames fired on.
     """
 
     flight = ShipFlight(spec, (0.0, 0.0), velocity, planet=planet)
@@ -226,12 +229,13 @@ def fly_move(
     noses = [0.0]
     fired: list[int] = []
     for frame in range(frames):
-        turn_error, thrust, fire = controller(flight)
+        controls = controller(flight)
+        turn_error, thrust, fire = controls[0], controls[1], controls[2]
         if fire:
             fired.append(frame)
             if recoil is not None:
                 flight.kick(180.0, recoil[0], recoil[1])
-        flight.step(turn_error, thrust)
+        flight.step(turn_error, thrust, hop=controls[3] if len(controls) > 3 else 0.0)
         xs.append(flight.x)
         ys.append(flight.y)
         vxs.append(flight.vx)

@@ -4,6 +4,9 @@ A strategy is an ordered list of rules. Each rule may set some of the four
 controls: turning, thrust, weapon 1 and weapon 2. The first rule to set a
 control claims it, and later rules cannot change a claimed control. A rule
 whose condition is false claims nothing. Controls nobody claims stay off.
+The one exception is the last rule, keep moving, which for a few ships may
+take back a turn the strategy claimed only to aim while the weapon could
+not fire anyway.
 """
 
 from __future__ import annotations
@@ -43,7 +46,7 @@ from src.training.baseline.ship_specs import (
     weapon_spec,
 )
 from src.training.contracts import ACTION_INDEX_TABLE
-from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 
 ACTION_INDEX_BY_MASK = {action.mask: index for index, action in enumerate(ACTION_INDEX_TABLE)}
 
@@ -104,11 +107,24 @@ EVADE_SHOT_COST = 0.5
 EVADE_COAST = 0
 EVADE_HEADING = 1
 EVADE_SHOOT = 2
-# Ships the rule leaves alone. It cannot fly the Slylandro's controls; the
-# others did worse with it in the arena: the Supox and Umgah have their own
-# dodges on A2, the Syreen must close in to sing, and the Utwig shield turns
-# hits into battery.
-EVADE_EXCLUDED_SHIPS = frozenset({"Slylandro", "Supox", "Syreen", "Umgah", "Utwig"})
+EVADE_SLIDE = 3
+EVADE_HOP = 4
+# With weapon 2 held, the Supox turning keys and thrust push it sideways
+# and backward: (turn key, thrust key, degrees off the nose pushed).
+SUPOX_SLIDES = (
+    (TURN_LEFT, False, -90.0),
+    (TURN_RIGHT, False, 90.0),
+    (TURN_NONE, True, 180.0),
+    (TURN_LEFT, True, -135.0),
+    (TURN_RIGHT, True, 135.0),
+)
+# The Umgah's weapon 2 hops it this far straight backward, once every
+# period, leaving it at rest. Rule 1 tries runs of these many hops. The
+# Umgah turns and accelerates too slowly for headings to dodge with.
+UMGAH_HOP_DISTANCE = float(ABILITY_DEFINITIONS["UmgahA2"].backup_speed) * const.SPEED_SCALE
+UMGAH_HOP_FRAMES = SHIP_DEFINITIONS["Umgah"].a2_wait + 1
+EVADE_HOP_COUNTS = (1, 2)
+EVADE_NO_HEADING_SHIPS = frozenset({"Umgah"})
 # Ships whose weapon 1 is not a plain shot to aim at a threat: homing,
 # charged, parked or self-aiming weapons. The Chenjesu crystal flies until
 # released, so it meets a threat ahead like any other shot.
@@ -119,6 +135,17 @@ DRUUGE_RECOIL = (
     float(ABILITY_DEFINITIONS["DruugeA1"].recoil_increment or 0.0),
     float(ABILITY_DEFINITIONS["DruugeA1"].max_recoil or 0.0),
 )
+# Last rule, keep moving: below this fraction of top speed, a ship no rule
+# moves builds speed across the line to the opponent, thrusting once the
+# nose is within the angle of that heading. Ships of constant speed always
+# move, and Umgah hops leave it at rest by design.
+KEEP_MOVING_SPEED_FRACTION = 0.5
+KEEP_MOVING_THRUST_ANGLE = 45.0
+KEEP_MOVING_EXCLUDED_SHIPS = frozenset({"Slylandro", "Umgah"})
+# Ships whose aim the rule may turn the nose off while weapon 1 cannot fire.
+# Opt-in: the slow turners that gained in the arena; the Druuge and Kohr-Ah
+# did worse for leaving their aim.
+KEEP_MOVING_AIM_SHIPS = frozenset({"Chenjesu", "Mmrnmrhm"})
 # Sideways drift, as a fraction of top speed, that counts as orbiting.
 ORBIT_DRIFT_THRESHOLD = 0.15
 # The baseline decides every frame, so a decision lasts one frame.
@@ -587,7 +614,8 @@ class BaselineContext:
             self.memory.touched_sides.add(key)
             self.memory.sides[key] = value
         heading = wrap_degrees(planet.bearing + sign * PLANET_ESCAPE_OFFSETS[index])
-        return self.steer(heading, thrust=abs(heading) <= PLANET_ESCAPE_THRUST_ANGLE)
+        thrust = spec.constant_speed or abs(heading) <= PLANET_ESCAPE_THRUST_ANGLE
+        return self.steer(heading, thrust=thrust)
 
     def evade_threats(self) -> bool:
         """Rule 1: keep enemy shots in flight off the hull.
@@ -598,14 +626,16 @@ class BaselineContext:
         ``EVADE_HEADINGS`` (thrusting once the nose is within
         ``EVADE_THRUST_ANGLE`` of it), and turning to shoot one threat down
         with weapon 1 where the shot can destroy it before it lands; the
-        Druuge's shots also kick it backward. Moves are scored by the crew
-        they lose, plus for a shot the battery it costs, and among equals the
-        one turning the nose for the least time wins. A move, once chosen,
+        Druuge's shots also kick it backward. The Supox may also slide with
+        weapon 2 held, the Umgah hops backward in place of headings, and the
+        Slylandro turns, or turns about, at its constant speed. Moves are
+        scored by the crew they lose, plus for a shot the battery it costs,
+        and among equals the one turning the nose for the least time wins. A move, once chosen,
         is kept while nothing does better, and the rule lets go once neither the
         held path nor coasting comes within ``EVADE_RELEASE_MARGIN`` of a hit.
         """
 
-        if self.ship_name in EVADE_EXCLUDED_SHIPS or self.plan.steering_claimed:
+        if self.plan.steering_claimed:
             return False
         spec = self.spec
         reach = spec.shot_reach
@@ -660,27 +690,13 @@ class BaselineContext:
         options: list[
             tuple[float, float, float, tuple[int, int], Callable[[], bool]]
         ] = []
-        own_heading = self.me.heading
         options.append((coast.damage, 0.0, 0.0, (EVADE_COAST, 0), self._evade_coast))
-        headings = {wrap_degrees(offset) for offset in EVADE_HEADINGS}
         previous_kind = self.memory.sides.get("evade")
         previous_heading = self.memory.sides.get("evade_heading")
-        if previous_kind == EVADE_HEADING and previous_heading is not None:
-            headings.add(wrap_degrees(float(previous_heading) - own_heading))
-        for bearing in sorted(headings):
-            _, outcome = judge(_heading_controller(bearing))
-            absolute = int(round((own_heading + bearing) % 360.0))
-            options.append(
-                (
-                    outcome.damage,
-                    0.0,
-                    self._turn_seconds(bearing),
-                    (EVADE_HEADING, absolute),
-                    lambda bearing=bearing: self.steer(
-                        bearing, thrust=abs(bearing) <= EVADE_THRUST_ANGLE
-                    ),
-                )
-            )
+        moves = self._evade_moves(previous_kind, previous_heading, held_thrust)
+        for plan, controller, seconds, claim in moves:
+            _, outcome = judge(controller)
+            options.append((outcome.damage, 0.0, seconds, plan, claim))
         options.extend(self._shoot_down_options(tracks, coast_path, judge))
 
         best = min(options, key=lambda option: (option[0] + option[1], option[2]))
@@ -691,18 +707,21 @@ class BaselineContext:
             # Leave the ship to its strategy while a dodge begun a little
             # later still does as well.
             hold = lambda flight: (None, held_thrust, False)
-            for bearing in sorted(headings, key=abs):
-                _, outcome = judge(
-                    _delayed(hold, _heading_controller(bearing), EVADE_DELAY_FRAMES)
-                )
+            for _, controller, _, _ in sorted(moves, key=lambda move: move[2]):
+                _, outcome = judge(_delayed(hold, controller, EVADE_DELAY_FRAMES))
                 if outcome.damage <= best_score:
                     return False
         if active:
             for option in options:
-                same_plan = option[3][0] == previous_kind and (
-                    previous_kind != EVADE_HEADING
-                    or abs(wrap_degrees(option[3][1] - float(previous_heading or 0))) < 1.0
-                )
+                kind, value = option[3]
+                if kind != previous_kind:
+                    same_plan = False
+                elif kind == EVADE_HEADING:
+                    same_plan = abs(wrap_degrees(value - float(previous_heading or 0))) < 1.0
+                elif kind in (EVADE_SLIDE, EVADE_HOP):
+                    same_plan = value == previous_heading
+                else:
+                    same_plan = True
                 if same_plan and option[0] + option[1] <= best_score:
                     best = option
                     break
@@ -711,6 +730,83 @@ class BaselineContext:
         self.memory.sides["evade"] = kind
         self.memory.sides["evade_heading"] = value
         return best[4]()
+
+    def _evade_moves(self, previous_kind, previous_heading, held_thrust: bool):
+        """Moves rule 1 weighs besides coasting and shooting: each is
+        ``(plan, controller, seconds turning, claim)``.
+
+        Ships fly the headings; the Supox also slides with weapon 2 held,
+        and the Umgah hops backward instead.
+        """
+
+        moves = []
+        own_heading = self.me.heading
+        if self.ship_name not in EVADE_NO_HEADING_SHIPS:
+            headings = {wrap_degrees(offset) for offset in EVADE_HEADINGS}
+            if previous_kind == EVADE_HEADING and previous_heading is not None:
+                headings.add(wrap_degrees(float(previous_heading) - own_heading))
+            constant_speed = self.spec.constant_speed
+            for bearing in sorted(headings):
+                absolute = int(round((own_heading + bearing) % 360.0))
+                if constant_speed:
+                    # Thrust turns the ship about, which ``steer`` presses
+                    # only with the heading behind and thrust released.
+                    controller = _turn_about_controller(bearing, not self.held("thrust"))
+                    thrust = True
+                else:
+                    controller = _heading_controller(bearing)
+                    thrust = abs(bearing) <= EVADE_THRUST_ANGLE
+                moves.append(
+                    (
+                        (EVADE_HEADING, absolute),
+                        controller,
+                        self._turn_seconds(bearing),
+                        lambda bearing=bearing, thrust=thrust: self.steer(
+                            bearing, thrust=thrust
+                        ),
+                    )
+                )
+        if self.ship_name == "Supox":
+            for index, (turn, backward, angle) in enumerate(SUPOX_SLIDES):
+                moves.append(
+                    (
+                        (EVADE_SLIDE, index),
+                        _slide_controller(angle),
+                        0.0,
+                        lambda turn=turn, backward=backward: self._supox_slide(
+                            turn, backward
+                        ),
+                    )
+                )
+        if self.ship_name == "Umgah":
+            ready = int(
+                math.ceil(
+                    max(
+                        self.me.timer_seconds("thrust_timer"),
+                        self.me.timer_seconds("a2_timer"),
+                        0.0,
+                    )
+                    * const.FPS
+                )
+            )
+            for count in EVADE_HOP_COUNTS:
+                if self.me.battery >= count * self.spec.a2_cost:
+                    moves.append(
+                        ((EVADE_HOP, count), _hop_controller(count, ready), 0.0, self._hop)
+                    )
+        return moves
+
+    def _supox_slide(self, turn: int, backward: bool) -> bool:
+        self.plan.claim_a2(True)
+        self.plan.claim_turn(turn)
+        self.plan.claim_thrust(backward)
+        return True
+
+    def _hop(self) -> bool:
+        self.plan.claim_turn(TURN_NONE)
+        self.plan.claim_thrust(False)
+        self.plan.claim_a2(True)
+        return True
 
     def _turn_seconds(self, bearing: float) -> float:
         """Seconds the nose takes to turn to ``bearing``."""
@@ -804,6 +900,56 @@ class BaselineContext:
                 # Weapon 1 with weapon 2 launches a marine instead.
                 self.a2(False)
         return True
+
+    def keep_moving(self) -> bool:
+        """Last rule: a ship nothing else moves builds speed.
+
+        Runs after the strategy, and only when no rule claimed thrust and the
+        ship is below ``KEEP_MOVING_SPEED_FRACTION`` of top speed. It heads
+        across the line to the opponent, on the side the ship already drifts
+        toward, so the build-up neither closes in nor backs off. With turning
+        unclaimed it steers there. For ``KEEP_MOVING_AIM_SHIPS``, with turning
+        claimed only to aim, it takes the turn back while weapon 1 could not
+        fire this frame anyway; once at speed the ship coasts and the
+        strategy aims again.
+        """
+
+        enemy = self.enemy
+        if (
+            enemy is None
+            or self.plan.thrust is not None
+            or self.ship_name in KEEP_MOVING_EXCLUDED_SHIPS
+        ):
+            return False
+        spec = self.spec
+        if spec.inertial and self.me.speed >= KEEP_MOVING_SPEED_FRACTION * spec.max_thrust:
+            return False
+        across = math.radians(enemy.bearing + 90.0)
+        lateral = self.me.velocity_forward * math.cos(across) + self.me.velocity_right * math.sin(
+            across
+        )
+        key = "keep_moving"
+        self.memory.touched_sides.add(key)
+        if abs(lateral) > ORBIT_DRIFT_THRESHOLD * max(1.0, spec.max_thrust):
+            self.memory.sides[key] = 1 if lateral > 0.0 else -1
+        heading = self.side(key, enemy.bearing, 90.0)
+        thrust = abs(heading) <= KEEP_MOVING_THRUST_ANGLE
+        if self.plan.steering_claimed:
+            if self.ship_name not in KEEP_MOVING_AIM_SHIPS or not self._aim_can_wait():
+                return False
+            self.plan.turn = None
+        return self.steer(heading, thrust=thrust)
+
+    def _aim_can_wait(self) -> bool:
+        """Whether weapon 1 could not fire now even if aimed."""
+
+        if self.plan.a1:
+            return False
+        return (
+            not self.in_range(1)
+            or not self.me.a1_ready
+            or self.me.battery < self.spec.a1_cost
+        )
 
     def approach_opponent(self) -> bool:
         enemy = self.enemy
@@ -951,6 +1097,44 @@ def _heading_controller(bearing: float):
     return controller
 
 
+def _turn_about_controller(bearing: float, fresh_press: bool):
+    """Fly a ship of constant speed toward ``bearing``, first turning it
+    about when the heading lies behind and thrust is free to press."""
+
+    def controller(flight: ShipFlight):
+        error = flight.steering_toward(bearing)
+        turn_about = fresh_press and flight.frame == 0 and abs(error) > 135.0
+        return error, turn_about, False
+
+    return controller
+
+
+def _slide_controller(angle: float):
+    """Push ``angle`` degrees off the nose every frame, without turning."""
+
+    def controller(flight: ShipFlight):
+        flight.thrust_angle = angle
+        return None, True, False
+
+    return controller
+
+
+def _hop_controller(count: int, ready_frame: int):
+    """Hop backward ``count`` times: from the frame the hop is ready, once
+    every ``UMGAH_HOP_FRAMES``."""
+
+    def controller(flight: ShipFlight):
+        if (
+            flight.hops < count
+            and flight.frame >= ready_frame
+            and (flight.hops == 0 or flight.frame - flight.last_hop_frame >= UMGAH_HOP_FRAMES)
+        ):
+            return None, False, False, UMGAH_HOP_DISTANCE
+        return None, False, False
+
+    return controller
+
+
 def _delayed(first, then, frames: int):
     """Fly ``first`` for ``frames`` frames, then ``then``."""
 
@@ -1020,7 +1204,13 @@ def simulate_planet_pass(
             sign, offset = escape
             target = bearing_of(-flight.x, -flight.y) + sign * offset
             error = flight.steering_toward(target)
-            flight.step(error, abs(error) <= PLANET_ESCAPE_THRUST_ANGLE)
+            if spec.constant_speed:
+                # Thrust turns it about, which ``steer`` presses only with
+                # the heading behind.
+                thrust = frame == 0 and abs(error) > 135.0
+            else:
+                thrust = abs(error) <= PLANET_ESCAPE_THRUST_ANGLE
+            flight.step(error, thrust)
         distance = flight.planet_distance
         closest = min(closest, distance)
         if distance <= contact and math.isinf(impact_frame):

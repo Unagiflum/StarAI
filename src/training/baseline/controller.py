@@ -8,7 +8,7 @@ from typing import Any, Sequence
 
 from src.training.baseline.engine import BaselineContext, BaselineMemory
 from src.training.baseline.observation_view import ObservationView
-from src.training.baseline.strategies import strategy_for
+from src.training.baseline.strategies import may_evade, strategy_for
 from src.training.contracts import TrainingAction, action_for_index
 
 
@@ -45,9 +45,11 @@ class BaselineController:
             memory=self.memory,
         )
         context.avoid_planet()
-        context.evade_threats()
+        if may_evade(context):
+            context.evade_threats()
         if view.enemy is not None:
             self._strategy(context)
+            context.keep_moving()
         self.memory.end_decision(view)
         return context.plan.action_index()
 

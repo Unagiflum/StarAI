@@ -84,6 +84,9 @@ COLLISION_MARGIN = 60.0
 TYPICAL_HULL_RADIUS = 45.0
 # The Umgah cone is mask-shaped and has no configured length.
 UMGAH_CONE_REACH = 180.0
+# Ships that always fly at top speed along the nose, where a fresh thrust
+# press turns them about instead of pushing.
+CONSTANT_SPEED_SHIPS = frozenset({"Slylandro"})
 
 FORM_BASE = "base"
 FORM_BLAZER = "blazer"
@@ -137,6 +140,7 @@ class ShipSpec:
     turn_wait: int = 0
     planet_reach: float = 0.0
     shot_reach: float = 0.0
+    constant_speed: bool = False
 
 
 _NO_WEAPON = WeaponSpec("", "none", 0.0, 0.0, 0.0, False, (0.0,))
@@ -267,4 +271,5 @@ def ship_spec(ship_name: str, form: str = FORM_BASE) -> ShipSpec:
         turn_wait=turn_wait,
         planet_reach=PLANET_HULL_REACH.get(ship_name, TYPICAL_HULL_RADIUS),
         shot_reach=SHOT_HULL_REACH.get(ship_name, TYPICAL_HULL_RADIUS),
+        constant_speed=ship_name in CONSTANT_SPEED_SHIPS,
     )

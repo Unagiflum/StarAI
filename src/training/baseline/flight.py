@@ -7,7 +7,8 @@ simulation's speed caps, the planet's pull inside its well, a Verlet step
 and the speed limit. Positions and headings are in the frame of the ship at
 the start: ``x`` forward, ``y`` to the right, bearings clockwise from the
 starting nose. Ships without inertia feel no gravity and stop whenever
-they do not thrust.
+they do not thrust. Ships of constant speed (the Slylandro) always fly at
+top speed along the nose, and thrust turns them about.
 """
 
 from __future__ import annotations
@@ -76,7 +77,10 @@ class ShipFlight:
         "vx",
         "vy",
         "nose",
+        "thrust_angle",
         "frame",
+        "hops",
+        "last_hop_frame",
         "planet_distance",
         "_has_planet",
         "_planet_x",
@@ -105,7 +109,12 @@ class ShipFlight:
         self.x, self.y = float(position[0]), float(position[1])
         self.vx, self.vy = float(velocity[0]), float(velocity[1])
         self.nose = 0.0
+        # Degrees off the nose that thrust pushes: the Supox slides.
+        self.thrust_angle = 0.0
         self.frame = 0
+        # Backward hops made so far, and the frame of the last.
+        self.hops = 0
+        self.last_hop_frame = -1
         self._has_planet = planet is not None
         if planet is None:
             self._planet_x, self._planet_y, self._pull = 0.0, 0.0, 0.0
@@ -167,12 +176,20 @@ class ShipFlight:
             inside_well=self.inside_well,
         )
 
-    def step(self, turn_error: float | None, thrust: bool) -> None:
+    def step(self, turn_error: float | None, thrust: bool, *, hop: float = 0.0) -> None:
         """Advance one frame, turning toward ``turn_error`` degrees off the
-        nose (none when ``None``) and thrusting when ``thrust``."""
+        nose (none when ``None``) and thrusting when ``thrust``.
+
+        With ``hop`` the ship instead jumps that far straight backward,
+        after turning, and is left at rest, as the Umgah retropropulsion
+        moves it; gravity skips that frame.
+        """
 
         frame = self.frame
         spec = self.spec
+        if spec.constant_speed and thrust:
+            # A fresh thrust press turns the ship about before it turns.
+            self.nose = (self.nose + 360.0) % 360.0 - 180.0
         if (
             turn_error is not None
             and frame >= self._next_turn
@@ -181,9 +198,24 @@ class ShipFlight:
             nose = self.nose + math.copysign(self._turn_step, turn_error)
             self.nose = (nose + 180.0) % 360.0 - 180.0
             self._next_turn = frame + self._turn_period
-        if thrust and frame >= self._next_thrust:
-            self._next_thrust = frame + self._thrust_period
+        if hop > 0.0:
             radians = math.radians(self.nose)
+            self.x -= math.cos(radians) * hop
+            self.y -= math.sin(radians) * hop
+            self.vx, self.vy = 0.0, 0.0
+            self._update_gravity_source()
+            self._gx, self._gy = self._gravity()
+            self.hops += 1
+            self.last_hop_frame = frame
+            self.frame = frame + 1
+            return
+        if spec.constant_speed:
+            radians = math.radians(self.nose)
+            self.vx = math.cos(radians) * spec.max_thrust
+            self.vy = math.sin(radians) * spec.max_thrust
+        elif thrust and frame >= self._next_thrust:
+            self._next_thrust = frame + self._thrust_period
+            radians = math.radians(self.nose + self.thrust_angle)
             dx, dy = math.cos(radians), math.sin(radians)
             if spec.inertial:
                 self.vx, self.vy = thrusted_velocity(

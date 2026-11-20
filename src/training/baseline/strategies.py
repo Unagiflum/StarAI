@@ -2,12 +2,14 @@
 
 Each function lists one ship's rules in priority order (see ``engine``). The
 shared rules run before every strategy: rule 0 avoids the planet, and rule 1
-dodges or shoots down enemy shots in flight.
+dodges or shoots down enemy shots in flight, where ``EVADE_GATES`` allows.
+After the strategy, the last rule builds speed for a ship nothing moves.
 """
 
 from __future__ import annotations
 
 import math
+from typing import Callable
 
 import src.const as const
 from src.training.baseline.engine import (
@@ -17,6 +19,8 @@ from src.training.baseline.engine import (
     TURN_LEFT,
     TURN_NONE,
     TURN_RIGHT,
+    UMGAH_HOP_DISTANCE,
+    UMGAH_HOP_FRAMES,
     BaselineContext,
     StrategyFunction,
 )
@@ -49,15 +53,14 @@ UMGAH_CONE_HALF_ANGLE = 40.0
 UMGAH_HOSTILE_RANGE = 1200.0
 # Ahead and this close, thrust in rather than turn around to hop.
 UMGAH_CLOSE_APPROACH_RANGE = 400.0
-# Hop runs: each hop moves this far, one every few frames. Within the
-# lateral-aim distance a run must pass the opponent this far to the side
-# (within the lateral limits, beyond which the cone misses or the hulls
-# bump); farther off, pointing the tail near it is enough. Enemy objects
+# Hop runs: each hop moves ``UMGAH_HOP_DISTANCE``, one every
+# ``UMGAH_HOP_FRAMES`` (both from the engine). Within the lateral-aim
+# distance a run must pass the opponent this far to the side (within the
+# lateral limits, beyond which the cone misses or the hulls bump); farther
+# off, pointing the tail near it is enough. Enemy objects
 # within the corridor half-width of the path block a run, and an opponent
 # whose nose points within the facing angle of me is passed on the side
 # away from its nose.
-UMGAH_HOP_DISTANCE = float(ABILITY_DEFINITIONS["UmgahA2"].backup_speed)
-UMGAH_HOP_FRAMES = SHIP_DEFINITIONS["Umgah"].a2_wait + 1
 UMGAH_LATERAL_AIM_DISTANCE = 1000.0
 UMGAH_RUN_CLEARANCE = 90.0
 UMGAH_RUN_MIN_LATERAL = 40.0
@@ -994,8 +997,22 @@ def _song_viable(ctx: BaselineContext) -> bool:
     return ctx.enemy_block.crew > 1 and ctx.enemy_name not in SONG_IMMUNE_SHIPS
 
 
+def _syreen_risky(ctx: BaselineContext, *, cautious: bool) -> bool:
+    """Whether closing in to sing is too dangerous while the crew is small."""
+
+    small = ctx.me.crew < SYREEN_GROWN_CREW
+    outpaced = ctx.enemy is not None and ctx.enemy_block.max_thrust >= ctx.spec.max_thrust
+    return cautious and small and ctx.enemy_name in SYREEN_CLOSE_DANGER_SHIPS and outpaced
+
+
+def _syreen_may_evade(ctx: BaselineContext) -> bool:
+    """Dodge, except while closing in with the song ready."""
+
+    song_ready = ctx.me.battery >= ctx.spec.a2_cost
+    return not (_song_viable(ctx) and song_ready and not _syreen_risky(ctx, cautious=True))
+
+
 def _syreen(ctx: BaselineContext, *, cautious: bool, keep_away: bool) -> None:
-    enemy = ctx.enemy
     song_viable = _song_viable(ctx)
     song_ready = ctx.me.battery >= ctx.spec.a2_cost
     if song_viable and song_ready and ctx.distance <= SYREEN_SONG_DISTANCE:
@@ -1003,9 +1020,7 @@ def _syreen(ctx: BaselineContext, *, cautious: bool, keep_away: bool) -> None:
     pods = ctx.view.crew_pods
     if pods:
         ctx.approach_object(min(pods, key=lambda pod: pod.distance))
-    small = ctx.me.crew < SYREEN_GROWN_CREW
-    outpaced = enemy is not None and ctx.enemy_block.max_thrust >= ctx.spec.max_thrust
-    risky = cautious and small and ctx.enemy_name in SYREEN_CLOSE_DANGER_SHIPS and outpaced
+    risky = _syreen_risky(ctx, cautious=cautious)
     gun_range = ctx.weapon(1).range
     if keep_away and not song_ready:
         ctx.avoid_opponent()
@@ -1455,6 +1470,12 @@ def utwig(ctx: BaselineContext) -> None:
     _shield_rules(ctx)
 
 
+def _utwig_may_evade(ctx: BaselineContext) -> bool:
+    """Dodge only without the battery to shield: shielded hits refill it."""
+
+    return ctx.me.battery < ctx.spec.a2_cost
+
+
 def yehat(ctx: BaselineContext) -> None:
     _shield_rules(ctx)
 
@@ -1711,6 +1732,21 @@ STRATEGIES: dict[str, StrategyFunction] = {
     "Yehat": yehat,
     "ZoqFotPik": zoq_fot_pik,
 }
+
+
+# Ships that let rule 1 dodge only some of the time: the Syreen must close
+# in to sing, and the Utwig's shield turns hits into battery.
+EVADE_GATES: dict[str, Callable[[BaselineContext], bool]] = {
+    "Syreen": _syreen_may_evade,
+    "Utwig": _utwig_may_evade,
+}
+
+
+def may_evade(ctx: BaselineContext) -> bool:
+    """Whether rule 1 may dodge for this ship this decision."""
+
+    gate = EVADE_GATES.get(ctx.ship_name)
+    return gate is None or gate(ctx)
 
 
 DEFAULT_VARIANT = "default"
