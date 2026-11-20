@@ -46,6 +46,36 @@ PLANET_HULL_REACH = {
     "Yehat": 38.0,
     "ZoqFotPik": 54.0,
 }
+# Miss distance at which a small shot passing a hull grazes it: the hull's
+# shadow half-width, averaged over the directions a shot can pass, measured
+# on the real collision masks of the base form.
+SHOT_HULL_REACH = {
+    "Androsynth": 38.0,
+    "Arilou": 33.0,
+    "Chenjesu": 67.0,
+    "Chmmr": 69.0,
+    "Druuge": 48.0,
+    "Earthling": 52.0,
+    "Ilwrath": 59.0,
+    "KohrAh": 65.0,
+    "KzerZa": 54.0,
+    "Mmrnmrhm": 43.0,
+    "Melnorme": 61.0,
+    "Mycon": 48.0,
+    "Orz": 54.0,
+    "Pkunk": 46.0,
+    "Shofixti": 22.0,
+    "Slylandro": 67.0,
+    "Spathi": 55.0,
+    "Supox": 44.0,
+    "Syreen": 47.0,
+    "Thraddash": 43.0,
+    "Umgah": 27.0,
+    "Utwig": 62.0,
+    "Vux": 33.0,
+    "Yehat": 33.0,
+    "ZoqFotPik": 47.0,
+}
 # Contact margin for "collision imminent" checks: two typical hull radii.
 COLLISION_MARGIN = 60.0
 # A hull's typical reach from its centre: the mean over all ships of half
@@ -71,6 +101,11 @@ class WeaponSpec:
     tracking: bool
     gun_directions: tuple[float, ...]
     damage: float = 0.0
+    # Whether the shot feels the planet's pull, its lifetime in frames, and
+    # for homing shots the frames between heading steps less one.
+    inertial: bool = False
+    life_frames: float = 0.0
+    turn_wait: int = 0
 
     @property
     def auto_aims(self) -> bool:
@@ -101,6 +136,7 @@ class ShipSpec:
     thrust_wait: int = 0
     turn_wait: int = 0
     planet_reach: float = 0.0
+    shot_reach: float = 0.0
 
 
 _NO_WEAPON = WeaponSpec("", "none", 0.0, 0.0, 0.0, False, (0.0,))
@@ -133,19 +169,29 @@ def _weapon_range(ship_name: str, definition) -> float:
 
 @lru_cache(maxsize=None)
 def weapon_spec(ship_name: str, action: int, form: str = FORM_BASE) -> WeaponSpec:
-    definition = ABILITY_DEFINITIONS.get(_ability_name(ship_name, action, form))
+    return ability_spec(_ability_name(ship_name, action, form))
+
+
+@lru_cache(maxsize=None)
+def ability_spec(ability_name: str) -> WeaponSpec:
+    """Facts for one ability by its catalog name, such as ``"OrzA3"``."""
+
+    definition = ABILITY_DEFINITIONS.get(ability_name)
     if definition is None:
         return _NO_WEAPON
     directions = tuple(float(value) for value in (definition.gun_directions or (0.0,)))
     return WeaponSpec(
-        ability_name=_ability_name(ship_name, action, form),
+        ability_name=ability_name,
         kind=str(definition.ability_type),
-        range=_weapon_range(ship_name, definition),
+        range=_weapon_range(str(definition.ship_name), definition),
         speed=float(definition.speed or 0.0),
         parent_velocity=float(definition.parent_vel or 0.0),
         tracking=bool(definition.tracking),
         gun_directions=directions or (0.0,),
         damage=float(definition.damage[0]) if definition.damage else 0.0,
+        inertial=bool(definition.inertia),
+        life_frames=float(definition.life_time or 0.0),
+        turn_wait=int(definition.turn_wait or 0),
     )
 
 
@@ -220,4 +266,5 @@ def ship_spec(ship_name: str, form: str = FORM_BASE) -> ShipSpec:
         thrust_wait=thrust_wait,
         turn_wait=turn_wait,
         planet_reach=PLANET_HULL_REACH.get(ship_name, TYPICAL_HULL_RADIUS),
+        shot_reach=SHOT_HULL_REACH.get(ship_name, TYPICAL_HULL_RADIUS),
     )

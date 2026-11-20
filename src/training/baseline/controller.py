@@ -45,6 +45,7 @@ class BaselineController:
             memory=self.memory,
         )
         context.avoid_planet()
+        context.evade_threats()
         if view.enemy is not None:
             self._strategy(context)
         self.memory.end_decision(view)

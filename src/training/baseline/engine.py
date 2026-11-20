@@ -13,6 +13,17 @@ import math
 from typing import Callable
 
 import src.const as const
+from src.training.baseline.flight import ShipFlight
+from src.training.baseline.threats import (
+    THREAT_SIZE,
+    FlownPath,
+    ThreatTrack,
+    arrival_frames,
+    fly_move,
+    judge_move,
+    straight_line_danger,
+    threat_tracks,
+)
 from src.training.baseline.observation_view import (
     ObservationView,
     ObservedObject,
@@ -25,7 +36,6 @@ from src.training.baseline.ship_specs import (
     FORM_BLAZER,
     FORM_XFORM,
     FORM_YWING,
-    PLANET_GRAVITY,
     PLANET_RADIUS,
     ShipSpec,
     WeaponSpec,
@@ -33,6 +43,7 @@ from src.training.baseline.ship_specs import (
     weapon_spec,
 )
 from src.training.contracts import ACTION_INDEX_TABLE
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
 
 ACTION_INDEX_BY_MASK = {action.mask: index for index, action in enumerate(ACTION_INDEX_TABLE)}
 
@@ -67,6 +78,47 @@ PLANET_ESCAPE_THRUST_ANGLE = 90.0
 # hits, the shallowest graze wins. An escape, once chosen, is kept unless
 # another's pass comes this much less close.
 PLANET_SIDE_SWITCH_MARGIN = 30.0
+# Rule 1, incoming shots: how far ahead moves are flown, the headings tried
+# (degrees off the nose), and thrust only while the nose is within this many
+# degrees of the heading. Threats whose straight path passes farther than
+# the hull's reach plus the slack are ignored. Moves are flown until every
+# threat has passed or expired, up to the horizon; a few frames more see
+# a pass just after.
+EVADE_HORIZON_SECONDS = 2.5
+EVADE_HORIZON_FRAMES = int(round(EVADE_HORIZON_SECONDS * const.FPS))
+EVADE_EXTRA_FRAMES = 4
+# A dodge waits while one begun this many frames later still does as well.
+EVADE_DELAY_FRAMES = 6
+EVADE_HEADINGS = (0.0, 45.0, -45.0, 90.0, -90.0, 135.0, -135.0, 180.0)
+EVADE_THRUST_ANGLE = 90.0
+EVADE_PATH_SLACK = 250.0
+# The rule lets go once the shots it dodged miss by this much.
+EVADE_RELEASE_MARGIN = 30.0
+# The planet's pull is flown when it is within this much of its well.
+EVADE_PLANET_MARGIN = 300.0
+# Moves are scored in crew: the hits they take, plus, for a shot fired to
+# destroy a threat, this many crew per full battery it costs. Charging for
+# the time spent turning as well did worse in the arena; it only breaks ties.
+EVADE_SHOT_COST = 0.5
+# Kinds of evade plan kept in memory.
+EVADE_COAST = 0
+EVADE_HEADING = 1
+EVADE_SHOOT = 2
+# Ships the rule leaves alone. It cannot fly the Slylandro's controls; the
+# others did worse with it in the arena: the Supox and Umgah have their own
+# dodges on A2, the Syreen must close in to sing, and the Utwig shield turns
+# hits into battery.
+EVADE_EXCLUDED_SHIPS = frozenset({"Slylandro", "Supox", "Syreen", "Umgah", "Utwig"})
+# Ships whose weapon 1 is not a plain shot to aim at a threat: homing,
+# charged, parked or self-aiming weapons. The Chenjesu crystal flies until
+# released, so it meets a threat ahead like any other shot.
+SHOOT_DOWN_EXCLUDED_SHIPS = frozenset(
+    {"Androsynth", "Arilou", "Earthling", "KohrAh", "Melnorme", "Mycon", "Umgah"}
+)
+DRUUGE_RECOIL = (
+    float(ABILITY_DEFINITIONS["DruugeA1"].recoil_increment or 0.0),
+    float(ABILITY_DEFINITIONS["DruugeA1"].max_recoil or 0.0),
+)
 # Sideways drift, as a fraction of top speed, that counts as orbiting.
 ORBIT_DRIFT_THRESHOLD = 0.15
 # The baseline decides every frame, so a decision lasts one frame.
@@ -249,6 +301,15 @@ class BaselineContext:
             return FORM_BLAZER
         if self.ship_name == "Mmrnmrhm":
             return FORM_YWING if self.me.mmrnmrhm_ywing else FORM_XFORM
+        return FORM_BASE
+
+    @property
+    def enemy_form(self) -> str:
+        name = self.enemy_name
+        if name == "Mmrnmrhm":
+            return FORM_YWING if self.enemy_block.mmrnmrhm_ywing else FORM_XFORM
+        if name == "Androsynth" and self.enemy_block.androsynth_blazer:
+            return FORM_BLAZER
         return FORM_BASE
 
     @property
@@ -528,6 +589,222 @@ class BaselineContext:
         heading = wrap_degrees(planet.bearing + sign * PLANET_ESCAPE_OFFSETS[index])
         return self.steer(heading, thrust=abs(heading) <= PLANET_ESCAPE_THRUST_ANGLE)
 
+    def evade_threats(self) -> bool:
+        """Rule 1: keep enemy shots in flight off the hull.
+
+        Steps in only when the path the ship is on (no turning, thrust as
+        held) is predicted to take a hit within the horizon, and some move
+        does better. The moves are coasting, flying one of
+        ``EVADE_HEADINGS`` (thrusting once the nose is within
+        ``EVADE_THRUST_ANGLE`` of it), and turning to shoot one threat down
+        with weapon 1 where the shot can destroy it before it lands; the
+        Druuge's shots also kick it backward. Moves are scored by the crew
+        they lose, plus for a shot the battery it costs, and among equals the
+        one turning the nose for the least time wins. A move, once chosen,
+        is kept while nothing does better, and the rule lets go once neither the
+        held path nor coasting comes within ``EVADE_RELEASE_MARGIN`` of a hit.
+        """
+
+        if self.ship_name in EVADE_EXCLUDED_SHIPS or self.plan.steering_claimed:
+            return False
+        spec = self.spec
+        reach = spec.shot_reach
+        tracks = [
+            track
+            for track in threat_tracks(
+                self.view.enemy_objects,
+                (self.me.velocity_forward, self.me.velocity_right),
+                enemy_name=self.enemy_name,
+                enemy_form=self.enemy_form,
+            )
+            if straight_line_danger(
+                track, EVADE_HORIZON_FRAMES, reach + THREAT_SIZE + EVADE_PATH_SLACK
+            )
+        ]
+        if not tracks:
+            return False
+        frames = min(
+            EVADE_HORIZON_FRAMES,
+            max(arrival_frames(track, EVADE_HORIZON_FRAMES) for track in tracks)
+            + EVADE_EXTRA_FRAMES,
+        )
+        planet = self.planet
+        planet_centre = None
+        if planet is not None and planet.distance <= const.GRAVITY_RANGE + EVADE_PLANET_MARGIN:
+            planet_centre = (planet.forward, planet.right)
+        velocity = (self.me.velocity_forward, self.me.velocity_right)
+        held_thrust = self.held("thrust") and self.ship_name != "Slylandro"
+
+        def judge(controller, **kwargs):
+            path, _ = fly_move(
+                spec,
+                velocity,
+                frames,
+                controller,
+                planet=planet_centre,
+                recoil=kwargs.pop("recoil", None),
+            )
+            return path, judge_move(tracks, path, reach, planet=planet_centre, **kwargs)
+
+        _, held = judge(lambda flight: (None, held_thrust, False))
+        coast_path, coast = judge(lambda flight: (None, False, False))
+        active = "evade" in self.memory.sides
+        if held.damage <= 0.0 and coast.damage <= 0.0:
+            if not active or min(held.clearance, coast.clearance) >= EVADE_RELEASE_MARGIN:
+                return False
+        baseline_damage = held.damage
+
+        # Each option: (crew lost, other cost in crew, seconds spent turning,
+        # plan, claim). Plans are kept as absolute headings so a kept plan
+        # means the same move next frame.
+        options: list[
+            tuple[float, float, float, tuple[int, int], Callable[[], bool]]
+        ] = []
+        own_heading = self.me.heading
+        options.append((coast.damage, 0.0, 0.0, (EVADE_COAST, 0), self._evade_coast))
+        headings = {wrap_degrees(offset) for offset in EVADE_HEADINGS}
+        previous_kind = self.memory.sides.get("evade")
+        previous_heading = self.memory.sides.get("evade_heading")
+        if previous_kind == EVADE_HEADING and previous_heading is not None:
+            headings.add(wrap_degrees(float(previous_heading) - own_heading))
+        for bearing in sorted(headings):
+            _, outcome = judge(_heading_controller(bearing))
+            absolute = int(round((own_heading + bearing) % 360.0))
+            options.append(
+                (
+                    outcome.damage,
+                    0.0,
+                    self._turn_seconds(bearing),
+                    (EVADE_HEADING, absolute),
+                    lambda bearing=bearing: self.steer(
+                        bearing, thrust=abs(bearing) <= EVADE_THRUST_ANGLE
+                    ),
+                )
+            )
+        options.extend(self._shoot_down_options(tracks, coast_path, judge))
+
+        best = min(options, key=lambda option: (option[0] + option[1], option[2]))
+        best_score = best[0] + best[1]
+        if best_score >= baseline_damage and not active:
+            return False
+        if not active and best[3][0] != EVADE_SHOOT:
+            # Leave the ship to its strategy while a dodge begun a little
+            # later still does as well.
+            hold = lambda flight: (None, held_thrust, False)
+            for bearing in sorted(headings, key=abs):
+                _, outcome = judge(
+                    _delayed(hold, _heading_controller(bearing), EVADE_DELAY_FRAMES)
+                )
+                if outcome.damage <= best_score:
+                    return False
+        if active:
+            for option in options:
+                same_plan = option[3][0] == previous_kind and (
+                    previous_kind != EVADE_HEADING
+                    or abs(wrap_degrees(option[3][1] - float(previous_heading or 0))) < 1.0
+                )
+                if same_plan and option[0] + option[1] <= best_score:
+                    best = option
+                    break
+        kind, value = best[3]
+        self.memory.touched_sides.update(("evade", "evade_heading"))
+        self.memory.sides["evade"] = kind
+        self.memory.sides["evade_heading"] = value
+        return best[4]()
+
+    def _turn_seconds(self, bearing: float) -> float:
+        """Seconds the nose takes to turn to ``bearing``."""
+
+        fine = float(const.TURN_ANGLE)
+        step = fine * const.DIRECTIONS_MULTIPLIER
+        steps = math.ceil(max(0.0, abs(float(bearing)) - fine / 2.0) / step)
+        if steps <= 0:
+            return 0.0
+        frames = (steps - 1) * (self.spec.turn_wait + 1) + 1
+        return frames / float(const.FPS)
+
+    def _evade_coast(self) -> bool:
+        self.plan.claim_turn(TURN_NONE)
+        self.plan.claim_thrust(False)
+        return True
+
+    def _shoot_down_options(self, tracks, coast_path, judge):
+        """Options that turn to fire weapon 1 at one threat."""
+
+        if self.ship_name in SHOOT_DOWN_EXCLUDED_SHIPS:
+            return []
+        weapon = self.weapon(1)
+        laser = weapon.kind == "laser" and not weapon.tracking
+        if not laser and not (
+            weapon.kind == "projectile" and not weapon.tracking and weapon.speed > 0.0
+        ):
+            return []
+        if self.me.battery < self.spec.a1_cost:
+            return []
+        recoil = DRUUGE_RECOIL if self.ship_name == "Druuge" else None
+        ready_frame = int(math.ceil(max(0.0, self.me.timer_seconds("a1_timer")) * const.FPS))
+        fine = float(const.TURN_ANGLE)
+        step = float(const.TURN_ANGLE) * const.DIRECTIONS_MULTIPLIER
+        period = self.spec.turn_wait + 1
+        guns = self._gun_offsets(1)
+        own_heading = self.me.heading
+        options = []
+        for index, track in enumerate(tracks):
+            if recoil is None and weapon.damage < track.hit_points:
+                continue
+            aim = _lead_bearing(track, coast_path, weapon, 0)
+            if aim is None:
+                continue
+            gun = min(guns, key=lambda offset: abs(wrap_degrees(aim - offset)))
+            error = wrap_degrees(aim - gun)
+            turns = int(math.ceil(max(0.0, abs(error) - fine / 2.0) / step))
+            fire_frame = max(ready_frame, (turns - 1) * period + 1 if turns else 0)
+            if fire_frame >= len(coast_path.xs) - 1:
+                continue
+            refined = _lead_bearing(track, coast_path, weapon, fire_frame)
+            if refined is not None:
+                aim = refined
+                error = wrap_degrees(aim - gun)
+            # The nose can only point along the ship's own heading steps.
+            absolute = round((own_heading + error) / fine) * fine
+            nose = wrap_degrees(absolute - own_heading)
+            direction = nose + gun
+
+            def controller(flight, nose=nose, fire_frame=fire_frame):
+                if flight.frame == fire_frame:
+                    flight.nose = nose
+                    return None, False, True
+                if flight.frame < fire_frame:
+                    return flight.steering_toward(nose), False, False
+                return None, False, False
+
+            _, outcome = judge(
+                controller,
+                recoil=recoil,
+                shot=(fire_frame, weapon, direction, index),
+            )
+            cost = EVADE_SHOT_COST * self.spec.a1_cost / max(1.0, self.me.max_battery)
+            options.append(
+                (
+                    outcome.damage,
+                    cost,
+                    self._turn_seconds(nose),
+                    (EVADE_SHOOT, int(round(absolute % 360.0))),
+                    lambda nose=nose: self._shoot_down(nose),
+                )
+            )
+        return options
+
+    def _shoot_down(self, nose: float) -> bool:
+        self.point_at(nose)
+        self.plan.claim_thrust(False)
+        if abs(nose) <= float(const.TURN_ANGLE) / 2.0 + 1e-6 and self.me.a1_ready:
+            self.a1(True)
+            if self.ship_name == "Orz":
+                # Weapon 1 with weapon 2 launches a marine instead.
+                self.a2(False)
+        return True
+
     def approach_opponent(self) -> bool:
         enemy = self.enemy
         if enemy is None:
@@ -663,10 +940,52 @@ def planet_contact_distance(spec: ShipSpec) -> float:
     return PLANET_RADIUS + spec.planet_reach + PLANET_CLEARANCE_MARGIN
 
 
-def _planet_gravity(x: float, y: float, distance: float, pull: float) -> tuple[float, float]:
-    if pull <= 0.0 or distance < PLANET_RADIUS or distance > const.GRAVITY_RANGE:
-        return 0.0, 0.0
-    return -pull * x / distance, -pull * y / distance
+def _heading_controller(bearing: float):
+    """Fly toward ``bearing`` in the starting frame, thrusting once the nose
+    is within ``EVADE_THRUST_ANGLE`` of it."""
+
+    def controller(flight: ShipFlight):
+        error = flight.steering_toward(bearing)
+        return error, abs(error) <= EVADE_THRUST_ANGLE, False
+
+    return controller
+
+
+def _delayed(first, then, frames: int):
+    """Fly ``first`` for ``frames`` frames, then ``then``."""
+
+    def controller(flight: ShipFlight):
+        return (first if flight.frame < frames else then)(flight)
+
+    return controller
+
+
+def _lead_bearing(
+    track: ThreatTrack,
+    path: FlownPath,
+    weapon: WeaponSpec,
+    fire_frame: int,
+) -> float | None:
+    """Bearing, in the starting frame, a shot fired at ``fire_frame`` from
+    ``path`` must travel to meet ``track`` flying straight on."""
+
+    fire_frame = min(fire_frame, len(path.xs) - 1)
+    qx = track.x + track.vx * fire_frame - path.xs[fire_frame]
+    qy = track.y + track.vy * fire_frame - path.ys[fire_frame]
+    if weapon.kind == "laser":
+        return bearing_of(qx, qy)
+    carry = weapon.parent_velocity
+    wx = track.vx - carry * path.vxs[fire_frame]
+    wy = track.vy - carry * path.vys[fire_frame]
+    speed = weapon.speed
+    frames = _smallest_positive_root(
+        wx * wx + wy * wy - speed * speed,
+        2.0 * (qx * wx + qy * wy),
+        qx * qx + qy * qy,
+    )
+    if frames is None:
+        return None
+    return bearing_of(qx + wx * frames, qy + wy * frames)
 
 
 def simulate_planet_pass(
@@ -684,95 +1003,38 @@ def simulate_planet_pass(
     rule 0 does: every frame it aims ``offset`` degrees off the planet's
     bearing on the ``sign`` side, turning one heading step and thrusting one
     increment at the ship's own cadences, and thrusting only while the nose
-    is within ``PLANET_ESCAPE_THRUST_ANGLE`` of that heading. This follows
-    the simulation's thrust caps and Verlet step; non-inertial ships feel no
-    gravity and stop whenever they do not thrust.
+    is within ``PLANET_ESCAPE_THRUST_ANGLE`` of that heading. Flight follows
+    ``flight.ShipFlight``.
     """
 
-    x, y = float(position[0]), float(position[1])
-    vx, vy = float(velocity[0]), float(velocity[1])
-    inertial = spec.inertial
-    pull = const.GRAVITY_MULTIPLIER * PLANET_GRAVITY if inertial else 0.0
+    flight = ShipFlight(
+        spec, position, velocity, planet=(0.0, 0.0), drifting=escape is None
+    )
     contact = planet_contact_distance(spec)
-    turn_step = float(const.TURN_ANGLE) * const.DIRECTIONS_MULTIPLIER
-    turn_period = spec.turn_wait + 1
-    thrust_period = spec.thrust_wait + 1
-    next_turn = 0
-    next_thrust = 0
-    nose = 0.0
-    distance = math.hypot(x, y)
-    closest = distance
+    closest = flight.planet_distance
     impact_frame = math.inf
-    gx, gy = _planet_gravity(x, y, distance, pull)
     for frame in range(frames):
-        if escape is not None:
+        if escape is None:
+            flight.step(None, False)
+        else:
             sign, offset = escape
-            target = bearing_of(-x, -y) + sign * offset
-            error = wrap_degrees(target - nose)
-            thrusting = abs(error) <= PLANET_ESCAPE_THRUST_ANGLE
-            if frame >= next_turn and abs(error) > turn_step / 2.0:
-                nose = wrap_degrees(nose + math.copysign(turn_step, error))
-                next_turn = frame + turn_period
-            if thrusting and frame >= next_thrust:
-                next_thrust = frame + thrust_period
-                radians = math.radians(nose)
-                dx, dy = math.cos(radians), math.sin(radians)
-                if inertial:
-                    vx, vy = _thrusted_velocity(
-                        vx, vy, dx, dy, spec, inside_well=distance <= const.GRAVITY_RANGE
-                    )
-                else:
-                    vx, vy = dx * spec.max_thrust, dy * spec.max_thrust
-            elif not inertial and not thrusting:
-                vx, vy = 0.0, 0.0
-        x += vx + 0.5 * gx
-        y += vy + 0.5 * gy
-        distance = math.hypot(x, y)
-        nx, ny = _planet_gravity(x, y, distance, pull)
-        vx += 0.5 * (gx + nx)
-        vy += 0.5 * (gy + ny)
-        gx, gy = nx, ny
-        speed = math.hypot(vx, vy)
-        if speed > const.SPEED_LIMIT:
-            vx *= const.SPEED_LIMIT / speed
-            vy *= const.SPEED_LIMIT / speed
+            target = bearing_of(-flight.x, -flight.y) + sign * offset
+            error = flight.steering_toward(target)
+            flight.step(error, abs(error) <= PLANET_ESCAPE_THRUST_ANGLE)
+        distance = flight.planet_distance
         closest = min(closest, distance)
         if distance <= contact and math.isinf(impact_frame):
             impact_frame = float(frame + 1)
         if distance <= PLANET_RADIUS:
             # Through the surface: no pass comes any closer.
             break
-        if distance > const.GRAVITY_RANGE and x * vx + y * vy > 0.0:
+        if (
+            distance > const.GRAVITY_RANGE
+            and flight.x * flight.vx + flight.y * flight.vy > 0.0
+        ):
             # Out of the well and leaving: nothing pulls it back.
             break
     return PlanetPass(closest=closest, impact_frame=impact_frame)
-
-
-def _thrusted_velocity(
-    vx: float,
-    vy: float,
-    dx: float,
-    dy: float,
-    spec: ShipSpec,
-    *,
-    inside_well: bool,
-) -> tuple[float, float]:
-    """Velocity after one thrust increment, as ``apply_thrust`` caps it."""
-
-    increment = spec.thrust_increment
-    nx, ny = vx + dx * increment, vy + dy * increment
-    speed = math.hypot(nx, ny)
-    scale = 1.0
-    if speed > spec.max_thrust and not inside_well:
-        scale = spec.max_thrust / speed
-    if speed > const.MAX_GRAV_WHIP:
-        scale = const.MAX_GRAV_WHIP / speed
-    change_x, change_y = nx * scale - vx, ny * scale - vy
-    change = math.hypot(change_x, change_y)
-    if change > increment > 0.0:
-        change_x *= increment / change
-        change_y *= increment / change
-    return vx + change_x, vy + change_y
 
 
 def _smallest_positive_root(a: float, b: float, c: float) -> float | None:

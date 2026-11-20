@@ -50,6 +50,11 @@ from src.training.baseline.engine import (
     planet_contact_distance,
     simulate_planet_pass,
 )
+from src.training.baseline.threats import (
+    fly_move,
+    judge_move,
+    threat_tracks,
+)
 from src.training.baseline.observation_view import (
     ObservationView,
     ObservedObject,
@@ -262,8 +267,12 @@ def _rule_context(
     max_battery=30.0,
     memory=None,
     speed=0.0,
+    a1_timer=0.0,
 ):
     view = mock.Mock()
+    view.me.heading = 0.0
+    view.me.a1_ready = a1_timer <= 0.0
+    view.me.timer_seconds.side_effect = lambda field: a1_timer if field == "a1_timer" else 0.0
     view.me.max_battery = max_battery
     view.enemy = enemy
     view.planet = planet
@@ -463,6 +472,174 @@ class PlanetRuleTests(unittest.TestCase):
 
         self.assertTrue(kept.avoid_planet())
         self.assertEqual(kept.plan.turn, TURN_LEFT)
+
+
+def _shot(bearing, distance, *, closing, damage=1.0, hit_points=1.0, group="enemy_a1",
+          life_seconds=None, sideways=0.0):
+    """An enemy shot at ``bearing`` flying in at ``closing``, drifting
+    ``sideways`` clockwise across my view."""
+
+    radians = math.radians(bearing)
+    seen = _seen(bearing, distance, closing=closing, group=group, crew_effect=-damage)
+    return dataclasses.replace(
+        seen,
+        velocity_forward=seen.velocity_forward - sideways * math.sin(radians),
+        velocity_right=seen.velocity_right + sideways * math.cos(radians),
+        lateral_speed=float(sideways),
+        hit_points=float(hit_points),
+        expires=life_seconds is not None,
+        remaining_seconds=0.0 if life_seconds is None else float(life_seconds),
+    )
+
+
+def _duel(ship_a, ship_b, *, gap=1000.0):
+    """Ship A at rest, facing screen-up, with ship B ``gap`` below it facing it.
+
+    Real sprites and masks: guns sit off centre and hulls have their own
+    shapes, which decide whether a shot lands.
+    """
+
+    from src.resources import HeadlessAssetManager
+
+    resources = HeadlessAssetManager()
+    audio = NullAudioService()
+    simulation = BattleSimulation(
+        None,
+        create_ship(ship_a, 1, resources=resources, audio_service=audio),
+        create_ship(ship_b, 2, resources=resources, audio_service=audio),
+        audio_service=audio,
+        rng=random.Random(3),
+        include_stars=False,
+        resources=resources,
+    )
+    simulation.world.objects[:] = [
+        obj for obj in simulation.world.objects if type(obj).__name__ != "Asteroid"
+    ]
+    me, enemy = simulation.player1, simulation.player2
+    me.position = [2000.0, 2000.0]
+    enemy.position = [2000.0, 2000.0 + gap]
+    for ship in (me, enemy):
+        ship.velocity = [0.0, 0.0]
+        ship.heading = 0
+        ship.rotation = 0.0
+    return simulation
+
+
+def _first_hit_frame(simulation, frames):
+    me = simulation.player1
+    crew = me.current_hp
+    idle = {1: ACTION_INDEX_TABLE[0], 2: ACTION_INDEX_TABLE[0]}
+    for frame in range(frames):
+        simulation.step(actions=idle)
+        if me.current_hp < crew:
+            return frame + 1
+    return None
+
+
+class EvadeRuleTests(unittest.TestCase):
+    def _predicted_hit_frame(self, simulation, ship_name, frames):
+        view = ObservationView(_observation(simulation))
+        velocity = (view.me.velocity_forward, view.me.velocity_right)
+        tracks = threat_tracks(
+            view.enemy_objects, velocity, enemy_name=view.enemy_ship_type, enemy_form="base"
+        )
+        self.assertEqual(len(tracks), 1)
+        spec = ship_spec(ship_name)
+        path, _ = fly_move(spec, velocity, frames, lambda flight: (None, False, False), planet=None)
+        outcome = judge_move(tracks, path, spec.shot_reach, planet=None)
+        self.assertEqual(outcome.hits, [0])
+        from src.training.baseline.threats import first_contact, threat_path
+
+        xs, ys = threat_path(tracks[0], path, planet=None)
+        frame, _ = first_contact(xs, ys, path, tracks[0].contact(spec.shot_reach))
+        return frame
+
+    def _fire(self, simulation):
+        fire = ACTION_INDEX_TABLE[ACTION_INDEX_BY_MASK[8]]
+        simulation.step(actions={1: ACTION_INDEX_TABLE[0], 2: fire})
+
+    def test_straight_shot_prediction_matches_the_simulation(self):
+        simulation = _duel("Mycon", "KzerZa")
+        self._fire(simulation)
+
+        predicted = self._predicted_hit_frame(simulation, "Mycon", 30)
+        actual = _first_hit_frame(simulation, 30)
+
+        self.assertIsNotNone(actual)
+        self.assertAlmostEqual(predicted, actual, delta=1.0)
+
+    def test_homing_shot_prediction_matches_the_simulation(self):
+        simulation = _duel("Mycon", "Earthling", gap=700.0)
+        simulation.player1.velocity = [12.0, 0.0]
+        self._fire(simulation)
+
+        predicted = self._predicted_hit_frame(simulation, "Mycon", 48)
+        actual = _first_hit_frame(simulation, 48)
+
+        self.assertIsNotNone(actual)
+        self.assertAlmostEqual(predicted, actual, delta=1.0)
+
+    def test_leaves_a_shot_that_misses_to_the_strategy(self):
+        # Ahead and to starboard, crossing my nose well clear of the hull.
+        passing = _shot(60.0, 700.0, closing=0.0, sideways=-40.0)
+        context = _rule_context("Pkunk", enemy_objects=[passing])
+
+        self.assertFalse(context.evade_threats())
+        self.assertIsNone(context.plan.turn)
+
+    def test_ignores_a_shot_that_expires_before_it_arrives(self):
+        short_lived = _shot(0.0, 800.0, closing=40.0, life_seconds=0.25)
+        context = _rule_context("Chenjesu", enemy_objects=[short_lived])
+
+        self.assertFalse(context.evade_threats())
+
+    def test_waits_while_a_later_dodge_still_clears(self):
+        # A quick ship has time to spare against a far, slow shot.
+        context = _rule_context("Pkunk", enemy_objects=[_shot(90.0, 1500.0, closing=40.0)])
+
+        self.assertFalse(context.evade_threats())
+        self.assertIsNone(context.plan.turn)
+
+    def test_thrusts_out_of_the_path_of_a_shot_from_the_side(self):
+        context = _rule_context(
+            "Pkunk", enemy_objects=[_shot(90.0, 220.0, closing=40.0, hit_points=2.0)]
+        )
+
+        self.assertTrue(context.evade_threats())
+        self.assertEqual(context.plan.turn, TURN_NONE)
+        self.assertTrue(context.plan.thrust)
+        self.assertIsNone(context.plan.a1)
+
+    def test_too_slow_to_dodge_shoots_down_the_threat_ahead(self):
+        nuke = _shot(0.0, 700.0, closing=40.0, damage=4.0)
+        context = _rule_context("Chenjesu", enemy_name="Earthling", enemy_objects=[nuke])
+
+        self.assertTrue(context.evade_threats())
+        self.assertTrue(context.plan.a1)
+        self.assertEqual(context.plan.turn, TURN_NONE)
+        self.assertFalse(context.plan.thrust)
+
+    def test_druuge_fires_at_the_threat_ahead(self):
+        shell = _shot(0.0, 900.0, closing=60.0, damage=6.0, hit_points=4.0)
+        context = _rule_context("Druuge", enemy_name="Druuge", enemy_objects=[shell])
+
+        self.assertTrue(context.evade_threats())
+        self.assertTrue(context.plan.a1)
+
+    def test_holds_fire_until_the_weapon_is_ready(self):
+        nuke = _shot(0.0, 900.0, closing=40.0, damage=4.0)
+        context = _rule_context(
+            "Chenjesu", enemy_name="Earthling", enemy_objects=[nuke], a1_timer=0.2
+        )
+
+        self.assertTrue(context.evade_threats())
+        self.assertIsNone(context.plan.a1)
+
+    def test_leaves_steering_claimed_by_the_planet_rule(self):
+        context = _rule_context("Pkunk", enemy_objects=[_shot(90.0, 220.0, closing=40.0)])
+        context.plan.claim_turn(TURN_LEFT)
+
+        self.assertFalse(context.evade_threats())
 
 
 class ShipRuleTests(unittest.TestCase):

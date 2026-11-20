@@ -1,7 +1,8 @@
 """Per-ship baseline strategies.
 
 Each function lists one ship's rules in priority order (see ``engine``). The
-shared rule 0, avoiding the planet, runs before every strategy.
+shared rules run before every strategy: rule 0 avoids the planet, and rule 1
+dodges or shoots down enemy shots in flight.
 """
 
 from __future__ import annotations
