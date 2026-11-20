@@ -297,6 +297,9 @@ def _apply_ramming_damage_to_projectile_like(
         or not is_live_special_object(projectile)
     ):
         return False
+    contact_allowed = getattr(projectile, "ram_contact_allowed", None)
+    if contact_allowed is not None and not contact_allowed(source):
+        return False
 
     capabilities = getattr(
         projectile,

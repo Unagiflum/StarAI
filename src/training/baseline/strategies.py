@@ -192,6 +192,9 @@ ORZ_HULL_AIM_OPPONENTS = frozenset({"Chenjesu", "KohrAh"})
 # at least this full.
 ANDROSYNTH_CHMMR_BLAZE_RANGE = 800.0
 ANDROSYNTH_CHMMR_BLAZE_BATTERY = 0.9
+# The blazer rams at the intercept point, except against these opponents,
+# where the arena shows ramming straight at them works better.
+ANDROSYNTH_STRAIGHT_RAM_OPPONENTS = frozenset({"Mmrnmrhm", "Supox"})
 # Opponents the Orz kites, as the arena favours: it holds them in a band,
 # running hull away from one closing in while the turret fires back.
 ORZ_KITE_OPPONENTS = frozenset(
@@ -318,7 +321,10 @@ def androsynth(ctx: BaselineContext) -> None:
     blazer = ctx.me.androsynth_blazer
     battery = ctx.me.battery_fraction
     if blazer and battery > 0.10:
-        ctx.approach_opponent()
+        if ctx.enemy_name in ANDROSYNTH_STRAIGHT_RAM_OPPONENTS:
+            ctx.approach_opponent()
+        else:
+            ctx.steer(_blazer_intercept_bearing(ctx))
     if battery < 0.10:
         ctx.avoid_opponent()
     if ctx.distance < LONG_RANGE and battery >= 0.50 and not blazer:
@@ -332,9 +338,9 @@ def androsynth(ctx: BaselineContext) -> None:
 def _androsynth_vs_chmmr(ctx: BaselineContext) -> None:
     """Save the battery, then blaze into the Chmmr once and keep ramming.
 
-    The blazer passes through satellites without harming them, and inside
-    their ring the lasers take about a crew a frame, so the crew buys one
-    ram: from close in, on a full battery, at where the Chmmr will be.
+    Inside the satellite ring the lasers take about a crew a frame, so the
+    crew buys one ram: from close in, on a full battery, at where the Chmmr
+    will be. Ramming satellites on the way (3 HP a contact) does less harm.
     """
 
     if ctx.me.androsynth_blazer:

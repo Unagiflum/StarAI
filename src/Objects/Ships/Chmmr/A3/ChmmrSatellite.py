@@ -68,6 +68,9 @@ class ChmmrSatellite(Ability):
         self.laser_wait = laser_definition.weapon_wait
         self.laser_timer = 0
         self.animation_frame = 0
+        # Frames updated, and the frame each ramming ship last touched it.
+        self._frames_updated = 0
+        self._last_ram_frames = {}
         self._spawned_objects = []
         self.expiration_timer = float("inf")
 
@@ -123,6 +126,24 @@ class ChmmrSatellite(Ability):
         self.position[0] = (self.position[0] + delta[0] / distance * step) % const.ARENA_SIZE
         self.position[1] = (self.position[1] + delta[1] / distance * step) % const.ARENA_SIZE
 
+    def should_collide_with_ship(self, ship):
+        """Ships pass through satellites, except an enemy Androsynth blazer,
+        which rams them."""
+
+        return (
+            getattr(ship, "player", self.player) != self.player
+            and bool(getattr(ship, "is_blazer", False))
+        )
+
+    def ram_contact_allowed(self, ship):
+        """One ram per contact: a ship touching this satellite last frame
+        as well deals no further damage until the contact ends."""
+
+        frame = self._frames_updated
+        previous = self._last_ram_frames.get(id(ship))
+        self._last_ram_frames[id(ship)] = frame
+        return previous is None or previous < frame - 1
+
     def should_collide_with_projectile_like(self, other):
         return (
             getattr(other, "type", None) == "projectile"
@@ -175,6 +196,7 @@ class ChmmrSatellite(Ability):
             return False
 
         self.previous_position = self.position.copy()
+        self._frames_updated += 1
         self.orbit_phase = (
             self.orbit_phase + self.orbit_direction
         ) % self.orbit_period

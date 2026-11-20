@@ -2010,6 +2010,38 @@ class AndrosynthChmmrTests(unittest.TestCase):
         self.assertTrue(context.plan.thrust)
 
 
+class AndrosynthBlazerSteeringTests(unittest.TestCase):
+    def _blazer(self, enemy_name):
+        # Off to the right, crossing ahead of me.
+        crossing = dataclasses.replace(_seen(90.0, 600.0), velocity_forward=30.0)
+        context = _rule_context(
+            "Androsynth", enemy=crossing, enemy_name=enemy_name, battery=24.0, max_battery=24.0
+        )
+        context.view.me.androsynth_blazer = True
+        context.view.me.battery_fraction = 1.0
+        return context
+
+    def _steered_bearing(self, context):
+        with mock.patch.object(BaselineContext, "steer", wraps=context.steer) as steer:
+            STRATEGIES["Androsynth"](context)
+        return steer.call_args_list[0].args[0]
+
+    def test_blazer_rams_at_the_intercept_point(self):
+        context = self._blazer("Spathi")
+
+        bearing = self._steered_bearing(context)
+
+        self.assertAlmostEqual(bearing, blazer_intercept_bearing(context))
+        # It leads the crossing opponent, ahead of its bearing.
+        self.assertGreater(bearing, 0.0)
+        self.assertLess(bearing, 80.0)
+
+    def test_blazer_rams_straight_at_a_supox_or_mmrnmrhm(self):
+        for name in ("Supox", "Mmrnmrhm"):
+            with self.subTest(name=name):
+                self.assertAlmostEqual(self._steered_bearing(self._blazer(name)), 90.0)
+
+
 class OrzTurretTests(unittest.TestCase):
     def _context(self, enemy=None, *, turret=0.0, enemy_name="Spathi", **kwargs):
         context = _rule_context(

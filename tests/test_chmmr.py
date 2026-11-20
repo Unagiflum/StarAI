@@ -500,3 +500,102 @@ class SatelliteHpBarTests(unittest.TestCase):
         self.assertEqual(filled[2], round(back[2] * 0.5))
         sprite_top = 400 - satellite._satellite_frames[0].get_height() // 2
         self.assertLess(back[1] + back[3], sprite_top)
+
+
+class BlazerRamsSatelliteTests(unittest.TestCase):
+    """An Androsynth blazer rams Chmmr satellites; other hulls pass through."""
+
+    def _simulation(self, ship_name):
+        import random
+
+        from src.Battle.battle import BattleSimulation
+        from src.resources import HeadlessAssetManager
+        from src.training.contracts import ACTION_INDEX_TABLE, action_for_index
+
+        resources = HeadlessAssetManager()
+        audio = NullAudioService()
+        simulation = BattleSimulation(
+            None,
+            create_ship(ship_name, 1, resources=resources, audio_service=audio),
+            create_ship("Chmmr", 2, resources=resources, audio_service=audio),
+            audio_service=audio,
+            rng=random.Random(3),
+            include_stars=False,
+            resources=resources,
+        )
+        simulation.world.objects[:] = [
+            obj
+            for obj in simulation.world.objects
+            if type(obj).__name__ not in ("Asteroid", "Planet")
+        ]
+        me, chmmr = simulation.player1, simulation.player2
+        chmmr.position = [2000.0, 2000.0]
+        me.position = [3500.0, 3500.0]
+        for ship in (me, chmmr):
+            ship.velocity = [0.0, 0.0]
+        self.idle = ACTION_INDEX_TABLE[0]
+        # Weapon 2 alone: the Androsynth becomes a blazer.
+        self.transform = next(
+            action for action in ACTION_INDEX_TABLE if action.mask == 16
+        )
+        return simulation
+
+    def _satellite(self, simulation):
+        return next(
+            obj
+            for obj in simulation.world.objects
+            if isinstance(obj, ChmmrSatellite) and obj.currently_alive
+        )
+
+    def _touch(self, simulation, satellite):
+        me = simulation.player1
+        me.position = list(satellite.position)
+        me.velocity = [0.0, 0.0]
+        simulation.step(actions={1: self.idle, 2: self.idle})
+
+    def test_blazer_rams_a_satellite_once_per_contact(self):
+        simulation = self._simulation("Androsynth")
+        simulation.step(actions={1: self.transform, 2: self.idle})
+        self.assertTrue(simulation.player1.is_blazer)
+        satellite = self._satellite(simulation)
+        damage = SHIP_DEFINITIONS["Androsynth"].forms["A2"].collision_damage
+
+        self._touch(simulation, satellite)
+        self.assertEqual(satellite.current_hp, satellite.start_hp - damage)
+        # Still in contact next frame: no second hit.
+        me = simulation.player1
+        me.position = list(satellite.position)
+        simulation.step(actions={1: self.idle, 2: self.idle})
+        self.assertEqual(satellite.current_hp, satellite.start_hp - damage)
+        # Apart for a frame, then a fresh contact hits again.
+        me.position = [3500.0, 3500.0]
+        simulation.step(actions={1: self.idle, 2: self.idle})
+        self._touch(simulation, satellite)
+        self.assertEqual(satellite.current_hp, satellite.start_hp - 2 * damage)
+        # The satellite keeps to its orbit.
+        self.assertLess(
+            wrapped_distance(satellite.position, satellite._orbit_target()),
+            satellite.speed + 1.0,
+        )
+
+    def test_a_ram_destroys_a_weakened_satellite(self):
+        simulation = self._simulation("Androsynth")
+        simulation.step(actions={1: self.transform, 2: self.idle})
+        satellite = self._satellite(simulation)
+        satellite.current_hp = 2
+
+        self._touch(simulation, satellite)
+
+        self.assertFalse(satellite.currently_alive and satellite.current_hp > 0)
+
+    def test_other_hulls_pass_through_satellites(self):
+        for ship_name in ("Androsynth", "Spathi"):
+            with self.subTest(ship=ship_name):
+                simulation = self._simulation(ship_name)
+                # Satellites launch on the first frame.
+                simulation.step(actions={1: self.idle, 2: self.idle})
+                satellite = self._satellite(simulation)
+
+                self._touch(simulation, satellite)
+
+                self.assertEqual(satellite.current_hp, satellite.start_hp)

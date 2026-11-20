@@ -169,6 +169,11 @@ class Androsynth(SpaceShip):
             special_object.set_hp(0)
             return True
 
+        if special_object.name == "ChmmrSatellite":
+            # The ram already took its HP; the satellite keeps its orbit and
+            # the blazer its course.
+            return True
+
         if special_object.name != "OrzA3":
             return False
 
