@@ -1701,6 +1701,267 @@ class ShipRuleTests(unittest.TestCase):
         self.assertEqual(y_far.memory.sides.keys(), {"avoid_opponent"})
 
 
+def _satellite(enemy, orbit_angle, *, hp=10.0, spin=1, orbit=256.0):
+    """A satellite on the enemy's orbit at ``orbit_angle`` (degrees from my
+    forward axis around the enemy), circling clockwise for ``spin`` 1."""
+
+    radians = math.radians(orbit_angle)
+    forward = enemy.forward + orbit * math.cos(radians)
+    right = enemy.right + orbit * math.sin(radians)
+    # Tangential speed of one turn every satellite period.
+    period = SHIP_DEFINITIONS["Chmmr"].satellite_period
+    speed = 2.0 * math.pi * orbit / period
+    velocity_forward = enemy.velocity_forward - spin * speed * math.sin(radians)
+    velocity_right = enemy.velocity_right + spin * speed * math.cos(radians)
+    return ObservedObject(
+        group="enemy_non_a1",
+        distance=math.hypot(forward, right),
+        bearing=math.degrees(math.atan2(right, forward)),
+        forward=forward,
+        right=right,
+        velocity_forward=velocity_forward,
+        velocity_right=velocity_right,
+        closing_speed=0.0,
+        lateral_speed=0.0,
+        crew_effect=0.0,
+        battery_effect=0.0,
+        hit_points=float(hp),
+        expires=False,
+        remaining_seconds=0.0,
+    )
+
+
+class ChmmrSatelliteHelperTests(unittest.TestCase):
+    def test_finds_only_the_chmmr_satellites(self):
+        enemy = _seen(0.0, 1200.0)
+        satellite = _satellite(enemy, 180.0)
+        laser = dataclasses.replace(_satellite(enemy, 90.0), expires=True)
+        stray = _seen(30.0, 900.0, group="enemy_non_a1")
+        stray = dataclasses.replace(stray, hit_points=1.0)
+        objects = (satellite, laser, stray)
+
+        chmmr = _rule_context("Thraddash", enemy=enemy, enemy_name="Chmmr", enemy_objects=objects)
+        self.assertEqual(chmmr.chmmr_satellites(), (satellite,))
+        other = _rule_context("Thraddash", enemy=enemy, enemy_name="Spathi", enemy_objects=objects)
+        self.assertEqual(other.chmmr_satellites(), ())
+
+    def test_finds_a_satellite_seen_across_the_arena_wrap(self):
+        enemy = _seen(0.0, 3900.0)
+        beyond = _satellite(enemy, 0.0)
+        # Its nearest copy lies one arena behind me (screen down).
+        across = dataclasses.replace(
+            beyond, forward=beyond.forward - const.ARENA_SIZE, bearing=180.0
+        )
+        context = _rule_context(
+            "Thraddash", enemy=enemy, enemy_name="Chmmr", enemy_objects=(across,)
+        )
+
+        self.assertEqual(context.chmmr_satellites(), (across,))
+        forward, right = context.satellite_offset(across, 0)
+        self.assertAlmostEqual(forward, enemy.forward + 256.0, places=6)
+        self.assertAlmostEqual(right, 0.0, places=6)
+
+    def test_predicts_a_satellite_along_its_orbit(self):
+        enemy = _seen(0.0, 1200.0)
+        quarter = SHIP_DEFINITIONS["Chmmr"].satellite_period // 4
+        for spin, expected_right in ((1, -256.0), (-1, 256.0)):
+            with self.subTest(spin=spin):
+                # Behind the Chmmr (toward me), a quarter turn on.
+                satellite = _satellite(enemy, 180.0, spin=spin)
+                context = _rule_context(
+                    "Thraddash", enemy=enemy, enemy_name="Chmmr", enemy_objects=(satellite,)
+                )
+                forward, right = context.satellite_offset(satellite, quarter)
+                self.assertAlmostEqual(forward, enemy.forward, places=6)
+                self.assertAlmostEqual(right, expected_right, places=6)
+
+    def test_shoots_the_weakest_satellite_in_reach(self):
+        enemy = _seen(0.0, 1200.0)
+        strong = _satellite(enemy, 180.0, hp=10.0)
+        weak = _satellite(enemy, 60.0, hp=3.0)
+        context = _rule_context(
+            "Thraddash", enemy=enemy, enemy_name="Chmmr", enemy_objects=(strong, weak)
+        )
+
+        target, _ = context.satellite_shot(1)
+
+        self.assertIs(target, weak)
+        far_enemy = _seen(0.0, 3000.0)
+        far = _rule_context(
+            "Thraddash",
+            enemy=far_enemy,
+            enemy_name="Chmmr",
+            enemy_objects=(_satellite(far_enemy, 180.0),),
+        )
+        self.assertIsNone(far.satellite_shot(1))
+
+    def test_intercept_meets_a_target_where_it_will_be(self):
+        context = _rule_context("Thraddash", enemy=_seen(0.0, 1200.0), enemy_name="Chmmr")
+        speed = context.weapon(1).speed
+
+        bearing, frames = context.intercept(1, lambda frames: (600.0, 0.0))
+        self.assertAlmostEqual(bearing, 0.0)
+        self.assertEqual(frames, math.ceil(600.0 / speed))
+        # A target moving right is led to the right.
+        bearing, _ = context.intercept(1, lambda frames: (600.0, 20.0 * frames))
+        self.assertGreater(bearing, 0.0)
+        self.assertIsNone(context.intercept(1, lambda frames: (5000.0, 0.0)))
+
+    def test_satellite_ring_lies_beyond_both_lasers_within_reach(self):
+        context = _rule_context("Thraddash", enemy=_seen(0.0, 1200.0), enemy_name="Chmmr")
+
+        self.assertEqual(context.satellite_ring(1620.0), (600.0, 1876.0))
+        self.assertIsNone(context.satellite_ring(300.0))
+
+
+class ChmmrMatchupTests(unittest.TestCase):
+    def test_thraddash_fires_at_a_lined_up_satellite_from_the_band(self):
+        enemy = _seen(0.0, 1200.0)
+        satellite = _satellite(enemy, 180.0)
+        context = _rule_context(
+            "Thraddash", enemy=enemy, enemy_name="Chmmr", enemy_objects=(satellite,)
+        )
+        with mock.patch.object(
+            BaselineContext, "satellite_shot", return_value=(satellite, 0.0)
+        ):
+            strategy_for("Thraddash")(context)
+
+        self.assertTrue(context.plan.a1)
+        self.assertFalse(context.plan.a2)
+
+    def test_thraddash_turns_tail_on_a_chmmr_closing_fast(self):
+        enemy = _seen(180.0, 1100.0, closing=40.0)
+        context = _rule_context("Thraddash", enemy=enemy, enemy_name="Chmmr")
+
+        strategy_for("Thraddash")(context)
+
+        # The tail already faces it: burn away, laying the trail between.
+        self.assertTrue(context.plan.a2)
+        self.assertFalse(context.plan.a1)
+
+    def test_thraddash_never_dashes_in_at_a_chmmr(self):
+        context = _rule_context(
+            "Thraddash", enemy=_seen(0.0, 3000.0, closing=20.0), enemy_name="Chmmr"
+        )
+
+        strategy_for("Thraddash")(context)
+
+        self.assertFalse(context.plan.a2)
+        self.assertFalse(context.plan.thrust)
+
+    def test_arilou_fires_only_while_a_satellite_blocks_its_beam(self):
+        enemy = _seen(0.0, 640.0)
+        # One frame's turn short of the beam: the laser fires a frame later.
+        step = 360.0 / SHIP_DEFINITIONS["Chmmr"].satellite_period
+        on_beam = _satellite(enemy, 180.0 - step)
+        off_beam = _satellite(enemy, 90.0)
+        for satellite, fires in ((on_beam, True), (off_beam, False)):
+            with self.subTest(fires=fires):
+                context = _rule_context(
+                    "Arilou", enemy=enemy, enemy_name="Chmmr", enemy_objects=(satellite,)
+                )
+                strategy_for("Arilou")(context)
+                self.assertIs(bool(context.plan.a1), fires)
+
+    def test_arilou_backs_off_nose_away_inside_the_hold_distance(self):
+        enemy = _seen(180.0, 600.0, closing=30.0)
+        context = _rule_context(
+            "Arilou",
+            enemy=enemy,
+            enemy_name="Chmmr",
+            enemy_objects=(_satellite(enemy, 90.0),),
+        )
+
+        strategy_for("Arilou")(context)
+
+        self.assertEqual(context.plan.turn, TURN_NONE)
+        self.assertTrue(context.plan.thrust)
+
+
+class ChmmrMatchupMoreTests(unittest.TestCase):
+    def _orz(self, satellites):
+        enemy = _seen(0.0, 1000.0)
+        objects = tuple(_satellite(enemy, angle) for angle in (90.0, 210.0, 330.0)[:satellites])
+        context = _rule_context("Orz", enemy=enemy, enemy_name="Chmmr", enemy_objects=objects)
+        context.view.me.orz_marines = 0
+        context.view.me.crew = 16.0
+        context.view.me.orz_turret_bearing = 0.0
+        STRATEGIES["Orz"](context)
+        return context
+
+    def test_orz_boards_a_chmmr_only_with_one_satellite_or_none_left(self):
+        self.assertFalse(self._orz(3).plan.a2)
+        self.assertFalse(self._orz(2).plan.a2)
+        self.assertTrue(self._orz(1).plan.a2)
+        self.assertTrue(self._orz(0).plan.a2)
+
+    def _vux(self, enemy, objects):
+        context = _rule_context("Vux", enemy=enemy, enemy_name="Chmmr", enemy_objects=objects)
+        # A healthy Chmmr: not slowed by limpets.
+        context.view.enemy_block.max_thrust = 35.0
+        context.view.enemy_block.turn_wait = 3
+        STRATEGIES["Vux"](context)
+        return context
+
+    def test_vux_lays_limpets_only_while_satellites_shoot_at_it(self):
+        far_enemy = _seen(90.0, 1500.0)
+        guarded = self._vux(far_enemy, (_satellite(far_enemy, 0.0),))
+        self.assertFalse(guarded.plan.a2)
+
+        near_enemy = _seen(90.0, 420.0)
+        busy = self._vux(near_enemy, (_satellite(near_enemy, 270.0),))
+        self.assertTrue(busy.plan.a2)
+
+    def test_vux_lasers_a_satellite_crossing_its_beam(self):
+        enemy = _seen(20.0, 600.0)
+        step = 360.0 / SHIP_DEFINITIONS["Chmmr"].satellite_period
+        # Where its orbit crosses the nose line on my side, within reach;
+        # it gets there next frame.
+        crossing = enemy.forward - math.sqrt(256.0**2 - enemy.right**2)
+        orbit_angle = math.degrees(math.atan2(-enemy.right, crossing - enemy.forward))
+        satellite = _satellite(enemy, orbit_angle - step)
+        context = self._vux(enemy, (satellite,))
+
+        self.assertTrue(context.satellite_on_beam(0.0, 664.0))
+        self.assertTrue(context.plan.a1)
+
+    def test_supox_turns_to_a_satellite_while_settled_in_its_band(self):
+        enemy = _seen(0.0, 900.0)
+        # Its shot bearing is well off the nose, past the tap tolerance.
+        satellite = _satellite(enemy, 60.0)
+        context = _rule_context(
+            "Supox", enemy=enemy, enemy_name="Chmmr", enemy_objects=(satellite,)
+        )
+        context.view.enemy_block.opponent_bearing = 90.0
+        _, bearing = context.satellite_shot(1)
+        STRATEGIES["Supox"](context)
+
+        self.assertFalse(context.plan.a2)
+        expected = TURN_RIGHT if bearing > 0.0 else TURN_LEFT
+        self.assertEqual(context.plan.turn, expected)
+
+    def test_standoff_runs_early_from_a_fast_closer(self):
+        context = _rule_context("Orz", enemy=_seen(0.0, 1500.0, closing=60.0), enemy_name="Chmmr")
+
+        self.assertTrue(context.keep_standoff("test", 900.0, 1250.0))
+        # Running: the nose turns away from it.
+        self.assertNotEqual(context.plan.turn, TURN_NONE)
+
+    def test_standoff_closes_in_slowly_and_leaves_the_band_free(self):
+        slow = _rule_context("Orz", enemy=_seen(0.0, 2000.0, closing=5.0), enemy_name="Chmmr")
+        self.assertFalse(slow.keep_standoff("test", 900.0, 1250.0))
+        self.assertTrue(slow.plan.thrust)
+
+        fast = _rule_context("Orz", enemy=_seen(0.0, 4000.0, closing=30.0), enemy_name="Chmmr")
+        self.assertFalse(fast.keep_standoff("test", 900.0, 1250.0))
+        self.assertFalse(fast.plan.thrust)
+
+        settled = _rule_context("Orz", enemy=_seen(0.0, 1100.0), enemy_name="Chmmr")
+        self.assertFalse(settled.keep_standoff("test", 900.0, 1250.0))
+        self.assertIsNone(settled.plan.turn)
+        self.assertIsNone(settled.plan.thrust)
+
+
 class BaselinePhaseMixerTests(unittest.TestCase):
     def test_phases_last_span_times_multiplier_frames(self):
         rng = mock.Mock()

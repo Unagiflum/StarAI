@@ -69,6 +69,9 @@ class ArenaResult:
     crew_end: float
     opponent_crew_start: float
     opponent_crew_end: float
+    # Satellite HP the opponent lost: set only when it fights with satellites
+    # (the Chmmr), None otherwise.
+    opponent_satellite_hp_lost: float | None = None
 
     @property
     def damage_dealt(self) -> float:
@@ -131,6 +134,27 @@ def _destroyed(ship) -> bool:
     return not getattr(ship, "currently_alive", True) or ship.current_hp <= 0
 
 
+def _has_satellites(ship_name: str) -> bool:
+    from src.Objects.Ships.catalog import SHIP_DEFINITIONS
+
+    return bool(getattr(SHIP_DEFINITIONS[ship_name], "satellite_count", None))
+
+
+def _satellite_hp(simulation, owner) -> float:
+    """Total HP of ``owner``'s live satellites."""
+
+    return float(
+        sum(
+            obj.current_hp
+            for obj in simulation.world.objects
+            if getattr(obj, "name", None) == "ChmmrSatellite"
+            and getattr(obj, "parent", None) is owner
+            and getattr(obj, "currently_alive", False)
+            and obj.current_hp > 0
+        )
+    )
+
+
 def run_match(match: ArenaMatch, *, seconds: float = DEFAULT_SECONDS) -> ArenaResult:
     """Fly one fight between two baseline-controlled ships."""
 
@@ -165,6 +189,11 @@ def run_match(match: ArenaMatch, *, seconds: float = DEFAULT_SECONDS) -> ArenaRe
     frame_limit = max(1, int(round(float(seconds) * const.FPS)))
     outcome = OUTCOME_TIMEOUT
     frames = frame_limit
+    # Satellites appear on the first update and never regain HP, so the most
+    # seen less the least seen is the HP the evaluated ship removed.
+    track_satellites = _has_satellites(match.opponent)
+    satellite_most = 0.0
+    satellite_least = None
     for frame in range(frame_limit):
         ships = {1: simulation.player1, 2: simulation.player2}
         actions = {}
@@ -179,6 +208,11 @@ def run_match(match: ArenaMatch, *, seconds: float = DEFAULT_SECONDS) -> ArenaRe
             action = action_for_index(controllers[player].decide(observation))
             actions[player] = guard_computer_controls(action, ship, enemy)
         simulation.step(actions=actions)
+        if track_satellites:
+            satellite_hp = _satellite_hp(simulation, simulation.player2)
+            satellite_most = max(satellite_most, satellite_hp)
+            if satellite_least is None or satellite_hp < satellite_least:
+                satellite_least = satellite_hp
         winner = simulation.winner()
         if winner is simulation.player1:
             outcome, frames = OUTCOME_WIN, frame + 1
@@ -208,6 +242,9 @@ def run_match(match: ArenaMatch, *, seconds: float = DEFAULT_SECONDS) -> ArenaRe
         crew_end=max(0.0, float(simulation.player1.current_hp)),
         opponent_crew_start=opponent_crew_start,
         opponent_crew_end=max(0.0, float(simulation.player2.current_hp)),
+        opponent_satellite_hp_lost=(
+            satellite_most - (satellite_least or 0.0) if track_satellites else None
+        ),
     )
 
 
@@ -274,6 +311,9 @@ class ArenaTally:
     damage_dealt: float = 0.0
     damage_taken: float = 0.0
     win_seconds: float = 0.0
+    seconds: float = 0.0
+    satellite_fights: int = 0
+    satellite_hp_lost: float = 0.0
 
     def add(self, result: ArenaResult) -> None:
         self.fights += 1
@@ -290,6 +330,10 @@ class ArenaTally:
             self.timeouts += 1
         self.damage_dealt += result.damage_dealt
         self.damage_taken += result.damage_taken
+        self.seconds += result.seconds
+        if result.opponent_satellite_hp_lost is not None:
+            self.satellite_fights += 1
+            self.satellite_hp_lost += result.opponent_satellite_hp_lost
 
     @property
     def mean_dealt(self) -> float:
@@ -300,14 +344,29 @@ class ArenaTally:
         return self.damage_taken / self.fights if self.fights else 0.0
 
     @property
+    def mean_seconds(self) -> float:
+        return self.seconds / self.fights if self.fights else 0.0
+
+    @property
+    def mean_satellite_hp_lost(self) -> float | None:
+        if not self.satellite_fights:
+            return None
+        return self.satellite_hp_lost / self.satellite_fights
+
+    @property
     def mean_win_seconds(self) -> float | None:
         return self.win_seconds / self.wins if self.wins else None
 
     def cell(self) -> str:
-        return (
+        text = (
             f"{self.wins}W {self.losses}L {self.draws}D {self.trades}X {self.timeouts}T "
-            f"dealt {self.mean_dealt:4.0%} taken {self.mean_taken:4.0%}"
+            f"dealt {self.mean_dealt:4.0%} taken {self.mean_taken:4.0%} "
+            f"fight {self.mean_seconds:3.0f}s"
         )
+        satellite_hp = self.mean_satellite_hp_lost
+        if satellite_hp is not None:
+            text += f" sat HP {satellite_hp:4.1f}"
+        return text
 
 
 def tally(

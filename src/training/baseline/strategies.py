@@ -16,6 +16,7 @@ from src.training.baseline.engine import (
     APPROACH_ANGLE_OFFSET,
     AVOID_ANGLE_OFFSET,
     PERPENDICULAR_AWAY_OFFSET,
+    SATELLITE_HIT_RADIUS,
     TURN_LEFT,
     TURN_NONE,
     TURN_RIGHT,
@@ -143,6 +144,30 @@ THRADDASH_DASH_ALIGN = 15.0
 THRADDASH_DASH_SPEED = 60.0
 THRADDASH_DASH_COST = 6.0
 THRADDASH_SLOW_TURN_WAIT = 3
+# Arilou against a Chmmr: hold this band, just beyond the Chmmr laser and
+# within laser reach of the near satellite, and fire while a satellite lies
+# on the beam (half the satellite's width either side of it).
+ARILOU_CHMMR_HOLD = 650.0
+ARILOU_CHMMR_FAR = 700.0
+# The beam stops at a satellite's edge, a little beyond its centre's reach.
+ARILOU_BEAM_MARGIN = -15.0
+# Against a Chmmr: hold this band outside the satellites' and the Chmmr
+# laser's reach, shooting satellites first; inside the escape distance burn
+# away, trailing flames between us, until clear of the release distance.
+THRADDASH_CHMMR_NEAR = 1000.0
+THRADDASH_CHMMR_FAR = 1450.0
+THRADDASH_CHMMR_ESCAPE = 900.0
+THRADDASH_CHMMR_RELEASE = 1300.0
+# The escape starts early enough to turn tail before the Chmmr, closing at
+# its current speed and still speeding up as it is, reaches the escape
+# distance; with this much time to spare.
+THRADDASH_CHMMR_TURN_MARGIN = 0.5
+# Never thrust toward the Chmmr while closing faster than this: its tractor
+# beam adds speed on top.
+THRADDASH_CHMMR_APPROACH_SPEED = 15.0
+# The tractor pulls in pulses, so the closing acceleration is smoothed with
+# this weight on each new frame.
+THRADDASH_CHMMR_ACCEL_SMOOTHING = 0.1
 THRADDASH_SLOW_TURNERS = frozenset(
     name
     for name, ship in SHIP_DEFINITIONS.items()
@@ -150,6 +175,13 @@ THRADDASH_SLOW_TURNERS = frozenset(
 )
 # Orz marines only feed a Thraddash trail.
 ORZ_MARINE_COUNTERS = frozenset({"Thraddash"})
+# Against a Chmmr, marines launch only once this many satellites or fewer
+# are left to shoot them down.
+ORZ_CHMMR_MARINE_SATELLITES = 1
+# Standoff band from a Chmmr, beyond its reach and within turret reach of a
+# satellite.
+ORZ_CHMMR_NEAR = 900.0
+ORZ_CHMMR_FAR = 1250.0
 # Supox: hold a distance band, by default 600-900, or just outside a
 # shorter-reaching opponent's weapons. With the gun within the slide aim
 # tolerance it holds A2 to slide instead of turning; it dodges hits due
@@ -280,8 +312,41 @@ def androsynth(ctx: BaselineContext) -> None:
 def arilou(ctx: BaselineContext) -> None:
     if ctx.imminent_threat(ARILOU_TELEPORT_SECONDS) is not None:
         ctx.a2(True)
+    if ctx.chmmr_satellites():
+        _arilou_vs_chmmr(ctx)
+        return
     ctx.approach_weapon_range(1)
     if ctx.in_range(1) and ctx.me.battery >= ctx.spec.a1_cost + ctx.spec.a2_cost:
+        ctx.a1(True)
+
+
+def _arilou_vs_chmmr(ctx: BaselineContext) -> None:
+    """Hold just outside the Chmmr laser; fire as a satellite crosses the beam.
+
+    The laser always aims at the Chmmr and stops at the first satellite in
+    its path, so it hits one only while that satellite lies on the line
+    within reach. The band is beyond the satellites' reach, and the tractor
+    can't hold the Arilou.
+    """
+
+    enemy = ctx.enemy
+    # Stop closing in early enough to turn the nose away before the Chmmr,
+    # closing as fast as it now is, comes within the hold distance.
+    away = wrap_degrees(enemy.bearing + 180.0)
+    turn_frames = ctx.turn_seconds(away) * const.FPS
+    stopping = max(0.0, enemy.closing_speed) * turn_frames
+    if enemy.distance - stopping > ARILOU_CHMMR_FAR:
+        ctx.steer(enemy.bearing)
+    else:
+        # The laser aims itself, so keep the nose away from the Chmmr and
+        # back off only while it is nearer than the hold distance.
+        ctx.steer(
+            wrap_degrees(enemy.bearing + 180.0),
+            thrust=enemy.distance < ARILOU_CHMMR_HOLD,
+        )
+    reach = ctx.weapon(1).range - ARILOU_BEAM_MARGIN
+    blocked = ctx.satellite_on_beam(enemy.bearing, reach)
+    if blocked and ctx.me.battery >= ctx.spec.a1_cost + ctx.spec.a2_cost:
         ctx.a1(True)
 
 
@@ -604,16 +669,33 @@ def mycon(ctx: BaselineContext) -> None:
 
 
 def orz(ctx: BaselineContext) -> None:
+    # Satellites shoot marines down; board a Chmmr once at most one is left.
+    satellites = ctx.chmmr_satellites()
     if (
         ctx.me.orz_marines < 2
         and ctx.me.crew > 2
         and ctx.enemy_name not in ORZ_MARINE_COUNTERS
+        and len(satellites) <= ORZ_CHMMR_MARINE_SATELLITES
     ):
         # Weapon 1 and weapon 2 together launch a marine.
         ctx.a1(True)
         ctx.a2(True)
     ctx.a2(False)
-    ctx.approach_weapon_range(1)
+    if satellites:
+        ctx.keep_standoff("orz_chmmr", ORZ_CHMMR_NEAR, ORZ_CHMMR_FAR)
+    else:
+        ctx.approach_weapon_range(1)
+    shot = ctx.satellite_shot(1) if satellites else None
+    if shot is not None:
+        # Turret shots at the weakest satellite in reach.
+        satellite, bearing = shot
+        tolerance = max(
+            ctx.weapon(1).pointing_tolerance,
+            math.degrees(math.atan2(SATELLITE_HIT_RADIUS, max(1.0, satellite.distance))),
+        )
+        if ctx.aim_gun(1, bearing, tolerance):
+            ctx.a1(True)
+        return
     # Aim the hull so the turret faces the target; never turn the turret.
     ctx.point_weapon(1)
     if ctx.pointing(1) and ctx.in_range(1):
@@ -936,6 +1018,21 @@ def _supox_evade_side(ctx: BaselineContext) -> int:
     return int(values.get("supox_evade", TURN_LEFT))
 
 
+def _supox_satellite_aim(ctx: BaselineContext) -> tuple[float, float] | None:
+    """Gun error to the weakest Chmmr satellite in reach, and the fire
+    tolerance for it; None with no satellite in reach."""
+
+    shot = ctx.satellite_shot(1)
+    if shot is None:
+        return None
+    satellite, bearing = shot
+    tolerance = max(
+        ctx.weapon(1).pointing_tolerance,
+        math.degrees(math.atan2(SATELLITE_HIT_RADIUS, max(1.0, satellite.distance))),
+    )
+    return ctx.gun_error(1, bearing), tolerance
+
+
 def supox(ctx: BaselineContext) -> None:
     enemy = ctx.enemy
     if enemy is None:
@@ -944,6 +1041,9 @@ def supox(ctx: BaselineContext) -> None:
         ctx.weapon(1).pointing_tolerance,
         math.degrees(math.atan2(TYPICAL_HULL_RADIUS, max(1.0, ctx.distance))),
     )
+    # Against a Chmmr, shoot its satellites while settled in the band; the
+    # band itself is still kept against the Chmmr, as sliding can't turn.
+    satellite_aim = _supox_satellite_aim(ctx)
     if ctx.plan.steering_claimed:
         # The planet rule is flying the ship; A2 would turn its turns into slides.
         ctx.a2(False)
@@ -956,6 +1056,10 @@ def supox(ctx: BaselineContext) -> None:
         dodge = _supox_dodge_side(ctx)
         if dodge is not None:
             _supox_slide(ctx, dodge, backward=ctx.distance < near)
+        elif satellite_aim is not None and near <= ctx.distance <= far and not faced:
+            ctx.a2(False)
+            ctx.point_at(satellite_aim[0])
+            ctx.plan.claim_thrust(False)
         elif not aimed:
             ctx.a2(False)
             ctx.point_weapon(1)
@@ -976,7 +1080,9 @@ def supox(ctx: BaselineContext) -> None:
             ctx.point_weapon(1)
             ctx.plan.claim_thrust(False)
     error = ctx.aim_error(1)
-    if ctx.in_range(1) and error is not None and abs(error) <= fire_tolerance:
+    on_enemy = ctx.in_range(1) and error is not None and abs(error) <= fire_tolerance
+    on_satellite = satellite_aim is not None and abs(satellite_aim[0]) <= satellite_aim[1]
+    if on_enemy or on_satellite:
         ctx.a1(True)
 
 
@@ -1095,6 +1201,9 @@ def thraddash(ctx: BaselineContext) -> None:
         ):
             ctx.a2(True)
             break
+    if ctx.enemy_name == "Chmmr":
+        _thraddash_vs_chmmr(ctx)
+        return
     # Escape: burn away from an opponent coming too close, or arriving soon.
     # Slow turners are baited in nearer, so they follow into the trail.
     slow_turner = ctx.enemy_name in THRADDASH_SLOW_TURNERS
@@ -1150,6 +1259,56 @@ def thraddash(ctx: BaselineContext) -> None:
     ctx.point_weapon(1)
     spare = ctx.me.battery - ctx.spec.a1_cost >= THRADDASH_BURN_RESERVE
     if ctx.distance <= THRADDASH_STANDOFF_FAR and ctx.pointing(1) and spare:
+        ctx.a1(True)
+
+
+def _thraddash_vs_chmmr(ctx: BaselineContext) -> None:
+    """Snipe satellites from outside their reach; bait the Chmmr into flames.
+
+    Its 2-HP shots survive one satellite zap. A closing Chmmr is led through
+    the afterburner trail, whose 1-HP flames the satellites shoot first.
+    """
+
+    enemy = ctx.enemy
+    values = ctx.memory.values
+    closing = enemy.closing_speed > 0.0
+    previous = values.get("thraddash_closing_speed", enemy.closing_speed)
+    values["thraddash_closing_speed"] = enemy.closing_speed
+    smoothing = THRADDASH_CHMMR_ACCEL_SMOOTHING
+    speeding_up = (1.0 - smoothing) * values.get("thraddash_closing_accel", 0.0) + (
+        smoothing * (enemy.closing_speed - previous)
+    )
+    values["thraddash_closing_accel"] = speeding_up
+    tail = wrap_degrees(enemy.bearing + 180.0)
+    turn_frames = (ctx.turn_seconds(tail) + THRADDASH_CHMMR_TURN_MARGIN) * const.FPS
+    reach_at_turn = enemy.distance - (
+        max(0.0, enemy.closing_speed) * turn_frames
+        + 0.5 * max(0.0, speeding_up) * turn_frames * turn_frames
+    )
+    if closing and reach_at_turn <= THRADDASH_CHMMR_ESCAPE:
+        values["thraddash_escaping"] = True
+    elif enemy.distance > THRADDASH_CHMMR_RELEASE or (
+        enemy.closing_speed < 0.0 and reach_at_turn > THRADDASH_CHMMR_NEAR
+    ):
+        values["thraddash_escaping"] = False
+    if values.get("thraddash_escaping", False):
+        _thraddash_tail_burn(ctx, enemy, burn=True)
+        return
+    if enemy.distance > THRADDASH_CHMMR_FAR:
+        heading = ctx.drift_cancelling_side("chmmr_band", enemy, APPROACH_ANGLE_OFFSET)
+        ctx.steer(heading, thrust=enemy.closing_speed < THRADDASH_CHMMR_APPROACH_SPEED)
+    elif enemy.distance < THRADDASH_CHMMR_NEAR:
+        ctx.steer(ctx.side("chmmr_near", enemy.bearing, PERPENDICULAR_AWAY_OFFSET))
+    shot = ctx.satellite_shot(1)
+    if shot is not None:
+        pointing = ctx.aim_gun(1, shot[1])
+    else:
+        ctx.point_weapon(1)
+        pointing = False
+    # A shot lined up on the Chmmr itself goes too: with 2 HP it may get by.
+    pointing = pointing or (ctx.pointing(1) and ctx.in_range(1))
+    spare = ctx.me.battery - ctx.spec.a1_cost >= THRADDASH_BURN_RESERVE
+    if pointing and spare:
         ctx.a1(True)
 
 
@@ -1551,6 +1710,9 @@ def _vux(ctx: BaselineContext, *, slingshot: bool, hold_beam: bool) -> None:
     in_reach = enemy.distance <= VUX_BURST_DISTANCE
     if in_reach and abs(enemy.bearing) <= tolerance:
         ctx.a1(True)
+    # A Chmmr satellite crossing the beam takes the hit instead.
+    if ctx.satellite_on_beam(0.0, ctx.weapon(1).range + SATELLITE_HIT_RADIUS):
+        ctx.a1(True)
     if (
         hold_beam
         and in_reach
@@ -1564,7 +1726,9 @@ def _vux(ctx: BaselineContext, *, slingshot: bool, hold_beam: bool) -> None:
     # Limpets until the opponent is crippled, keeping laser battery when near.
     near = enemy.distance <= ctx.weapon(1).range + TYPICAL_HULL_RADIUS + VUX_LASER_RESERVE_MARGIN
     spare = ctx.me.battery - ctx.spec.a2_cost >= VUX_LASER_RESERVE
-    if not disabled and ctx.in_range(2) and (spare or not near):
+    # Satellites shoot limpets down unless busy shooting the Vux itself.
+    shielded = bool(ctx.chmmr_satellites()) and not ctx.satellites_in_reach_of_me()
+    if not disabled and not shielded and ctx.in_range(2) and (spare or not near):
         ctx.a2(True)
     if slingshot and not disabled and enemy.distance > VUX_SLINGSHOT_DISTANCE:
         ctx.coast_above_top_speed = True

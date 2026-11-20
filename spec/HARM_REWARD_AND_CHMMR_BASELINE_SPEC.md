@@ -86,31 +86,44 @@ about 1.86, so 0.5 kill credit per death averages about 0.93 kills per Pkunk.
 
 ## Baseline Measurement: Opponent vs Chmmr Before Changes
 
-20 fights per ship, baseline strategy on both sides, 100 s limit, before any
-change in this spec.
+Measured with the baseline arena, which now reports satellite HP removed and
+mean fight length:
 
-| Ship | W-L | Chmmr crew dealt (of 42) | Satellite HP dealt (of 30) | Avg seconds alive |
+```text
+python -m src.training.baseline.arena --ships all --opponents Chmmr --seeds 20 --workers 8
+```
+
+20 fights per ship, baseline strategy on both sides (the Chmmr included),
+100 s limit, before any Phase 2 change. W-L-T counts timeouts as T. Crew
+dealt is the mean share of the Chmmr's crew removed (100% for a win).
+
+| Ship | W-L-T | Chmmr crew dealt | Satellite HP dealt (of 30) | Mean fight (s) |
 |---|---|---|---|---|
-| Spathi | 0-19 | 0.6 | 0.0 | 19.8 |
-| Shofixti | 0-20 | 10.9 | 23.0 | 1.6 |
-| Pkunk | 0-20 | 0.1 | 0.1 | 9.8 |
-| Arilou | 0-20 | 0.7 | 0.0 | 5.5 |
-| ZoqFotPik | 0-20 | 3.1 | 0.1 | 3.2 |
-| Supox | 0-17 | 1.1 | 0.2 | 46.1 |
-| Thraddash | 0-20 | 0.6 | 0.1 | 4.2 |
-| Earthling | 0-20 | 0.2 | 1.9 | 12.0 |
-| Yehat | 0-20 | 1.8 | 0.7 | 16.3 |
-| Mycon | 0-20 | 7.2 | 10.1 | 19.8 |
-| Ilwrath | 0-20 | 0.0 | 0.0 | 11.7 |
-| Androsynth | 0-20 | 4.5 | 0.2 | 14.9 |
-| Druuge | 19-1 | 41.7 | 7.3 | 19.7 |
-| KzerZa | 0-6 (14 draws) | 10.4 | 2.1 | 79.9 |
-| Orz | 0-20 | 1.6 | 0.0 | 6.5 |
-| Melnorme | 0-20 | 7.2 | 3.7 | 18.6 |
-| Utwig | 0-20 | 6.3 | 1.4 | 11.0 |
-| Vux | 0-20 | 19.6 | 2.1 | 5.0 |
-
-Missing from this table: Slylandro and Syreen. Add them before Phase 2 starts.
+| Androsynth | 0-20-0 | 11% | 0.2 | 15 |
+| Arilou | 0-20-0 | 2% | 0.0 | 5 |
+| Chenjesu | 0-19-1 | 26% | 6.6 | 17 |
+| Chmmr | 2-3-15 | 40% | 26.8 | 80 |
+| Druuge | 19-1-0 | 99% | 7.3 | 20 |
+| Earthling | 0-20-0 | 0% | 1.9 | 12 |
+| Ilwrath | 0-20-0 | 0% | 0.0 | 12 |
+| KohrAh | 2-14-4 | 47% | 16.6 | 33 |
+| KzerZa | 0-6-14 | 25% | 2.1 | 80 |
+| Mmrnmrhm | 0-3-17 | 8% | 0.1 | 90 |
+| Melnorme | 0-20-0 | 17% | 3.7 | 19 |
+| Mycon | 0-20-0 | 17% | 10.1 | 20 |
+| Orz | 0-20-0 | 4% | 0.0 | 7 |
+| Pkunk | 0-20-0 | 0% | 0.1 | 10 |
+| Shofixti | 0-20-0 | 26% | 23.0 | 2 |
+| Slylandro | 0-20-0 | 6% | 1.9 | 7 |
+| Spathi | 0-19-1 | 1% | 0.0 | 20 |
+| Supox | 0-17-3 | 2% | 0.2 | 46 |
+| Syreen | 0-20-0 | 12% | 0.0 | 4 |
+| Thraddash | 0-20-0 | 1% | 0.1 | 4 |
+| Umgah | 0-20-0 | 0% | 0.0 | 4 |
+| Utwig | 0-20-0 | 15% | 1.4 | 11 |
+| Vux | 0-20-0 | 47% | 2.1 | 5 |
+| Yehat | 0-20-0 | 4% | 0.7 | 16 |
+| ZoqFotPik | 0-20-0 | 8% | 0.1 | 3 |
 
 ---
 
@@ -697,14 +710,14 @@ Recorded 2026-11-20.
 |---|---|---|---|
 | 1 | Satellite HP bars | Implemented | `hp_bar_appearance` and `ChmmrSatellite._draw_hp_bar`; `SatelliteHpBarTests` in `tests/test_chmmr.py`; render checked at 10, 9, 7, 5, 3 and 1 HP. Full suite 1,502 tests OK. |
 | 1 | Supox end animation on hit only | Implemented | `end_anim_on_hit_only` ability field, set for `SupoxA1`; `destroy_projectile(dealt_damage=...)` is false for laser, area and planet deaths and for pair contacts that dealt no damage; `tests/test_supox_end_animation.py`. |
-| 2 | Shared satellite helpers | Not started | |
-| 2.1 | Thraddash | Not started | |
-| 2.2 | Arilou | Not started | |
-| 2.3 | Supox | Not started | |
-| 2.4 | Pkunk | Not started | |
-| 2.5 | Vux | Not started | |
-| 2.6 | Orz | Not started | |
-| 2.7 | Kzer-Za (confirm only) | Not started | |
+| 2 | Shared satellite helpers | Implemented | Engine: `chmmr_satellites` (handles the arena wrap), `satellite_offset` (orbit prediction, exact against the game at 6 and 12 frames), `intercept`, `satellite_shot`, `satellite_ring`, `satellite_on_beam`, `satellites_in_reach_of_me`, `gun_error`/`aim_gun`, `closing_reach` and `keep_standoff` (run early from a fast closer allowing for turn time and smoothed acceleration; approach below a speed cap). Arena reports satellite HP removed and fight length. Tests: `ChmmrSatelliteHelperTests`, `ChmmrMatchupMoreTests`. |
+| 2.1 | Thraddash | Implemented | It never fired before and dashed through satellite range. Now: no dash; hold 1,000–1,450; run tail-first (laying flames) early from a fast closer; shoot satellites with orbit-predicted aim, or the Chmmr when lined up. 40 seeds: 0-3-37, crew dealt 9%, satellite HP 13.8, fight 96 s (before: 0-20-0, 1%, 0.1, 4 s). |
+| 2.2 | Arilou | Implemented | Nose away from the Chmmr, thrust only inside 650; close in only while able to turn away in time; fire when a satellite will lie on the beam. 40 seeds: 0-24-16, crew dealt 2%, satellite HP 9.9, fight 58 s (before: 0-20-0, 2%, 0.0, 5 s). A 670 hold was worse (3.3 HP). |
+| 2.3 | Supox | Implemented | Aims at the weakest satellite only while settled in its band and not faced; keeps its Chmmr-facing slides otherwise (aiming at satellites everywhere cut its life from 34 s to 9 s). Fires when on a satellite or the Chmmr. 40 seeds: 0-33-7, crew dealt 3%, satellite HP 0.8, fight 36 s (same seeds without it: 0-36-4, 2%, 0.1, 34 s). |
+| 2.4 | Pkunk | Dropped | Tried circling at 620–680 and shooting passing satellites: 40 seeds 0-40-0, satellite HP 0.2, fight 11 s, no better than before. The tractor flings it to about 184 units/frame (mass 1), so it can't hold any band. Removed. |
+| 2.5 | Vux | Implemented | Lasers a satellite predicted on the forward beam; limpets only while a satellite has the Vux in range (so satellites shoot the ship, not the limpets). 40 seeds: 0-40-0, crew dealt 47%, satellite HP 2.4, fight 4 s (before, 20 seeds: 47%, 2.1, 5 s). Little time alive to act. |
+| 2.6 | Orz | Implemented | Marines only with ≤ 1 satellite left; standoff 900–1,250 with `keep_standoff`; turret at satellites. 40 seeds: 0-23-17, crew dealt 1%, satellite HP 0.0, fight 73 s (before, 20 seeds: 0-20-0, 4%, 0.0, 7 s). With marines ungated it dealt 4% but survived only 9 of 40. It spends most of the fight running, as the Chmmr matches its top speed; firing the turret backward while running is a possible next step. |
+| 2.7 | Kzer-Za (confirm only) | Confirmed | Already launches fighters only with 0 satellites left. 20 seeds before: 0-6-14, crew dealt 25%, satellite HP 2.1. |
 | 2.8 | Androsynth | Not started | |
 | 2.9 | Ilwrath | Not started | |
 | 2.10 | Utwig | Not started | |

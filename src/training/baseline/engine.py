@@ -131,6 +131,25 @@ EVADE_NO_HEADING_SHIPS = frozenset({"Umgah"})
 SHOOT_DOWN_EXCLUDED_SHIPS = frozenset(
     {"Androsynth", "Arilou", "Earthling", "KohrAh", "Melnorme", "Mycon", "Umgah"}
 )
+# Chmmr satellites, as observed: enemy objects that never expire and orbit
+# the Chmmr at its satellite distance, one turn every satellite period frames.
+# A satellite laser reaches SATELLITE_LASER_RANGE and the Chmmr laser
+# CHMMR_LASER_RANGE; beyond both the ship is out of their reach.
+SATELLITE_ORBIT = float(SHIP_DEFINITIONS["Chmmr"].satellite_distance)
+SATELLITE_TURN_RADIANS = 2.0 * math.pi / float(SHIP_DEFINITIONS["Chmmr"].satellite_period)
+SATELLITE_ORBIT_TOLERANCE = 96.0
+# Shots and beams meet a satellite within this distance of its centre.
+SATELLITE_HIT_RADIUS = 20.0
+# Standoff from a closing opponent (such as a tractoring Chmmr): run once
+# it would reach the near edge before the ship could turn away, with this
+# much time to spare; the closing acceleration is smoothed with this weight
+# on each frame, as the tractor pulls in pulses. Close in from far no faster
+# than the approach speed.
+STANDOFF_TURN_MARGIN = 0.5
+STANDOFF_ACCEL_SMOOTHING = 0.1
+STANDOFF_APPROACH_SPEED = 15.0
+SATELLITE_LASER_RANGE = float(ABILITY_DEFINITIONS["ChmmrSatelliteLaser"].range)
+CHMMR_LASER_RANGE = float(ABILITY_DEFINITIONS["ChmmrA1"].range)
 DRUUGE_RECOIL = (
     float(ABILITY_DEFINITIONS["DruugeA1"].recoil_increment or 0.0),
     float(ABILITY_DEFINITIONS["DruugeA1"].max_recoil or 0.0),
@@ -466,6 +485,181 @@ class BaselineContext:
         weapon = self.weapon(action)
         return self.enemy is not None and self.distance <= weapon.range * float(scale)
 
+    def intercept(
+        self,
+        action: int,
+        predict: Callable[[int], tuple[float, float]],
+    ) -> tuple[float, int] | None:
+        """Bearing to fire ``action`` along to meet a target, and the frames.
+
+        ``predict(frames)`` gives the target's offset (forward, right) from
+        this ship after ``frames`` frames, both moving as they are. Returns
+        None when the weapon can't reach it within its reach.
+        """
+
+        weapon = self.weapon(action)
+        if weapon.kind == "laser":
+            forward, right = predict(0)
+            if math.hypot(forward, right) > weapon.range:
+                return None
+            return bearing_of(forward, right), 0
+        if weapon.speed <= 0.0:
+            return None
+        carry = 1.0 - weapon.parent_velocity
+        own_forward = self.me.velocity_forward
+        own_right = self.me.velocity_right
+        last = int(math.floor(weapon.range / weapon.speed))
+        for frames in range(1, last + 1):
+            forward, right = predict(frames)
+            # The shot moves at its speed relative to where this ship would
+            # be had it kept only the share of its motion the shot carries.
+            forward += carry * own_forward * frames
+            right += carry * own_right * frames
+            if math.hypot(forward, right) <= weapon.speed * frames:
+                return bearing_of(forward, right), frames
+        return None
+
+    def gun_error(self, action: int, bearing: float) -> float:
+        """Turn needed to bring the nearest gun of ``action`` to ``bearing``."""
+
+        return min(
+            (wrap_degrees(bearing - offset) for offset in self._gun_offsets(action)),
+            key=abs,
+        )
+
+    def aim_gun(self, action: int, bearing: float, tolerance: float | None = None) -> bool:
+        """Turn the nearest gun toward ``bearing``; True once it points there."""
+
+        error = self.gun_error(action, bearing)
+        self.point_at(error)
+        if tolerance is None:
+            tolerance = max(
+                self.weapon(action).pointing_tolerance, self.memory.tap_degrees / 2.0
+            )
+        return abs(error) <= float(tolerance)
+
+    # ---------------------------------------------------------- satellites
+
+    def chmmr_satellites(self) -> tuple[ObservedObject, ...]:
+        """The opponent Chmmr's live satellites, or none for other opponents."""
+
+        enemy = self.enemy
+        if enemy is None or self.enemy_name != "Chmmr":
+            return ()
+        found = []
+        for obj in self.view.objects("enemy_non_a1"):
+            if obj.expires or obj.hit_points <= 0.0:
+                continue
+            orbit = math.hypot(*self._wrapped_offset(obj, enemy))
+            if abs(orbit - SATELLITE_ORBIT) <= SATELLITE_ORBIT_TOLERANCE:
+                found.append(obj)
+        return tuple(found)
+
+    def _wrapped_offset(
+        self, obj: ObservedObject, origin: ObservedObject
+    ) -> tuple[float, float]:
+        """Shortest offset (forward, right) from ``origin`` to ``obj``.
+
+        Each is observed at its nearest copy on the wrapping arena, which may
+        lie across the wrap from the other's, so shift by whole arenas along
+        the world axes (turned into this ship's frame) to the shortest one.
+        """
+
+        forward = obj.forward - origin.forward
+        right = obj.right - origin.right
+        heading = math.radians(self.me.heading)
+        size = float(const.ARENA_SIZE)
+        # World x (screen right) and y (screen down) in (forward, right).
+        x_axis = (math.sin(heading) * size, math.cos(heading) * size)
+        y_axis = (-math.cos(heading) * size, math.sin(heading) * size)
+        best = (forward, right)
+        for x_shift in (-1, 0, 1):
+            for y_shift in (-1, 0, 1):
+                candidate = (
+                    forward + x_shift * x_axis[0] + y_shift * y_axis[0],
+                    right + x_shift * x_axis[1] + y_shift * y_axis[1],
+                )
+                if math.hypot(*candidate) < math.hypot(*best):
+                    best = candidate
+        return best
+
+    def satellite_offset(self, satellite: ObservedObject, frames: int) -> tuple[float, float]:
+        """Where ``satellite`` will be, relative to this ship, in ``frames``.
+
+        It keeps circling the Chmmr in the direction it now moves, while the
+        Chmmr drifts on as it is moving.
+        """
+
+        enemy = self.enemy
+        rel_forward, rel_right = self._wrapped_offset(satellite, enemy)
+        spin = rel_forward * (satellite.velocity_right - enemy.velocity_right) - rel_right * (
+            satellite.velocity_forward - enemy.velocity_forward
+        )
+        turn = SATELLITE_TURN_RADIANS * frames * (1.0 if spin >= 0.0 else -1.0)
+        radius = math.hypot(rel_forward, rel_right)
+        angle = math.atan2(rel_right, rel_forward) + turn
+        return (
+            enemy.forward + enemy.velocity_forward * frames + radius * math.cos(angle),
+            enemy.right + enemy.velocity_right * frames + radius * math.sin(angle),
+        )
+
+    def satellite_shot(self, action: int) -> tuple[ObservedObject, float] | None:
+        """The satellite to shoot with ``action`` and the bearing to fire along.
+
+        Prefers the weakest satellite in reach, then the soonest hit.
+        """
+
+        options = []
+        for satellite in self.chmmr_satellites():
+            solved = self.intercept(
+                action, lambda frames, s=satellite: self.satellite_offset(s, frames)
+            )
+            if solved is not None:
+                bearing, frames = solved
+                options.append((satellite.hit_points, frames, bearing, satellite))
+        if not options:
+            return None
+        _, _, bearing, satellite = min(options, key=lambda item: item[:2])
+        return satellite, bearing
+
+    def satellite_on_beam(
+        self, bearing: float, reach: float, half_width: float = SATELLITE_HIT_RADIUS
+    ) -> bool:
+        """Whether a satellite will lie on a beam fired next frame along
+        ``bearing``, within ``reach`` and ``half_width`` of the beam."""
+
+        beam = math.radians(bearing)
+        along_x, along_y = math.cos(beam), math.sin(beam)
+        for satellite in self.chmmr_satellites():
+            forward, right = self.satellite_offset(satellite, 1)
+            along = forward * along_x + right * along_y
+            across = -forward * along_y + right * along_x
+            if 0.0 < along <= reach and abs(across) <= half_width:
+                return True
+        return False
+
+    def satellites_in_reach_of_me(self) -> bool:
+        """Whether a satellite can shoot this ship (and so ignores my shots)."""
+
+        return any(
+            satellite.distance <= SATELLITE_LASER_RANGE
+            for satellite in self.chmmr_satellites()
+        )
+
+    def satellite_ring(self, reach: float, margin: float = 0.0) -> tuple[float, float] | None:
+        """Distances from the Chmmr that are safe yet let ``reach`` hit a satellite.
+
+        Inside the inner edge a satellite or the Chmmr laser reaches this
+        ship; beyond the outer edge the weapon can't reach the near
+        satellite. None when the weapon is too short for any safe spot.
+        """
+
+        inner = max(SATELLITE_ORBIT + SATELLITE_LASER_RANGE, CHMMR_LASER_RANGE) + margin
+        outer = SATELLITE_ORBIT + float(reach) - margin
+        if outer < inner:
+            return None
+        return inner, outer
+
     # -------------------------------------------------------------- steering
 
     def turn_toward(self, bearing: float) -> int:
@@ -760,7 +954,7 @@ class BaselineContext:
                     (
                         (EVADE_HEADING, absolute),
                         controller,
-                        self._turn_seconds(bearing),
+                        self.turn_seconds(bearing),
                         lambda bearing=bearing, thrust=thrust: self.steer(
                             bearing, thrust=thrust
                         ),
@@ -808,7 +1002,7 @@ class BaselineContext:
         self.plan.claim_a2(True)
         return True
 
-    def _turn_seconds(self, bearing: float) -> float:
+    def turn_seconds(self, bearing: float) -> float:
         """Seconds the nose takes to turn to ``bearing``."""
 
         fine = float(const.TURN_ANGLE)
@@ -884,7 +1078,7 @@ class BaselineContext:
                 (
                     outcome.damage,
                     cost,
-                    self._turn_seconds(nose),
+                    self.turn_seconds(nose),
                     (EVADE_SHOOT, int(round(absolute % 360.0))),
                     lambda nose=nose: self._shoot_down(nose),
                 )
@@ -1054,6 +1248,60 @@ class BaselineContext:
                 PERPENDICULAR_AWAY_OFFSET,
             )
             return self.steer(heading)
+        return False
+
+    def closing_reach(self, key: str, seconds: float) -> float:
+        """Distance the opponent will be at after ``seconds``, closing as
+        it now is and speeding up at its smoothed rate (tracked under ``key``)."""
+
+        enemy = self.enemy
+        values = self.memory.values
+        previous = values.get(f"{key}_closing_speed", enemy.closing_speed)
+        values[f"{key}_closing_speed"] = enemy.closing_speed
+        accel = (1.0 - STANDOFF_ACCEL_SMOOTHING) * values.get(f"{key}_closing_accel", 0.0)
+        accel += STANDOFF_ACCEL_SMOOTHING * (enemy.closing_speed - previous)
+        values[f"{key}_closing_accel"] = accel
+        frames = seconds * const.FPS
+        return enemy.distance - (
+            max(0.0, enemy.closing_speed) * frames + 0.5 * max(0.0, accel) * frames * frames
+        )
+
+    def keep_standoff(
+        self,
+        key: str,
+        near: float,
+        far: float,
+        *,
+        release: float | None = None,
+        approach_speed: float = STANDOFF_APPROACH_SPEED,
+    ) -> bool:
+        """Hold the opponent between ``near`` and ``far``; True while running.
+
+        Runs straight away from it once it would come within ``near`` before
+        the nose could turn away, until it is beyond ``release`` (default
+        midway) or clearly falling back. Closes in from beyond ``far`` at an
+        angle, thrusting only below ``approach_speed``. Inside the band
+        steering is left free, for aiming.
+        """
+
+        enemy = self.enemy
+        if enemy is None:
+            return False
+        values = self.memory.values
+        away = wrap_degrees(enemy.bearing + 180.0)
+        reach = self.closing_reach(key, self.turn_seconds(away) + STANDOFF_TURN_MARGIN)
+        release = (near + far) / 2.0 if release is None else float(release)
+        running_key = f"{key}_running"
+        if enemy.closing_speed > 0.0 and reach <= near:
+            values[running_key] = True
+        elif enemy.distance > release or (enemy.closing_speed < 0.0 and reach > near):
+            values[running_key] = False
+        if values.get(running_key, False):
+            self.steer(away)
+            return True
+        if enemy.distance > far:
+            heading = self.drift_cancelling_side(f"{key}_far", enemy, APPROACH_ANGLE_OFFSET)
+            self.steer(heading, thrust=enemy.closing_speed < approach_speed)
         return False
 
     def approach_weapon_range(self, action: int) -> bool:

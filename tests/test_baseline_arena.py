@@ -137,3 +137,28 @@ class ArenaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArenaSatelliteTests(unittest.TestCase):
+    def test_fights_against_the_chmmr_report_satellite_hp_lost(self):
+        result = run_match(ArenaMatch("Vux", "Chmmr", seed=0), seconds=0.5)
+        other = run_match(ArenaMatch("Vux", "Spathi", seed=0), seconds=0.5)
+
+        self.assertIsNotNone(result.opponent_satellite_hp_lost)
+        self.assertGreaterEqual(result.opponent_satellite_hp_lost, 0.0)
+        self.assertIsNone(other.opponent_satellite_hp_lost)
+
+    def test_tally_averages_satellite_hp_over_satellite_fights_only(self):
+        with_satellites = ArenaResult(
+            "Vux", "default", "Chmmr", 0, OUTCOME_LOSS, 5.0, 20.0, 0.0, 42.0, 40.0,
+            opponent_satellite_hp_lost=6.0,
+        )
+        table = tally([with_satellites, _result(OUTCOME_WIN, opponent="Spathi")])
+
+        chmmr = table[("Vux", "default")]["all"]
+        self.assertAlmostEqual(chmmr.mean_satellite_hp_lost, 6.0)
+        self.assertIn("sat HP  6.0", chmmr.cell())
+        spathi = table[("ZoqFotPik", "default")]["all"]
+        self.assertIsNone(spathi.mean_satellite_hp_lost)
+        self.assertNotIn("sat HP", spathi.cell())
+        self.assertIn("fight  10s", spathi.cell())
