@@ -19,7 +19,7 @@ from src.Objects.Ships.Ilwrath.Ilwrath import Ilwrath
 from src.Objects.Ships.KzerZa.A2.KzerZaA2 import KzerZaA2
 from src.Objects.Ships.Pkunk.A2.PkunkA2 import PkunkA2
 from src.Objects.Ships.registry import create_ability, create_ship
-from src.Objects.Ships.catalog import ABILITY_DEFINITIONS
+from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 from src.Objects.Ships.space_ship import SpaceShip
 from src.UI.ui import SoundManager
 from src.resources import AssetManager, _interpolate_frames
@@ -53,6 +53,14 @@ class ResourceCharacterizationTests(unittest.TestCase):
     def tearDown(self):
         Ability.sound_enabled = self.sound_enabled
         BattleEffect.sound_enabled = self.effect_sound_enabled
+
+    def test_ditty_file_names_match_their_case_on_disk(self):
+        # Windows finds files regardless of case; Linux does not.
+        manager = AssetManager()
+        for ship_name in SHIP_DEFINITIONS:
+            ditty_path = manager.ship(ship_name).ditty_path
+            with self.subTest(ship=ship_name):
+                self.assertIn(ditty_path.name, os.listdir(ditty_path.parent))
 
     def test_ship_logical_size_excludes_transparent_canvas_padding(self):
         mask = pygame.mask.Mask((100, 100), fill=False)
