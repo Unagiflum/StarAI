@@ -190,6 +190,7 @@ class AbilityDefinition(_DefinitionMapping):
     file_path: str
     turn_wait: float = 0
     end_anim: int = 0
+    end_anim_on_hit_only: bool = False
     sprite_scale: float = 1.0
     sprite_scale_x: float = 1.0
     sprite_scale_y: float = 1.0
@@ -298,6 +299,7 @@ class AbilityDefinition(_DefinitionMapping):
         "frame_delay": "frame_delay",
         "file_path": "file_path",
         "end_anim": "end_anim",
+        "end_anim_on_hit_only": "end_anim_on_hit_only",
         "sprite_scale": "sprite_scale",
         "sprite_scale_x": "sprite_scale_x",
         "sprite_scale_y": "sprite_scale_y",
@@ -731,6 +733,7 @@ def parse_ability_definition(name, data):
     optional = {
         "turn_wait",
         "end_anim",
+        "end_anim_on_hit_only",
         "sprite_scale",
         "sprite_scale_x",
         "sprite_scale_y",
@@ -842,6 +845,7 @@ def parse_ability_definition(name, data):
     defaults = {
         "turn_wait": (float, 0),
         "end_anim": (int, 0),
+        "end_anim_on_hit_only": (bool, False),
         "sprite_scale": (float, 1.0),
         "frames": (int, 1),
         "sprite_scale_x": (float, 1.0),

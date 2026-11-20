@@ -144,6 +144,10 @@ class Ability(PlayerObject):
         self.hit_team = getattr(ability_definition, 'hit_team', False)
         self.omnidirectional = ability_definition.omnidirectional
         self.end_anim_count = ability_definition.end_anim
+        # Some shots show their end animation only when they hit something.
+        self.end_anim_on_hit_only = getattr(
+            ability_definition, "end_anim_on_hit_only", False
+        )
 
         # Animation properties
         self.frames = ability_definition.frames

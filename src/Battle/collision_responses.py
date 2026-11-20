@@ -186,7 +186,9 @@ def apply_projectile_area_damage(
             if distance > 0
             else [0, -1]
         )
-        destroy_projectile(projectile, effects, direction, damage, source=source)
+        destroy_projectile(
+            projectile, effects, direction, damage, source=source, dealt_damage=False
+        )
     else:
         set_projectile_hp(projectile, remaining_hp, source=source)
     return previous_hp - projectile.current_hp
@@ -559,6 +561,7 @@ def _finalize_dead_projectile_like(
     damage,
     contact,
     source=None,
+    dealt_damage=True,
 ):
     if projectile.current_hp <= 0:
         destroy_projectile(
@@ -568,6 +571,7 @@ def _finalize_dead_projectile_like(
             damage,
             contact,
             source=source,
+            dealt_damage=dealt_damage,
         )
 
 
@@ -697,6 +701,7 @@ def _resolve_configured_projectile_contact(
             damage,
             contact,
             source=second if obj is first else first,
+            dealt_damage=obj is special_object or projectile_damage > 0,
         )
     return _consumption_outcome(first, second)
 
@@ -828,6 +833,7 @@ def resolve_projectile_projectile_collision(
             first.current_damage,
             contact,
             source=second,
+            dealt_damage=first_damage > 0,
         )
         destroy_projectile(
             second,
@@ -836,6 +842,7 @@ def resolve_projectile_projectile_collision(
             second.current_damage,
             contact,
             source=first,
+            dealt_damage=second_damage > 0,
         )
     elif first_hp > 0 and first_hp > second_hp:
         set_projectile_hp(first, first_hp, source=second)
@@ -846,6 +853,7 @@ def resolve_projectile_projectile_collision(
             second.current_damage,
             contact,
             source=first,
+            dealt_damage=second_damage > 0,
         )
     elif second_hp > 0 and second_hp > first_hp:
         destroy_projectile(
@@ -855,6 +863,7 @@ def resolve_projectile_projectile_collision(
             first.current_damage,
             contact,
             source=second,
+            dealt_damage=first_damage > 0,
         )
         set_projectile_hp(second, second_hp, source=first)
     else:
@@ -865,6 +874,7 @@ def resolve_projectile_projectile_collision(
             first.current_damage,
             contact,
             source=second,
+            dealt_damage=first_damage > 0,
         )
         destroy_projectile(
             second,
@@ -873,6 +883,7 @@ def resolve_projectile_projectile_collision(
             second.current_damage,
             contact,
             source=first,
+            dealt_damage=second_damage > 0,
         )
     return _consumption_outcome(first, second)
 
@@ -914,6 +925,7 @@ def resolve_projectile_planet_collision(
         damage,
         contact,
         planet,
+        dealt_damage=False,
     )
     return CollisionOutcome.CONSUMED_FIRST
 
@@ -1252,6 +1264,7 @@ def apply_projectile_laser_impact(
             damage,
             contact,
             source=source,
+            dealt_damage=False,
         )
 
 
@@ -1350,7 +1363,14 @@ def destroy_projectile(
     attached_target=None,
     *,
     source=None,
+    dealt_damage=True,
 ):
+    """Remove a destroyed projectile and show its end animation or blast.
+
+    ``dealt_damage`` is false when the projectile was the victim, such as a
+    shot struck by a laser or area blast; shots that show their end animation
+    only on hits then vanish without it.
+    """
     if getattr(projectile, "_destruction_finalized", False):
         return
     if not projectile.currently_alive and getattr(projectile, "current_hp", 0) > 0:
@@ -1361,7 +1381,9 @@ def destroy_projectile(
         contact_position if contact_position is not None else projectile.position
     )
     animation = getattr(projectile, "death_animation", None)
-    if animation:
+    if not dealt_damage and getattr(projectile, "end_anim_on_hit_only", False):
+        pass
+    elif animation:
         effects.append(
             BattleEffect.from_animation(
                 effect_position,

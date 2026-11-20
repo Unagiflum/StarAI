@@ -10,6 +10,36 @@ from src.collision_capabilities import ProjectileContactPolicy
 from src.toroidal import wrapped_delta, wrapped_distance
 
 
+# HP bar drawn above each satellite: white at full HP, then green at 9 HP,
+# yellow at 5 and red at 1, blended in between.
+HP_BAR_FULL_COLOR = (255, 255, 255)
+HP_BAR_COLOR_STOPS = ((1, (255, 0, 0)), (5, (255, 255, 0)), (9, (0, 255, 0)))
+HP_BAR_BACK_COLOR = (60, 60, 60)
+HP_BAR_HEIGHT = 3
+HP_BAR_GAP = 3
+
+
+def hp_bar_appearance(hp, max_hp):
+    """Return the HP bar's filled fraction and colour for ``hp`` of ``max_hp``."""
+
+    fraction = max(0.0, min(1.0, hp / max_hp)) if max_hp > 0 else 0.0
+    if hp >= max_hp:
+        return fraction, HP_BAR_FULL_COLOR
+    low_hp, low_color = HP_BAR_COLOR_STOPS[0]
+    if hp <= low_hp:
+        return fraction, low_color
+    for high_hp, high_color in HP_BAR_COLOR_STOPS[1:]:
+        if hp <= high_hp:
+            blend = (hp - low_hp) / (high_hp - low_hp)
+            color = tuple(
+                round(low + (high - low) * blend)
+                for low, high in zip(low_color, high_color)
+            )
+            return fraction, color
+        low_hp, low_color = high_hp, high_color
+    return fraction, low_color
+
+
 class ChmmrSatellite(Ability):
     def __init__(
         self,
@@ -205,7 +235,18 @@ class ChmmrSatellite(Ability):
                     -rect.width <= x <= const.SCREEN_HEIGHT + rect.width
                     and -rect.height <= y <= const.SCREEN_HEIGHT + rect.height
                 ):
-                    screen.blit(
-                        scaled,
-                        (const.SCREEN_LEFT + x - rect.width // 2, y - rect.height // 2),
-                    )
+                    left = const.SCREEN_LEFT + x - rect.width // 2
+                    top = y - rect.height // 2
+                    screen.blit(scaled, (left, top))
+                    self._draw_hp_bar(screen, left, top, rect.width, scale_factor)
+
+    def _draw_hp_bar(self, screen, left, sprite_top, width, scale_factor):
+        """Draw the HP bar centred above the satellite sprite."""
+
+        fraction, color = hp_bar_appearance(self.current_hp, self.start_hp)
+        height = max(2, round(HP_BAR_HEIGHT * scale_factor))
+        top = sprite_top - max(1, round(HP_BAR_GAP * scale_factor)) - height
+        pygame.draw.rect(screen, HP_BAR_BACK_COLOR, (left, top, width, height))
+        filled = round(width * fraction)
+        if filled > 0:
+            pygame.draw.rect(screen, color, (left, top, filled, height))

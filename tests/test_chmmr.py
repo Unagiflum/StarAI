@@ -459,3 +459,44 @@ class ChmmrTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SatelliteHpBarTests(unittest.TestCase):
+    def setUp(self):
+        self.chmmr = create_ship("Chmmr", 1, audio_service=NullAudioService())
+        self.chmmr.initialize_in_battle([1000.0, 1000.0], 0)
+
+    def test_bar_is_white_at_full_hp_then_green_yellow_red(self):
+        from src.Objects.Ships.Chmmr.A3.ChmmrSatellite import hp_bar_appearance
+
+        cases = {
+            10: (1.0, (255, 255, 255)),
+            9: (0.9, (0, 255, 0)),
+            7: (0.7, (128, 255, 0)),
+            5: (0.5, (255, 255, 0)),
+            3: (0.3, (255, 128, 0)),
+            1: (0.1, (255, 0, 0)),
+        }
+        for hp, (fraction, color) in cases.items():
+            with self.subTest(hp=hp):
+                actual_fraction, actual_color = hp_bar_appearance(hp, 10)
+                self.assertAlmostEqual(actual_fraction, fraction)
+                self.assertEqual(actual_color, color)
+
+    def test_satellite_draws_its_bar_above_the_sprite(self):
+        satellite = ChmmrSatellite(self.chmmr, starting_hp=5)
+        satellite.position = [400.0, 400.0]
+        satellite.previous_position = satellite.position.copy()
+        screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+
+        with mock.patch(
+            "src.Objects.Ships.Chmmr.A3.ChmmrSatellite.pygame.draw.rect"
+        ) as draw_rect:
+            satellite.draw(screen, 1.0, [0.0, 0.0])
+
+        colors = [call.args[1] for call in draw_rect.call_args_list]
+        self.assertEqual(colors, [(60, 60, 60), (255, 255, 0)])
+        back, filled = (call.args[2] for call in draw_rect.call_args_list)
+        self.assertEqual(filled[2], round(back[2] * 0.5))
+        sprite_top = 400 - satellite._satellite_frames[0].get_height() // 2
+        self.assertLess(back[1] + back[3], sprite_top)

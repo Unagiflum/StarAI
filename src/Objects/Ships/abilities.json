@@ -1234,6 +1234,7 @@
         "inertia": true,
         "file_path": "Objects/Ships/Supox/A1/",
         "end_anim": 5,
+        "end_anim_on_hit_only": true,
         "gun_locations": [
             [
                 60,
