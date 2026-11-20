@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 import math
 
-from src.Battle.collision_geometry import ship_shape_change_blocked
+from src.Battle.collision_geometry import collision_info, ship_shape_change_blocked
+from src.Battle.collision_physics import bounce_off_static_body
 from src.collision_capabilities import ImpactCapabilities
 from src.Objects.Ships.action_transaction import ActionPlan
 from src.Objects.Ships.Androsynth.A1.AndrosynthA1 import AndrosynthA1
@@ -170,8 +171,11 @@ class Androsynth(SpaceShip):
             return True
 
         if special_object.name == "ChmmrSatellite":
-            # The ram already took its HP; the satellite keeps its orbit and
-            # the blazer its course.
+            # The ram already took its HP. The satellite keeps its orbit and
+            # the blazer bounces off it, as off a planet.
+            away, _, overlap = collision_info(self, special_object)
+            if bounce_off_static_body(self, special_object, away, overlap):
+                self.collision_velocity = self.velocity.copy()
             return True
 
         if special_object.name != "OrzA3":

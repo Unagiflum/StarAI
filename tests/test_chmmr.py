@@ -599,3 +599,21 @@ class BlazerRamsSatelliteTests(unittest.TestCase):
                 self._touch(simulation, satellite)
 
                 self.assertEqual(satellite.current_hp, satellite.start_hp)
+
+    def test_blazer_bounces_off_a_satellite(self):
+        simulation = self._simulation("Androsynth")
+        simulation.step(actions={1: self.transform, 2: self.idle})
+        satellite = self._satellite(simulation)
+        chmmr, me = simulation.player2, simulation.player1
+        out_x, out_y = wrapped_delta(chmmr.position, satellite.position)
+        length = math.hypot(out_x, out_y)
+        out_x, out_y = out_x / length, out_y / length
+        # Just outside the satellite, flying in toward it.
+        me.position = [satellite.position[0] + 30.0 * out_x, satellite.position[1] + 30.0 * out_y]
+        me.velocity = [-60.0 * out_x, -60.0 * out_y]
+
+        simulation.step(actions={1: self.idle, 2: self.idle})
+
+        self.assertLess(satellite.current_hp, satellite.start_hp)
+        # Now moving back out, away from the satellite.
+        self.assertGreater(me.velocity[0] * out_x + me.velocity[1] * out_y, 50.0)

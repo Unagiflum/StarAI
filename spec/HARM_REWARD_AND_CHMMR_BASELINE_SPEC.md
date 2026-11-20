@@ -236,8 +236,9 @@ average time alive. A win isn't required.
   satellite deals it the blazer's ramming damage (3), as a blazer already
   rams asteroids and projectiles (`_apply_ramming_damage_to_*` in
   `collision_responses.py`).
-- The satellite stays on its orbit; the blazer doesn't bounce off it or take
-  damage from it.
+- The satellite stays on its orbit. The blazer bounces off it, as in the
+  original game, the way it bounces off a planet (its velocity reflected about
+  the contact normal), and takes no damage from it.
 - One hit per contact: a satellite already touching the blazer isn't hit again
   until the contact ends. A blazer at speed 60 overlaps a satellite for about a
   frame, so this guards slow or glancing passes.
@@ -247,14 +248,17 @@ average time alive. A win isn't required.
 - Then evaluate the Androsynth strategy against the Chmmr again. Candidates:
   - the current single ram on the Chmmr (38% crew dealt, 80 seeds);
   - ram satellites on the way in (each takes 4 hits), then the Chmmr;
-  - hit-and-run passes through the ring aimed at satellites.
+  - hit-and-run passes through the ring aimed at satellites;
+  - satellites approached prograde (moving with the satellite's orbit, a slow
+    closing speed) and retrograde (against it, head-on).
 
   Keep whichever deals the most harm, counting satellite HP as the harm scheme
   does.
 - Tests:
   - a blazer touching an enemy satellite takes 3 HP from it, once per contact;
   - the base form and other ships still pass through satellites;
-  - the satellite's orbit and the blazer's motion are unchanged by the contact;
+  - the satellite's orbit is unchanged by the contact, and the blazer bounces
+    away from it;
   - a satellite brought to 0 HP is destroyed.
 
 ### Measurement
@@ -865,7 +869,7 @@ Recorded 2026-11-20.
 | 2.7 | Kzer-Za (confirm only) | Confirmed | Already launches fighters only with 0 satellites left. 20 seeds before: 0-6-14, crew dealt 25%, satellite HP 2.1. |
 | 2.8 | Androsynth | Implemented | The blazer can't hit satellites: they collide only with projectiles, and in a simulated pass a blazer within 72 of one left it at 10 HP. Inside their ring the lasers take about 1 crew a frame, so the crew buys one ram. With satellites up: no bubbles, the nose kept on the Chmmr, blaze from 800 on a battery at least 90% full, then ram at the intercept point for the blazer's speed. 80 seeds: 0-80-0, crew dealt 38%, fight 3 s (old rules on the same seeds: 0-78-2T, 15%, satellite HP 0.4, 18 s). Blaze ranges 600–1,300 gave 33–39% with leading; steering straight at the Chmmr gave 26–28%. |
 | 2.8a | Blazer intercept steering, all opponents but the Supox and Mmrnmrhm | Implemented | `ANDROSYNTH_STRAIGHT_RAM_OPPONENTS` keeps the Supox and Mmrnmrhm on a straight ram; every other blazer steers at `_blazer_intercept_bearing`. 20 seeds against all opponents: 209-169-3D-119T (before: 177-186-6D-131T). Thraddash 13-5 → 16-0, Melnorme 3-17 → 10-10, Vux 6-0 → 10-0, Syreen 12-8 → 15-5; Supox and Mmrnmrhm unchanged; Slylandro 16-2 → 15-4. Tests: `AndrosynthBlazerSteeringTests`. |
-| 2.8b | Blazer damages satellites, then re-evaluate the Androsynth against the Chmmr | Implemented | Rule: `ChmmrSatellite.should_collide_with_ship` accepts only an enemy blazer; `ram_contact_allowed` allows one ram (3 HP) per contact, checked in `_apply_ramming_damage_to_projectile_like`; the blazer's contact handler leaves the satellite on its orbit and the blazer on its course. Other hulls and the base Androsynth still pass through. Tests: `BlazerRamsSatelliteTests` in `tests/test_chmmr.py`. Re-evaluation, 80 seeds, scored as 0.5 × crew dealt + 0.5 × satellite HP ÷ 30: ram the Chmmr 38% crew, 0.8 satellite HP (0.20); ram the satellite met soonest 6%, 4.8 (0.11); ram satellites only within 45° of the course 18%, 3.3 (0.15). The Chmmr ram is kept. |
+| 2.8b | Blazer damages satellites, then re-evaluate the Androsynth against the Chmmr | Implemented | Rule: `ChmmrSatellite.should_collide_with_ship` accepts only an enemy blazer; `ram_contact_allowed` allows one ram (3 HP) per contact, checked in `_apply_ramming_damage_to_projectile_like`; the blazer bounces off the satellite as off a planet (`bounce_off_static_body`, velocity kept in `collision_velocity`) and takes no damage; the satellite keeps its orbit. Other hulls and the base Androsynth pass through. Tests: `BlazerRamsSatelliteTests` in `tests/test_chmmr.py`. Re-evaluation with the bounce, 80 seeds, scored as 0.5 × crew dealt + 0.5 × satellite HP ÷ 30: ram the Chmmr 39% crew, 0.9 satellite HP (0.21); ram the satellite met soonest 8%, 5.5 (0.13); prograde 10%, 2.5 (0.09); retrograde 6%, 3.4 (0.09). Prograde and retrograde steer at a point 200 ahead of or behind the satellite on its orbit (relative to the Chmmr), then straight at it within 300; measured at contact, prograde rams met the satellite's orbital motion at a median 50° and retrograde at 150°. The blazer lands only one or two rams before the lasers kill it, so the Chmmr ram is kept. |
 | 2.9 | Ilwrath | Not started | |
 | 2.10 | Utwig | Not started | |
 | 2.11 | Earthling | Not started | |
