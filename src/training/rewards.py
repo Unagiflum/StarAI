@@ -18,6 +18,10 @@ from src.training.causal_credit import (
     REWARD_MODE_SHADOW,
     REWARD_MODES,
 )
+from src.training.harm import (
+    HARM_REWARD_COMPONENTS,
+    HarmTracker,
+)
 from src.training.event_ledger import (
     EVENT_ACTION_USED,
     EVENT_BATTERY_CHANGED,
@@ -52,7 +56,7 @@ REWARD_BATTERY_AT_ZERO = "Battery at zero"
 REWARD_GET_DEBUFFED = "Get debuffed"
 REWARD_DIE = "Die"
 
-REWARD_COMPONENTS = (
+CLASSIC_REWARD_COMPONENTS = (
     REWARD_KILL_ENEMY,
     REWARD_ENEMY_LOSES_CREW,
     REWARD_DEBUFF_ENEMY,
@@ -73,6 +77,10 @@ REWARD_COMPONENTS = (
     REWARD_LOSE_CREW,
     REWARD_DIE,
 )
+# The harm scheme's components follow the classic ones; a scheme's weights
+# leave the other scheme's components at zero.
+REWARD_COMPONENTS = CLASSIC_REWARD_COMPONENTS + HARM_REWARD_COMPONENTS
+_HARM_REWARD_COMPONENT_SET = frozenset(HARM_REWARD_COMPONENTS)
 _REWARD_COMPONENT_INDEX = {
     component: index for index, component in enumerate(REWARD_COMPONENTS)
 }
@@ -168,6 +176,11 @@ class RewardDecisionFrame:
     a1_in_range: bool = False
     a2_pointing: bool = False
     a2_in_range: bool = False
+    # Pre-step crew and limpet counts, captured for the harm scheme.
+    self_crew: float | None = None
+    enemy_crew: float | None = None
+    self_limpets: int | None = None
+    enemy_limpets: int | None = None
 
 
 @dataclass(frozen=True)
@@ -282,6 +295,7 @@ def decision_frame_from_battle_state(
         else combat_adapters.RewardCombatFlags(False, False, False, False)
     )
     velocity = _vector(self_ship, "velocity") if needs_speed else (0.0, 0.0)
+    needs_harm = bool(enabled.intersection(_HARM_REWARD_COMPONENT_SET))
     return RewardDecisionFrame(
         frame_id=int(frame_id),
         observation=tuple(float(value) for value in observation),
@@ -295,6 +309,14 @@ def decision_frame_from_battle_state(
         a1_in_range=combat_flags.a1_in_range,
         a2_pointing=combat_flags.a2_pointing,
         a2_in_range=combat_flags.a2_in_range,
+        self_crew=_number(self_ship, "current_hp") if needs_harm else None,
+        enemy_crew=_number(enemy_ship, "current_hp") if needs_harm else None,
+        self_limpets=(
+            int(_number(self_ship, "limpets_attached")) if needs_harm else None
+        ),
+        enemy_limpets=(
+            int(_number(enemy_ship, "limpets_attached")) if needs_harm else None
+        ),
     )
 
 
@@ -530,6 +552,12 @@ class StagedTrajectoryPipeline:
             if component in self.enabled_reward_components
         )
         self._cutoff_discount = self.gamma ** self.discount_cutoff_frames
+        self._harm_enabled = bool(
+            self.enabled_reward_components.intersection(_HARM_REWARD_COMPONENT_SET)
+        )
+        # Used only without a ledger; with one, the round's tracker lives on
+        # the ledger so it outlasts each trainee-life trajectory.
+        self._harm_tracker = HarmTracker()
         self.trajectory_id: str | None = None
         self._observation_size: int | None = None
         self._observations = array("f")
@@ -694,10 +722,72 @@ class StagedTrajectoryPipeline:
                     outcome,
                     ledger,
                 )
+        if self._harm_enabled:
+            self._add_harm_components(decision, outcome, ledger)
         self._outcome_count += 1
         if outcome.terminal:
             return self._finalize(end_frame_id=outcome.frame_id, terminal=True)
         return []
+
+    def harm_tracker_for(self, ledger) -> HarmTracker:
+        if ledger is None:
+            return self._harm_tracker
+        tracker = getattr(ledger, "harm_tracker", None)
+        if tracker is None:
+            tracker = HarmTracker()
+            ledger.harm_tracker = tracker
+        return tracker
+
+    def _add_harm_components(self, decision, outcome, ledger) -> None:
+        """Place harm amounts on the effect frame, then move trainee-caused
+        ones to their causal origin frames in causal placement."""
+
+        tracker = self.harm_tracker_for(ledger)
+        effect_index = self._frame_to_index[int(decision.frame_id)]
+        relocating = ledger is not None and self.mode in {
+            REWARD_MODE_CAUSAL,
+            REWARD_MODE_SHADOW,
+        }
+        for contribution in tracker.contributions(decision, outcome):
+            component = contribution.component
+            if component not in self.enabled_reward_components:
+                continue
+            amount = float(contribution.amount)
+            component_index = _REWARD_COMPONENT_INDEX[component]
+            effect_offset = effect_index * _REWARD_COMPONENT_COUNT + component_index
+            self._components[effect_offset] += amount
+            if self._shadow_components is not None:
+                self._shadow_components[effect_offset] += amount
+            if not relocating or not contribution.relocate or contribution.event is None:
+                continue
+            credit = ledger.resolve_event_credit(
+                contribution.event,
+                component=component,
+            )
+            if credit is None:
+                continue
+            if any(
+                int(origin.frame_index) not in self._frame_to_index
+                for origin in credit.origins
+            ):
+                ability = (
+                    contribution.event.metadata.get("source_ability_name")
+                    or contribution.event.ability_name
+                    or "unknown"
+                )
+                ledger.diagnostics.missing_provenance[str(ability)] += 1
+                continue
+            target = (
+                self._shadow_components
+                if self.mode == REWARD_MODE_SHADOW
+                else self._components
+            )
+            target[effect_offset] -= amount
+            for origin in credit.origins:
+                origin_index = self._frame_to_index[int(origin.frame_index)]
+                target[
+                    origin_index * _REWARD_COMPONENT_COUNT + component_index
+                ] += amount * float(origin.weight)
 
     def add_component_at_frame(
         self,

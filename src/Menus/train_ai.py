@@ -77,7 +77,16 @@ from src.training.decay import (
     nearest_decay_half_life,
     normalize_decay_half_life,
 )
+from src.training.harm import (
+    DEFAULT_HARM_REWARD_WEIGHTS,
+    HARM_DAMAGE_ENEMY,
+    HARM_DAMAGE_TAKEN,
+    HARM_KILL_ENEMY,
+    HARM_OWN_DEATH,
+    HARM_REWARD_COMPONENTS,
+)
 from src.training.rewards import (
+    CLASSIC_REWARD_COMPONENTS,
     LEGACY_REWARD_ALIASES,
     ONGOING_REWARD_COMPONENTS,
     REWARD_COMPONENTS,
@@ -108,7 +117,19 @@ from src.training.session import (
 
 REWARD_VALUES = REWARD_WEIGHT_STEPS
 
+# Every stored reward weight; each scheme's pane shows its own subset.
 REWARD_LABELS = REWARD_COMPONENTS
+CLASSIC_REWARD_LABELS = CLASSIC_REWARD_COMPONENTS
+HARM_REWARD_LABELS = HARM_REWARD_COMPONENTS
+REWARD_SCHEME_CLASSIC = "classic"
+REWARD_SCHEME_HARM = "harm"
+REWARD_SCHEMES = (REWARD_SCHEME_CLASSIC, REWARD_SCHEME_HARM)
+REWARD_SCHEME_METADATA_KEY = "reward_scheme"
+REWARD_SCHEME_TOOLTIP = (
+    "Reward scheme: Classic weighs each event and state separately. Harm "
+    "rewards only lasting harm to the enemy and can penalize lasting harm to "
+    "the trainee; every other reward is off."
+)
 TRAINING_DEVICE_TOOLTIP = (
     "PyTorch device: choose which processor runs this training instance. "
     "Auto lets the training mode and available hardware choose."
@@ -192,6 +213,23 @@ REWARD_CONTROL_TOOLTIPS = {
     "Get debuffed": "Reward or penalize the trainee receiving a debuff.",
     "Lose crew": "Reward or penalize each point of crew damage received.",
     "Die": "Reward or penalize the trainee ship being defeated.",
+    HARM_DAMAGE_ENEMY: (
+        "Reward crew, limpet and satellite damage the trainee causes the "
+        "enemy, scaled by the enemy's cost. Crew counts only new lows, so "
+        "undoing a gain earns nothing; taking all its crew is worth half."
+    ),
+    HARM_KILL_ENEMY: (
+        "Reward each enemy death and satellite kill the trainee causes, scaled "
+        "by the enemy's cost."
+    ),
+    HARM_DAMAGE_TAKEN: (
+        "Weigh the trainee's own crew, limpet and satellite damage from any "
+        "cause; crew regained counts back. Set a negative value to penalize."
+    ),
+    HARM_OWN_DEATH: (
+        "Weigh each trainee death and lost satellite. Set a negative value to "
+        "penalize."
+    ),
 }
 REGIMEN_CONTROL_TOOLTIPS = (
     (
@@ -392,6 +430,7 @@ FUTURE_CHANGE_SCALAR_FIELDS = (
     "go_to_epsilon_value",
     "opponent_mode",
     "ai_opponent_chance",
+    "reward_scheme",
     "replay_buffer_size",
     "starting_epsilon",
     "epsilon_floor",
@@ -504,10 +543,12 @@ class TrainingUIState:
                 "Get debuffed": -0.032,
                 "Lose crew": -0.064,
                 "Die": -0.512,
+                **DEFAULT_HARM_REWARD_WEIGHTS,
             }.get(label, 0.0)
             for label in REWARD_LABELS
         }
     )
+    reward_scheme: str = REWARD_SCHEME_CLASSIC
     opponent_mode: str = "all"
     # Trained-AI share of opponent frames; the UI shows its complement as the
     # baseline opponent percentage.
@@ -1809,6 +1850,9 @@ def _training_ui_state_from_json(payload):
             value = normalize_go_to_epsilon_value(value)
         elif field_name == "discount_half_life":
             value = normalize_discount_half_life(value)
+        elif field_name == "reward_scheme":
+            if value not in REWARD_SCHEMES:
+                value = REWARD_SCHEME_CLASSIC
         elif field_name == "epsilon_decay_half_life":
             value = normalize_decay_half_life(value, DEFAULT_EPSILON_DECAY_HALF_LIFE)
         elif field_name == "baseline_decay_half_life":
@@ -2663,6 +2707,26 @@ def _format_reward(value):
     return f"{value:.3f}"
 
 
+def _format_reward_scheme(value):
+    return "Harm" if value == REWARD_SCHEME_HARM else "Classic"
+
+
+def reward_labels_for_scheme(scheme) -> tuple[str, ...]:
+    """The reward weights a scheme's pane shows and training uses."""
+
+    return HARM_REWARD_LABELS if scheme == REWARD_SCHEME_HARM else CLASSIC_REWARD_LABELS
+
+
+def effective_reward_weights(state) -> dict[str, float]:
+    """The state's weights for its scheme, with the other scheme's at 0."""
+
+    active = set(reward_labels_for_scheme(state.reward_scheme))
+    return {
+        label: float(state.rewards.get(label, 0.0)) if label in active else 0.0
+        for label in REWARD_LABELS
+    }
+
+
 def _format_percent(value):
     return f"{int(value)}%"
 
@@ -2779,6 +2843,7 @@ def _normalized_training_settings(training):
         return training
     training = dict(with_current_reward_scale(training))
     training.pop(REWARD_SCALE_VERSION_METADATA_KEY, None)
+    scheme = training.pop(REWARD_SCHEME_METADATA_KEY, REWARD_SCHEME_CLASSIC)
     normalized = {}
     for group, settings in training.items():
         if isinstance(settings, dict):
@@ -2798,6 +2863,13 @@ def _normalized_training_settings(training):
         regimen.pop("current_epsilon", None)
         regimen.pop("epsilon", None)
         regimen.pop("current_baseline_use", None)
+    rewards = normalized.get("rewards")
+    if isinstance(rewards, dict):
+        # Settings saved before the harm scheme had its default weights and
+        # the classic scheme. The scheme compares with the rewards.
+        for label, default in DEFAULT_HARM_REWARD_WEIGHTS.items():
+            rewards.setdefault(label, default)
+        rewards[REWARD_SCHEME_METADATA_KEY] = scheme
     opponent = normalized.get("opponent")
     if isinstance(opponent, dict):
         # The simple opponent's activity settings were retired with it.
@@ -2879,6 +2951,16 @@ def apply_model_conditions_to_state(state, metadata):
                     skipped.append(label)
                     continue
                 state.rewards[label] = value
+        # Models saved before the harm scheme use the classic one.
+        assign_allowed(
+            "reward_scheme",
+            training.get(REWARD_SCHEME_METADATA_KEY, REWARD_SCHEME_CLASSIC)
+            if isinstance(training, dict)
+            else REWARD_SCHEME_CLASSIC,
+            str,
+            REWARD_SCHEMES,
+            "reward scheme",
+        )
 
         regimen = _with_half_life_keys(
             _with_action_frame_span_key(training.get("regimen", {}))
@@ -3909,7 +3991,14 @@ def _draw_arena_placeholder(screen, rect, state, font):
         y += font.get_linesize() + 8
 
 
-def _draw_training_status(screen, rect, status, font, small_font):
+def _draw_training_status(
+    screen,
+    rect,
+    status,
+    font,
+    small_font,
+    reward_labels=CLASSIC_REWARD_LABELS,
+):
     pygame.draw.rect(screen, ui.BLACK, rect)
     pygame.draw.rect(screen, ui.GREY, rect, 2)
     title = getattr(status, "display_message", "") or (
@@ -3930,7 +4019,7 @@ def _draw_training_status(screen, rect, status, font, small_font):
         y += rendered.get_height() + 14
     component_lines = [
         f"{name}: {status.component_totals.get(name, 0.0):.4f}"
-        for name in REWARD_LABELS
+        for name in reward_labels
     ]
     for line in component_lines:
         rendered = small_font.render(line, True, ui.LIGHT_GREY)
@@ -4030,7 +4119,7 @@ def _current_batch_status_label(status):
     return "Running"
 
 
-def _current_batch_console_lines(status):
+def _current_batch_console_lines(status, reward_labels=CLASSIC_REWARD_LABELS):
     state_label = _current_batch_status_label(status)
     elapsed = getattr(status, "elapsed_training_seconds", 0.0)
     batches_per_hour = getattr(status, "batches_per_hour", 0.0)
@@ -4107,7 +4196,7 @@ def _current_batch_console_lines(status):
     
     lines.append(f"{'Reward components':<{CURRENT_BATCH_REWARD_NAME_WIDTH}} |{col2_header}|{col3_header:>{col3_width}}")
     
-    for name in REWARD_LABELS:
+    for name in reward_labels:
         col1 = f"{name:<{CURRENT_BATCH_REWARD_NAME_WIDTH}}"
         val2 = status.component_totals.get(name, 0.0)
         col2 = f"{val2:>11.4f} "
@@ -4146,7 +4235,11 @@ def _alternating_training_log_color(row_number):
     return TRAINING_LOG_EVEN_ROW_COLOR
 
 
-def _display_off_console_content(status, log_lines):
+def _display_off_console_content(
+    status,
+    log_lines,
+    reward_labels=CLASSIC_REWARD_LABELS,
+):
     lines = []
     colors = []
 
@@ -4188,7 +4281,7 @@ def _display_off_console_content(status, log_lines):
         append(speed_line, TRAINING_LOG_SPEED_COLOR)
         append(speed_legend)
 
-        current_lines = _current_batch_console_lines(status)
+        current_lines = _current_batch_console_lines(status, reward_labels)
         reward_heading_index = next(
             index
             for index, line in enumerate(current_lines)
@@ -4467,7 +4560,7 @@ def training_config_from_state(
 ) -> TrainingOrchestrationConfig:
     return TrainingOrchestrationConfig(
         trainee_ship=str(state.selected_ship),
-        reward_weights=dict(state.rewards),
+        reward_weights=effective_reward_weights(state),
         opponent_mode=state.opponent_mode,
         ai_opponent_chance=state.ai_opponent_chance,
         rounds_per_batch=state.rounds_per_batch,
@@ -4593,7 +4686,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         maximum=32,
     )
     available_height = CONTENT_VIEW_HEIGHT - 16
-    step = min(34, (available_height - 30) // max(1, len(REWARD_LABELS) - 1)) if len(REWARD_LABELS) > 1 else 34
+    # The scheme slider sits above the classic scheme's rows.
+    reward_row_count = len(CLASSIC_REWARD_LABELS) + 1
+    step = min(34, (available_height - 30) // max(1, reward_row_count - 1))
     rewards_font = largest_fitting_font(
         REWARD_LABELS,
         270,
@@ -4914,16 +5009,52 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     trainee_scroll_y = 0
 
     rewards_top = 8
-    reward_sliders = [
-        RewardSlider(
-            (12, rewards_top + index * step, CONTROL_WIDTH - 24, min(30, step - 2)),
-            label,
-            state.rewards.get(label, 0.0),
-            ship_name=state.selected_ship,
+    reward_scheme_slider = SliderRow(
+        (12, rewards_top, CONTROL_WIDTH - 24, min(30, step - 2)),
+        "Reward scheme",
+        REWARD_SCHEMES[0],
+        REWARD_SCHEMES[-1],
+        state.reward_scheme,
+        values=REWARD_SCHEMES,
+        value_formatter=_format_reward_scheme,
+        value_suffix_reserve="/s",
+        layout=SliderRow.LABEL_VALUE_SLIDER,
+        label_width=278,
+        value_width=70,
+    )
+
+    def reward_slider_rows(labels):
+        return [
+            RewardSlider(
+                (
+                    12,
+                    rewards_top + (index + 1) * step,
+                    CONTROL_WIDTH - 24,
+                    min(30, step - 2),
+                ),
+                label,
+                state.rewards.get(label, 0.0),
+                ship_name=state.selected_ship,
+            )
+            for index, label in enumerate(labels)
+        ]
+
+    classic_reward_sliders = reward_slider_rows(CLASSIC_REWARD_LABELS)
+    harm_reward_sliders = reward_slider_rows(HARM_REWARD_LABELS)
+    # Both schemes' sliders keep their values; only the active scheme's show.
+    reward_sliders = [*classic_reward_sliders, *harm_reward_sliders]
+
+    def visible_reward_controls():
+        return (
+            reward_scheme_slider,
+            *(
+                harm_reward_sliders
+                if reward_scheme_slider.value == REWARD_SCHEME_HARM
+                else classic_reward_sliders
+            ),
         )
-        for index, label in enumerate(REWARD_LABELS)
-    ]
-    rewards_content_height = reward_sliders[-1].rect.bottom + 8
+
+    rewards_content_height = classic_reward_sliders[-1].rect.bottom + 8
     rewards_scroll_y = 0
     opponent_panels = (pygame.Rect(12, 12, CONTROL_WIDTH - 24, 70),)
     opponent_label_width = 170
@@ -5089,6 +5220,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.rewards.update(
             (slider.reward_key, slider.value) for slider in reward_sliders
         )
+        state.reward_scheme = reward_scheme_slider.value
         state.baseline_opponent_chance = baseline_opponent_slider.value
         state.match_time_limit = int(regimen_sliders[REGIMEN_MATCH_TIME_LIMIT_INDEX].value)
         state.rounds_per_batch = int(regimen_sliders[REGIMEN_ROUNDS_PER_BATCH_INDEX].value)
@@ -5172,6 +5304,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         for slider in reward_sliders:
             slider.set_ship(state.selected_ship)
             _set_slider_value(slider, state.rewards.get(slider.reward_key, 0.0))
+        _set_slider_value(reward_scheme_slider, state.reward_scheme)
         _set_slider_value(baseline_opponent_slider, state.baseline_opponent_chance)
         _set_slider_value(
             regimen_sliders[REGIMEN_REPLAY_BUFFER_INDEX],
@@ -5273,6 +5406,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 "ai_opponent_chance": training_state.ai_opponent_chance,
             },
             "rewards": dict(training_state.rewards),
+            REWARD_SCHEME_METADATA_KEY: training_state.reward_scheme,
             REWARD_SCALE_VERSION_METADATA_KEY: REWARD_SCALE_VERSION,
             "regimen": {
                 REFLECTION_AUGMENTATION_METADATA_KEY: (
@@ -5744,6 +5878,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         continue
                     if not _set_slider_value(slider, value):
                         skipped.append(slider.reward_key)
+            # Models saved before the harm scheme use the classic one.
+            scheme = (
+                training.get(REWARD_SCHEME_METADATA_KEY, REWARD_SCHEME_CLASSIC)
+                if isinstance(training, dict)
+                else REWARD_SCHEME_CLASSIC
+            )
+            if not _set_slider_value(reward_scheme_slider, scheme):
+                skipped.append("reward scheme")
 
             regimen = _with_half_life_keys(training.get("regimen", {}))
             if isinstance(regimen, dict):
@@ -6990,6 +7132,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 )
             )
         elif active_tab == "rewards":
+            content_targets.append((reward_scheme_slider.rect, REWARD_SCHEME_TOOLTIP))
             content_targets.extend(
                 (
                     slider.rect,
@@ -6998,7 +7141,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         slider.label,
                     ),
                 )
-                for slider in reward_sliders
+                for slider in visible_reward_controls()[1:]
             )
             scroll_y = rewards_scroll_y
         elif active_tab == "regimen":
@@ -7274,7 +7417,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 translated = _translated_event(
                     event, layout.content_rect, rewards_scroll_y
                 )
-                for slider in reward_sliders:
+                for slider in visible_reward_controls():
                     slider.handle_event(translated, menu_sound_manager)
             elif instance_manager.active_tab == "opponent":
                 translated = _translated_event(event, layout.content_rect, 0)
@@ -7315,6 +7458,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         for slider in reward_sliders:
             slider.set_ship(state.selected_ship)
             slider.enabled = not state.running
+        reward_scheme_slider.enabled = not state.running
         for slider in regimen_sliders:
             slider.enabled = not state.running
             slider.value_color = SliderRow.VALUE_COLOR
@@ -7361,6 +7505,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 console_lines, console_colors = _display_off_console_content(
                     status,
                     session.log_lines,
+                    reward_labels_for_scheme(instance.state.reward_scheme),
                 )
                 batch_log_box.set_lines(console_lines, console_colors)
                 if not instance.last_running and status.running:
@@ -7669,6 +7814,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             for delete_button in delete_buttons:
                 delete_button.enabled = False
             for slider in (
+                reward_scheme_slider,
                 *reward_sliders,
                 *grouped_controls,
                 *regimen_sliders,
@@ -7692,6 +7838,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             console_lines, console_colors = _display_off_console_content(
                 startup_status,
                 (),
+                reward_labels_for_scheme(state.reward_scheme),
             )
             batch_log_box.set_lines(console_lines, console_colors)
 
@@ -7722,6 +7869,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             for delete_button in delete_buttons:
                 delete_button.enabled = False
             for slider in (
+                reward_scheme_slider,
                 *reward_sliders,
                 *grouped_controls,
                 *regimen_sliders,
@@ -7887,7 +8035,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 mouse_pos[1] - layout.content_rect.y + rewards_scroll_y,
             )
 
-            for slider in reward_sliders:
+            for slider in visible_reward_controls():
                 slider.draw(content, rewards_font, content_mouse_pos)
 
             source = pygame.Rect(

@@ -82,6 +82,8 @@ class BattleEventLedger:
         self._spawn_sequence = 0
         self.diagnostics = CausalRewardDiagnostics()
         self.reward_mode = REWARD_MODE_LEGACY
+        # The harm scheme's per-round bookkeeping, set by the reward pipeline.
+        self.harm_tracker = None
 
     def start_reward_trajectory(
         self,

@@ -270,7 +270,16 @@ class TrainingUIStateTests(unittest.TestCase):
                 "Die": -0.512,
             }
         )
+        expected_rewards.update(
+            {
+                "Damage to enemy": 1.024,
+                "Enemy kill": 1.024,
+                "Damage taken": 0.0,
+                "Own death": 0.0,
+            }
+        )
         self.assertEqual(state.rewards, expected_rewards)
+        self.assertEqual(state.reward_scheme, "classic")
         self.assertEqual(state.opponent_mode, "all")
         self.assertEqual(state.ai_opponent_chance, 100.0)
         self.assertEqual(state.baseline_opponent_chance, 0.0)
@@ -2038,6 +2047,70 @@ class TrainingUIRunWiringTests(unittest.TestCase):
         )
         self.assertEqual(trainee_action_states, [("Starting", False)])
         self.assertEqual(close_states, [("Close", False)])
+
+    def test_rewards_pane_shows_the_active_scheme_weights(self):
+        class EmptyRepository:
+            def __init__(self, *_args):
+                self.user_dir = Path("unused")
+
+            def slot_for(self, ship, slot):
+                return TrainingModelSlot(str(ship), int(slot), SLOT_EMPTY)
+
+            def slots_for_ship(self, ship):
+                return [self.slot_for(ship, slot) for slot in range(1, 5)]
+
+        sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+        for scheme, expected in (
+            ("harm", train_ai.HARM_REWARD_LABELS),
+            ("classic", train_ai.CLASSIC_REWARD_LABELS),
+        ):
+            with self.subTest(scheme=scheme):
+                screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+                manager = TrainingInstanceManager()
+                manager.active_state.selected_ship = "Earthling"
+                manager.active_state.reward_scheme = scheme
+                manager.active_tab = "rewards"
+                drawn = []
+                original_draw = SliderRow.draw
+
+                def capture(slider, *args, **kwargs):
+                    drawn.append((slider.label, slider.format_value()))
+                    return original_draw(slider, *args, **kwargs)
+
+                with (
+                    mock.patch(
+                        "src.Menus.train_ai.TrainingInstanceManager",
+                        return_value=manager,
+                    ),
+                    mock.patch(
+                        "src.Menus.train_ai.load_training_ui_session",
+                        return_value=manager,
+                    ),
+                    mock.patch(
+                        "src.Menus.train_ai.TrainingModelRepository",
+                        EmptyRepository,
+                    ),
+                    mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+                    mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+                    mock.patch(
+                        "src.Menus.train_ai.fit_ship_sprites",
+                        return_value={"Earthling": sprite},
+                    ),
+                    mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+                    mock.patch("pygame.event.get", return_value=[]),
+                    mock.patch.object(SliderRow, "draw", capture),
+                    mock.patch("pygame.display.flip", side_effect=self.StopRun),
+                ):
+                    with self.assertRaises(self.StopRun):
+                        train_ai.run(screen)
+
+                self.assertEqual(drawn[0][0], "Reward scheme")
+                self.assertEqual(drawn[0][1], scheme.capitalize())
+                self.assertEqual(
+                    [label for label, _value in drawn[1:]],
+                    list(expected),
+                )
+                self.assertEqual(manager.active_state.reward_scheme, scheme)
 
     def test_idle_start_is_disabled_for_selected_empty_slot_without_description(self):
         class EmptyRepository:
@@ -4647,6 +4720,86 @@ class RewardScaleMigrationTests(unittest.TestCase):
         self.assertIn("3 models were", train_ai.legacy_reward_scale_note(3))
 
 
+
+class RewardSchemeTests(unittest.TestCase):
+    def test_training_uses_only_the_active_scheme_weights(self):
+        state = TrainingUIState()
+        classic = train_ai.effective_reward_weights(state)
+        self.assertEqual(classic["Kill enemy"], 1.024)
+        self.assertEqual(classic["Damage to enemy"], 0.0)
+
+        state.reward_scheme = "harm"
+        harm = train_ai.effective_reward_weights(state)
+        self.assertEqual(harm["Kill enemy"], 0.0)
+        self.assertEqual(harm["Damage to enemy"], 1.024)
+        self.assertEqual(harm["Enemy kill"], 1.024)
+        self.assertEqual(
+            train_ai.training_config_from_state(
+                TrainingUIState(selected_ship="Earthling", reward_scheme="harm")
+            ).reward_weights["Reduce enemy crew"],
+            0.0,
+        )
+
+    def test_harm_scheme_and_weights_round_trip_through_saved_state(self):
+        state = TrainingUIState(reward_scheme="harm")
+        state.rewards["Damage taken"] = -0.256
+        restored = train_ai._training_ui_state_from_json(
+            train_ai._training_ui_state_to_json(state)
+        )
+        self.assertEqual(restored.reward_scheme, "harm")
+        self.assertEqual(restored.rewards["Damage taken"], -0.256)
+        self.assertEqual(restored.rewards["Kill enemy"], 1.024)
+
+        self.assertEqual(
+            train_ai._training_ui_state_from_json(
+                {"reward_scheme": "bogus"}
+            ).reward_scheme,
+            "classic",
+        )
+
+    def test_old_configs_load_as_classic_and_harm_configs_load_their_weights(self):
+        state = TrainingUIState(reward_scheme="harm")
+        train_ai.apply_model_conditions_to_state(
+            state,
+            {"training": {"reward_scale_version": 2, "rewards": {"Die": -0.256}}},
+        )
+        self.assertEqual(state.reward_scheme, "classic")
+        self.assertEqual(state.rewards["Die"], -0.256)
+
+        skipped = train_ai.apply_model_conditions_to_state(
+            state,
+            {
+                "training": {
+                    "reward_scale_version": 2,
+                    "reward_scheme": "harm",
+                    "rewards": {"Damage to enemy": 0.512, "Own death": -1.024},
+                }
+            },
+        )
+        self.assertFalse(skipped)
+        self.assertEqual(state.reward_scheme, "harm")
+        self.assertEqual(state.rewards["Damage to enemy"], 0.512)
+        self.assertEqual(state.rewards["Own death"], -1.024)
+
+    def test_settings_saved_before_the_harm_scheme_match_its_defaults(self):
+        state = TrainingUIState()
+        current = {
+            "reward_scale_version": 2,
+            "reward_scheme": "classic",
+            "rewards": dict(state.rewards),
+        }
+        old = {
+            "reward_scale_version": 2,
+            "rewards": {
+                label: value
+                for label, value in state.rewards.items()
+                if label not in train_ai.HARM_REWARD_LABELS
+            },
+        }
+        self.assertTrue(_training_settings_match(old, current))
+        harm = dict(current, reward_scheme="harm")
+        self.assertFalse(_training_settings_match(old, harm))
+
 class SliderRowTests(unittest.TestCase):
     def test_label_value_slider_uses_fixed_right_track_region(self):
         first = SliderRow(
@@ -5360,9 +5513,27 @@ class TrainingConsoleTests(unittest.TestCase):
         )
 
         self.assertEqual(len(lines_with_component), len(lines_without_components))
-        placeholder_rows = lines_without_components[-len(REWARD_LABELS) :]
-        self.assertEqual(len(placeholder_rows), len(REWARD_LABELS))
+        classic_labels = train_ai.CLASSIC_REWARD_LABELS
+        placeholder_rows = lines_without_components[-len(classic_labels) :]
+        self.assertEqual(len(placeholder_rows), len(classic_labels))
         self.assertTrue(all(row.endswith("|        -") for row in placeholder_rows))
+
+    def test_display_off_console_lists_the_harm_scheme_components(self):
+        lines = train_ai._display_off_console_content(
+            self._status(component_totals={"Damage to enemy": 0.25}),
+            (),
+            train_ai.HARM_REWARD_LABELS,
+        )[0]
+        heading = next(
+            index for index, line in enumerate(lines)
+            if line.startswith("Reward components")
+        )
+        rows = lines[heading + 1 :]
+        self.assertEqual(
+            [row.split("|")[0].strip() for row in rows],
+            list(train_ai.HARM_REWARD_LABELS),
+        )
+        self.assertIn("0.2500", rows[0])
 
     def test_training_duration_formats_for_benchmark_notes(self):
         self.assertEqual(_format_training_duration(0), "0h:00m:00s")
