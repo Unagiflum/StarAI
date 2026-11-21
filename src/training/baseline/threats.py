@@ -157,6 +157,37 @@ def threat_tracks(
     return tracks
 
 
+def pass_frames(
+    mover: ObservedObject, target: ObservedObject, contact: float, limit: float
+) -> float | None:
+    """Frame ``mover`` first passes within ``contact`` of ``target``, both
+    flying straight on, if it does within ``limit`` frames.
+
+    Positions and velocities are both in the observer's frame, so their
+    difference doesn't depend on how the observer moves.
+    """
+
+    offset_x = mover.forward - target.forward
+    offset_y = mover.right - target.right
+    if math.hypot(offset_x, offset_y) <= contact:
+        return 0.0
+    relative_x = mover.velocity_forward - target.velocity_forward
+    relative_y = mover.velocity_right - target.velocity_right
+    speed_squared = relative_x * relative_x + relative_y * relative_y
+    if speed_squared <= 1e-9:
+        return None
+    closest = -(offset_x * relative_x + offset_y * relative_y) / speed_squared
+    if closest <= 0.0:
+        return None
+    miss_x = offset_x + relative_x * closest
+    miss_y = offset_y + relative_y * closest
+    miss_squared = miss_x * miss_x + miss_y * miss_y
+    if miss_squared > contact * contact:
+        return None
+    frames = closest - math.sqrt(contact * contact - miss_squared) / math.sqrt(speed_squared)
+    return frames if frames <= limit else None
+
+
 def straight_line_danger(track: ThreatTrack, frames: int, reach: float) -> bool:
     """Whether ``track`` might matter within ``frames``: a homing threat
     near enough to arrive, or a straight one whose path passes within

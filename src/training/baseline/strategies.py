@@ -319,40 +319,26 @@ def _approach_enemy_object(ctx: BaselineContext, objects) -> bool:
     return ctx.approach_object(nearest)
 
 
-def _hold_while_closing_on_enemy(ctx: BaselineContext) -> bool:
-    """Keep weapon 1 held while my fastest shot still closes on the enemy."""
+def _keep_held_shot(ctx: BaselineContext) -> bool:
+    """Whether to keep weapon 1 held on the crystal or saw in flight: while
+    it is due to meet an enemy object it destroys, or still closes on the
+    enemy. (Letting go of one closing but due to miss, for a new shot, did
+    worse in the arena: the enemy moves and most later hit anyway.)
+    """
 
+    shot = ctx.held_shot()
     enemy = ctx.enemy
-    shots = ctx.view.friendly_a1_objects
-    if enemy is None or not shots:
+    if shot is None or enemy is None:
         return False
-    own_forward = ctx.me.velocity_forward
-    own_right = ctx.me.velocity_right
-    shot = max(
-        shots,
-        key=lambda item: (
-            (item.velocity_forward + own_forward) ** 2
-            + (item.velocity_right + own_right) ** 2
-        ),
-    )
+    return ctx.held_shot_meets_threat() or _closing_on(shot, enemy)
+
+
+def _closing_on(shot, enemy) -> bool:
     offset_forward = shot.forward - enemy.forward
     offset_right = shot.right - enemy.right
     relative_forward = shot.velocity_forward - enemy.velocity_forward
     relative_right = shot.velocity_right - enemy.velocity_right
     return offset_forward * relative_forward + offset_right * relative_right < 0.0
-
-
-def _shot_in_flight(ctx: BaselineContext, minimum_speed: float) -> bool:
-    own_forward = ctx.me.velocity_forward
-    own_right = ctx.me.velocity_right
-    return any(
-        (
-            (shot.velocity_forward + own_forward) ** 2
-            + (shot.velocity_right + own_right) ** 2
-        )
-        > minimum_speed * minimum_speed
-        for shot in ctx.view.friendly_a1_objects
-    )
 
 
 def androsynth(ctx: BaselineContext) -> None:
@@ -464,7 +450,7 @@ def chenjesu(ctx: BaselineContext) -> None:
     ctx.point_weapon(1)
     if ctx.held("a1"):
         # The crystal bursts on release: hold it while it still closes.
-        ctx.a1(_hold_while_closing_on_enemy(ctx))
+        ctx.a1(_keep_held_shot(ctx))
     elif ctx.pointing(1):
         ctx.a1(True)
 
@@ -725,9 +711,9 @@ def kohr_ah(ctx: BaselineContext) -> None:
         ctx.a2(True)
     ctx.avoid_opponent()
     ctx.point_weapon(1)
-    if ctx.held("a1") and _shot_in_flight(ctx, minimum_speed=20.0):
+    if ctx.held("a1") and ctx.held_shot() is not None:
         # Releasing parks the flying saw; keep it moving while it closes.
-        ctx.a1(_hold_while_closing_on_enemy(ctx))
+        ctx.a1(_keep_held_shot(ctx))
     elif ctx.pointing(1):
         ctx.a1(ctx.press("a1"))
 

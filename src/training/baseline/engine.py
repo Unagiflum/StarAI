@@ -11,19 +11,21 @@ not fire anyway.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Callable
 
 import src.const as const
 from src.training.baseline.flight import ShipFlight, turn_step_degrees
 from src.training.baseline.threats import (
+    SHOT_CONTACT,
     THREAT_SIZE,
     FlownPath,
     ThreatTrack,
     arrival_frames,
     fly_move,
     judge_move,
+    pass_frames,
     straight_line_danger,
     threat_tracks,
 )
@@ -132,11 +134,31 @@ UMGAH_HOP_FRAMES = SHIP_DEFINITIONS["Umgah"].a2_wait + 1
 EVADE_HOP_COUNTS = (1, 2)
 EVADE_NO_HEADING_SHIPS = frozenset({"Umgah"})
 # Ships whose weapon 1 is not a plain shot to aim at a threat: homing,
-# charged, parked or self-aiming weapons. The Chenjesu crystal flies until
-# released, so it meets a threat ahead like any other shot.
+# parked or self-aiming weapons. The Chenjesu crystal flies until released,
+# so it meets a threat ahead like any other shot, and the Melnorme charge
+# flies when let go. Shooting down with a new Kohr-Ah saw cost more crew
+# dealt than it saved in the arena.
 SHOOT_DOWN_EXCLUDED_SHIPS = frozenset(
-    {"Androsynth", "Arilou", "Earthling", "KohrAh", "Melnorme", "Mycon", "Umgah"}
+    {"Androsynth", "Arilou", "Earthling", "KohrAh", "Mycon", "Umgah"}
 )
+# Ships whose weapon 1 is held. The Chenjesu crystal and the Kohr-Ah saw
+# fly while A1 is held, and burst or park on release; the Melnorme shot
+# charges at the nose while held and flies on release. A new crystal or saw
+# needs A1 released for a frame first. Rule 1 weighs what the held shot is
+# worth against a shoot-down, and a threat my shot in flight (or the
+# Melnorme charge) is due to meet first counts as stopped.
+HELD_WEAPON_SHIPS = frozenset({"Chenjesu", "KohrAh", "Melnorme"})
+# A crystal or saw in flight is worth its damage when its closest pass of the
+# enemy hull comes within the hull's reach, falling to nothing at twice that,
+# and nothing when the pass is more than HELD_SHOT_HORIZON_FRAMES away or
+# behind it. Parked Kohr-Ah saws fly slower than HELD_SHOT_MIN_SPEED.
+HELD_SHOT_HORIZON_FRAMES = 72
+HELD_SHOT_MIN_SPEED = 20.0
+# A Melnorme charge not lined up on the enemy in range is worth this share
+# of its damage.
+MELNORME_UNAIMED_CHARGE_WEIGHT = 0.5
+# My shot meets a threat when their centres pass this close.
+HELD_SHOT_INTERCEPT_CONTACT = SHOT_CONTACT + THREAT_SIZE
 # The Orz turret: weapon 2 held with a turn key turns the turret, not the
 # hull, one sprite facing every ORZ_TURRET_STEP_FRAMES frames. Weapon 1
 # cannot fire while weapon 2 is held (both together launch a marine).
@@ -495,6 +517,106 @@ class BaselineContext:
     def in_range(self, action: int, scale: float = 1.0) -> bool:
         weapon = self.weapon(action)
         return self.enemy is not None and self.distance <= weapon.range * float(scale)
+
+    # ---------------------------------------------------------- held weapons
+
+    def held_shot(self) -> ObservedObject | None:
+        """The shot weapon 1 is holding, for ``HELD_WEAPON_SHIPS`` with A1 held.
+
+        The Melnorme charge rides at the nose, at rest relative to the ship.
+        The Chenjesu crystal or Kohr-Ah saw is the fastest of my shots still
+        in flight; parked saws and crystal shards don't count. None when
+        nothing is held, or A1 is held on a shot already gone.
+        """
+
+        if self.ship_name not in HELD_WEAPON_SHIPS or not self.held("a1"):
+            return None
+        shots = self.view.friendly_a1_objects
+        if self.ship_name == "Melnorme":
+            return min(
+                (shot for shot in shots if shot.relative_speed < 1.0),
+                key=lambda shot: shot.distance,
+                default=None,
+            )
+        own_forward = self.me.velocity_forward
+        own_right = self.me.velocity_right
+
+        def speed(shot: ObservedObject) -> float:
+            return math.hypot(shot.velocity_forward + own_forward, shot.velocity_right + own_right)
+
+        minimum_damage = 0.0
+        if self.ship_name == "Chenjesu":
+            minimum_damage = float(ABILITY_DEFINITIONS["ChenjesuA1"].fragment_damage)
+        flying = [
+            shot
+            for shot in shots
+            if speed(shot) > HELD_SHOT_MIN_SPEED and -shot.crew_effect > minimum_damage
+        ]
+        return max(flying, key=speed, default=None)
+
+    def held_shot_value(self) -> float | None:
+        """Crew the held shot is expected to take from the enemy; None when
+        weapon 1 holds nothing.
+
+        A crystal or saw in flight is worth its damage on a predicted hit
+        (see ``held_pass_share``); one receding or due to miss is worth
+        nothing. The Melnorme charge is worth its current damage when the
+        enemy is in range along the nose, else ``MELNORME_UNAIMED_CHARGE_WEIGHT``
+        of it.
+        """
+
+        if self.ship_name not in HELD_WEAPON_SHIPS or not self.held("a1"):
+            return None
+        shot = self.held_shot()
+        enemy = self.enemy
+        if shot is None or enemy is None:
+            return 0.0
+        damage = max(0.0, -shot.crew_effect)
+        if self.ship_name == "Melnorme":
+            if self.in_range(1) and self.pointing(1):
+                return damage
+            return damage * MELNORME_UNAIMED_CHARGE_WEIGHT
+        reach = ship_spec(self.enemy_name, self.enemy_form).shot_reach
+        return damage * held_pass_share(shot, enemy, reach)
+
+    def held_shot_meets_threat(self) -> bool:
+        """Whether the held shot is due to meet an enemy object it destroys
+        before that object reaches me."""
+
+        shot = self.held_shot()
+        if shot is None:
+            return False
+        return any(self._shot_stops(shot, threat) for threat in self.view.enemy_objects)
+
+    def _shot_stops(self, shot: ObservedObject, threat: ObservedObject) -> bool:
+        if -shot.crew_effect < threat.hit_points:
+            return False
+        frames, miss = threat.closest_approach()
+        limit = frames if 0.0 <= frames and miss <= COLLISION_MARGIN else HELD_SHOT_HORIZON_FRAMES
+        return pass_frames(shot, threat, HELD_SHOT_INTERCEPT_CONTACT, limit) is not None
+
+    def stopped_threats(self, tracks) -> set[int]:
+        """Indices of ``tracks`` my shots already out will stop first.
+
+        For ``HELD_WEAPON_SHIPS`` only: a shot in flight, or the Melnorme
+        charge at the nose, that its damage lets destroy the threat and is
+        due to meet it, flying straight on, before the threat reaches me.
+        """
+
+        if self.ship_name not in HELD_WEAPON_SHIPS:
+            return set()
+        shots = list(self.view.friendly_a1_objects)
+        stopped = set()
+        for index, track in enumerate(tracks):
+            threat = track.source
+            limit = arrival_frames(track, EVADE_HORIZON_FRAMES)
+            for shot in shots:
+                if -shot.crew_effect < threat.hit_points:
+                    continue
+                if pass_frames(shot, threat, HELD_SHOT_INTERCEPT_CONTACT, limit) is not None:
+                    stopped.add(index)
+                    break
+        return stopped
 
     def intercept(
         self,
@@ -878,6 +1000,9 @@ class BaselineContext:
                 track, EVADE_HORIZON_FRAMES, reach + THREAT_SIZE + EVADE_PATH_SLACK
             )
         ]
+        stopped = self.stopped_threats(tracks)
+        if stopped:
+            tracks = [track for index, track in enumerate(tracks) if index not in stopped]
         if not tracks:
             return False
         frames = min(
@@ -1062,10 +1187,23 @@ class BaselineContext:
             weapon.kind == "projectile" and not weapon.tracking and weapon.speed > 0.0
         ):
             return []
-        if self.me.battery < self.spec.a1_cost:
-            return []
-        recoil = DRUUGE_RECOIL if self.ship_name == "Druuge" else None
+        held_value = self.held_shot_value()
         ready_frame = int(math.ceil(max(0.0, self.me.timer_seconds("a1_timer")) * const.FPS))
+        if self.ship_name == "Melnorme":
+            # The shot is the charge, flown on release at its current damage.
+            charge = self.held_shot() if held_value is not None else None
+            if charge is None:
+                return []
+            weapon = replace(weapon, damage=max(0.0, -charge.crew_effect))
+            ready_frame = 0
+        elif self.me.battery < self.spec.a1_cost:
+            return []
+        elif held_value is not None:
+            # A1 is released this frame; the new shot leaves on the next.
+            ready_frame = max(ready_frame, 1)
+        # Pre-empting a held shot gives up what it is worth.
+        forgone = held_value or 0.0
+        recoil = DRUUGE_RECOIL if self.ship_name == "Druuge" else None
         fine = float(const.TURN_ANGLE)
         step = float(const.TURN_ANGLE) * const.DIRECTIONS_MULTIPLIER
         period = self.spec.turn_wait + 1
@@ -1110,7 +1248,7 @@ class BaselineContext:
             options.append(
                 (
                     outcome.damage,
-                    cost,
+                    cost + forgone,
                     self.turn_seconds(nose),
                     (EVADE_SHOOT, int(round(absolute % 360.0))),
                     lambda nose=nose: self._shoot_down(nose),
@@ -1191,7 +1329,17 @@ class BaselineContext:
     def _shoot_down(self, nose: float) -> bool:
         self.point_at(nose)
         self.plan.claim_thrust(False)
-        if abs(nose) <= float(const.TURN_ANGLE) / 2.0 + 1e-6 and self.me.a1_ready:
+        aligned = abs(nose) <= float(const.TURN_ANGLE) / 2.0 + 1e-6
+        if self.ship_name == "Melnorme":
+            # Keep charging until the nose is on, then let the charge fly.
+            self.a1(not aligned)
+            return True
+        if self.ship_name in HELD_WEAPON_SHIPS:
+            # A held crystal or saw is let go first; A1 stays released until
+            # the nose is on, so nothing else fires it early.
+            self.a1(aligned and self.me.a1_ready and not self.held("a1"))
+            return True
+        if aligned and self.me.a1_ready:
             self.a1(True)
             if self.ship_name == "Orz":
                 # Weapon 1 with weapon 2 launches a marine instead.
@@ -1464,6 +1612,30 @@ def planet_horizon_frames(spec: ShipSpec) -> int:
     low = int(round(PLANET_HORIZON_MIN_SECONDS * const.FPS))
     high = int(round(PLANET_HORIZON_MAX_SECONDS * const.FPS))
     return max(low, min(high, frames))
+
+
+def held_pass_share(shot: ObservedObject, target: ObservedObject, reach: float) -> float:
+    """Share of its damage a shot flying straight on is expected to deal
+    ``target``, a hull of ``reach``: all of it when its closest pass comes
+    within ``reach``, falling to none at twice that; none when that pass is
+    behind it or more than ``HELD_SHOT_HORIZON_FRAMES`` away."""
+
+    offset_forward = shot.forward - target.forward
+    offset_right = shot.right - target.right
+    relative_forward = shot.velocity_forward - target.velocity_forward
+    relative_right = shot.velocity_right - target.velocity_right
+    speed_squared = relative_forward * relative_forward + relative_right * relative_right
+    if speed_squared <= 1e-9:
+        return 0.0
+    closest = -(offset_forward * relative_forward + offset_right * relative_right) / speed_squared
+    if closest <= 0.0 or closest > HELD_SHOT_HORIZON_FRAMES:
+        return 0.0
+    miss = math.hypot(
+        offset_forward + relative_forward * closest,
+        offset_right + relative_right * closest,
+    )
+    reach = max(1.0, float(reach))
+    return max(0.0, min(1.0, (2.0 * reach - miss) / reach))
 
 
 def _heading_controller(bearing: float):

@@ -291,8 +291,10 @@ def _rule_context(
     memory=None,
     speed=0.0,
     a1_timer=0.0,
+    friendly_shots=(),
 ):
     view = mock.Mock()
+    view.friendly_a1_objects = tuple(friendly_shots)
     view.me.heading = 0.0
     view.me.a1_ready = a1_timer <= 0.0
     view.me.timer_seconds.side_effect = lambda field: a1_timer if field == "a1_timer" else 0.0
@@ -687,7 +689,8 @@ class EvadeRuleTests(unittest.TestCase):
         )
 
         self.assertTrue(context.evade_threats())
-        self.assertIsNone(context.plan.a1)
+        # A held weapon is kept released, so the strategy can't fire it early.
+        self.assertFalse(context.plan.a1)
 
     def test_leaves_steering_claimed_by_the_planet_rule(self):
         context = _rule_context("Pkunk", enemy_objects=[_shot(90.0, 220.0, closing=40.0)])
@@ -763,6 +766,206 @@ class EvadeRuleTests(unittest.TestCase):
         self.assertFalse(may_evade(syreen(battery=16.0)))
         self.assertTrue(may_evade(syreen(battery=0.0)))
         self.assertTrue(may_evade(_rule_context("Pkunk")))
+
+
+def _own_shot(bearing, distance, *, speed, heading=None, damage, hit_points=10.0):
+    """One of my weapon 1 shots at ``bearing``, flying at ``speed`` toward
+    ``heading`` (both degrees off my nose), with me at rest."""
+
+    radians = math.radians(bearing)
+    course = math.radians(bearing if heading is None else heading)
+    return ObservedObject(
+        group="friendly_a1",
+        distance=float(distance),
+        bearing=float(bearing),
+        forward=distance * math.cos(radians),
+        right=distance * math.sin(radians),
+        velocity_forward=speed * math.cos(course),
+        velocity_right=speed * math.sin(course),
+        closing_speed=0.0,
+        lateral_speed=0.0,
+        crew_effect=-float(damage),
+        battery_effect=0.0,
+        hit_points=float(hit_points),
+        expires=False,
+        remaining_seconds=0.0,
+    )
+
+
+class HeldWeaponTests(unittest.TestCase):
+    """Phase 3A: weapon 1 held by the Chenjesu, Kohr-Ah and Melnorme."""
+
+    ENEMY_AHEAD = _seen(0.0, 1500.0)
+
+    def _context(self, ship, *, held=("a1",), shots=(), enemy=ENEMY_AHEAD, **kwargs):
+        context = _rule_context(ship, enemy=enemy, held=held, friendly_shots=shots, **kwargs)
+        context.view.me.chenjesu_dogis = 4
+        return context
+
+    def test_a_crystal_is_worth_its_damage_only_on_course_for_the_enemy(self):
+        def value(heading, held=("a1",)):
+            crystal = _own_shot(0.0, 500.0, speed=64.0, heading=heading, damage=6.0)
+            return self._context("Chenjesu", held=held, shots=[crystal]).held_shot_value()
+
+        self.assertAlmostEqual(value(0.0), 6.0)
+        self.assertEqual(value(90.0), 0.0)
+        self.assertEqual(value(180.0), 0.0)
+        self.assertIsNone(value(0.0, held=()))
+
+    def test_chenjesu_keeps_holding_a_crystal_closing_on_the_enemy(self):
+        crystal = _own_shot(0.0, 500.0, speed=64.0, damage=6.0)
+        context = self._context("Chenjesu", shots=[crystal])
+        STRATEGIES["Chenjesu"](context)
+
+        self.assertTrue(context.plan.a1)
+
+    def test_a_crystal_closing_but_due_to_miss_is_kept(self):
+        # Passing 750 wide of the enemy: the enemy may still turn into it.
+        crystal = _own_shot(30.0, 500.0, speed=64.0, damage=6.0)
+        context = self._context("Chenjesu", shots=[crystal])
+        STRATEGIES["Chenjesu"](context)
+
+        self.assertEqual(context.held_shot_value(), 0.0)
+        self.assertTrue(context.plan.a1)
+
+    def test_a_receding_saw_is_let_go_and_a_fresh_press_follows(self):
+        saw = _own_shot(0.0, 500.0, speed=64.0, heading=180.0, damage=4.0)
+        holding = self._context("KohrAh", shots=[saw])
+        STRATEGIES["KohrAh"](holding)
+        released = self._context("KohrAh", held=(), shots=[saw])
+        STRATEGIES["KohrAh"](released)
+
+        self.assertFalse(holding.plan.a1)
+        self.assertTrue(released.plan.a1)
+
+    def test_a_parked_saw_is_not_held_but_still_stops_a_threat(self):
+        parked = _own_shot(0.0, 400.0, speed=0.0, damage=4.0)
+        shell = _shot(0.0, 900.0, closing=40.0, damage=3.0, hit_points=2.0)
+        context = self._context("KohrAh", shots=[parked], enemy_objects=[shell])
+
+        self.assertIsNone(context.held_shot())
+        self.assertFalse(context.evade_threats())
+
+    def test_a_threat_my_crystal_will_meet_first_is_left_to_it(self):
+        crystal = _own_shot(0.0, 200.0, speed=64.0, damage=6.0)
+        nuke = _shot(0.0, 800.0, closing=40.0, damage=4.0, hit_points=4.0)
+        context = self._context(
+            "Chenjesu", shots=[crystal], enemy=_seen(90.0, 1500.0), enemy_objects=[nuke]
+        )
+        STRATEGIES["Chenjesu"](context)
+
+        self.assertEqual(context.stopped_threats(threat_tracks(
+            [nuke], (0.0, 0.0), enemy_name="Spathi", enemy_form="base"
+        )), {0})
+        # Kept held for the threat, though the enemy is elsewhere.
+        self.assertTrue(context.plan.a1)
+
+    def test_other_ships_do_not_count_their_shots_in_flight(self):
+        shot = _own_shot(0.0, 200.0, speed=64.0, damage=6.0)
+        nuke = _shot(0.0, 800.0, closing=40.0, damage=4.0, hit_points=4.0)
+        context = _rule_context("Druuge", friendly_shots=[shot], enemy_objects=[nuke])
+        tracks = threat_tracks([nuke], (0.0, 0.0), enemy_name="Spathi", enemy_form="base")
+
+        self.assertEqual(context.stopped_threats(tracks), set())
+
+    def test_chenjesu_lets_go_of_a_crystal_to_shoot_down_a_threat_and_fires_next(self):
+        # The crystal recedes from the enemy behind it; a nuke comes in ahead.
+        crystal = _own_shot(90.0, 500.0, speed=64.0, damage=6.0)
+        nuke = _shot(0.0, 700.0, closing=40.0, damage=4.0)
+        holding = self._context(
+            "Chenjesu", shots=[crystal], enemy_objects=[nuke], enemy_name="Earthling"
+        )
+        released = self._context(
+            "Chenjesu", held=(), shots=[crystal], enemy_objects=[nuke], enemy_name="Earthling"
+        )
+
+        self.assertTrue(holding.evade_threats())
+        self.assertFalse(holding.plan.a1)
+        self.assertTrue(released.evade_threats())
+        self.assertTrue(released.plan.a1)
+
+    def test_a_crystal_worth_more_than_the_threat_is_kept(self):
+        crystal = _own_shot(0.0, 500.0, speed=64.0, heading=180.0, damage=6.0)
+        enemy_behind = _seen(180.0, 1500.0)
+        nuke = _shot(0.0, 700.0, closing=40.0, damage=1.0)
+        context = self._context(
+            "Chenjesu",
+            shots=[crystal],
+            enemy=enemy_behind,
+            enemy_objects=[nuke],
+            enemy_name="Earthling",
+        )
+        context.evade_threats()
+
+        self.assertIsNone(context.plan.a1)
+
+    def test_a_shoot_down_with_weapon_1_held_fires_after_the_release_frame(self):
+        nuke = _shot(0.0, 700.0, closing=40.0, damage=4.0)
+        tracks = threat_tracks([nuke], (0.0, 0.0), enemy_name="Earthling", enemy_form="base")
+        spec = ship_spec("Chenjesu")
+        coast, _ = fly_move(spec, (0.0, 0.0), 40, lambda flight: (None, False, False), planet=None)
+
+        def fire_frames(held):
+            context = self._context("Chenjesu", held=held, enemy_name="Earthling")
+            frames = []
+
+            def judge(controller, **kwargs):
+                frames.append(kwargs["shot"][0])
+                return coast, judge_move(tracks, coast, spec.shot_reach, planet=None)
+
+            context._shoot_down_options(tracks, coast, judge)
+            return frames
+
+        self.assertEqual(fire_frames(()), [0])
+        self.assertEqual(fire_frames(("a1",)), [1])
+
+    def test_melnorme_keeps_charging_when_nothing_competes(self):
+        charge = _own_shot(0.0, 100.0, speed=0.0, damage=8.0, hit_points=8.0)
+        context = self._context("Melnorme", shots=[charge], enemy=_seen(60.0, 3000.0))
+        STRATEGIES["Melnorme"](context)
+
+        self.assertTrue(context.plan.a1)
+
+    def test_melnorme_shoots_a_threat_down_with_the_charge_it_holds(self):
+        charge = _own_shot(0.0, 100.0, speed=0.0, damage=4.0, hit_points=4.0)
+        missile = _shot(45.0, 600.0, closing=40.0, damage=3.0, hit_points=2.0)
+        tracks = threat_tracks([missile], (0.0, 0.0), enemy_name="Spathi", enemy_form="base")
+        spec = ship_spec("Melnorme")
+        coast, _ = fly_move(spec, (0.0, 0.0), 30, lambda flight: (None, False, False), planet=None)
+        shots = []
+
+        def judge(controller, **kwargs):
+            shots.append(kwargs["shot"])
+            outcome = judge_move(tracks, coast, spec.shot_reach, planet=None, shot=kwargs["shot"])
+            return coast, outcome
+
+        enemy = _seen(180.0, 3000.0)
+        charging = self._context("Melnorme", shots=[charge], enemy=enemy)
+        options = charging._shoot_down_options(tracks, coast, judge)
+        idle = self._context("Melnorme", held=(), enemy=enemy)
+
+        self.assertEqual(len(options), 1)
+        # The partial charge flies at its own damage, and stops the missile.
+        self.assertEqual(shots[0][1].damage, 4.0)
+        self.assertEqual(options[0][0], 0.0)
+        self.assertEqual(idle._shoot_down_options(tracks, coast, judge), [])
+
+    def test_melnorme_keeps_charging_while_turning_and_lets_go_once_on(self):
+        turning = self._context("Melnorme")
+        turning._shoot_down(45.0)
+        on_target = self._context("Melnorme")
+        on_target._shoot_down(0.0)
+
+        self.assertEqual(turning.plan.turn, TURN_RIGHT)
+        self.assertTrue(turning.plan.a1)
+        self.assertFalse(on_target.plan.a1)
+
+    def test_melnorme_charge_on_the_nose_stops_a_threat_coming_at_it(self):
+        charge = _own_shot(0.0, 100.0, speed=0.0, damage=4.0, hit_points=4.0)
+        missile = _shot(0.0, 600.0, closing=40.0, damage=3.0, hit_points=2.0)
+        context = self._context("Melnorme", shots=[charge], enemy_objects=[missile])
+
+        self.assertFalse(context.evade_threats())
 
 
 class KeepMovingRuleTests(unittest.TestCase):
