@@ -77,6 +77,7 @@ from src.training.baseline.strategies import (
     EARTHLING_NUKE_MIN_DISTANCE,
     EARTHLING_NUKE_OVERRUN_SPEED,
     may_evade,
+    UMGAH_CHMMR_HOP_DISTANCE,
     UMGAH_CONE_HALF_ANGLE,
     UMGAH_PASS_CLEARANCE,
     UMGAH_RUN_CLEARANCE,
@@ -2085,6 +2086,28 @@ class UtwigChmmrTests(unittest.TestCase):
 
         self.assertNotIn("utwig_chmmr_running", context.memory.values)
         self.assertFalse(context.plan.a2)
+
+
+class UmgahChmmrTests(unittest.TestCase):
+    def _umgah(self, enemy):
+        context = _rule_context("Umgah", enemy=enemy, enemy_name="Chmmr", battery=30.0)
+        STRATEGIES["Umgah"](context)
+        return context
+
+    def test_faces_the_chmmr_without_thrust_with_the_cone_on(self):
+        context = self._umgah(_seen(30.0, 1200.0, closing=40.0))
+
+        self.assertEqual(context.plan.turn, TURN_RIGHT)
+        self.assertFalse(context.plan.thrust)
+        self.assertTrue(context.plan.a1)
+        self.assertFalse(context.plan.a2)
+
+    def test_hops_back_off_the_chmmr_hull(self):
+        context = self._umgah(_seen(0.0, UMGAH_CHMMR_HOP_DISTANCE - 10.0))
+
+        self.assertTrue(context.plan.a2)
+        self.assertTrue(context.plan.a1)
+        self.assertFalse(context.plan.thrust)
 
 
 class ChmmrTractorTests(unittest.TestCase):

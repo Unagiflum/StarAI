@@ -76,6 +76,8 @@ UMGAH_PATH_LOOKAHEAD_HOPS = 4
 UMGAH_FACING_ANGLE = 60.0
 # Short-reach opponents that must come to the cone; the Umgah waits facing them.
 UMGAH_AMBUSH_SHIPS = frozenset({"Ilwrath", "Pkunk", "Shofixti"})
+# Against a Chmmr the Umgah hops back off its hull from this distance.
+UMGAH_CHMMR_HOP_DISTANCE = 120.0
 # Distances from the specification, in world units.
 LONG_RANGE = 1000.0
 FAR_RANGE = 2000.0
@@ -1628,6 +1630,9 @@ def umgah(ctx: BaselineContext) -> None:
     """
 
     enemy = ctx.enemy
+    if ctx.enemy_name == "Chmmr":
+        _umgah_vs_chmmr(ctx)
+        return
     recharging = _umgah_recharging(ctx)
     _umgah_dodge(ctx)
     if any(item.distance <= UMGAH_HOSTILE_RANGE for item in ctx.view.enemy_objects):
@@ -1663,6 +1668,26 @@ def umgah(ctx: BaselineContext) -> None:
     # Line the tail up beside the opponent, ready for a run.
     ctx.point_at(_umgah_tail_heading(ctx, enemy))
     ctx.plan.claim_thrust(False)
+
+
+def _umgah_vs_chmmr(ctx: BaselineContext) -> None:
+    """Face the Chmmr with the cone on throughout, hopping back off its hull.
+
+    Its tractor drags the light Umgah in far faster than hops could keep it
+    away, so it meets the Chmmr nose first. The cone is free, and at the
+    tractor's speed the Chmmr crosses its reach between two decisions, so it
+    stays on rather than wait for the Chmmr to be seen in reach; it also
+    burns any satellite it sweeps. The backward hop at contact keeps the
+    Umgah within cone reach instead of bouncing off.
+    """
+
+    if ctx.enemy is None:
+        return
+    ctx.point_at_opponent()
+    ctx.plan.claim_thrust(False)
+    ctx.a1(True)
+    if ctx.distance <= UMGAH_CHMMR_HOP_DISTANCE:
+        ctx.a2(True)
 
 
 def umgah_hop_in(ctx: BaselineContext) -> None:
