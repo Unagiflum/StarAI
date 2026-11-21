@@ -16,6 +16,7 @@ from src.training.baseline.engine import (
     APPROACH_ANGLE_OFFSET,
     AVOID_ANGLE_OFFSET,
     CHMMR_LASER_RANGE,
+    ILWRATH_FLAME_REACH,
     PERPENDICULAR_AWAY_OFFSET,
     ORZ_TURRET_STEP,
     SATELLITE_HIT_RADIUS,
@@ -128,10 +129,10 @@ ZOQ_FOT_PIK_LUNGE_SECONDS = 1.0
 ZOQ_FOT_PIK_TONGUE_WIDTH = float(ABILITY_DEFINITIONS["ZoqFotPikA2"].area_width or 10)
 ZOQ_FOT_PIK_TONGUE_SKIPPED_SHIPS = frozenset({"Slylandro"})
 # Ilwrath flames, measured on the real collision masks: held flames reach a
-# hull about 300 units ahead centre to centre, and a hull about 60 units to
-# the side of the nose line. The cloak takes this many frames to fade in,
-# and is used only with battery left for this many flames afterwards.
-ILWRATH_FLAME_REACH = 300.0
+# hull about 300 units ahead centre to centre (``ILWRATH_FLAME_REACH``), and
+# a hull about 60 units to the side of the nose line. The cloak takes this
+# many frames to fade in, and is used only with battery left for this many
+# flames afterwards.
 ILWRATH_FLAME_HALF_WIDTH = 60.0
 ILWRATH_FADE_FRAMES = float(ABILITY_DEFINITIONS["IlwrathA2"].fade_duration or 5)
 ILWRATH_CLOAK_RESERVE = 4.0
@@ -922,7 +923,7 @@ def _pkunk(ctx: BaselineContext, *, passes: bool, dodge: bool, safe_station: boo
         # and outside the opponent's own reach.
         station = a1_range * PKUNK_STATION_RANGE_FACTOR
         if safe_station:
-            station = max(station, _enemy_reach(ctx) + TYPICAL_HULL_RADIUS + PKUNK_STATION_MARGIN)
+            station = max(station, ctx.enemy_reach() + TYPICAL_HULL_RADIUS + PKUNK_STATION_MARGIN)
         ctx.approach_range(
             station,
             key="station",
@@ -1127,28 +1128,11 @@ def _spathi_vs_chmmr(ctx: BaselineContext) -> None:
         ctx.a1(True)
 
 
-def _enemy_reach(ctx: BaselineContext) -> float:
-    """Longest reach of the opponent's direct weapons (not escorts)."""
-
-    name = ctx.enemy_name
-    if name is None:
-        return 0.0
-    if name == "Ilwrath":
-        return ILWRATH_FLAME_REACH
-    form = _enemy_form(ctx)
-    reach = 0.0
-    for action in (1, 2):
-        weapon = weapon_spec(name, action, form)
-        if weapon.kind in ("projectile", "laser", "area"):
-            reach = max(reach, weapon.range)
-    return reach
-
-
 def _supox_band(ctx: BaselineContext) -> tuple[float, float]:
     """Distance band to hold: just outside a shorter-reaching opponent."""
 
     longest = ctx.weapon(1).range * SUPOX_BAND_GUN_FRACTION
-    outside = _enemy_reach(ctx) + TYPICAL_HULL_RADIUS + SUPOX_OUTRANGE_MARGIN
+    outside = ctx.enemy_reach() + TYPICAL_HULL_RADIUS + SUPOX_OUTRANGE_MARGIN
     if SUPOX_BAND_NEAR < outside <= longest - SUPOX_BAND_MIN_WIDTH:
         return outside, max(SUPOX_BAND_FAR, min(longest, outside + SUPOX_BAND_MIN_WIDTH))
     return SUPOX_BAND_NEAR, SUPOX_BAND_FAR
@@ -1406,7 +1390,7 @@ def thraddash(ctx: BaselineContext) -> None:
     slow_turner = ctx.enemy_name in THRADDASH_SLOW_TURNERS
     escape_distance = THRADDASH_BAIT_DISTANCE if slow_turner else THRADDASH_ESCAPE_DISTANCE
     # Never wait inside the opponent's own reach.
-    outside_reach = _enemy_reach(ctx) + TYPICAL_HULL_RADIUS + THRADDASH_REACH_MARGIN
+    outside_reach = ctx.enemy_reach() + TYPICAL_HULL_RADIUS + THRADDASH_REACH_MARGIN
     escape_distance = max(escape_distance, min(outside_reach, THRADDASH_STANDOFF_NEAR))
     closing = enemy.closing_speed > 0.0
     arriving = (
@@ -2191,6 +2175,8 @@ EVADE_GATES: dict[str, Callable[[BaselineContext], bool]] = {
 def may_evade(ctx: BaselineContext) -> bool:
     """Whether rule 1 may dodge for this ship this decision."""
 
+    if not ctx.behaviour.evade:
+        return False
     gate = EVADE_GATES.get(ctx.ship_name)
     return gate is None or gate(ctx)
 

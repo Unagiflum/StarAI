@@ -3,7 +3,10 @@
 import io
 import unittest
 from contextlib import redirect_stdout
+from dataclasses import replace
 from unittest import mock
+
+import src.const as const
 
 from src.training.baseline import arena
 from src.training.baseline.arena import (
@@ -44,6 +47,8 @@ class ArenaTests(unittest.TestCase):
         self.assertEqual(result.seconds, 0.5)
         self.assertGreater(result.crew_start, 0.0)
         self.assertGreater(result.opponent_crew_start, 0.0)
+        # Ships start at rest.
+        self.assertGreater(result.still_frames, 0)
 
     def test_fights_use_real_ship_assets_like_training(self):
         captured = {}
@@ -113,6 +118,18 @@ class ArenaTests(unittest.TestCase):
         self.assertAlmostEqual(overall.mean_dealt, 1.0)
         self.assertAlmostEqual(overall.mean_taken, 1.0)
         self.assertIn("1D 1X", overall.cell())
+
+    def test_tally_reports_crew_per_minute_and_still_share(self):
+        win = replace(_result(OUTCOME_WIN), still_frames=const.FPS * 5)
+        loss = replace(_result(OUTCOME_LOSS), seconds=50.0)
+        table = tally([win, loss])
+
+        overall = table[("ZoqFotPik", "default")]["all"]
+        # Dealt 30 (the kill) + 15 crew, lost 5 + 10, over a minute.
+        self.assertAlmostEqual(overall.dealt_per_minute, 45.0)
+        self.assertAlmostEqual(overall.lost_per_minute, 15.0)
+        self.assertAlmostEqual(overall.still_share, 5.0 / 60.0)
+        self.assertIn("crew/min 45.0:15.0 still   8%", overall.cell())
 
     def test_cli_expands_all_variants_for_the_chosen_ships(self):
         captured = []

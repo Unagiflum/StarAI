@@ -55,6 +55,16 @@ from src.training.baseline.engine import (
     top_speed_frames,
     turn_about_frames,
 )
+from src.training.baseline.behaviours import (
+    DEFAULT_BEHAVIOUR,
+    SHIP_BEHAVIOURS,
+    ship_behaviour,
+)
+from src.training.baseline.engine import (
+    EVADE_HEADING,
+    RECHARGE_REACH_MARGIN,
+    run_bearing,
+)
 from src.training.baseline.flight import ShipFlight
 from src.training.baseline.threats import (
     fly_move,
@@ -790,6 +800,113 @@ def _own_shot(bearing, distance, *, speed, heading=None, damage, hit_points=10.0
         expires=False,
         remaining_seconds=0.0,
     )
+
+
+class SharedBehaviourTests(unittest.TestCase):
+    """The per-ship behaviour table and the shared Phase 6 behaviours."""
+
+    def test_table_keeps_the_gates_each_ship_had(self):
+        def ships(field, value):
+            return {name for name, entry in SHIP_BEHAVIOURS.items() if getattr(entry, field) == value}
+
+        self.assertEqual(
+            ships("shoot_down", False),
+            {"Androsynth", "Arilou", "Earthling", "KohrAh", "Mycon", "Umgah"},
+        )
+        self.assertEqual(ships("evade_headings", False), {"Umgah"})
+        self.assertEqual(ships("keep_moving", False), {"Slylandro", "Umgah"})
+        self.assertEqual(ships("keep_moving_takes_aim", True), {"Chenjesu", "Mmrnmrhm"})
+        self.assertEqual(ships("coast_above_top_speed", True), {"Thraddash"})
+        self.assertIs(ship_behaviour("Pkunk"), DEFAULT_BEHAVIOUR)
+        self.assertIs(ship_behaviour(None), DEFAULT_BEHAVIOUR)
+        self.assertTrue(_rule_context("Thraddash").coast_above_top_speed)
+
+    def test_ship_without_evade_skips_rule_1(self):
+        context = _rule_context("Spathi")
+        context.behaviour = dataclasses.replace(context.behaviour, evade=False)
+
+        self.assertFalse(may_evade(context))
+
+    def test_run_bearing_points_away_from_the_threats_by_their_cost(self):
+        def tracks(*shots):
+            return threat_tracks(shots, (0.0, 0.0), enemy_name="Spathi", enemy_form="base")
+
+        self.assertAlmostEqual(run_bearing(tracks(_shot(30.0, 500.0, closing=20.0))), -150.0)
+        # Equal threats on either beam cancel out.
+        self.assertIsNone(
+            run_bearing(
+                tracks(_shot(90.0, 500.0, closing=20.0), _shot(-90.0, 500.0, closing=20.0))
+            )
+        )
+        # The costlier (and nearer) one ahead outweighs one astern.
+        away = run_bearing(
+            tracks(
+                _shot(0.0, 400.0, closing=20.0, damage=4.0),
+                _shot(180.0, 800.0, closing=20.0, damage=1.0),
+            )
+        )
+        self.assertAlmostEqual(abs(away), 180.0)
+
+    def test_run_from_threats_adds_the_heading_away_from_them(self):
+        shot = _shot(30.0, 500.0, closing=20.0)
+        tracks = threat_tracks([shot], (0.0, 0.0), enemy_name="Spathi", enemy_form="base")
+
+        def headings(run):
+            context = _rule_context("Pkunk", enemy_objects=[shot])
+            context.behaviour = dataclasses.replace(context.behaviour, run_from_threats=run)
+            moves = context._evade_moves(None, None, False, tracks)
+            return {plan[1] for plan, *_ in moves if plan[0] == EVADE_HEADING}
+
+        self.assertNotIn(210, headings(False))
+        self.assertIn(210, headings(True))
+        self.assertEqual(headings(True) - headings(False), {210})
+
+    def _recharging(self, enemy, *, battery, threshold=6.0):
+        context = _rule_context("Spathi", enemy=enemy, enemy_name="Earthling", battery=battery)
+        context.behaviour = dataclasses.replace(context.behaviour, recharge_battery=threshold)
+        return context
+
+    def test_recharge_retreat_runs_from_a_closer_while_below_the_threshold(self):
+        reach = _rule_context("Spathi", enemy_name="Earthling").enemy_reach()
+        near = reach + 45.0 + RECHARGE_REACH_MARGIN
+        closing = _seen(0.0, near + 50.0, closing=30.0)
+
+        running = self._recharging(closing, battery=2.0)
+        with mock.patch.object(running, "steer", return_value=True) as steer:
+            self.assertTrue(running.recharge_retreat())
+        self.assertAlmostEqual(abs(steer.call_args.args[0]), 180.0)
+
+        charged = self._recharging(closing, battery=6.0)
+        self.assertFalse(charged.recharge_retreat())
+        self.assertIsNone(charged.plan.turn)
+
+    def test_recharge_retreat_never_closes_in(self):
+        far = self._recharging(_seen(0.0, 3000.0, closing=-5.0), battery=0.0)
+
+        self.assertFalse(far.recharge_retreat())
+        self.assertIsNone(far.plan.turn)
+        self.assertIsNone(far.plan.thrust)
+
+    def test_recharge_retreat_is_off_without_a_threshold(self):
+        context = _rule_context("Pkunk", enemy=_seen(0.0, 300.0, closing=30.0), battery=0.0)
+
+        self.assertFalse(context.recharge_retreat())
+        self.assertIsNone(context.plan.turn)
+
+    def test_hold_band_uses_the_given_band_or_the_ship_band(self):
+        far = _seen(20.0, 2500.0)
+        self.assertFalse(_rule_context("Spathi", enemy=far).hold_band())
+
+        given = _rule_context("Spathi", enemy=far)
+        with mock.patch.object(given, "steer", return_value=True) as steer:
+            self.assertFalse(given.hold_band((800.0, 1200.0)))
+        steer.assert_called_once()
+
+        table = _rule_context("Spathi", enemy=_seen(0.0, 900.0, closing=40.0))
+        table.behaviour = dataclasses.replace(table.behaviour, band=(800.0, 1200.0))
+        with mock.patch.object(table, "steer", return_value=True) as steer:
+            self.assertTrue(table.hold_band())
+        self.assertAlmostEqual(abs(steer.call_args.args[0]), 180.0)
 
 
 class HeldWeaponTests(unittest.TestCase):

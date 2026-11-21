@@ -16,6 +16,7 @@ import math
 from typing import Callable
 
 import src.const as const
+from src.training.baseline.behaviours import ShipBehaviour, ship_behaviour
 from src.training.baseline.flight import ShipFlight, turn_step_degrees
 from src.training.baseline.threats import (
     SHOT_CONTACT,
@@ -42,6 +43,7 @@ from src.training.baseline.ship_specs import (
     FORM_XFORM,
     FORM_YWING,
     PLANET_RADIUS,
+    TYPICAL_HULL_RADIUS,
     ShipSpec,
     WeaponSpec,
     ship_spec,
@@ -127,20 +129,10 @@ SUPOX_SLIDES = (
     (TURN_RIGHT, True, 135.0),
 )
 # The Umgah's weapon 2 hops it this far straight backward, once every
-# period, leaving it at rest. Rule 1 tries runs of these many hops. The
-# Umgah turns and accelerates too slowly for headings to dodge with.
+# period, leaving it at rest. Rule 1 tries runs of these many hops.
 UMGAH_HOP_DISTANCE = float(ABILITY_DEFINITIONS["UmgahA2"].backup_speed) * const.SPEED_SCALE
 UMGAH_HOP_FRAMES = SHIP_DEFINITIONS["Umgah"].a2_wait + 1
 EVADE_HOP_COUNTS = (1, 2)
-EVADE_NO_HEADING_SHIPS = frozenset({"Umgah"})
-# Ships whose weapon 1 is not a plain shot to aim at a threat: homing,
-# parked or self-aiming weapons. The Chenjesu crystal flies until released,
-# so it meets a threat ahead like any other shot, and the Melnorme charge
-# flies when let go. Shooting down with a new Kohr-Ah saw cost more crew
-# dealt than it saved in the arena.
-SHOOT_DOWN_EXCLUDED_SHIPS = frozenset(
-    {"Androsynth", "Arilou", "Earthling", "KohrAh", "Mycon", "Umgah"}
-)
 # Ships whose weapon 1 is held. The Chenjesu crystal and the Kohr-Ah saw
 # fly while A1 is held, and burst or park on release; the Melnorme shot
 # charges at the nose while held and flies on release. A new crystal or saw
@@ -189,28 +181,27 @@ DRUUGE_RECOIL = (
 )
 # Last rule, keep moving: below this fraction of top speed, a ship no rule
 # moves builds speed across the line to the opponent, thrusting once the
-# nose is within the angle of that heading. Ships of constant speed always
-# move, and Umgah hops leave it at rest by design.
+# nose is within the angle of that heading. Ships that opt out are in
+# ``behaviours.SHIP_BEHAVIOURS``.
 KEEP_MOVING_SPEED_FRACTION = 0.5
 KEEP_MOVING_THRUST_ANGLE = 45.0
-KEEP_MOVING_EXCLUDED_SHIPS = frozenset({"Slylandro", "Umgah"})
-# Ships whose aim the rule may turn the nose off while weapon 1 cannot fire.
-# Opt-in: the slow turners that gained in the arena; the Druuge and Kohr-Ah
-# did worse for leaving their aim.
-KEEP_MOVING_AIM_SHIPS = frozenset({"Chenjesu", "Mmrnmrhm"})
 # Sideways drift, as a fraction of top speed, that counts as orbiting.
 ORBIT_DRIFT_THRESHOLD = 0.15
 # The baseline decides every frame, so a decision lasts one frame.
 DECISION_FRAMES = 1
 # Speed above top speed, in world units per frame, that counts as overspeed.
 OVERSPEED_MARGIN = 0.5
+# Ilwrath flames, measured on the real collision masks: held flames reach a
+# hull about 300 units ahead centre to centre.
+ILWRATH_FLAME_REACH = 300.0
+# Recharging (``recharge_retreat``): keep the opponent beyond its weapons'
+# reach plus a hull and this margin, running until it is this much farther.
+RECHARGE_REACH_MARGIN = 150.0
+RECHARGE_RELEASE_MARGIN = 200.0
 # Above top speed, coast when the wanted heading is within this many
 # degrees of the direction of motion. With no drag, a ship pushed past top
 # speed keeps it, so beyond this angle it must still thrust to turn.
 OVERSPEED_COAST_ANGLE = 45.0
-# Ships that coast above top speed rather than thrust. Opt-in: across every
-# ship the arena showed no gain, so only the afterburner ship uses it.
-COAST_ABOVE_TOP_SPEED_SHIPS = frozenset({"Thraddash"})
 
 
 class ControlPlan:
@@ -340,8 +331,9 @@ class BaselineContext:
         self.memory = memory
         self.plan = ControlPlan()
         self.span_frames = DECISION_FRAMES
-        # Strategies may opt in for one decision; see COAST_ABOVE_TOP_SPEED_SHIPS.
-        self.coast_above_top_speed = ship_name in COAST_ABOVE_TOP_SPEED_SHIPS
+        self.behaviour: ShipBehaviour = ship_behaviour(ship_name)
+        # Strategies may opt in for one decision.
+        self.coast_above_top_speed = self.behaviour.coast_above_top_speed
 
     # ----------------------------------------------------------------- facts
 
@@ -390,6 +382,22 @@ class BaselineContext:
         if name == "Androsynth" and self.enemy_block.androsynth_blazer:
             return FORM_BLAZER
         return FORM_BASE
+
+    def enemy_reach(self) -> float:
+        """Longest reach of the opponent's direct weapons (not escorts)."""
+
+        name = self.enemy_name
+        if name is None:
+            return 0.0
+        if name == "Ilwrath":
+            return ILWRATH_FLAME_REACH
+        form = self.enemy_form
+        reach = 0.0
+        for action in (1, 2):
+            weapon = weapon_spec(name, action, form)
+            if weapon.kind in ("projectile", "laser", "area"):
+                reach = max(reach, weapon.range)
+        return reach
 
     @property
     def spec(self) -> ShipSpec:
@@ -921,7 +929,7 @@ class BaselineContext:
         planet = self.planet
         if planet is None:
             return False
-        frames = planet_horizon_frames(self.spec)
+        frames = self.behaviour.planet_horizon_frames or planet_horizon_frames(self.spec)
         if planet.distance - planet.relative_speed * frames > const.GRAVITY_RANGE:
             return False
         spec = self.spec
@@ -1045,7 +1053,7 @@ class BaselineContext:
         options.append((coast.damage, 0.0, 0.0, (EVADE_COAST, 0), self._evade_coast))
         previous_kind = self.memory.sides.get("evade")
         previous_heading = self.memory.sides.get("evade_heading")
-        moves = self._evade_moves(previous_kind, previous_heading, held_thrust)
+        moves = self._evade_moves(previous_kind, previous_heading, held_thrust, tracks)
         for plan, controller, seconds, claim in moves:
             _, outcome = judge(controller)
             options.append((outcome.damage, 0.0, seconds, plan, claim))
@@ -1083,18 +1091,23 @@ class BaselineContext:
         self.memory.sides["evade_heading"] = value
         return best[4]()
 
-    def _evade_moves(self, previous_kind, previous_heading, held_thrust: bool):
+    def _evade_moves(self, previous_kind, previous_heading, held_thrust: bool, tracks=()):
         """Moves rule 1 weighs besides coasting and shooting: each is
         ``(plan, controller, seconds turning, claim)``.
 
-        Ships fly the headings; the Supox also slides with weapon 2 held,
-        and the Umgah hops backward instead.
+        Ships fly the headings, and with ``run_from_threats`` also the
+        heading straight away from the threats; the Supox also slides with
+        weapon 2 held, and the Umgah hops backward instead.
         """
 
         moves = []
         own_heading = self.me.heading
-        if self.ship_name not in EVADE_NO_HEADING_SHIPS:
+        if self.behaviour.evade_headings:
             headings = {wrap_degrees(offset) for offset in EVADE_HEADINGS}
+            if self.behaviour.run_from_threats:
+                away = run_bearing(tracks)
+                if away is not None:
+                    headings.add(away)
             if previous_kind == EVADE_HEADING and previous_heading is not None:
                 headings.add(wrap_degrees(float(previous_heading) - own_heading))
             constant_speed = self.spec.constant_speed
@@ -1179,7 +1192,7 @@ class BaselineContext:
     def _shoot_down_options(self, tracks, coast_path, judge):
         """Options that turn to fire weapon 1 at one threat."""
 
-        if self.ship_name in SHOOT_DOWN_EXCLUDED_SHIPS:
+        if not self.behaviour.shoot_down:
             return []
         weapon = self.weapon(1)
         laser = weapon.kind == "laser" and not weapon.tracking
@@ -1353,7 +1366,8 @@ class BaselineContext:
         ship is below ``KEEP_MOVING_SPEED_FRACTION`` of top speed. It heads
         across the line to the opponent, on the side the ship already drifts
         toward, so the build-up neither closes in nor backs off. With turning
-        unclaimed it steers there. For ``KEEP_MOVING_AIM_SHIPS``, with turning
+        unclaimed it steers there. For ships whose behaviour lets it take
+        aim (``keep_moving_takes_aim``), with turning
         claimed only to aim, it takes the turn back while weapon 1 could not
         fire this frame anyway; once at speed the ship coasts and the
         strategy aims again.
@@ -1363,7 +1377,7 @@ class BaselineContext:
         if (
             enemy is None
             or self.plan.thrust is not None
-            or self.ship_name in KEEP_MOVING_EXCLUDED_SHIPS
+            or not self.behaviour.keep_moving
         ):
             return False
         spec = self.spec
@@ -1380,7 +1394,7 @@ class BaselineContext:
         heading = self.side(key, enemy.bearing, 90.0)
         thrust = abs(heading) <= KEEP_MOVING_THRUST_ANGLE
         if self.plan.steering_claimed:
-            if self.ship_name not in KEEP_MOVING_AIM_SHIPS or not self._aim_can_wait():
+            if not self.behaviour.keep_moving_takes_aim or not self._aim_can_wait():
                 return False
             self.plan.turn = None
         return self.steer(heading, thrust=thrust)
@@ -1555,6 +1569,48 @@ class BaselineContext:
             self.steer(heading, thrust=enemy.closing_speed < approach_speed)
         return False
 
+    def recharging(self) -> bool:
+        """Whether the battery is below the ship's ``recharge_battery``."""
+
+        threshold = self.behaviour.recharge_battery
+        return threshold is not None and self.me.battery < threshold
+
+    def recharge_retreat(self, key: str = "recharge") -> bool:
+        """Keep out of the opponent's weapon reach while recharging.
+
+        Applies while the battery is below the ship's ``recharge_battery``
+        (``behaviours.SHIP_BEHAVIOURS``): it runs once the opponent would
+        come within its reach plus a hull and ``RECHARGE_REACH_MARGIN``
+        before the nose could turn away, as ``keep_standoff`` does, and
+        never closes in. True while running.
+        """
+
+        if self.enemy is None or not self.recharging():
+            self.memory.values[f"{key}_running"] = False
+            return False
+        near = self.enemy_reach() + TYPICAL_HULL_RADIUS + RECHARGE_REACH_MARGIN
+        return self.keep_standoff(
+            key, near, math.inf, release=near + RECHARGE_RELEASE_MARGIN
+        )
+
+    def hold_band(
+        self,
+        band: tuple[float, float] | None = None,
+        key: str = "band",
+    ) -> bool:
+        """Hold the opponent within a distance band, by ``keep_standoff``.
+
+        The band is ``band`` or else the ship's ``band``
+        (``behaviours.SHIP_BEHAVIOURS``); with neither, it does nothing.
+        True while running from a closer.
+        """
+
+        band = band or self.behaviour.band
+        if band is None:
+            return False
+        near, far = band
+        return self.keep_standoff(key, float(near), float(far))
+
     def approach_weapon_range(self, action: int) -> bool:
         return self.approach_range(self.weapon(action).range, key=f"a{int(action)}_range")
 
@@ -1636,6 +1692,23 @@ def held_pass_share(shot: ObservedObject, target: ObservedObject, reach: float) 
     )
     reach = max(1.0, float(reach))
     return max(0.0, min(1.0, (2.0 * reach - miss) / reach))
+
+
+def run_bearing(tracks) -> float | None:
+    """Bearing straight away from ``tracks``, each pulling by the crew it
+    costs over its distance; None when they cancel out."""
+
+    forward = right = 0.0
+    for track in tracks:
+        distance = math.hypot(track.x, track.y)
+        if distance <= 0.0:
+            continue
+        pull = track.weight / distance
+        forward -= pull * track.x / distance
+        right -= pull * track.y / distance
+    if math.hypot(forward, right) <= 1e-9:
+        return None
+    return wrap_degrees(bearing_of(forward, right))
 
 
 def _heading_controller(bearing: float):

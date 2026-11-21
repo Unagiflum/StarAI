@@ -45,6 +45,9 @@ OUTCOME_DRAW = "draw"
 OUTCOME_TRADE = "trade"
 OUTCOME_TIMEOUT = "timeout"
 _BOTH_DESTROYED = (OUTCOME_DRAW, OUTCOME_TRADE)
+# A frame counts as still while the evaluated ship, alive, flies below this
+# fraction of its top speed.
+STILL_SPEED_FRACTION = 0.1
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +75,9 @@ class ArenaResult:
     # Satellite HP the opponent lost: set only when it fights with satellites
     # (the Chmmr), None otherwise.
     opponent_satellite_hp_lost: float | None = None
+    # Frames the evaluated ship spent alive below STILL_SPEED_FRACTION of
+    # its top speed.
+    still_frames: int = 0
 
     @property
     def damage_dealt(self) -> float:
@@ -86,6 +92,16 @@ class ArenaResult:
         if self.outcome == OUTCOME_LOSS or self.outcome in _BOTH_DESTROYED:
             return 1.0
         return _lost_share(self.crew_start, self.crew_end)
+
+    @property
+    def crew_dealt(self) -> float:
+        """Opponent crew removed, counting a kill as its whole starting crew."""
+
+        return self.damage_dealt * self.opponent_crew_start
+
+    @property
+    def crew_lost(self) -> float:
+        return self.damage_taken * self.crew_start
 
 
 def _lost_share(start: float, end: float) -> float:
@@ -163,6 +179,8 @@ def run_match(match: ArenaMatch, *, seconds: float = DEFAULT_SECONDS) -> ArenaRe
     from src.Objects.Ships.registry import create_ship
     from src.audio import NullAudioService
     from src.training.baseline.controller import BaselineController
+    from src.training.baseline.observation_view import ObservationView
+    from src.training.baseline.ship_specs import ship_spec
     from src.training.contracts import action_for_index
     from src.training.observation import encode_observation
     from src.training.orchestration import _fully_arm_training_shofixti
@@ -194,6 +212,8 @@ def run_match(match: ArenaMatch, *, seconds: float = DEFAULT_SECONDS) -> ArenaRe
     track_satellites = _has_satellites(match.opponent)
     satellite_most = 0.0
     satellite_least = None
+    still_speed = STILL_SPEED_FRACTION * ship_spec(match.ship).max_thrust
+    still_frames = 0
     for frame in range(frame_limit):
         ships = {1: simulation.player1, 2: simulation.player2}
         actions = {}
@@ -207,6 +227,9 @@ def run_match(match: ArenaMatch, *, seconds: float = DEFAULT_SECONDS) -> ArenaRe
             )
             action = action_for_index(controllers[player].decide(observation))
             actions[player] = guard_computer_controls(action, ship, enemy)
+            if player == 1 and not _destroyed(ship):
+                if ObservationView(observation).me.speed < still_speed:
+                    still_frames += 1
         simulation.step(actions=actions)
         if track_satellites:
             satellite_hp = _satellite_hp(simulation, simulation.player2)
@@ -245,6 +268,7 @@ def run_match(match: ArenaMatch, *, seconds: float = DEFAULT_SECONDS) -> ArenaRe
         opponent_satellite_hp_lost=(
             satellite_most - (satellite_least or 0.0) if track_satellites else None
         ),
+        still_frames=still_frames,
     )
 
 
@@ -314,6 +338,9 @@ class ArenaTally:
     seconds: float = 0.0
     satellite_fights: int = 0
     satellite_hp_lost: float = 0.0
+    crew_dealt: float = 0.0
+    crew_lost: float = 0.0
+    still_frames: int = 0
 
     def add(self, result: ArenaResult) -> None:
         self.fights += 1
@@ -331,6 +358,9 @@ class ArenaTally:
         self.damage_dealt += result.damage_dealt
         self.damage_taken += result.damage_taken
         self.seconds += result.seconds
+        self.crew_dealt += result.crew_dealt
+        self.crew_lost += result.crew_lost
+        self.still_frames += result.still_frames
         if result.opponent_satellite_hp_lost is not None:
             self.satellite_fights += 1
             self.satellite_hp_lost += result.opponent_satellite_hp_lost
@@ -357,11 +387,30 @@ class ArenaTally:
     def mean_win_seconds(self) -> float | None:
         return self.win_seconds / self.wins if self.wins else None
 
+    @property
+    def dealt_per_minute(self) -> float:
+        """Opponent crew removed per minute of fighting."""
+
+        return 60.0 * self.crew_dealt / self.seconds if self.seconds else 0.0
+
+    @property
+    def lost_per_minute(self) -> float:
+        return 60.0 * self.crew_lost / self.seconds if self.seconds else 0.0
+
+    @property
+    def still_share(self) -> float:
+        """Share of fight frames the evaluated ship spent still."""
+
+        frames = self.seconds * const.FPS
+        return self.still_frames / frames if frames else 0.0
+
     def cell(self) -> str:
         text = (
             f"{self.wins}W {self.losses}L {self.draws}D {self.trades}X {self.timeouts}T "
             f"dealt {self.mean_dealt:4.0%} taken {self.mean_taken:4.0%} "
-            f"fight {self.mean_seconds:3.0f}s"
+            f"fight {self.mean_seconds:3.0f}s "
+            f"crew/min {self.dealt_per_minute:4.1f}:{self.lost_per_minute:4.1f} "
+            f"still {self.still_share:4.0%}"
         )
         satellite_hp = self.mean_satellite_hp_lost
         if satellite_hp is not None:
