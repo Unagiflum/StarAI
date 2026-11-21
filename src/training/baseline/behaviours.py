@@ -71,6 +71,9 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     "Mmrnmrhm": ShipBehaviour(keep_moving_takes_aim=True),
     "Mycon": ShipBehaviour(shoot_down=False),
     "Slylandro": ShipBehaviour(keep_moving=False),
+    # The band runs from 0.7 of the gun's 1,080 reach to all of it. Below
+    # half its 10 battery it keeps out of the opponent's reach.
+    "Spathi": ShipBehaviour(recharge_battery=5.0, band=(756.0, 1080.0)),
     "Thraddash": ShipBehaviour(coast_above_top_speed=True),
     "Umgah": ShipBehaviour(evade_headings=False, shoot_down=False, keep_moving=False),
 }

@@ -2562,6 +2562,41 @@ class SpathiChmmrTests(unittest.TestCase):
         self.assertTrue(other.plan.a2)
 
 
+class SpathiBandTests(unittest.TestCase):
+    def _context(self, enemy, *, enemy_name="Mycon", battery=10.0):
+        return _rule_context(
+            "Spathi",
+            enemy=enemy,
+            enemy_name=enemy_name,
+            battery=battery,
+            max_battery=10.0,
+            battery_fraction=battery / 10.0,
+        )
+
+    def test_runs_straight_from_a_closer_entering_the_band(self):
+        context = self._context(_seen(0.0, 800.0, closing=40.0))
+
+        heading = _first_steer(context, STRATEGIES["Spathi"])
+
+        self.assertAlmostEqual(abs(heading), 180.0)
+
+    def test_recharging_never_closes_in(self):
+        far = _seen(20.0, 2500.0, closing=-5.0)
+        charged = self._context(far)
+        self.assertIsNotNone(_first_steer(charged, STRATEGIES["Spathi"]))
+
+        recharging = self._context(far, battery=4.0)
+        STRATEGIES["Spathi"](recharging)
+        self.assertIsNone(recharging.plan.thrust)
+
+    def test_still_closes_on_the_vux_at_an_angle(self):
+        context = self._context(_seen(0.0, 2500.0), enemy_name="Vux")
+
+        heading = _first_steer(context, STRATEGIES["Spathi"])
+
+        self.assertAlmostEqual(abs(heading), 45.0)
+
+
 class SyreenChmmrTests(unittest.TestCase):
     def _syreen(self, enemy):
         context = _rule_context(

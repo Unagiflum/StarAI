@@ -285,6 +285,10 @@ SLYLANDRO_CHMMR_FIRE = 1000.0
 # and they drain the battery needed for the gun.
 SPATHI_CHMMR_NEAR = 1000.0
 SPATHI_CHMMR_FAR = 1300.0
+# The Spathi holds its band (``behaviours.SHIP_BEHAVIOURS``) and retreats to
+# recharge, except against these, which it still closes on at an angle,
+# fleeing at low battery: against them closing in won more in the arena.
+SPATHI_APPROACH_OPPONENTS = frozenset({"Earthling", "Pkunk", "Thraddash", "Utwig", "Vux"})
 # Yehat against a Chmmr: keep the shield up (refreshed as it ends) within
 # the Chmmr laser's reach, firing there only with this much battery left
 # after the shot.
@@ -1094,13 +1098,38 @@ def _slylandro_vs_chmmr(ctx: BaselineContext) -> None:
 
 
 def spathi(ctx: BaselineContext) -> None:
+    """Hold the gun's band, falling back out of reach to recharge."""
+
     if ctx.enemy_name == "Chmmr" and ctx.enemy is not None:
         _spathi_vs_chmmr(ctx)
         return
+    if ctx.enemy_name in SPATHI_APPROACH_OPPONENTS:
+        _spathi_approach(ctx)
+    elif ctx.recharging():
+        ctx.recharge_retreat()
+    else:
+        ctx.hold_band()
+    _spathi_fire(ctx)
+
+
+def spathi_approach(ctx: BaselineContext) -> None:
+    """Earlier rules: close in at an angle, fleeing at low battery."""
+
+    if ctx.enemy_name == "Chmmr" and ctx.enemy is not None:
+        _spathi_vs_chmmr(ctx)
+        return
+    _spathi_approach(ctx)
+    _spathi_fire(ctx)
+
+
+def _spathi_approach(ctx: BaselineContext) -> None:
     if ctx.battery_at_least(0.50):
         ctx.approach_weapon_range(1)
     else:
         ctx.avoid_opponent()
+
+
+def _spathi_fire(ctx: BaselineContext) -> None:
     ctx.point_weapon(1)
     if ctx.in_range(1) and ctx.pointing(1):
         ctx.a1(True)
@@ -2195,6 +2224,7 @@ STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
         "near_station": pkunk_near_station,
     },
     "Shofixti": {"glory_dive": shofixti_glory_dive},
+    "Spathi": {"approach": spathi_approach},
     "Supox": {"no_slide": supox_no_slide},
     "Syreen": {
         "bold": syreen_bold,
