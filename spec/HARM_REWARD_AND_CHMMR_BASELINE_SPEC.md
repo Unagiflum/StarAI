@@ -924,28 +924,58 @@ strong or weak.
 - **Harm taken:** its own damage taken and deaths.
 - Both are in harm units, so a ship's own cost already weighs its losses.
 
-**Score.** Per fight:
+**Ranking.** Causing harm to the opponent comes first. A weighted score can't
+guarantee that, because less harm dealt can win if it also costs less. With
+λ = 0.25:
 
-- 0 when harm dealt is 0;
-- otherwise harm dealt − λ × harm taken.
+| Setting | Harm dealt | Harm taken | Dealt − λ × taken |
+|---|---|---|---|
+| A | 1.0 | 0 | 1.0 |
+| B | 1.5 | 2.5 | 0.875 |
+
+A scores higher despite dealing less harm. So settings are ranked by harm dealt
+first, and a λ score only breaks near-ties:
+
+- **Harm dealt:** the mean per fight.
+- **λ score per fight:** 0 when harm dealt is 0; otherwise harm dealt − λ × harm
+  taken. Its mean per fight is the setting's λ score.
+- **Clearly ahead:** setting X is clearly ahead of Y on a measure when the
+  paired 95% interval of the mean difference excludes zero and the gap is more
+  than 5% of the larger mean.
+- **Comparing two settings:**
+  - whichever is clearly ahead on harm dealt ranks higher;
+  - when neither is, they're tied on harm dealt, and whichever is clearly ahead
+    on the λ score ranks higher;
+  - otherwise they're equal.
+- A setting that deals no harm ranks below any that does. A fight that deals no
+  harm adds nothing to either measure.
 
 **λ.** Each ship has its own explicit λ (`harm_taken_weight` in its table entry,
 with per-opponent overrides). It is set when the ship moves, and its rationale
-is recorded:
+is recorded. λ decides only how much survival matters among settings that deal
+about the same harm; it never buys survival at the cost of harm dealt.
 
-- **A ship that can escape** can stall by running, and a high λ would reward
-  that, so it gets a low λ. Example: the Spathi.
-- **A ship that can't escape** can't stall, so a high λ only values its
-  survival. Example: the Chenjesu, which is costly and outruns nothing.
+- **A ship that can escape** can stall by running, so it gets a low λ and
+  barely weighs harm taken. Example: the Spathi.
+- **A ship that can't escape** can't stall, so a high λ only makes it pick the
+  safer of two equally harmful plans. Example: the Chenjesu, which is costly
+  and outruns nothing.
 - Where escape depends on the opponent, the per-opponent overrides set it.
+
+**Harm taken still matters.** With respawns, dying costs little in harm dealt,
+since a fresh ship keeps fighting, so ranking by harm dealt could favour
+suicide dives. For now, a dive that really does deal more harm is accepted, and
+harm taken is reported so one would show up. If dives appear, a per-ship cap
+can be added, for example accepting more harm dealt only when the extra harm
+taken is at most 3 times the extra harm dealt.
 
 **Reports.**
 
-- Per configuration, per opponent and per matrix cell:
+- Per setting, per opponent and per matrix cell:
   - total harm dealt;
   - total harm taken;
-  - total score;
-  - mean score per fight.
+  - total and mean λ score;
+  - mean harm dealt per fight.
 - Diagnostics: kills and deaths, the share of fights with no harm dealt, and
   still frames.
 - Wins, losses and timeouts no longer apply, as fights always run to the time
@@ -954,15 +984,19 @@ is recorded:
 **Comparisons.**
 
 - Variants fly the same seeds and cells, so each comparison is paired, fight
-  by fight. The arena reports the mean score difference with a 95% interval.
+  by fight. The arena reports the mean differences in harm dealt and in the λ
+  score, with 95% intervals, and the ranking result.
 - When screening settings, settings are dropped as they fall behind:
   - each starts on 10 seeds;
-  - the weaker half is dropped;
+  - the settings are ordered. The lead group comes first: those within 5% of
+    the highest harm dealt, ordered by λ score. The rest follow by harm dealt;
+  - the lower half is dropped;
   - the seeds for the rest are doubled, and this repeats up to 100 seeds;
   - the winner is confirmed on 100 seeds not used for tuning.
-- "About as good or better" means the paired difference against the earlier
-  rules is not below zero at 95%. "Marginally worse" means a drop of under 5%
-  of the earlier mean score.
+- "About as good or better" means the moved ship ranks equal to or higher than
+  its earlier rules.
+- "Marginally worse" means tied on harm dealt and behind on the λ score by less
+  than 10%. A ship clearly behind on harm dealt is not accepted.
 
 **Speed.**
 
@@ -987,19 +1021,19 @@ is recorded:
 1. Extract shared behaviours as engine helpers.
 2. Add a per-ship parameter table: distance band, recharge threshold, gates and
    planet horizon.
-3. Move one ship at a time. Compare it before and after by harm score (see
-   "Evaluation"). Harm dealt and taken, kills and deaths, the share of fights
+3. Move one ship at a time. Compare it before and after by the harm ranking
+   (see "Evaluation"). Harm dealt and taken, kills and deaths, the share of fights
    with no harm dealt, and still frames are diagnostics.
 4. A moved ship uses the shared behaviours and its table entry throughout,
    against every opponent. It doesn't keep its own movement rules or fall back
    to its earlier rules for some opponents. Find settings within the schema
    that work: per-opponent settings where needed, and new parameters or
    behaviours when the schema can't express what a ship needs.
-5. The moved ship should score about as well as before, or better. Where no
+5. The moved ship should rank about as well as before, or better. Where no
    setting gets there, marginally worse is acceptable.
 6. Commit each ship separately. Revert any ship that regresses by more than
    that.
-7. Survival-focused tunings from Phase 2 are rechecked by harm score when their
+7. Survival-focused tunings from Phase 2 are rechecked by the harm ranking when their
    ship moves. Examples: the Orz at 1,550–1,800 from the Chmmr, the Spathi at
    1,000–1,300, and the Arilou hold.
 
@@ -1054,5 +1088,5 @@ Recorded 2026-11-20.
 | 4A | Reward magnitude steps ±0.001–1.024 | Implemented | <ul><li>**Steps:** `REWARD_WEIGHT_STEPS` in `rewards.py` holds the 23 values; `REWARD_VALUES` in `train_ai.py` is now that tuple. Labels show three decimals (`_format_reward`).</li><li>**Classic defaults:** Kill enemy 1.024, Reduce enemy crew 0.128, Get debuffed -0.032, Lose crew -0.064, Die -0.512. The Harm scheme doesn't exist yet, so its defaults (D_enemy and K_enemy 1.024, D_self and K_self 0) are set in Phase 5.</li><li>**Scale version:** `REWARD_SCALE_VERSION` (2) is saved as `reward_scale_version` in the model's training metadata and in the saved UI state. Settings without it are version 1.</li><li>**Old configs:** `with_current_reward_scale` rescales version 1 rewards through `legacy_reward_weight_to_step` (divide by 40, nearest step on the log scale, sign kept; 0.01 and 0.02 become 0.001). It is applied to saved UI state, to model conditions loaded into the state or the sliders, and to the loaded-settings comparison, so an old model whose rewards map onto today's sliders counts as matching. `changed_training_groups` now compares whole normalised settings, so the version travels with the rewards.</li><li>**Resume warning:** `legacy_reward_scale_resume` is true for a model with completed batches saved under version 1. Starting one asks first ("…was trained with rewards 40 times today's scale, so its value estimates will take time to relearn. Continue?") and, on confirm, saves its settings under version 2. Start all and Start synced add a sentence counting such models to their prompt, or prompt for it alone. Models being reset aren't counted.</li><li>**Learner:** the value loss is MSE and the optimiser Adam, so nothing else depends on the reward scale; gradient-norm clipping will trigger less often.</li></ul>Tests: `RewardWeightStepTests` in `tests/test_training_rewards.py`; `RewardScaleMigrationTests`, the updated `RewardSliderTests` and defaults test, and `test_individual_start_warns_before_resuming_an_old_reward_scale_model` in `tests/test_train_ai_ui.py`. Full suite 1,597 tests OK. |
 | 4B | Decay half-lives in batches | Implemented | <ul><li>**Conversions** in the new `src/training/decay.py`: `decay_factor_for_half_life` (0.5 ^ (1 ÷ n); Off gives 1), `half_life_for_decay_factor` (infinite at 1), `nearest_decay_half_life` (nearest setting on the log scale; 1 is Off) and `normalize_decay_half_life`. `DECAY_HALF_LIFE_VALUES` holds 10–100,000 batches and `"off"`; defaults are `DEFAULT_EPSILON_DECAY_HALF_LIFE` (300) and `DEFAULT_BASELINE_DECAY_HALF_LIFE` (100).</li><li>**Settings:** the Regimen sliders "Epsilon decay half-life" and "Baseline decay half-life" show "300 batches" or "Off". `TrainingUIState.epsilon_decay_half_life` and `baseline_decay_half_life` replace the factor fields; `epsilon_decay` and `baseline_decay` are now properties derived from them, so training and the decay code are unchanged. The baseline label drops "use" so the longest value fits without shrinking the Regimen font; the tooltips follow the spec.</li><li>**Saved configs:** the regimen stores both half-lives, plus the derived factors for older readers (the sessions keep writing the factors). `_with_decay_half_life_keys` turns an old factor-only config into the nearest half-life (0.998 → 300, 0.995 → 100, 0.99 → 100, 0.95 → 10, 1.000 → Off). It is applied with the discount conversion (`_with_half_life_keys`) to saved UI state, to model conditions loaded into the state or the sliders, and to the loaded-settings comparison. Where a half-life is stored, the factor beside it is ignored.</li><li>**Console:** the "Eps decay" row shows the half-life the session's factor implies, e.g. "100 batches".</li><li>**Go to epsilon:** the no-decay warning fires when epsilon decay is Off, and reads "Epsilon decay is Off…".</li><li>**Coordinated runs:** the UI compares the half-life fields among the Regimen fields, and `_coordinated_regimen_signature` compares the half-lives derived from each config's factors.</li></ul>Tests: `tests/test_decay_half_life.py` (values, the factor table, round trip for every value, old factors, normalising); the decay label, old-config loading and settings-match tests and the updated defaults, warning, console and config tests in `tests/test_train_ai_ui.py`; `test_coordinated_run_requires_equal_decay_half_lives` in `tests/test_coordinated_training.py`; the updated baseline settings test in `tests/test_baseline_strategy.py`. Full suite 1,606 tests OK. |
 | 5 | Harm reward scheme | Implemented | <ul><li>**Formulas** in the new `src/training/harm.py`: `HarmProfile` (s, HP, satHP, satellite count, p from the catalog; Vmax is the highest catalog cost, 30) and `HarmTracker`, which turns each frame's ledger events into the four components `Damage to enemy`, `Enemy kill`, `Damage taken` and `Own death`. The kill divides satellite kills by the ship's satellite count (3 for the Chmmr).</li><li>**Crew:** effective crew is tracked from crew events. Launches and recoveries emit none (escrow debits and refunds are skipped), and a unit lost for good is a 1-crew loss. Opponent damage counts new lows the trainee causes; the trainee's damage follows its crew level. "Starting crew" is the crew a ship spawns with (training spawns are randomised); HP stays the normal starting crew.</li><li>**Attribution:** harm counts as the trainee's when the event's source, followed up its parents, is the trainee ship. Units left by an earlier trainee life have no parent once it dies, so they earn the current life nothing; in a 2,400-frame Kzer-Za vs Mycon round the game credited such a fighter with a kill that harm didn't.</li><li>**Lives:** the tracker lives on the round's `BattleEventLedger` (`harm_tracker`), keyed by ship object, so opponent low-water marks outlast trainee-life trajectories. Respawns are new objects and start fresh; a Pkunk rebirth restarts tracking. The pre-step crew and limpet counts come from new `RewardDecisionFrame` fields.</li><li>**Placement:** `StagedTrajectoryPipeline._add_harm_components` puts each amount on the effect frame. In causal (and shadow) placement, trainee-caused opponent harm and self-inflicted own losses move to the origin frames of the event's causal credit when it is open; other penalties and all gains stay. In legacy placement everything stays on the effect frame.</li><li>**Schemes:** `REWARD_COMPONENTS` is now the classic components plus the four harm ones. The UI passes training only the active scheme's weights (`effective_reward_weights`), so the training config is unchanged and the tracker runs only when a harm weight is nonzero.</li><li>**UI and storage:** a "Reward scheme" slider (Classic/Harm) heads the Rewards pane, which shows the active scheme's sliders. Harm weights are stored in the rewards under their own keys, defaulting to 1.024, 1.024, 0 and 0; the scheme is stored as `reward_scheme` (default and old configs: classic) and propagates to other instances like other settings. Settings saved before the scheme compare as classic with default harm weights. The console's reward table lists the active scheme's components.</li><li>**Deferred:** the console shows each harm component's mean weighted return per sample, as it does for classic components, so a zero-weight penalty shows 0. Raw per-fight totals (`HarmTracker.totals`) aren't carried to the session status.</li></ul>Real rounds (`run_training_round`, random trainee actions, baseline opponents, 2,400 frames) for the Earthling, Kzer-Za, Chmmr and Vux against the Spathi, Mycon and Chmmr ran without errors in legacy and causal placement, with equal totals in both; e.g. six Earthling deaths gave Own death 3.633 = 6 × √(11/30). Tests: `tests/test_harm_reward.py` (formulas for a 6-crew and a 30-cost ship, the Chmmr, the Vux example, limpet series, Pkunk per life for both sides, the Mycon and no-gain new-low cases, unattributed and self-harm losses, launched crew, the Syreen example, per-frame sums, causal placement, tracking across trajectories); `RewardSchemeTests` and the Rewards pane screen test in `tests/test_train_ai_ui.py`. Full suite 1,631 tests OK. |
-| 6 | Shared behaviours, per ship | In progress: shared helpers and schema done; Spathi to redo by harm score; harm evaluation not built | <ul><li>**Measuring:** the arena now reports crew dealt and lost per minute (`dealt_per_minute`, `lost_per_minute`) and still frames (`still_share`: frames alive below `STILL_SPEED_FRACTION`, 10%, of top speed). Fights are deterministic per seed, so a pure refactor is checked by identical results: every ship against every opponent, one seed (625 fights), matched exactly before and after the table and the helpers.</li><li>**Table:** the new `src/training/baseline/behaviours.py` holds `ShipBehaviour` per ship (`SHIP_BEHAVIOURS`, `ship_behaviour`), read through `BaselineContext.behaviour`. It replaces `SHOOT_DOWN_EXCLUDED_SHIPS`, `EVADE_NO_HEADING_SHIPS`, `KEEP_MOVING_EXCLUDED_SHIPS`, `KEEP_MOVING_AIM_SHIPS` and `COAST_ABOVE_TOP_SPEED_SHIPS`, and adds `evade`, `run_from_threats`, `planet_horizon_frames` (None: the Phase 3 horizon), `recharge_battery` and `band`. Opponent-dependent gates (`EVADE_GATES`) stay functions in `strategies.py`; weapon mechanics such as `HELD_WEAPON_SHIPS` stay facts in the engine.</li><li>**Helpers** in `engine.py`: `run_bearing` and the rule 1 run option (with `run_from_threats`, rule 1 also weighs flying straight away from the threats, each weighted by its crew cost over its distance); `recharging` and `recharge_retreat` (below `recharge_battery`, run once the opponent would come within its reach plus a hull and `RECHARGE_REACH_MARGIN`, 150, before the nose could turn away; release 200 farther; never close in); `hold_band` (`keep_standoff` on the given band or the table's); `enemy_reach`, moved from `strategies.py`. </li><li>**Schema:** extended after reading every strategy (see "Schema" under Phase 6): per-opponent overrides (`opponents`, applied by `ship_behaviour(ship, opponent)`), `Band` (as far as possible, outside the opponent's reach, approach speed, posture inside, run angle), recharge hysteresis and run angle, `WeaponUse` per weapon (`aimed`, `launch`, `defend`, `special`) run by `fire_weapon`, and the `specials` and `form_switch` slots (`strategies.SPECIAL_RULES`, `FORM_SWITCHES`). `strategies.shared` runs a ship wholly from its entry.</li><li>**Spathi (to redo):** these settings were chosen by wins and losses, which rewarded stalling (see "Evaluation" under Phase 6). They are kept until the harm evaluation exists, then retuned by harm score. Currently it runs from its entry (`STRATEGIES["Spathi"] = shared`) against every opponent, with no per-opponent fallback to earlier rules. Default: band 756–1,080, recharging below 5 battery; gun aimed, rear missile launched. Overrides, chosen in the arena: Chmmr, band 1,000–1,300, no recharge, gun at satellites, no missiles (the former Chmmr rule, matched fight for fight); Earthling, recharge below 2, approach 60; Pkunk, band 300–756, approach 60, no recharge; Thraddash, band 300–756, approach 60; Utwig, band 900–1,300, approach 60, no recharge; Vux, band 300–756 at full approach speed, running 110° off its bearing, recharging until 8. Earlier rules stay as the `approach` variant. Fresh seeds 300–319 against all 25 opponents (500 fights each), earlier rules → now: W-L-T 144-240-116 → 212-98-190; crew dealt 9.0 → 9.1/min; crew lost 21.5 → 10.8/min; still frames 0% → 0%. The five former exceptions, earlier rules → now: Earthling 6-11-3 → 10-7-3 (seeds 100–119: 2-14 → 15-3); Pkunk, 100 seeds, 58-8-34 → 74-3-23, 5.0 → 6.2 dealt and 12.5 → 11.9 lost per minute; Thraddash, 100 seeds, 76-0-24 → 79-0-21, 6.3 → 6.0 dealt and 9.7 → 8.2 lost; Utwig 1-5-14 → 0-0-20, 3.1 → 0.7 dealt and 14.2 → 2.7 lost (seeds 100–119); Vux, 100 seeds, 81-19-0 → 73-22-5, 17.7 → 18.3 dealt and 13.9 → 12.6 lost, marginally fewer wins. Settings were screened on seeds 0–39 and confirmed on unused seeds: the Vux and Pkunk choices made on 20 seeds didn't hold on fresh ones, so those were rechecked over 100. Against the Utwig no setting won: the bands that fought it lost (0-18 and worse), so the Spathi stays beyond its bolts. Running from threats (seeds 0–19) changed 1 fight in 500, so it stays off.</li></ul>Tests: `SharedBehaviourTests`, `BehaviourSchemaTests` and `SpathiBandTests` in `tests/test_baseline_strategy.py`; the per-minute and still-frame tests in `tests/test_baseline_arena.py`. |
-| 6A | Harm evaluation in the arena | Not started | Before any further ship moves: fixed 1,200-frame fights with respawns, the strong/weak 2 × 2 starting matrix, the harm tracker, per-ship `harm_taken_weight` (λ), score reports, paired 95% intervals, screening that drops settings as they fall behind, 16 workers by default, and the observation and rule 1 savings. Then the Spathi is retuned by harm score. |
+| 6 | Shared behaviours, per ship | In progress: shared helpers and schema done; Spathi to redo by the harm ranking; harm evaluation not built | <ul><li>**Measuring:** the arena now reports crew dealt and lost per minute (`dealt_per_minute`, `lost_per_minute`) and still frames (`still_share`: frames alive below `STILL_SPEED_FRACTION`, 10%, of top speed). Fights are deterministic per seed, so a pure refactor is checked by identical results: every ship against every opponent, one seed (625 fights), matched exactly before and after the table and the helpers.</li><li>**Table:** the new `src/training/baseline/behaviours.py` holds `ShipBehaviour` per ship (`SHIP_BEHAVIOURS`, `ship_behaviour`), read through `BaselineContext.behaviour`. It replaces `SHOOT_DOWN_EXCLUDED_SHIPS`, `EVADE_NO_HEADING_SHIPS`, `KEEP_MOVING_EXCLUDED_SHIPS`, `KEEP_MOVING_AIM_SHIPS` and `COAST_ABOVE_TOP_SPEED_SHIPS`, and adds `evade`, `run_from_threats`, `planet_horizon_frames` (None: the Phase 3 horizon), `recharge_battery` and `band`. Opponent-dependent gates (`EVADE_GATES`) stay functions in `strategies.py`; weapon mechanics such as `HELD_WEAPON_SHIPS` stay facts in the engine.</li><li>**Helpers** in `engine.py`: `run_bearing` and the rule 1 run option (with `run_from_threats`, rule 1 also weighs flying straight away from the threats, each weighted by its crew cost over its distance); `recharging` and `recharge_retreat` (below `recharge_battery`, run once the opponent would come within its reach plus a hull and `RECHARGE_REACH_MARGIN`, 150, before the nose could turn away; release 200 farther; never close in); `hold_band` (`keep_standoff` on the given band or the table's); `enemy_reach`, moved from `strategies.py`. </li><li>**Schema:** extended after reading every strategy (see "Schema" under Phase 6): per-opponent overrides (`opponents`, applied by `ship_behaviour(ship, opponent)`), `Band` (as far as possible, outside the opponent's reach, approach speed, posture inside, run angle), recharge hysteresis and run angle, `WeaponUse` per weapon (`aimed`, `launch`, `defend`, `special`) run by `fire_weapon`, and the `specials` and `form_switch` slots (`strategies.SPECIAL_RULES`, `FORM_SWITCHES`). `strategies.shared` runs a ship wholly from its entry.</li><li>**Spathi (to redo):** these settings were chosen by wins and losses, which rewarded stalling (see "Evaluation" under Phase 6). They are kept until the harm evaluation exists, then retuned by the harm ranking. Currently it runs from its entry (`STRATEGIES["Spathi"] = shared`) against every opponent, with no per-opponent fallback to earlier rules. Default: band 756–1,080, recharging below 5 battery; gun aimed, rear missile launched. Overrides, chosen in the arena: Chmmr, band 1,000–1,300, no recharge, gun at satellites, no missiles (the former Chmmr rule, matched fight for fight); Earthling, recharge below 2, approach 60; Pkunk, band 300–756, approach 60, no recharge; Thraddash, band 300–756, approach 60; Utwig, band 900–1,300, approach 60, no recharge; Vux, band 300–756 at full approach speed, running 110° off its bearing, recharging until 8. Earlier rules stay as the `approach` variant. Fresh seeds 300–319 against all 25 opponents (500 fights each), earlier rules → now: W-L-T 144-240-116 → 212-98-190; crew dealt 9.0 → 9.1/min; crew lost 21.5 → 10.8/min; still frames 0% → 0%. The five former exceptions, earlier rules → now: Earthling 6-11-3 → 10-7-3 (seeds 100–119: 2-14 → 15-3); Pkunk, 100 seeds, 58-8-34 → 74-3-23, 5.0 → 6.2 dealt and 12.5 → 11.9 lost per minute; Thraddash, 100 seeds, 76-0-24 → 79-0-21, 6.3 → 6.0 dealt and 9.7 → 8.2 lost; Utwig 1-5-14 → 0-0-20, 3.1 → 0.7 dealt and 14.2 → 2.7 lost (seeds 100–119); Vux, 100 seeds, 81-19-0 → 73-22-5, 17.7 → 18.3 dealt and 13.9 → 12.6 lost, marginally fewer wins. Settings were screened on seeds 0–39 and confirmed on unused seeds: the Vux and Pkunk choices made on 20 seeds didn't hold on fresh ones, so those were rechecked over 100. Against the Utwig no setting won: the bands that fought it lost (0-18 and worse), so the Spathi stays beyond its bolts. Running from threats (seeds 0–19) changed 1 fight in 500, so it stays off.</li></ul>Tests: `SharedBehaviourTests`, `BehaviourSchemaTests` and `SpathiBandTests` in `tests/test_baseline_strategy.py`; the per-minute and still-frame tests in `tests/test_baseline_arena.py`. |
+| 6A | Harm evaluation in the arena | Not started | Before any further ship moves: fixed 1,200-frame fights with respawns, the strong/weak 2 × 2 starting matrix, the harm tracker, per-ship `harm_taken_weight` (λ), harm-first ranking with the λ score as tie-break, reports, paired 95% intervals, screening that drops settings as they fall behind, 16 workers by default, and the observation and rule 1 savings. Then the Spathi is retuned by the harm ranking. |
