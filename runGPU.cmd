@@ -1,2 +1,3 @@
 @echo off
-.\.venv\Scripts\python.exe src\main.py
+"%~dp0.venv\Scripts\python.exe" "%~dp0src\main.py"
+exit /b %ERRORLEVEL%

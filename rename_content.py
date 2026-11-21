@@ -1,22 +1,25 @@
-import os
+import re
+from pathlib import Path
 
+project_root = Path(__file__).resolve().parent
 files_to_update = [
-    r"c:\Users\Murtaza\Source\StarAI\src\Objects\Ships\ZoqFotPik\ZoqFotPik.py",
-    r"c:\Users\Murtaza\Source\StarAI\src\Objects\Ships\ZoqFotPik\A1\ZoqFotPikA1.py",
-    r"c:\Users\Murtaza\Source\StarAI\src\Objects\Ships\ZoqFotPik\A2\ZoqFotPikA2.py",
-    r"c:\Users\Murtaza\Source\StarAI\tests\test_zoqfotpik_a2.py",
-    r"c:\Users\Murtaza\Source\StarAI\tests\test_ship_actions_characterization.py",
-    r"c:\Users\Murtaza\Source\StarAI\src\Objects\Ships\space_ships.json",
-    r"c:\Users\Murtaza\Source\StarAI\src\Objects\Ships\abilities.json",
-    r"c:\Users\Murtaza\Source\StarAI\src\Config\fleets.json"
+    "src/Objects/Ships/ZoqFotPik/ZoqFotPik.py",
+    "src/Objects/Ships/ZoqFotPik/A1/ZoqFotPikA1.py",
+    "src/Objects/Ships/ZoqFotPik/A2/ZoqFotPikA2.py",
+    "tests/test_zoqfotpik_a2.py",
+    "tests/test_ship_actions_characterization.py",
+    "src/Objects/Ships/space_ships.json",
+    "src/Objects/Ships/abilities.json",
+    "src/Config/fleets.json",
 ]
 
-for filepath in files_to_update:
-    if os.path.exists(filepath):
+for relative_path in files_to_update:
+    filepath = project_root / relative_path
+    if filepath.exists():
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        new_content = content.replace("ZoqFot", "ZoqFotPik")
+        new_content = re.sub(r"ZoqFot(?!Pik)", "ZoqFotPik", content)
         
         if new_content != content:
             with open(filepath, 'w', encoding='utf-8') as f:

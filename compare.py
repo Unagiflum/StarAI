@@ -1,9 +1,11 @@
 import json
 import os
 import re
+from pathlib import Path
 
-json_path = r'c:\Users\Murtaza\Source\StarAI\src\Objects\Ships\space_ships.json'
-uqm_ships_dir = r'c:\Users\Murtaza\Source\StarAI\uqm_src\sc2\src\uqm\ships'
+project_root = Path(__file__).resolve().parent
+json_path = project_root / "src/Objects/Ships/space_ships.json"
+uqm_ships_dir = project_root / "uqm_src/sc2/src/uqm/ships"
 
 ship_map = {
     "Androsynth": "androsyn",

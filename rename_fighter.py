@@ -1,7 +1,9 @@
 import os
 import re
+from pathlib import Path
 
-directories = ['src', 'tests']
+project_root = Path(__file__).resolve().parent
+directories = [project_root / 'src', project_root / 'tests']
 
 def replace_cases(text):
     text = re.sub(r'FighterCollisionCapabilities', 'SpecialObjectCollisionCapabilities', text)

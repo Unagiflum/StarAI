@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 def rename_in_dir(path):
     if not os.path.exists(path):
@@ -29,12 +30,13 @@ def rename_in_dir(path):
         os.rename(path, new_path)
         print(f"Renamed base directory: {path} -> {new_path}")
 
-base_dir = r"c:\Users\Murtaza\Source\StarAI\src\Objects\Ships\ZoqFot"
+project_root = Path(__file__).resolve().parent
+base_dir = project_root / "src/Objects/Ships/ZoqFot"
 rename_in_dir(base_dir)
 
 # Also rename the test file
-test_file_old = r"c:\Users\Murtaza\Source\StarAI\tests\test_zoqfot_a2.py"
-test_file_new = r"c:\Users\Murtaza\Source\StarAI\tests\test_zoqfotpik_a2.py"
+test_file_old = project_root / "tests/test_zoqfot_a2.py"
+test_file_new = project_root / "tests/test_zoqfotpik_a2.py"
 if os.path.exists(test_file_old):
     os.rename(test_file_old, test_file_new)
     print(f"Renamed test file: {test_file_old} -> {test_file_new}")
