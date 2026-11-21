@@ -128,6 +128,11 @@ ONGOING_REWARD_COMPONENTS = (
 SUSTAINED_A2_REWARD_SHIPS = frozenset({"Ilwrath", "Androsynth"})
 
 DISCOUNT_CUTOFF_WEIGHT = 0.01
+# The discount is set as a half-life: the seconds after which a reward's
+# weight in an earlier frame's return has halved.
+DISCOUNT_HALF_LIFE_MIN_SECONDS = 1.0
+DISCOUNT_HALF_LIFE_MAX_SECONDS = 30.0
+DEFAULT_DISCOUNT_HALF_LIFE_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -983,6 +988,31 @@ def discount_cutoff_frames(
     if gamma == 0.0:
         return 1
     return max(1, int(math.ceil(math.log(cutoff) / math.log(gamma))))
+
+
+def gamma_for_half_life(seconds: float, fps: int = const.FPS) -> float:
+    """Per-frame discount whose weight halves after ``seconds``."""
+
+    seconds = float(seconds)
+    if not math.isfinite(seconds) or seconds <= 0.0:
+        raise ValueError("half-life must be a positive number of seconds")
+    return 0.5 ** (1.0 / (seconds * float(fps)))
+
+
+def half_life_for_gamma(gamma: float, fps: int = const.FPS) -> float:
+    """Seconds after which a per-frame ``gamma`` halves a reward's weight
+    (0 for gamma 0, which credits only the frame itself)."""
+
+    gamma = _validate_gamma(gamma)
+    if gamma == 0.0:
+        return 0.0
+    return math.log(0.5) / (math.log(gamma) * float(fps))
+
+
+def half_life_cutoff_frames(seconds: float, fps: int = const.FPS) -> int:
+    """Frames a return reaches back at a half-life of ``seconds``."""
+
+    return discount_cutoff_frames(gamma_for_half_life(seconds, fps))
 
 
 def _zero_component_vector() -> tuple[float, ...]:

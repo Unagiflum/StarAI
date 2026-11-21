@@ -31,7 +31,7 @@ from src.Menus.train_ai import (
     EPSILON_VALUES,
     DISPLAY_TOP,
     FOOTER_CONTROL_HEIGHT,
-    GAMMA_VALUES,
+    DISCOUNT_HALF_LIFE_VALUES,
     INSTANCE_CONTROL_HEIGHT,
     INSTANCE_ADD_WIDTH,
     INSTANCE_CLOSE_WIDTH,
@@ -289,7 +289,7 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.epsilon_floor, 0.05)
         self.assertEqual(state.epsilon_decay, 0.998)
         self.assertEqual(state.action_frame_span, 4)
-        self.assertEqual(state.gamma, 0.99)
+        self.assertEqual(state.discount_half_life, 5.0)
         self.assertEqual(state.minibatch_size, 2048)
         self.assertEqual(state.replay_updates_per_batch, 15)
         self.assertEqual(state.training_device, torch_backend.DEVICE_AUTO)
@@ -1145,12 +1145,14 @@ class TrainingInstanceManagerTests(unittest.TestCase):
 
     def test_new_instance_keeps_defaults_when_future_changes_is_checked(self):
         manager = TrainingInstanceManager()
-        manager.active_state.gamma = 0.975
+        manager.active_state.discount_half_life = 12.5
         manager.set_apply_future_changes_to_all(True)
 
         added = manager.add_instance()
 
-        self.assertEqual(added.state.gamma, TrainingUIState().gamma)
+        self.assertEqual(
+            added.state.discount_half_life, TrainingUIState().discount_half_life
+        )
 
     def test_future_reward_slot_and_label_changes_reach_nonempty_unique_ships(self):
         manager = TrainingInstanceManager()
@@ -3530,6 +3532,70 @@ class TrainingTooltipTests(unittest.TestCase):
             train_ai.STARTING_EPSILON_BELOW_FLOOR_WARNING,
         )
 
+    def test_cutoff_warning_shows_exactly_when_credit_outlasts_the_match(self):
+        index = train_ai.REGIMEN_DISCOUNT_HALF_LIFE_INDEX
+
+        def warning(half_life, match_frames):
+            state = TrainingUIState(
+                discount_half_life=half_life, match_time_limit=match_frames
+            )
+            return train_ai._regimen_control_warnings(state).get(index)
+
+        # A 5 s half-life reaches back 798 frames.
+        self.assertIsNone(warning(5.0, 960))
+        self.assertEqual(
+            warning(5.0, 720),
+            "Credit reaches back further than a match lasts (cutoff 33 s, "
+            "match 30 s); returns will end at the match end.",
+        )
+        # Either setting changing rechecks it.
+        self.assertIsNotNone(warning(10.0, 960))
+        self.assertIsNone(warning(10.0, 1680))
+        # The cutoff equal to the match is not past it.
+        state = TrainingUIState(discount_half_life=1.0, match_time_limit=240)
+        self.assertEqual(train_ai.half_life_cutoff_frames(1.0), 160)
+        self.assertIsNone(train_ai._regimen_control_warnings(state).get(index))
+
+    def test_half_life_slider_shows_the_cutoff(self):
+        self.assertEqual(
+            train_ai._discount_cutoff_suffix(TrainingUIState(discount_half_life=5.0)),
+            " (cutoff 33 s)",
+        )
+        self.assertEqual(
+            train_ai._discount_cutoff_suffix(TrainingUIState(discount_half_life=1.0)),
+            " (cutoff 6.7 s)",
+        )
+
+    def test_old_configs_with_only_gamma_load_the_half_life_it_implies(self):
+        restored = train_ai._training_ui_state_from_json({"gamma": 0.99})
+        self.assertEqual(restored.discount_half_life, 2.9)
+        self.assertEqual(
+            train_ai._training_ui_state_from_json({"gamma": 0.95}).discount_half_life,
+            1.0,
+        )
+
+        state = TrainingUIState()
+        skipped = train_ai.apply_model_conditions_to_state(
+            state, {"training": {"regimen": {"gamma": 0.99}}}
+        )
+        self.assertEqual(state.discount_half_life, 2.9)
+        self.assertNotIn("discount half life", skipped)
+
+        # A stored half-life wins over the gamma saved beside it.
+        both = train_ai._with_discount_half_life_key(
+            {"discount_half_life": 10.0, "gamma": 0.99}
+        )
+        self.assertEqual(both, {"discount_half_life": 10.0})
+
+    def test_loaded_settings_saved_as_gamma_match_the_half_life_they_load_as(self):
+        state = TrainingUIState(discount_half_life=2.9)
+        current = {"regimen": {"discount_half_life": 2.9, "gamma": state.gamma}}
+        legacy = {"regimen": {"gamma": 0.99}}
+        other = {"regimen": {"discount_half_life": 3.0, "gamma": 0.99}}
+
+        self.assertTrue(train_ai._training_settings_match(legacy, current))
+        self.assertFalse(train_ai._training_settings_match(other, current))
+
     def test_go_to_warnings_cover_reached_and_unreachable_targets(self):
         state = TrainingUIState(
             go_to_batch_enabled=True,
@@ -4562,10 +4628,10 @@ class RegimenSliderTests(unittest.TestCase):
             tuple(round(0.950 + i * 0.001, 3) for i in range(51)),
         )
         self.assertEqual(ACTION_FRAME_SPAN_VALUES, tuple(range(1, 49)))
-        self.assertEqual(
-            GAMMA_VALUES,
-            tuple(round(0.950 + i * 0.001, 3) for i in range(50)),
-        )
+        self.assertEqual(DISCOUNT_HALF_LIFE_VALUES[0], 1.0)
+        self.assertEqual(DISCOUNT_HALF_LIFE_VALUES[-1], 30.0)
+        self.assertEqual(len(DISCOUNT_HALF_LIFE_VALUES), 291)
+        self.assertIn(5.0, DISCOUNT_HALF_LIFE_VALUES)
 
 
 class DisabledCheckboxTests(unittest.TestCase):
@@ -4688,7 +4754,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         state.baseline_decay = 0.98
         state.frame_span_multiplier = 9
         state.rounds_per_batch = 2
-        state.gamma = 0.995
+        state.discount_half_life = 10.0
         state.minibatch_size = 128
         state.replay_updates_per_batch = 1000
         state.training_device = "cpu"
@@ -4712,7 +4778,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         self.assertEqual(config.baseline_decay, 0.98)
         self.assertEqual(config.frame_span_multiplier, 9)
         self.assertEqual(config.rounds_per_batch, 2)
-        self.assertEqual(config.gamma, 0.995)
+        self.assertAlmostEqual(config.gamma, 0.5 ** (1 / 240))
         self.assertEqual(config.minibatch_size, 128)
         self.assertEqual(config.replay_updates_per_batch, 1000)
         self.assertEqual(config.training_device, "cpu")
@@ -4851,7 +4917,7 @@ class TrainingConsoleTests(unittest.TestCase):
                 "Batches/h |          5.69",
                 "Reward    |         -0.0100",
                 "Loss      |          0.2849",
-                "Gamma     |          0.990",
+                "Half-life |            2.9",
                 "Eps decay |          0.990",
                 "Epsilon   |          0.36577",
                 "Baseline  |          0.00000",

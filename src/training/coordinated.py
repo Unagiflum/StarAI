@@ -110,6 +110,7 @@ from src.training.rewards import (
     StagedTrajectoryPipeline,
     decision_frame_from_battle_state,
     frame_outcome_from_battle_state,
+    half_life_for_gamma,
 )
 from src.training.session import (
     BatchMetrics,
@@ -714,7 +715,8 @@ def _coordinated_regimen_signature(
         float(config.baseline_decay),
         int(config.action_frame_span),
         int(config.frame_span_multiplier),
-        float(config.gamma),
+        # The discount is set and matched as a half-life.
+        half_life_for_gamma(config.gamma),
         int(config.minibatch_size),
         int(config.replay_updates_per_batch),
         float(config.learning_rate),

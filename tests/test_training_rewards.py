@@ -43,6 +43,9 @@ from src.training.rewards import (
     calculate_reward_components,
     decision_frame_from_battle_state,
     discount_cutoff_frames,
+    gamma_for_half_life,
+    half_life_cutoff_frames,
+    half_life_for_gamma,
     frame_outcome_from_battle_state,
     normalize_reward_weights,
 )
@@ -892,6 +895,27 @@ class WeightAwareRewardTests(unittest.TestCase):
         self.assertEqual(sample.component_values, {})
         self.assertEqual(sample.weighted_components, {})
         self.assertEqual(sample.return_value, 0.0)
+
+
+class DiscountHalfLifeTests(unittest.TestCase):
+    def test_half_life_and_gamma_convert_back_and_forth(self):
+        for seconds in (1.0, 2.9, 5.0, 10.0, 15.0, 30.0):
+            self.assertAlmostEqual(half_life_for_gamma(gamma_for_half_life(seconds)), seconds)
+        self.assertAlmostEqual(gamma_for_half_life(5.0), 0.99424, places=5)
+        self.assertAlmostEqual(half_life_for_gamma(0.99), 2.8736, places=4)
+        self.assertEqual(half_life_for_gamma(0.0), 0.0)
+
+    def test_a_reward_half_a_life_later_counts_half(self):
+        self.assertAlmostEqual(gamma_for_half_life(5.0) ** (5 * 24), 0.5)
+
+    def test_cutoff_frames_at_one_five_and_thirty_seconds(self):
+        self.assertEqual(half_life_cutoff_frames(1.0), 160)
+        self.assertEqual(half_life_cutoff_frames(5.0), 798)
+        self.assertEqual(half_life_cutoff_frames(30.0), 4784)
+
+    def test_half_life_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            gamma_for_half_life(0.0)
 
 
 class RollingReturnPipelineTests(unittest.TestCase):

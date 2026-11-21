@@ -166,6 +166,23 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
             (0.4, 0.4),
         )
 
+    def test_coordinated_run_requires_equal_discount_half_lives(self):
+        from src.training.rewards import gamma_for_half_life
+
+        five = gamma_for_half_life(5.0)
+        CoordinatedTrainingSession(
+            (_record(1, "Earthling", gamma=five), _record(2, "Androsynth", gamma=five)),
+            run_batches=False,
+        )
+        with self.assertRaisesRegex(ValueError, "matching Regimen settings"):
+            CoordinatedTrainingSession(
+                (
+                    _record(1, "Earthling", gamma=five),
+                    _record(2, "Androsynth", gamma=gamma_for_half_life(5.1)),
+                ),
+                run_batches=False,
+            )
+
     def test_configured_absolute_batch_target_stops_synced_run(self):
         session = CoordinatedTrainingSession(
             (

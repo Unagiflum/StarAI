@@ -72,6 +72,12 @@ from src.training.rewards import (
     REWARD_COMPONENTS,
     REWARD_SPAWN_A2,
     SUSTAINED_A2_REWARD_SHIPS,
+    DEFAULT_DISCOUNT_HALF_LIFE_SECONDS,
+    DISCOUNT_HALF_LIFE_MAX_SECONDS,
+    DISCOUNT_HALF_LIFE_MIN_SECONDS,
+    gamma_for_half_life,
+    half_life_cutoff_frames,
+    half_life_for_gamma,
 )
 from src.training.replay import PACKED_REPLAY_SAMPLE_BYTES
 from src.training.session import (
@@ -115,6 +121,10 @@ LOW_UTD_WARNING = (
 STARTING_EPSILON_BELOW_FLOOR_WARNING = (
     "Starting epsilon is below the floor and will be raised to the floor when "
     "training starts."
+)
+DISCOUNT_CUTOFF_WARNING = (
+    "Credit reaches back further than a match lasts (cutoff {cutoff}, match "
+    "{match}); returns will end at the match end."
 )
 GO_TO_EPSILON_BELOW_FLOOR_WARNING = (
     "This target is below the epsilon floor and cannot be reached."
@@ -225,8 +235,9 @@ REGIMEN_CONTROL_TOOLTIPS = (
         "frames."
     ),
     (
-        "Gamma: set how strongly future rewards contribute to the training "
-        "return."
+        "Discount half-life: the seconds after which a reward counts half as "
+        "much toward the return of an earlier frame. The value shows how far "
+        "back credit reaches before its weight falls below 1%."
     ),
     (
         "Minibatch size: set how many replay samples are used in each gradient "
@@ -297,7 +308,13 @@ BASELINE_FLOOR_VALUES = tuple(round(i * 0.005, 3) for i in range(51))
 BASELINE_DECAY_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
 ACTION_FRAME_SPAN_VALUES = tuple(range(1, 49))
 FRAME_SPAN_MULTIPLIER_VALUES = tuple(range(1, 121))
-GAMMA_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(50))
+DISCOUNT_HALF_LIFE_VALUES = tuple(
+    round(DISCOUNT_HALF_LIFE_MIN_SECONDS + i * 0.1, 1)
+    for i in range(
+        int(round((DISCOUNT_HALF_LIFE_MAX_SECONDS - DISCOUNT_HALF_LIFE_MIN_SECONDS) * 10)) + 1
+    )
+)
+DISCOUNT_HALF_LIFE_METADATA_KEY = "discount_half_life"
 HIDDEN_LAYER_SIZE_VALUES = (16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
 HIDDEN_LAYER_COUNT_VALUES = tuple(range(1, 9, 1))
 REGIMEN_MATCH_TIME_LIMIT_INDEX = 0
@@ -312,7 +329,7 @@ REGIMEN_BASELINE_FLOOR_INDEX = 8
 REGIMEN_BASELINE_DECAY_INDEX = 9
 REGIMEN_ACTION_FRAME_SPAN_INDEX = 10
 REGIMEN_FRAME_SPAN_MULTIPLIER_INDEX = 11
-REGIMEN_GAMMA_INDEX = 12
+REGIMEN_DISCOUNT_HALF_LIFE_INDEX = 12
 REGIMEN_MINIBATCH_SIZE_INDEX = 13
 REGIMEN_REPLAY_UPDATES_INDEX = 14
 REGIMEN_LEARNING_RATE_INDEX = 15
@@ -340,7 +357,7 @@ REGIMEN_CONTROLLED_FIELDS = (
     "baseline_decay",
     "action_frame_span",
     "frame_span_multiplier",
-    "gamma",
+    "discount_half_life",
     "minibatch_size",
     "replay_updates_per_batch",
     "learning_rate",
@@ -364,7 +381,7 @@ FUTURE_CHANGE_SCALAR_FIELDS = (
     "epsilon_floor",
     "epsilon_decay",
     "action_frame_span",
-    "gamma",
+    "discount_half_life",
     "hidden_layer_size",
     "hidden_layer_count",
     *BATCH_CONTROLLED_FIELDS,
@@ -493,7 +510,7 @@ class TrainingUIState:
     baseline_decay: float = 0.995
     action_frame_span: int = 4
     frame_span_multiplier: int = 6
-    gamma: float = 0.990
+    discount_half_life: float = DEFAULT_DISCOUNT_HALF_LIFE_SECONDS
     minibatch_size: int = 2048
     replay_updates_per_batch: int = 15
     training_device: str = field(default_factory=default_training_device)
@@ -531,6 +548,12 @@ class TrainingUIState:
     def epsilon(self, value):
         self.starting_epsilon = float(value)
         self.current_epsilon = float(value)
+
+    @property
+    def gamma(self) -> float:
+        """Per-frame discount the half-life sets."""
+
+        return gamma_for_half_life(self.discount_half_life)
 
 
 @dataclass
@@ -723,6 +746,63 @@ def _phase_frames_suffix(state: TrainingUIState) -> str:
     return f" ({frames} frames)"
 
 
+def _format_frames_as_seconds(frames) -> str:
+    seconds = int(frames) / float(const.FPS)
+    if seconds >= 10.0 or abs(seconds - round(seconds)) < 0.05:
+        return f"{round(seconds):d} s"
+    return f"{seconds:.1f} s"
+
+
+def _discount_cutoff_suffix(state: TrainingUIState) -> str:
+    """Label suffix showing how far back the half-life lets credit reach."""
+
+    cutoff = half_life_cutoff_frames(state.discount_half_life)
+    return f" (cutoff {_format_frames_as_seconds(cutoff)})"
+
+
+def _status_half_life(status) -> float:
+    try:
+        return half_life_for_gamma(float(getattr(status, "gamma", 0.0)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def normalize_discount_half_life(value) -> float:
+    """The setting's value nearest ``value`` (the default if unreadable)."""
+
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_DISCOUNT_HALF_LIFE_SECONDS
+    if not math.isfinite(seconds):
+        return DEFAULT_DISCOUNT_HALF_LIFE_SECONDS
+    return min(DISCOUNT_HALF_LIFE_VALUES, key=lambda allowed: abs(allowed - seconds))
+
+
+def _with_discount_half_life_key(values):
+    """Give settings saved with only ``gamma`` the half-life it implies,
+    rounded to 0.1 s within the setting's range. Where the half-life is
+    stored, the derived ``gamma`` beside it is dropped."""
+
+    if not isinstance(values, dict):
+        return values
+    if DISCOUNT_HALF_LIFE_METADATA_KEY in values:
+        if "gamma" not in values:
+            return values
+        updated = dict(values)
+        updated.pop("gamma")
+        return updated
+    if "gamma" not in values:
+        return values
+    updated = dict(values)
+    try:
+        derived = half_life_for_gamma(float(updated.pop("gamma")))
+    except (TypeError, ValueError):
+        return updated
+    updated[DISCOUNT_HALF_LIFE_METADATA_KEY] = normalize_discount_half_life(derived)
+    return updated
+
+
 def _maximum_batch_samples(state: TrainingUIState) -> int:
     """Return the most replay samples a batch can yield: one per frame."""
 
@@ -752,6 +832,12 @@ def _regimen_control_warnings(state: TrainingUIState) -> dict[int, str]:
         warnings[
             REGIMEN_STARTING_EPSILON_INDEX
         ] = STARTING_EPSILON_BELOW_FLOOR_WARNING
+    cutoff = half_life_cutoff_frames(state.discount_half_life)
+    if cutoff > int(state.match_time_limit):
+        warnings[REGIMEN_DISCOUNT_HALF_LIFE_INDEX] = DISCOUNT_CUTOFF_WARNING.format(
+            cutoff=_format_frames_as_seconds(cutoff),
+            match=_format_frames_as_seconds(state.match_time_limit),
+        )
     return warnings
 
 
@@ -1593,7 +1679,7 @@ def _training_ui_state_from_json(payload):
     state = TrainingUIState()
     if not isinstance(payload, dict):
         return state
-    payload = _with_action_frame_span_key(payload)
+    payload = _with_discount_half_life_key(_with_action_frame_span_key(payload))
     for field_name, value in payload.items():
         if field_name not in _TRAINING_UI_STATE_FIELDS:
             continue
@@ -1636,6 +1722,8 @@ def _training_ui_state_from_json(payload):
             value = bool(value)
         elif field_name == "go_to_epsilon_value":
             value = normalize_go_to_epsilon_value(value)
+        elif field_name == "discount_half_life":
+            value = normalize_discount_half_life(value)
         elif field_name in {"display_on", "running"}:
             value = False
         setattr(state, field_name, value)
@@ -2570,7 +2658,7 @@ def _normalized_training_settings(training):
             normalized[group] = settings
     regimen = normalized.get("regimen")
     if isinstance(regimen, dict):
-        regimen = _with_action_frame_span_key(regimen)
+        regimen = _with_discount_half_life_key(_with_action_frame_span_key(regimen))
         normalized["regimen"] = regimen
         regimen.setdefault(
             REFLECTION_AUGMENTATION_METADATA_KEY,
@@ -2663,7 +2751,9 @@ def apply_model_conditions_to_state(state, metadata):
                     continue
                 state.rewards[label] = value
 
-        regimen = _with_action_frame_span_key(training.get("regimen", {}))
+        regimen = _with_discount_half_life_key(
+            _with_action_frame_span_key(training.get("regimen", {}))
+        )
         if isinstance(regimen, dict):
             regimen_fields = (
                 ("replay_buffer_size", int, REPLAY_BUFFER_SIZE_VALUES),
@@ -2680,7 +2770,7 @@ def apply_model_conditions_to_state(state, metadata):
                 ("baseline_decay", float, BASELINE_DECAY_VALUES),
                 ("action_frame_span", int, ACTION_FRAME_SPAN_VALUES),
                 ("frame_span_multiplier", int, FRAME_SPAN_MULTIPLIER_VALUES),
-                ("gamma", float, GAMMA_VALUES),
+                ("discount_half_life", float, DISCOUNT_HALF_LIFE_VALUES),
             )
             for key, caster, allowed in regimen_fields:
                 if key in regimen:
@@ -3853,7 +3943,7 @@ def _current_batch_console_lines(status):
                 "Loss",
                 f"{recent_loss:>16.4f}" if recent_loss is not None else f"{'-':>16}",
             ),
-            _current_batch_row("Gamma", f"{getattr(status, 'gamma', 0.0):>15.3f}"),
+            _current_batch_row("Half-life", f"{_status_half_life(status):>15.1f}"),
             _current_batch_row("Eps decay", f"{getattr(status, 'epsilon_decay', 0.0):>15.3f}"),
             _current_batch_row("Epsilon", f"{getattr(status, 'current_epsilon', 0.0):>17.5f}"),
             _current_batch_row(
@@ -4395,7 +4485,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Baseline use decay: 1.000",
             "Action frame span: 48",
             "Frame span multiplier: 120 (5760 frames)",
-            "Gamma: 0.999",
+            "Discount half-life (s): 30.0 (cutoff 199 s)",
             "Hidden layer size: 4096",
             "Hidden layer count: 8",
         ),
@@ -4802,7 +4892,15 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             is_int=True,
             value_suffix=_phase_frames_suffix(state),
         ),
-        regimen_slider(REGIMEN_GAMMA_INDEX, "Gamma", GAMMA_VALUES, state.gamma, step=0.001, decimal_places=3),
+        regimen_slider(
+            REGIMEN_DISCOUNT_HALF_LIFE_INDEX,
+            "Discount half-life (s)",
+            DISCOUNT_HALF_LIFE_VALUES,
+            state.discount_half_life,
+            step=0.1,
+            decimal_places=1,
+            value_suffix=_discount_cutoff_suffix(state),
+        ),
         regimen_slider(REGIMEN_MINIBATCH_SIZE_INDEX, "Minibatch size", MINIBATCH_SIZE_VALUES, state.minibatch_size, is_int=True),
         regimen_slider(REGIMEN_REPLAY_UPDATES_INDEX, "Gradient steps", REPLAY_UPDATES_PER_BATCH_VALUES, state.replay_updates_per_batch, is_int=True),
         regimen_slider(REGIMEN_LEARNING_RATE_INDEX, "Learning rate", LEARNING_RATE_VALUES, state.learning_rate, step=0.00001, decimal_places=5),
@@ -4890,7 +4988,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         state.frame_span_multiplier = int(
             regimen_sliders[REGIMEN_FRAME_SPAN_MULTIPLIER_INDEX].value
         )
-        state.gamma = regimen_sliders[REGIMEN_GAMMA_INDEX].value
+        state.discount_half_life = regimen_sliders[REGIMEN_DISCOUNT_HALF_LIFE_INDEX].value
         state.hidden_layer_size = int(
             regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX].value
         )
@@ -4966,7 +5064,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_sliders[REGIMEN_FRAME_SPAN_MULTIPLIER_INDEX],
             state.frame_span_multiplier,
         )
-        _set_slider_value(regimen_sliders[REGIMEN_GAMMA_INDEX], state.gamma)
+        _set_slider_value(
+            regimen_sliders[REGIMEN_DISCOUNT_HALF_LIFE_INDEX],
+            state.discount_half_life,
+        )
         _set_slider_value(
             regimen_sliders[REGIMEN_HIDDEN_LAYER_SIZE_INDEX],
             state.hidden_layer_size,
@@ -5049,6 +5150,8 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 "baseline_decay": training_state.baseline_decay,
                 ACTION_FRAME_SPAN_METADATA_KEY: training_state.action_frame_span,
                 "frame_span_multiplier": training_state.frame_span_multiplier,
+                DISCOUNT_HALF_LIFE_METADATA_KEY: training_state.discount_half_life,
+                # Derived from the half-life; kept for older readers.
                 "gamma": training_state.gamma,
             },
         }
@@ -5489,7 +5592,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     if not _set_slider_value(slider, value):
                         skipped.append(slider.reward_key)
 
-            regimen = training.get("regimen", {})
+            regimen = _with_discount_half_life_key(training.get("regimen", {}))
             if isinstance(regimen, dict):
                 if "current_epsilon" in regimen:
                     try:
@@ -5567,7 +5670,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         regimen_sliders[REGIMEN_FRAME_SPAN_MULTIPLIER_INDEX],
                         int,
                     ),
-                    ("gamma", regimen_sliders[REGIMEN_GAMMA_INDEX], float),
+                    (
+                        DISCOUNT_HALF_LIFE_METADATA_KEY,
+                        regimen_sliders[REGIMEN_DISCOUNT_HALF_LIFE_INDEX],
+                        float,
+                    ),
                 )
                 for key, slider, caster in regimen_fields:
                     if key not in regimen:
@@ -7032,6 +7139,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         regimen_sliders[REGIMEN_FRAME_SPAN_MULTIPLIER_INDEX].value_suffix = (
             _phase_frames_suffix(state)
+        )
+        regimen_sliders[REGIMEN_DISCOUNT_HALF_LIFE_INDEX].value_suffix = (
+            _discount_cutoff_suffix(state)
         )
         for index in regimen_warnings:
             regimen_sliders[index].value_color = SliderRow.WARNING_VALUE_COLOR
