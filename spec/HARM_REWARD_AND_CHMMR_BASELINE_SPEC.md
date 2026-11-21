@@ -859,7 +859,15 @@ behaviours, each with per-ship parameters and gates:
    planet horizon.
 3. Move one ship at a time. Compare crew lost and dealt per minute, still
    frames, and W-L before and after.
-4. Commit each ship separately. Revert any ship that regresses.
+4. A moved ship uses the shared behaviours and its table entry throughout,
+   against every opponent. It doesn't keep its own movement rules or fall back
+   to its earlier rules for some opponents. Find settings within the schema
+   that work: per-opponent settings where needed, and new parameters or
+   behaviours when the schema can't express what a ship needs.
+5. The moved ship should do about as well as before, or better. Where no
+   setting gets there, marginally worse is acceptable.
+6. Commit each ship separately. Revert any ship that regresses by more than
+   that.
 
 ---
 
