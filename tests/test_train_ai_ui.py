@@ -25,7 +25,7 @@ from src.training.session import TrainingSessionStatus
 from src.training.rewards import REWARD_POINT_A1, REWARD_SPAWN_A1, REWARD_SPAWN_A2
 from src.Menus.train_ai import (
     ACTION_TOP,
-    EPSILON_DECAY_VALUES,
+    EPSILON_DECAY_HALF_LIFE_VALUES,
     EPSILON_FLOOR_VALUES,
     ACTION_FRAME_SPAN_VALUES,
     EPSILON_VALUES,
@@ -278,7 +278,8 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.starting_baseline_use, 0.5)
         self.assertEqual(state.current_baseline_use, 0.5)
         self.assertEqual(state.baseline_floor, 0.0)
-        self.assertEqual(state.baseline_decay, 0.995)
+        self.assertEqual(state.baseline_decay_half_life, 100)
+        self.assertAlmostEqual(state.baseline_decay, 0.5 ** (1 / 100))
         self.assertEqual(state.frame_span_multiplier, 6)
         self.assertEqual(state.rounds_per_batch, 1)
         self.assertEqual(state.batch_grouping, 10)
@@ -287,7 +288,8 @@ class TrainingUIStateTests(unittest.TestCase):
         self.assertEqual(state.starting_epsilon, 0.5)
         self.assertEqual(state.current_epsilon, 0.5)
         self.assertEqual(state.epsilon_floor, 0.05)
-        self.assertEqual(state.epsilon_decay, 0.998)
+        self.assertEqual(state.epsilon_decay_half_life, 300)
+        self.assertAlmostEqual(state.epsilon_decay, 0.5 ** (1 / 300))
         self.assertEqual(state.action_frame_span, 4)
         self.assertEqual(state.discount_half_life, 5.0)
         self.assertEqual(state.minibatch_size, 2048)
@@ -1129,7 +1131,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
             instance.state.selected_slot = 1
             instance.state.training_device = torch_backend.DEVICE_CPU
             instance.state.synchronize_cpu_runs = True
-        second.state.epsilon_decay = first.state.epsilon_decay - 0.001
+        second.state.epsilon_decay_half_life = 1_000
         slots = (
             (first, TrainingModelSlot("Earthling", 1, SLOT_USER)),
             (second, TrainingModelSlot("Androsynth", 1, SLOT_USER)),
@@ -3703,6 +3705,61 @@ class TrainingTooltipTests(unittest.TestCase):
         self.assertTrue(train_ai._training_settings_match(legacy, current))
         self.assertFalse(train_ai._training_settings_match(other, current))
 
+    def test_decay_sliders_show_half_lives_in_batches(self):
+        self.assertEqual(train_ai.format_decay_half_life(1_000), "1,000 batches")
+        self.assertEqual(train_ai.format_decay_half_life("off"), "Off")
+        self.assertEqual(
+            TrainingUIState(epsilon_decay_half_life="off").epsilon_decay, 1.0
+        )
+
+    def test_old_configs_with_only_decay_factors_load_the_half_lives_they_imply(self):
+        restored = train_ai._training_ui_state_from_json(
+            {"epsilon_decay": 0.998, "baseline_decay": 0.995}
+        )
+        self.assertEqual(restored.epsilon_decay_half_life, 300)
+        self.assertEqual(restored.baseline_decay_half_life, 100)
+        restored = train_ai._training_ui_state_from_json(
+            {"epsilon_decay": 0.95, "baseline_decay": 1.0}
+        )
+        self.assertEqual(restored.epsilon_decay_half_life, 10)
+        self.assertEqual(restored.baseline_decay_half_life, "off")
+
+        saved = train_ai._training_ui_state_to_json(restored)
+        again = train_ai._training_ui_state_from_json(saved)
+        self.assertEqual(again.epsilon_decay_half_life, 10)
+        self.assertEqual(again.baseline_decay_half_life, "off")
+
+        state = TrainingUIState()
+        skipped = train_ai.apply_model_conditions_to_state(
+            state,
+            {"training": {"regimen": {"epsilon_decay": 1.0, "baseline_decay": 0.998}}},
+        )
+        self.assertEqual(state.epsilon_decay_half_life, "off")
+        self.assertEqual(state.baseline_decay_half_life, 300)
+        self.assertFalse(
+            {"epsilon decay half life", "baseline decay half life"} & set(skipped)
+        )
+
+        # A stored half-life wins over the factor saved beside it.
+        both = train_ai._with_decay_half_life_keys(
+            {"epsilon_decay_half_life": 1_000, "epsilon_decay": 0.95}
+        )
+        self.assertEqual(both, {"epsilon_decay_half_life": 1_000})
+
+    def test_loaded_settings_saved_as_decay_factors_match_the_half_lives_they_load_as(self):
+        state = TrainingUIState(epsilon_decay_half_life=300)
+        current = {
+            "regimen": {
+                "epsilon_decay_half_life": 300,
+                "epsilon_decay": state.epsilon_decay,
+            }
+        }
+        legacy = {"regimen": {"epsilon_decay": 0.998}}
+        other = {"regimen": {"epsilon_decay_half_life": 1_000, "epsilon_decay": 0.998}}
+
+        self.assertTrue(train_ai._training_settings_match(legacy, current))
+        self.assertFalse(train_ai._training_settings_match(other, current))
+
     def test_go_to_warnings_cover_reached_and_unreachable_targets(self):
         state = TrainingUIState(
             go_to_batch_enabled=True,
@@ -3723,7 +3780,9 @@ class TrainingTooltipTests(unittest.TestCase):
 
         state.go_to_epsilon_value = 0.250
         state.current_epsilon = 0.500
-        state.epsilon_decay = 1.000
+        state.epsilon_decay_half_life = 100_000
+        self.assertIsNone(train_ai._go_to_epsilon_warning(state))
+        state.epsilon_decay_half_life = "off"
         self.assertEqual(
             train_ai._go_to_epsilon_warning(state),
             train_ai.GO_TO_EPSILON_NO_DECAY_WARNING,
@@ -4826,8 +4885,8 @@ class RegimenSliderTests(unittest.TestCase):
             tuple(round(i * 0.005, 3) for i in range(31)),
         )
         self.assertEqual(
-            EPSILON_DECAY_VALUES,
-            tuple(round(0.950 + i * 0.001, 3) for i in range(51)),
+            EPSILON_DECAY_HALF_LIFE_VALUES,
+            (10, 30, 100, 300, 1_000, 3_000, 10_000, 30_000, 100_000, "off"),
         )
         self.assertEqual(ACTION_FRAME_SPAN_VALUES, tuple(range(1, 49)))
         self.assertEqual(DISCOUNT_HALF_LIFE_VALUES[0], 1.0)
@@ -4953,7 +5012,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         state.starting_baseline_use = 0.6
         state.current_baseline_use = 0.4
         state.baseline_floor = 0.05
-        state.baseline_decay = 0.98
+        state.baseline_decay_half_life = 30
         state.frame_span_multiplier = 9
         state.rounds_per_batch = 2
         state.discount_half_life = 10.0
@@ -4963,7 +5022,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         state.starting_epsilon = 0.2
         state.current_epsilon = 0.125
         state.epsilon_floor = 0.075
-        state.epsilon_decay = 0.997
+        state.epsilon_decay_half_life = "off"
         state.action_frame_span = 12
         state.hidden_layer_size = 64
         state.hidden_layer_count = 1
@@ -4977,7 +5036,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         self.assertEqual(config.starting_baseline_use, 0.6)
         self.assertEqual(config.baseline_use, 0.4)
         self.assertEqual(config.baseline_floor, 0.05)
-        self.assertEqual(config.baseline_decay, 0.98)
+        self.assertAlmostEqual(config.baseline_decay, 0.5 ** (1 / 30))
         self.assertEqual(config.frame_span_multiplier, 9)
         self.assertEqual(config.rounds_per_batch, 2)
         self.assertAlmostEqual(config.gamma, 0.5 ** (1 / 240))
@@ -4987,7 +5046,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         self.assertEqual(config.starting_epsilon, 0.2)
         self.assertEqual(config.epsilon, 0.125)
         self.assertEqual(config.epsilon_floor, 0.075)
-        self.assertEqual(config.epsilon_decay, 0.997)
+        self.assertEqual(config.epsilon_decay, 1.0)
         self.assertEqual(config.action_frame_span, 12)
         self.assertEqual(config.hidden_layer_width, 64)
         self.assertEqual(config.hidden_layer_count, 1)
@@ -5120,7 +5179,7 @@ class TrainingConsoleTests(unittest.TestCase):
                 "Reward    |         -0.0100",
                 "Loss      |          0.2849",
                 "Half-life |            2.9",
-                "Eps decay |          0.990",
+                "Eps decay |    100 batches",
                 "Epsilon   |          0.36577",
                 "Baseline  |          0.00000",
                 "Base share|             0.0%",

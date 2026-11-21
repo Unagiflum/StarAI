@@ -105,6 +105,7 @@ from src.training.replay import (
 )
 from src.training.replay import ActionSelection
 from src.training.replay_contracts import ActionHold
+from src.training.decay import half_life_for_decay_factor
 from src.training.rewards import (
     REWARD_COMPONENTS,
     StagedTrajectoryPipeline,
@@ -709,10 +710,11 @@ def _coordinated_regimen_signature(
         int(config.replay_capacity),
         float(config.starting_epsilon),
         float(config.epsilon_floor),
-        float(config.epsilon_decay),
+        # Decays are set and matched as half-lives in batches.
+        half_life_for_decay_factor(config.epsilon_decay),
         float(config.starting_baseline_use),
         float(config.baseline_floor),
-        float(config.baseline_decay),
+        half_life_for_decay_factor(config.baseline_decay),
         int(config.action_frame_span),
         int(config.frame_span_multiplier),
         # The discount is set and matched as a half-life.

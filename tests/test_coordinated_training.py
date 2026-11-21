@@ -183,6 +183,36 @@ class CoordinatedTrainingSessionTests(unittest.TestCase):
                 run_batches=False,
             )
 
+    def test_coordinated_run_requires_equal_decay_half_lives(self):
+        from src.training.decay import decay_factor_for_half_life
+
+        for field_name in ("epsilon_decay", "baseline_decay"):
+            with self.subTest(field_name=field_name):
+                same = decay_factor_for_half_life(300)
+                first = _record(1, "Earthling")
+                second = _record(2, "Androsynth")
+                CoordinatedTrainingSession(
+                    (
+                        replace(first, config=replace(first.config, **{field_name: same})),
+                        replace(second, config=replace(second.config, **{field_name: same})),
+                    ),
+                    run_batches=False,
+                )
+                with self.assertRaisesRegex(ValueError, "matching Regimen settings"):
+                    CoordinatedTrainingSession(
+                        (
+                            replace(first, config=replace(first.config, **{field_name: same})),
+                            replace(
+                                second,
+                                config=replace(
+                                    second.config,
+                                    **{field_name: decay_factor_for_half_life(1_000)},
+                                ),
+                            ),
+                        ),
+                        run_batches=False,
+                    )
+
     def test_configured_absolute_batch_target_stops_synced_run(self):
         session = CoordinatedTrainingSession(
             (

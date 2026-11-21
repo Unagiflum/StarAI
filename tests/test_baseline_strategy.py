@@ -3059,7 +3059,8 @@ class TrainAIBaselineSettingsTests(unittest.TestCase):
         self.assertEqual(state.starting_baseline_use, 0.7)
         self.assertEqual(state.current_baseline_use, 0.42)
         self.assertEqual(state.baseline_floor, 0.05)
-        self.assertEqual(state.baseline_decay, 0.99)
+        # 0.99 halves in 69 batches; the nearest setting is 100.
+        self.assertEqual(state.baseline_decay_half_life, 100)
         self.assertEqual(state.frame_span_multiplier, 12)
 
         legacy = TrainingUIState(starting_baseline_use=0.3, current_baseline_use=0.1)

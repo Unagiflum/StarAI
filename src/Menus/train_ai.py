@@ -66,6 +66,17 @@ from src.training.orchestration import (
     TrainingOrchestrationConfig,
 )
 from src.training.opponent_cache import OpponentModelCache
+from src.training.decay import (
+    DECAY_HALF_LIFE_OFF,
+    DECAY_HALF_LIFE_VALUES,
+    DEFAULT_BASELINE_DECAY_HALF_LIFE,
+    DEFAULT_EPSILON_DECAY_HALF_LIFE,
+    decay_factor_for_half_life,
+    format_decay_half_life,
+    is_decay_off,
+    nearest_decay_half_life,
+    normalize_decay_half_life,
+)
 from src.training.rewards import (
     LEGACY_REWARD_ALIASES,
     ONGOING_REWARD_COMPONENTS,
@@ -131,7 +142,7 @@ GO_TO_EPSILON_BELOW_FLOOR_WARNING = (
     "This target is below the epsilon floor and cannot be reached."
 )
 GO_TO_EPSILON_NO_DECAY_WARNING = (
-    "Epsilon decay is 1.000, so epsilon will not decrease to this target."
+    "Epsilon decay is Off, so epsilon will not decrease to this target."
 )
 GO_TO_BATCH_REACHED_WARNING = "This batch target has already been reached."
 OPPONENT_CONTROL_TOOLTIPS = (
@@ -209,8 +220,7 @@ REGIMEN_CONTROL_TOOLTIPS = (
         "decays."
     ),
     (
-        "Epsilon decay: multiply the current epsilon by this value after each "
-        "completed batch."
+        "Epsilon decay half-life: batches over which epsilon halves."
     ),
     (
         "Starting baseline use: set the initial chance that each phase of "
@@ -222,8 +232,7 @@ REGIMEN_CONTROL_TOOLTIPS = (
         "Baseline floor: set the lowest baseline use allowed as it decays."
     ),
     (
-        "Baseline use decay: multiply the current baseline use by this value "
-        "after each completed batch."
+        "Baseline decay half-life: batches over which baseline use halves."
     ),
     (
         "Action frame span: exploration is rolled once per this many "
@@ -303,10 +312,16 @@ REPLAY_UPDATES_PER_BATCH_VALUES = (10, 15) + tuple(range(20, 501, 10))
 LEARNING_RATE_VALUES = (0.00001, 0.00003, 0.00010, 0.00030, 0.00100, 0.00300, 0.01000)
 EPSILON_VALUES = tuple(round(i * 0.025, 3) for i in range(41))
 EPSILON_FLOOR_VALUES = tuple(round(i * 0.005, 3) for i in range(31))
-EPSILON_DECAY_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
+EPSILON_DECAY_HALF_LIFE_VALUES = DECAY_HALF_LIFE_VALUES
 STARTING_BASELINE_USE_VALUES = tuple(round(i * 0.01, 3) for i in range(101))
 BASELINE_FLOOR_VALUES = tuple(round(i * 0.005, 3) for i in range(51))
-BASELINE_DECAY_VALUES = tuple(round(0.950 + i * 0.001, 3) for i in range(51))
+BASELINE_DECAY_HALF_LIFE_VALUES = DECAY_HALF_LIFE_VALUES
+# Decay settings are stored as half-lives in batches, with the per-batch
+# factors they imply kept beside them for older readers.
+DECAY_HALF_LIFE_KEYS = (
+    ("epsilon_decay_half_life", "epsilon_decay", DEFAULT_EPSILON_DECAY_HALF_LIFE),
+    ("baseline_decay_half_life", "baseline_decay", DEFAULT_BASELINE_DECAY_HALF_LIFE),
+)
 ACTION_FRAME_SPAN_VALUES = tuple(range(1, 49))
 FRAME_SPAN_MULTIPLIER_VALUES = tuple(range(1, 121))
 DISCOUNT_HALF_LIFE_VALUES = tuple(
@@ -352,10 +367,10 @@ REGIMEN_CONTROLLED_FIELDS = (
     "replay_buffer_size",
     "starting_epsilon",
     "epsilon_floor",
-    "epsilon_decay",
+    "epsilon_decay_half_life",
     "starting_baseline_use",
     "baseline_floor",
-    "baseline_decay",
+    "baseline_decay_half_life",
     "action_frame_span",
     "frame_span_multiplier",
     "discount_half_life",
@@ -380,7 +395,7 @@ FUTURE_CHANGE_SCALAR_FIELDS = (
     "replay_buffer_size",
     "starting_epsilon",
     "epsilon_floor",
-    "epsilon_decay",
+    "epsilon_decay_half_life",
     "action_frame_span",
     "discount_half_life",
     "hidden_layer_size",
@@ -504,11 +519,11 @@ class TrainingUIState:
     starting_epsilon: float = 0.500
     current_epsilon: float = 0.500
     epsilon_floor: float = 0.050
-    epsilon_decay: float = 0.998
+    epsilon_decay_half_life: int | str = DEFAULT_EPSILON_DECAY_HALF_LIFE
     starting_baseline_use: float = 0.50
     current_baseline_use: float = 0.50
     baseline_floor: float = 0.0
-    baseline_decay: float = 0.995
+    baseline_decay_half_life: int | str = DEFAULT_BASELINE_DECAY_HALF_LIFE
     action_frame_span: int = 4
     frame_span_multiplier: int = 6
     discount_half_life: float = DEFAULT_DISCOUNT_HALF_LIFE_SECONDS
@@ -555,6 +570,18 @@ class TrainingUIState:
         """Per-frame discount the half-life sets."""
 
         return gamma_for_half_life(self.discount_half_life)
+
+    @property
+    def epsilon_decay(self) -> float:
+        """Per-batch epsilon factor the decay half-life sets."""
+
+        return decay_factor_for_half_life(self.epsilon_decay_half_life)
+
+    @property
+    def baseline_decay(self) -> float:
+        """Per-batch baseline use factor the decay half-life sets."""
+
+        return decay_factor_for_half_life(self.baseline_decay_half_life)
 
 
 @dataclass
@@ -731,7 +758,7 @@ def _go_to_epsilon_warning(state: TrainingUIState):
         return GO_TO_EPSILON_BELOW_FLOOR_WARNING
     if (
         0.0 < target < float(state.current_epsilon)
-        and float(state.epsilon_decay) >= 1.0
+        and is_decay_off(state.epsilon_decay_half_life)
     ):
         return GO_TO_EPSILON_NO_DECAY_WARNING
     return None
@@ -761,6 +788,17 @@ def _discount_cutoff_suffix(state: TrainingUIState) -> str:
     return f" (cutoff {_format_frames_as_seconds(cutoff)})"
 
 
+def _status_decay_half_life(status) -> str:
+    """The epsilon decay half-life a status's per-batch factor implies."""
+
+    try:
+        return format_decay_half_life(
+            nearest_decay_half_life(getattr(status, "epsilon_decay", 1.0))
+        )
+    except (TypeError, ValueError):
+        return "-"
+
+
 def _status_half_life(status) -> float:
     try:
         return half_life_for_gamma(float(getattr(status, "gamma", 0.0)))
@@ -778,6 +816,49 @@ def normalize_discount_half_life(value) -> float:
     if not math.isfinite(seconds):
         return DEFAULT_DISCOUNT_HALF_LIFE_SECONDS
     return min(DISCOUNT_HALF_LIFE_VALUES, key=lambda allowed: abs(allowed - seconds))
+
+
+def _decay_half_life_setting(value):
+    """A stored decay half-life as a setting value, for the allowed-value
+    checks: "off" or a whole number of batches."""
+
+    if is_decay_off(value):
+        return DECAY_HALF_LIFE_OFF
+    if isinstance(value, bool):
+        raise ValueError("decay half-life must be batches or off")
+    batches = float(value)
+    if batches != int(batches):
+        raise ValueError("decay half-life must be whole batches")
+    return int(batches)
+
+
+def _with_decay_half_life_keys(values):
+    """Give settings saved with only per-batch decay factors the half-lives
+    they imply, snapped to the nearest setting on the log scale (1.000 is
+    Off). Where a half-life is stored, the factor beside it is dropped."""
+
+    if not isinstance(values, dict):
+        return values
+    updated = values
+    for half_life_key, factor_key, _default in DECAY_HALF_LIFE_KEYS:
+        if factor_key not in updated:
+            continue
+        if updated is values:
+            updated = dict(values)
+        factor = updated.pop(factor_key)
+        if half_life_key in updated:
+            continue
+        try:
+            updated[half_life_key] = nearest_decay_half_life(factor)
+        except (TypeError, ValueError):
+            pass
+    return updated
+
+
+def _with_half_life_keys(values):
+    """Settings with the discount and both decays as half-lives."""
+
+    return _with_decay_half_life_keys(_with_discount_half_life_key(values))
 
 
 def _with_discount_half_life_key(values):
@@ -1682,7 +1763,7 @@ def _training_ui_state_from_json(payload):
     if not isinstance(payload, dict):
         return state
     payload = with_current_reward_scale(
-        _with_discount_half_life_key(_with_action_frame_span_key(payload))
+        _with_half_life_keys(_with_action_frame_span_key(payload))
     )
     for field_name, value in payload.items():
         if field_name not in _TRAINING_UI_STATE_FIELDS:
@@ -1728,6 +1809,10 @@ def _training_ui_state_from_json(payload):
             value = normalize_go_to_epsilon_value(value)
         elif field_name == "discount_half_life":
             value = normalize_discount_half_life(value)
+        elif field_name == "epsilon_decay_half_life":
+            value = normalize_decay_half_life(value, DEFAULT_EPSILON_DECAY_HALF_LIFE)
+        elif field_name == "baseline_decay_half_life":
+            value = normalize_decay_half_life(value, DEFAULT_BASELINE_DECAY_HALF_LIFE)
         elif field_name in {"display_on", "running"}:
             value = False
         setattr(state, field_name, value)
@@ -2702,7 +2787,7 @@ def _normalized_training_settings(training):
             normalized[group] = settings
     regimen = normalized.get("regimen")
     if isinstance(regimen, dict):
-        regimen = _with_discount_half_life_key(_with_action_frame_span_key(regimen))
+        regimen = _with_half_life_keys(_with_action_frame_span_key(regimen))
         normalized["regimen"] = regimen
         regimen.setdefault(
             REFLECTION_AUGMENTATION_METADATA_KEY,
@@ -2795,7 +2880,7 @@ def apply_model_conditions_to_state(state, metadata):
                     continue
                 state.rewards[label] = value
 
-        regimen = _with_discount_half_life_key(
+        regimen = _with_half_life_keys(
             _with_action_frame_span_key(training.get("regimen", {}))
         )
         if isinstance(regimen, dict):
@@ -2808,10 +2893,18 @@ def apply_model_conditions_to_state(state, metadata):
                 ("replay_updates_per_batch", int, REPLAY_UPDATES_PER_BATCH_VALUES),
                 ("learning_rate", float, LEARNING_RATE_VALUES),
                 ("epsilon_floor", float, EPSILON_FLOOR_VALUES),
-                ("epsilon_decay", float, EPSILON_DECAY_VALUES),
+                (
+                    "epsilon_decay_half_life",
+                    _decay_half_life_setting,
+                    EPSILON_DECAY_HALF_LIFE_VALUES,
+                ),
                 ("starting_baseline_use", float, STARTING_BASELINE_USE_VALUES),
                 ("baseline_floor", float, BASELINE_FLOOR_VALUES),
-                ("baseline_decay", float, BASELINE_DECAY_VALUES),
+                (
+                    "baseline_decay_half_life",
+                    _decay_half_life_setting,
+                    BASELINE_DECAY_HALF_LIFE_VALUES,
+                ),
                 ("action_frame_span", int, ACTION_FRAME_SPAN_VALUES),
                 ("frame_span_multiplier", int, FRAME_SPAN_MULTIPLIER_VALUES),
                 ("discount_half_life", float, DISCOUNT_HALF_LIFE_VALUES),
@@ -3988,7 +4081,7 @@ def _current_batch_console_lines(status):
                 f"{recent_loss:>16.4f}" if recent_loss is not None else f"{'-':>16}",
             ),
             _current_batch_row("Half-life", f"{_status_half_life(status):>15.1f}"),
-            _current_batch_row("Eps decay", f"{getattr(status, 'epsilon_decay', 0.0):>15.3f}"),
+            _current_batch_row("Eps decay", f"{_status_decay_half_life(status):>15}"),
             _current_batch_row("Epsilon", f"{getattr(status, 'current_epsilon', 0.0):>17.5f}"),
             _current_batch_row(
                 "Baseline",
@@ -4523,10 +4616,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             "Learning rate: 0.01000",
             "Starting Epsilon: 1.000 (1.000)",
             "Epsilon floor: 0.150",
-            "Epsilon decay: 1.000",
+            "Epsilon decay half-life: 100,000 batches",
             "Starting baseline use: 1.00 (1.000)",
             "Baseline floor: 0.250",
-            "Baseline use decay: 1.000",
+            "Baseline decay half-life: 100,000 batches",
             "Action frame span: 48",
             "Frame span multiplier: 120 (5760 frames)",
             "Discount half-life (s): 30.0 (cutoff 199 s)",
@@ -4901,7 +4994,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             value_suffix=f" ({state.current_epsilon:.3f})",
         ),
         regimen_slider(5, "Epsilon floor", EPSILON_FLOOR_VALUES, state.epsilon_floor, step=0.005, decimal_places=3),
-        regimen_slider(6, "Epsilon decay", EPSILON_DECAY_VALUES, state.epsilon_decay, step=0.001, decimal_places=3),
+        regimen_slider(
+            REGIMEN_EPSILON_DECAY_INDEX,
+            "Epsilon decay half-life",
+            EPSILON_DECAY_HALF_LIFE_VALUES,
+            state.epsilon_decay_half_life,
+            value_formatter=format_decay_half_life,
+        ),
         regimen_slider(
             REGIMEN_STARTING_BASELINE_USE_INDEX,
             "Starting baseline use",
@@ -4921,11 +5020,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         ),
         regimen_slider(
             REGIMEN_BASELINE_DECAY_INDEX,
-            "Baseline use decay",
-            BASELINE_DECAY_VALUES,
-            state.baseline_decay,
-            step=0.001,
-            decimal_places=3,
+            "Baseline decay half-life",
+            BASELINE_DECAY_HALF_LIFE_VALUES,
+            state.baseline_decay_half_life,
+            value_formatter=format_decay_half_life,
         ),
         regimen_slider(REGIMEN_ACTION_FRAME_SPAN_INDEX, "Action frame span", ACTION_FRAME_SPAN_VALUES, state.action_frame_span, is_int=True),
         regimen_slider(
@@ -5014,7 +5112,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         else:
             state.starting_epsilon = starting_epsilon
         state.epsilon_floor = regimen_sliders[REGIMEN_EPSILON_FLOOR_INDEX].value
-        state.epsilon_decay = regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX].value
+        state.epsilon_decay_half_life = regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX].value
         starting_baseline_use = regimen_sliders[
             REGIMEN_STARTING_BASELINE_USE_INDEX
         ].value
@@ -5025,7 +5123,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             last_starting_baseline_slider_value[0] = starting_baseline_use
         state.starting_baseline_use = starting_baseline_use
         state.baseline_floor = regimen_sliders[REGIMEN_BASELINE_FLOOR_INDEX].value
-        state.baseline_decay = regimen_sliders[REGIMEN_BASELINE_DECAY_INDEX].value
+        state.baseline_decay_half_life = regimen_sliders[REGIMEN_BASELINE_DECAY_INDEX].value
         state.action_frame_span = int(
             regimen_sliders[REGIMEN_ACTION_FRAME_SPAN_INDEX].value
         )
@@ -5087,7 +5185,10 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
             regimen_sliders[REGIMEN_EPSILON_FLOOR_INDEX],
             state.epsilon_floor,
         )
-        _set_slider_value(regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX], state.epsilon_decay)
+        _set_slider_value(
+            regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX],
+            state.epsilon_decay_half_life,
+        )
         _set_slider_value(
             regimen_sliders[REGIMEN_STARTING_BASELINE_USE_INDEX],
             state.starting_baseline_use,
@@ -5098,7 +5199,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         _set_slider_value(
             regimen_sliders[REGIMEN_BASELINE_DECAY_INDEX],
-            state.baseline_decay,
+            state.baseline_decay_half_life,
         )
         _set_slider_value(
             regimen_sliders[REGIMEN_ACTION_FRAME_SPAN_INDEX],
@@ -5188,10 +5289,14 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 "current_epsilon": current_epsilon,
                 "epsilon": current_epsilon,
                 "epsilon_floor": training_state.epsilon_floor,
+                "epsilon_decay_half_life": training_state.epsilon_decay_half_life,
+                # Derived from the half-life; kept for older readers.
                 "epsilon_decay": training_state.epsilon_decay,
                 "starting_baseline_use": training_state.starting_baseline_use,
                 "current_baseline_use": current_baseline_use,
                 "baseline_floor": training_state.baseline_floor,
+                "baseline_decay_half_life": training_state.baseline_decay_half_life,
+                # Derived from the half-life; kept for older readers.
                 "baseline_decay": training_state.baseline_decay,
                 ACTION_FRAME_SPAN_METADATA_KEY: training_state.action_frame_span,
                 "frame_span_multiplier": training_state.frame_span_multiplier,
@@ -5640,7 +5745,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     if not _set_slider_value(slider, value):
                         skipped.append(slider.reward_key)
 
-            regimen = _with_discount_half_life_key(training.get("regimen", {}))
+            regimen = _with_half_life_keys(training.get("regimen", {}))
             if isinstance(regimen, dict):
                 if "current_epsilon" in regimen:
                     try:
@@ -5689,9 +5794,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         float,
                     ),
                     (
-                        "epsilon_decay",
+                        "epsilon_decay_half_life",
                         regimen_sliders[REGIMEN_EPSILON_DECAY_INDEX],
-                        float,
+                        _decay_half_life_setting,
                     ),
                     (
                         "starting_baseline_use",
@@ -5704,9 +5809,9 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                         float,
                     ),
                     (
-                        "baseline_decay",
+                        "baseline_decay_half_life",
                         regimen_sliders[REGIMEN_BASELINE_DECAY_INDEX],
-                        float,
+                        _decay_half_life_setting,
                     ),
                     (
                         ACTION_FRAME_SPAN_METADATA_KEY,
