@@ -77,11 +77,18 @@ from src.training.baseline.strategies import (
     EARTHLING_NUKE_MIN_DISTANCE,
     EARTHLING_NUKE_OVERRUN_SPEED,
     may_evade,
+    SLYLANDRO_CHMMR_FAR,
+    SLYLANDRO_CHMMR_FIRE,
+    SLYLANDRO_CHMMR_NEAR,
+    SPATHI_CHMMR_FAR,
+    SPATHI_CHMMR_NEAR,
+    SYREEN_CHMMR_SONG_DISTANCE,
     UMGAH_CHMMR_HOP_DISTANCE,
     UMGAH_CONE_HALF_ANGLE,
     UMGAH_PASS_CLEARANCE,
     UMGAH_RUN_CLEARANCE,
     UTWIG_CHMMR_RUN_BATTERY,
+    YEHAT_CHMMR_FIRE_RESERVE,
 )
 from src.training.baseline.strategies import _umgah_hops_needed as umgah_hops_needed
 from src.training.baseline.strategies import _umgah_tail_heading as umgah_tail_heading
@@ -2108,6 +2115,151 @@ class UmgahChmmrTests(unittest.TestCase):
         self.assertTrue(context.plan.a2)
         self.assertTrue(context.plan.a1)
         self.assertFalse(context.plan.thrust)
+
+
+def _first_steer(context, strategy):
+    """The bearing ``strategy`` first steers toward, or None."""
+
+    with mock.patch.object(BaselineContext, "steer", wraps=context.steer) as steer:
+        strategy(context)
+    return steer.call_args_list[0].args[0] if steer.call_args_list else None
+
+
+class SlylandroChmmrTests(unittest.TestCase):
+    def _context(self, enemy, enemy_name="Chmmr"):
+        context = _rule_context(
+            "Slylandro", enemy=enemy, enemy_name=enemy_name, battery=20.0, max_battery=20.0
+        )
+        context.view.asteroids = ()
+        return context
+
+    def test_circles_the_chmmr_in_its_band_firing(self):
+        context = self._context(_seen(0.0, (SLYLANDRO_CHMMR_NEAR + SLYLANDRO_CHMMR_FAR) / 2))
+
+        heading = _first_steer(context, STRATEGIES["Slylandro"])
+
+        self.assertAlmostEqual(abs(heading), 90.0)
+        self.assertTrue(context.plan.a1)
+        self.assertFalse(context.plan.a2)
+
+    def test_runs_from_a_closing_chmmr(self):
+        context = self._context(_seen(0.0, SLYLANDRO_CHMMR_NEAR + 20.0, closing=30.0))
+
+        heading = _first_steer(context, STRATEGIES["Slylandro"])
+
+        self.assertAlmostEqual(abs(heading), 180.0)
+
+    def test_holds_fire_beyond_the_fire_distance(self):
+        context = self._context(_seen(0.0, SLYLANDRO_CHMMR_FIRE + 100.0))
+
+        STRATEGIES["Slylandro"](context)
+
+        self.assertFalse(context.plan.a1)
+
+    def test_other_opponents_keep_the_harvester_on(self):
+        context = self._context(_seen(0.0, 900.0), enemy_name="Spathi")
+
+        STRATEGIES["Slylandro"](context)
+
+        self.assertTrue(context.plan.a2)
+
+
+class SpathiChmmrTests(unittest.TestCase):
+    def _context(self, enemy, *, enemy_name="Chmmr", satellites=()):
+        return _rule_context(
+            "Spathi",
+            enemy=enemy,
+            enemy_name=enemy_name,
+            enemy_objects=satellites,
+            battery=10.0,
+            max_battery=10.0,
+        )
+
+    def test_shoots_a_satellite_from_the_band(self):
+        enemy = _seen(0.0, (SPATHI_CHMMR_NEAR + SPATHI_CHMMR_FAR) / 2)
+        satellite = _satellite(enemy, 180.0)
+        self.assertIsNotNone(self._context(enemy, satellites=(satellite,)).satellite_shot(1))
+
+        for lead, fires, turn in ((0.0, True, TURN_NONE), (40.0, False, TURN_RIGHT)):
+            context = self._context(enemy, satellites=(satellite,))
+            with mock.patch.object(
+                BaselineContext, "satellite_shot", return_value=(satellite, lead)
+            ):
+                STRATEGIES["Spathi"](context)
+            self.assertEqual(bool(context.plan.a1), fires)
+            self.assertEqual(context.plan.turn or TURN_NONE, turn)
+
+    def test_runs_from_a_closing_chmmr(self):
+        context = self._context(_seen(0.0, SPATHI_CHMMR_NEAR + 20.0, closing=30.0))
+
+        heading = _first_steer(context, STRATEGIES["Spathi"])
+
+        self.assertAlmostEqual(abs(heading), 180.0)
+
+    def test_no_rear_missiles_at_the_chmmr(self):
+        behind = _seen(180.0, 800.0)
+        chmmr = self._context(behind)
+        STRATEGIES["Spathi"](chmmr)
+        self.assertFalse(chmmr.plan.a2)
+
+        other = self._context(behind, enemy_name="Earthling")
+        STRATEGIES["Spathi"](other)
+        self.assertTrue(other.plan.a2)
+
+
+class SyreenChmmrTests(unittest.TestCase):
+    def _syreen(self, enemy):
+        context = _rule_context(
+            "Syreen", enemy=enemy, enemy_name="Chmmr", battery=16.0, max_battery=16.0
+        )
+        context.view.crew_pods = ()
+        STRATEGIES["Syreen"](context)
+        return context
+
+    def test_waits_nose_first_without_thrust(self):
+        context = self._syreen(_seen(30.0, 900.0, closing=40.0))
+
+        self.assertEqual(context.plan.turn, TURN_RIGHT)
+        self.assertFalse(context.plan.thrust)
+        self.assertFalse(context.plan.a2)
+
+    def test_sings_only_once_the_chmmr_is_close(self):
+        self.assertTrue(self._syreen(_seen(0.0, SYREEN_CHMMR_SONG_DISTANCE - 20.0)).plan.a2)
+        self.assertFalse(self._syreen(_seen(0.0, SYREEN_CHMMR_SONG_DISTANCE + 50.0)).plan.a2)
+
+
+class YehatChmmrTests(unittest.TestCase):
+    def _yehat(self, distance, *, shield_up=False, battery=10.0):
+        context = _rule_context(
+            "Yehat",
+            enemy=_seen(0.0, distance),
+            enemy_name="Chmmr",
+            battery=battery,
+            max_battery=10.0,
+        )
+        context.view.me.damage_shield_active = shield_up
+        STRATEGIES["Yehat"](context)
+        return context
+
+    def test_raises_the_shield_within_the_chmmr_laser(self):
+        context = self._yehat(500.0)
+
+        self.assertTrue(context.plan.a2)
+        self.assertFalse(context.plan.a1)
+
+    def test_fires_under_a_raised_shield_keeping_the_reserve(self):
+        context = self._yehat(500.0, shield_up=True, battery=5.0)
+        self.assertFalse(context.plan.a2)
+        self.assertTrue(context.plan.a1)
+
+        low = self._yehat(500.0, shield_up=True, battery=1.0 + YEHAT_CHMMR_FIRE_RESERVE - 0.5)
+        self.assertFalse(low.plan.a1)
+
+    def test_no_shield_beyond_the_chmmr_laser(self):
+        context = self._yehat(700.0, battery=1.0)
+
+        self.assertFalse(context.plan.a2)
+        self.assertTrue(context.plan.a1)
 
 
 class ChmmrTractorTests(unittest.TestCase):

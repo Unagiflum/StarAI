@@ -270,6 +270,24 @@ SYREEN_GROWN_CREW = 20.0
 SYREEN_CLOSE_DANGER_SHIPS = frozenset(
     {"Ilwrath", "KohrAh", "Orz", "Shofixti", "Umgah", "ZoqFotPik"}
 )
+# Against a Chmmr, whose tractor drags the Syreen in regardless, it faces
+# the Chmmr without thrust and sings only once this close.
+SYREEN_CHMMR_SONG_DISTANCE = 200.0
+# Slylandro against a Chmmr: it isn't tractored, so it holds this band,
+# circling inside it, and fires lightning within the fire distance. The
+# bolt's random segments seldom reach its 1152 maximum.
+SLYLANDRO_CHMMR_NEAR = 700.0
+SLYLANDRO_CHMMR_FAR = 850.0
+SLYLANDRO_CHMMR_FIRE = 1000.0
+# Spathi against a Chmmr: hold this band, shooting satellites within the
+# gun's reach of it. No rear missiles: the satellites shoot them all down,
+# and they drain the battery needed for the gun.
+SPATHI_CHMMR_NEAR = 1000.0
+SPATHI_CHMMR_FAR = 1300.0
+# Yehat against a Chmmr: keep the shield up (refreshed as it ends) within
+# the Chmmr laser's reach, firing there only with this much battery left
+# after the shot.
+YEHAT_CHMMR_FIRE_RESERVE = 1.0
 SONG_IMMUNE_SHIPS = frozenset(
     name
     for name, ship in SHIP_DEFINITIONS.items()
@@ -1060,6 +1078,9 @@ def shofixti_glory_dive(ctx: BaselineContext) -> None:
 
 
 def slylandro(ctx: BaselineContext) -> None:
+    if ctx.enemy_name == "Chmmr" and ctx.enemy is not None:
+        _slylandro_vs_chmmr(ctx)
+        return
     ctx.a2(True)
     if ctx.me.battery_fraction <= 0.10:
         _approach_enemy_object(ctx, ctx.view.asteroids)
@@ -1068,7 +1089,27 @@ def slylandro(ctx: BaselineContext) -> None:
         ctx.a1(True)
 
 
+def _slylandro_vs_chmmr(ctx: BaselineContext) -> None:
+    """Circle the Chmmr beyond its laser and satellites, firing lightning.
+
+    The tractor can't pull it, and it outpaces the Chmmr. Lightning seeks
+    the Chmmr by itself, striking satellites in its path.
+    """
+
+    if ctx.me.battery_fraction <= 0.10:
+        ctx.a2(True)
+        _approach_enemy_object(ctx, ctx.view.asteroids)
+    running = ctx.keep_standoff("slylandro_chmmr", SLYLANDRO_CHMMR_NEAR, SLYLANDRO_CHMMR_FAR)
+    if not running and ctx.distance <= SLYLANDRO_CHMMR_FAR:
+        ctx.steer(ctx.side("slylandro_chmmr_orbit", ctx.enemy.bearing, 90.0))
+    if ctx.distance <= SLYLANDRO_CHMMR_FIRE:
+        ctx.a1(True)
+
+
 def spathi(ctx: BaselineContext) -> None:
+    if ctx.enemy_name == "Chmmr" and ctx.enemy is not None:
+        _spathi_vs_chmmr(ctx)
+        return
     if ctx.battery_at_least(0.50):
         ctx.approach_weapon_range(1)
     else:
@@ -1083,6 +1124,21 @@ def spathi(ctx: BaselineContext) -> None:
         and rearward_speed <= ctx.weapon(2).speed
     ):
         ctx.a2(True)
+
+
+def _spathi_vs_chmmr(ctx: BaselineContext) -> None:
+    """Hold the Chmmr far out, shooting satellites or the Chmmr when lined up."""
+
+    ctx.keep_standoff("spathi_chmmr", SPATHI_CHMMR_NEAR, SPATHI_CHMMR_FAR)
+    shot = ctx.satellite_shot(1)
+    pointing = False
+    if shot is not None:
+        pointing = ctx.aim_gun(1, shot[1])
+    else:
+        ctx.point_weapon(1)
+    pointing = pointing or (ctx.pointing(1) and ctx.in_range(1))
+    if pointing:
+        ctx.a1(True)
 
 
 def _enemy_reach(ctx: BaselineContext) -> float:
@@ -1274,7 +1330,30 @@ def _syreen(ctx: BaselineContext, *, cautious: bool, keep_away: bool) -> None:
 
 
 def syreen(ctx: BaselineContext) -> None:
+    if ctx.enemy_name == "Chmmr" and ctx.enemy is not None:
+        _syreen_vs_chmmr(ctx)
+        return
     _syreen(ctx, cautious=True, keep_away=True)
+
+
+def _syreen_vs_chmmr(ctx: BaselineContext) -> None:
+    """Wait for the Chmmr nose first, and sing once it is close.
+
+    Its tractor drags the light Syreen in from far beyond its own reach, so
+    there's no keeping away; thrusting in only shortens the fight. A song
+    sung close takes the most crew.
+    """
+
+    if ctx.me.battery >= ctx.spec.a2_cost and ctx.distance <= SYREEN_CHMMR_SONG_DISTANCE:
+        ctx.a2(True)
+    pods = ctx.view.crew_pods
+    if pods:
+        ctx.approach_object(min(pods, key=lambda pod: pod.distance))
+    ctx.point_at_opponent()
+    ctx.plan.claim_thrust(False)
+    spare = ctx.me.battery - ctx.spec.a1_cost >= ctx.spec.a2_cost
+    if ctx.in_range(1) and ctx.pointing(1) and spare:
+        ctx.a1(True)
 
 
 def syreen_bold(ctx: BaselineContext) -> None:
@@ -1826,7 +1905,34 @@ def _utwig_may_evade(ctx: BaselineContext) -> bool:
 
 
 def yehat(ctx: BaselineContext) -> None:
+    if ctx.enemy_name == "Chmmr" and ctx.enemy is not None:
+        _yehat_vs_chmmr(ctx)
+        return
     _shield_rules(ctx)
+
+
+def _yehat_vs_chmmr(ctx: BaselineContext) -> None:
+    """Keep the shield up wherever the Chmmr's lasers reach, firing between.
+
+    Lasers give no warning shot, so the shield is refreshed as it ends
+    rather than raised on a threat. Its battery nearly keeps up.
+    """
+
+    # A satellite reaches no farther from the Chmmr (orbit 256 plus laser
+    # 256) than the Chmmr laser does.
+    exposed = ctx.distance <= CHMMR_LASER_RANGE
+    if exposed and not ctx.me.damage_shield_active and ctx.me.battery >= ctx.spec.a2_cost:
+        ctx.a2(True)
+    ctx.approach_weapon_range(1)
+    ctx.point_weapon(1)
+    reserve = YEHAT_CHMMR_FIRE_RESERVE if exposed else 0.0
+    if (
+        not ctx.plan.a2
+        and ctx.in_range(1)
+        and ctx.pointing(1)
+        and ctx.me.battery - ctx.spec.a1_cost >= reserve
+    ):
+        ctx.a1(True)
 
 
 def _vux_disabled(ctx: BaselineContext) -> bool:
