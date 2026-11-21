@@ -158,6 +158,11 @@ class ShipBehaviour:
         ``coast_above_top_speed``: coast rather than thrust above top
         speed. Across every ship the arena showed no gain, so only the
         afterburner ship uses it.
+    Evaluation:
+        ``harm_taken_weight``: λ, the weight on harm taken in the arena's λ
+        score, which only breaks near-ties in harm dealt. Set explicitly
+        when a ship moves: low for ships that can escape (so running away
+        doesn't pay), higher for ships that can't. Unmoved ships use 0.5.
     Opponents:
         ``opponents``: per-opponent overrides, mapping an opponent's name to
         the fields that differ against it (``ship_behaviour``).
@@ -178,6 +183,7 @@ class ShipBehaviour:
     keep_moving: bool = True
     keep_moving_takes_aim: bool = False
     coast_above_top_speed: bool = False
+    harm_taken_weight: float = 0.5
     opponents: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def weapon_use(self, action: int) -> WeaponUse | None:
@@ -209,7 +215,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # speed on the Vux), veering off at 110 degrees from the Vux rather than running
     # into its limpets and recharging there until 8; and it stays beyond
     # the Utwig's bolts, which its shield turns into battery.
+    # λ is low: the Spathi is cheap and outruns nearly everything, so a high
+    # λ would reward running away.
     "Spathi": ShipBehaviour(
+        harm_taken_weight=0.25,
         recharge_battery=5.0,
         band=Band(756.0, 1080.0),
         weapons=(WeaponUse(FIRE_AIMED), WeaponUse(FIRE_LAUNCH)),

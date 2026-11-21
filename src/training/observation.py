@@ -119,11 +119,14 @@ def encode_observation(
     frame_id: int | None = None,
     game_objects=None,
     context: ObservationFrameContext | None = None,
+    validate: bool = True,
 ) -> list[float]:
     """Return the canonical observation for ``self_ship``.
 
     The function only reads ship/object attributes and never calls gameplay
     methods that can update timers, RNG, physics, controls, or collisions.
+    ``validate`` checks every value is a finite float32; the baseline arena,
+    whose observations never reach a network, skips it.
     """
     values = [0.0] * OBSERVATION_INPUT_SIZE
     context = context or build_observation_context(
@@ -155,7 +158,8 @@ def encode_observation(
         context,
     )
 
-    _validate_observation(values)
+    if validate:
+        _validate_observation(values)
     return values
 
 

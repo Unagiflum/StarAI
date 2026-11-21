@@ -1,54 +1,84 @@
-"""Baseline-versus-baseline arena used to compare strategy variants."""
+"""Baseline-versus-baseline arena, scored by harm, used to compare strategies."""
 
 import io
+import math
+import random
 import unittest
 from contextlib import redirect_stdout
 from dataclasses import replace
 from unittest import mock
 
-import src.const as const
-
+from src.Objects.Ships.catalog import SHIP_DEFINITIONS
 from src.training.baseline import arena
 from src.training.baseline.arena import (
+    CELLS,
+    STRONG,
+    WEAK,
     ArenaMatch,
     ArenaResult,
-    OUTCOME_DRAW,
-    OUTCOME_LOSS,
-    OUTCOME_TIMEOUT,
-    OUTCOME_TRADE,
-    OUTCOME_WIN,
+    ArenaTally,
     build_matches,
+    compare,
     format_report,
+    new_arena_battle,
+    paired_difference,
+    rank_order,
     run_match,
+    screen,
+    spawn_crew,
     tally,
 )
 
 
-def _result(outcome, *, variant="default", opponent="Spathi", crew_end=5.0):
+def _result(
+    *,
+    variant="default",
+    opponent="Spathi",
+    seed=0,
+    cell=(STRONG, STRONG),
+    dealt=0.5,
+    taken=0.2,
+    weight=0.5,
+    **kwargs,
+):
     return ArenaResult(
         ship="ZoqFotPik",
         variant=variant,
         opponent=opponent,
-        seed=0,
-        outcome=outcome,
-        seconds=10.0,
-        crew_start=10.0,
-        crew_end=crew_end,
-        opponent_crew_start=30.0,
-        opponent_crew_end=15.0,
+        seed=seed,
+        ship_condition=cell[0],
+        opponent_condition=cell[1],
+        frames=1200,
+        harm_taken_weight=weight,
+        damage_dealt=dealt,
+        damage_taken=taken,
+        **kwargs,
     )
 
 
-class ArenaTests(unittest.TestCase):
-    def test_short_fight_reports_crew_and_outcome(self):
-        result = run_match(ArenaMatch("ZoqFotPik", "Spathi", seed=0), seconds=0.5)
+def _live_satellites(simulation, owner):
+    return [
+        obj
+        for obj in simulation.world.objects
+        if getattr(obj, "name", None) == "ChmmrSatellite"
+        and getattr(obj, "parent", None) is owner
+    ]
 
-        self.assertEqual(result.outcome, OUTCOME_TIMEOUT)
-        self.assertEqual(result.seconds, 0.5)
-        self.assertGreater(result.crew_start, 0.0)
-        self.assertGreater(result.opponent_crew_start, 0.0)
-        # Ships start at rest.
-        self.assertGreater(result.still_frames, 0)
+
+class ArenaFightTests(unittest.TestCase):
+    def test_short_fight_reports_harm_and_diagnostics(self):
+        result = run_match(ArenaMatch("ZoqFotPik", "Spathi", seed=0), frames=12)
+
+        self.assertEqual(result.frames, 12)
+        self.assertEqual((result.kills, result.deaths), (0, 0))
+        self.assertGreaterEqual(result.harm_dealt, 0.0)
+        self.assertEqual(result.harm_taken_weight, 0.5)
+        self.assertTrue(0 <= result.still_frames <= 12)
+
+    def test_fights_repeat_exactly(self):
+        match = ArenaMatch("Earthling", "Mycon", seed=1, ship_condition=WEAK)
+
+        self.assertEqual(run_match(match, frames=240), run_match(match, frames=240))
 
     def test_fights_use_real_ship_assets_like_training(self):
         captured = {}
@@ -59,7 +89,7 @@ class ArenaTests(unittest.TestCase):
             return captured["resources"]
 
         with mock.patch.object(arena, "_arena_resources", side_effect=spy):
-            run_match(ArenaMatch("Umgah", "Spathi", seed=0), seconds=1 / 24)
+            run_match(ArenaMatch("Umgah", "Spathi", seed=0), frames=1)
 
         from src.resources import HeadlessAssetManager
 
@@ -71,10 +101,58 @@ class ArenaTests(unittest.TestCase):
     def test_variants_meet_the_same_battles(self):
         default = arena._match_rng(ArenaMatch("Pkunk", "Spathi", 3))
         variant = arena._match_rng(ArenaMatch("Pkunk", "Spathi", 3, "full_range"))
+        other_cell = arena._match_rng(ArenaMatch("Pkunk", "Spathi", 3, ship_condition=WEAK))
 
-        self.assertEqual(default.random(), variant.random())
+        first = default.random()
+        self.assertEqual(first, variant.random())
+        self.assertNotEqual(first, other_cell.random())
 
-    def test_matches_cover_every_variant_opponent_and_seed(self):
+    def test_sides_start_strong_or_weak(self):
+        strong_crew = SHIP_DEFINITIONS["Chmmr"].start_hp
+        simulation, _ = new_arena_battle(ArenaMatch("Chmmr", "Chmmr", 0, ship_condition=STRONG, opponent_condition=WEAK))
+
+        self.assertEqual(simulation.player1.current_hp, strong_crew)
+        self.assertEqual(simulation.player2.current_hp, math.ceil(strong_crew / 4))
+        self.assertEqual(len(_live_satellites(simulation, simulation.player1)), 3)
+        self.assertEqual(len(_live_satellites(simulation, simulation.player2)), 1)
+        self.assertTrue(
+            all(sat.current_hp == SHIP_DEFINITIONS["Chmmr"].satellite_hp
+                for sat in _live_satellites(simulation, simulation.player2))
+        )
+
+    def test_weak_crew_is_a_quarter_rounded_up_and_at_least_one(self):
+        ship = mock.Mock(start_hp=6)
+        self.assertEqual(spawn_crew(ship, WEAK), 2)
+        self.assertEqual(spawn_crew(ship, STRONG), 6)
+        self.assertEqual(spawn_crew(mock.Mock(start_hp=1), WEAK), 1)
+
+    def test_a_destroyed_ship_respawns_in_its_condition(self):
+        simulation, _ = new_arena_battle(ArenaMatch("Earthling", "Spathi", 0, opponent_condition=WEAK))
+        dead = simulation.player2
+        dead.current_hp = 0
+        simulation.step(actions={})
+
+        self.assertIsNot(simulation.player2, dead)
+        self.assertEqual(simulation.player2.current_hp, math.ceil(SHIP_DEFINITIONS["Spathi"].start_hp / 4))
+        self.assertEqual(set(simulation.training_episode_deaths), {2})
+
+    def test_shared_observation_context_changes_nothing(self):
+        from src.training.observation import build_observation_context, encode_observation
+
+        simulation, _ = new_arena_battle(ArenaMatch("Chmmr", "Vux", 0))
+        for _ in range(30):
+            simulation.step(actions={})
+        p1, p2 = simulation.player1, simulation.player2
+        context = build_observation_context(p1, p2, simulation.world)
+        for ship, enemy in ((p1, p2), (p2, p1)):
+            plain = encode_observation(ship, enemy, frame_id=simulation.frame_id, game_objects=simulation.world)
+            shared = encode_observation(
+                ship, enemy, frame_id=simulation.frame_id, game_objects=simulation.world,
+                context=context, validate=False,
+            )
+            self.assertEqual(plain, shared)
+
+    def test_matches_cover_every_variant_opponent_seed_and_cell(self):
         matches = build_matches(
             ["ZoqFotPik", "Spathi"],
             ["Spathi", "Earthling"],
@@ -82,100 +160,171 @@ class ArenaTests(unittest.TestCase):
             variants={"ZoqFotPik": ["a1_first"]},
         )
 
-        self.assertEqual(len(matches), (2 + 1) * 2 * 2)
+        self.assertEqual(len(matches), (2 + 1) * 2 * 2 * 4)
+        self.assertEqual({(m.ship_condition, m.opponent_condition) for m in matches}, set(CELLS))
         self.assertEqual(
             {(match.ship, match.variant) for match in matches},
             {("ZoqFotPik", "default"), ("ZoqFotPik", "a1_first"), ("Spathi", "default")},
         )
+        self.assertEqual({m.seed for m in build_matches(["Spathi"], ["Spathi"], [5, 6])}, {5, 6})
         with self.assertRaises(KeyError):
             build_matches(["Spathi"], ["Spathi"], 1, {"Spathi": ["missing"]})
 
-    def test_tally_counts_outcomes_and_damage(self):
+
+class ArenaScoreTests(unittest.TestCase):
+    def test_score_is_nothing_without_harm_dealt(self):
+        self.assertEqual(_result(dealt=0.0, taken=1.0).score, 0.0)
+        self.assertAlmostEqual(_result(dealt=1.0, taken=0.4, weight=0.25).score, 0.9)
+        both = _result(dealt=0.3, kills_dealt=0.7, taken=0.1, deaths_taken=0.5)
+        self.assertAlmostEqual((both.harm_dealt, both.harm_taken), (1.0, 0.6))
+
+    def test_tally_totals_harm_by_opponent_and_cell(self):
         table = tally(
             [
-                _result(OUTCOME_WIN),
-                _result(OUTCOME_LOSS, opponent="Earthling"),
-                _result(OUTCOME_TIMEOUT, variant="a1_first"),
+                _result(dealt=1.0, taken=0.4, kills=1, still_frames=120),
+                _result(dealt=0.0, taken=0.6, opponent="Earthling", cell=(WEAK, STRONG), deaths=1),
+                _result(variant="a1_first"),
             ]
         )
 
         overall = table[("ZoqFotPik", "default")]["all"]
-        self.assertEqual((overall.wins, overall.losses, overall.fights), (1, 1, 2))
-        # A win deals full damage; the loss dealt half of 30 crew.
-        self.assertAlmostEqual(overall.mean_dealt, 0.75)
-        self.assertAlmostEqual(overall.mean_taken, 0.75)
-        timeout = table[("ZoqFotPik", "a1_first")]["all"]
-        self.assertAlmostEqual(timeout.mean_taken, 0.5)
-        report = format_report(table, ["Spathi", "Earthling"])
+        self.assertEqual(overall.fights, 2)
+        self.assertAlmostEqual(overall.harm_dealt, 1.0)
+        self.assertAlmostEqual(overall.harm_taken, 1.0)
+        self.assertAlmostEqual(overall.score, 0.8)
+        self.assertEqual((overall.kills, overall.deaths), (1, 1))
+        self.assertAlmostEqual(overall.harmless_share, 0.5)
+        self.assertAlmostEqual(overall.still_share, 120 / 2400)
+        self.assertEqual(table[("ZoqFotPik", "default")]["cell WS"].fights, 1)
+        report = format_report(table, ["Spathi", "Earthling"], by_cell=True)
         self.assertIn("ZoqFotPik [a1_first]", report)
         self.assertIn("vs Earthling", report)
+        self.assertIn("cell WS", report)
+        self.assertIn("no harm  50%", report)
 
-    def test_trades_count_apart_from_draws_and_cost_both_crews(self):
-        table = tally([_result(OUTCOME_TRADE), _result(OUTCOME_DRAW)])
 
-        overall = table[("ZoqFotPik", "default")]["all"]
-        self.assertEqual((overall.trades, overall.draws, overall.wins), (1, 1, 0))
-        self.assertAlmostEqual(overall.mean_dealt, 1.0)
-        self.assertAlmostEqual(overall.mean_taken, 1.0)
-        self.assertIn("1D 1X", overall.cell())
+class ArenaRankingTests(unittest.TestCase):
+    def _fights(self, variant, dealt, taken, *, noise=0.0, count=30):
+        rng = random.Random(variant)
+        return [
+            _result(
+                variant=variant,
+                seed=seed,
+                dealt=max(0.0, dealt + rng.uniform(-noise, noise)),
+                taken=taken,
+            )
+            for seed in range(count)
+        ]
 
-    def test_tally_reports_crew_per_minute_and_still_share(self):
-        win = replace(_result(OUTCOME_WIN), still_frames=const.FPS * 5)
-        loss = replace(_result(OUTCOME_LOSS), seconds=50.0)
-        table = tally([win, loss])
+    def test_paired_difference_has_a_95_percent_interval(self):
+        difference = paired_difference([1.0, 2.0, 3.0, 4.0], [2.0, 2.5, 4.5, 5.0])
 
-        overall = table[("ZoqFotPik", "default")]["all"]
-        # Dealt 30 (the kill) + 15 crew, lost 5 + 10, over a minute.
-        self.assertAlmostEqual(overall.dealt_per_minute, 45.0)
-        self.assertAlmostEqual(overall.lost_per_minute, 15.0)
-        self.assertAlmostEqual(overall.still_share, 5.0 / 60.0)
-        self.assertIn("crew/min 45.0:15.0 still   8%", overall.cell())
+        self.assertAlmostEqual(difference.mean, 1.0)
+        # stdev 0.408, t(3) 3.182: half-width 0.650.
+        self.assertAlmostEqual(difference.high - difference.mean, 3.182 * 0.4082 / 2.0, places=3)
+        self.assertEqual(difference.lead, 1)
+        self.assertEqual(paired_difference([1.0], [1.0]).lead, 0)
+        self.assertEqual(arena._t_critical(11), 2.228)
+        self.assertEqual(arena._t_critical(5000), 1.960)
 
-    def test_cli_expands_all_variants_for_the_chosen_ships(self):
+    def test_more_harm_dealt_ranks_higher_whatever_it_costs(self):
+        base = self._fights("default", 1.0, 0.0, noise=0.05)
+        bolder = self._fights("bold", 1.5, 2.5, noise=0.05)
+
+        result = compare(base, bolder)
+
+        self.assertLess(result.score.mean, 0.0)
+        self.assertEqual(result.verdict, 1)
+        self.assertEqual(result.reason, "harm dealt")
+
+    def test_tied_harm_dealt_ranks_by_the_lambda_score(self):
+        base = self._fights("default", 1.0, 1.0)
+        safer = self._fights("safe", 1.02, 0.2)
+
+        result = compare(base, safer)
+
+        self.assertEqual(result.verdict, 1)
+        self.assertIn("lambda score", result.reason)
+        self.assertEqual(compare(base, self._fights("same", 1.0, 1.0)).verdict, 0)
+
+    def test_comparisons_pair_only_shared_fights(self):
+        base = self._fights("default", 1.0, 0.0, count=10)
+        other = self._fights("other", 2.0, 0.0, count=20)
+
+        self.assertEqual(compare(base, other).dealt.count, 10)
+
+    def test_rank_order_puts_the_lead_group_first_by_lambda_score(self):
+        def entry(dealt, score):
+            result = ArenaTally()
+            result.fights, result.harm_dealt, result.score = 1, dealt, score
+            return result
+
+        order = rank_order(
+            {
+                "far_behind": entry(0.5, 0.5),
+                "top": entry(1.00, 0.2),
+                "near_top_safer": entry(0.97, 0.9),
+                "behind": entry(0.8, 0.8),
+            }
+        )
+
+        self.assertEqual(order, ["near_top_safer", "top", "behind", "far_behind"])
+
+    def test_screen_halves_the_field_and_doubles_the_seeds(self):
+        strength = {"default": 1.0, "a": 0.2, "b": 0.9, "c": 0.5, "d": 0.8}
+        flown = []
+
+        def run(matches):
+            flown.append(sorted({(m.variant, m.seed) for m in matches}))
+            return [
+                _result(variant=m.variant, seed=m.seed, opponent=m.opponent, dealt=strength[m.variant])
+                for m in matches
+            ]
+
+        order, results = screen(
+            "ZoqFotPik", list(strength), ["Spathi"], first_seeds=2, max_seeds=8,
+            cells=[(STRONG, STRONG)], run=run,
+        )
+
+        self.assertEqual(order[0], "default")
+        # 5 settings on seeds 0-1, the best 3 on 2-3, the best 2 on 4-7.
+        self.assertEqual({variant for variant, _ in flown[0]}, set(strength))
+        self.assertEqual({variant for variant, _ in flown[1]}, {"default", "b", "d"})
+        self.assertEqual({seed for _, seed in flown[1]}, {2, 3})
+        self.assertEqual({variant for variant, _ in flown[2]}, {"default", "b"})
+        self.assertEqual({seed for _, seed in flown[2]}, {4, 5, 6, 7})
+        self.assertEqual(len(results["default"]), 8)
+
+
+class ArenaCliTests(unittest.TestCase):
+    def test_cli_flies_every_variant_and_compares_it_with_the_default(self):
         captured = []
 
         def fake_run_arena(matches, **_kwargs):
             captured.extend(matches)
-            return [_result(OUTCOME_WIN, variant=match.variant) for match in matches]
+            return [
+                _result(variant=m.variant, seed=m.seed, cell=(m.ship_condition, m.opponent_condition))
+                for m in matches
+            ]
 
         with mock.patch.object(arena, "run_arena", side_effect=fake_run_arena):
             with redirect_stdout(io.StringIO()) as output, mock.patch("sys.stderr"):
                 arena.main(
-                    ["--ships", "ZoqFotPik", "--opponents", "Spathi", "--seeds", "1",
-                     "--variant", "all"]
+                    ["--ships", "ZoqFotPik", "--opponents", "Spathi", "--seeds", "2",
+                     "--first-seed", "10", "--cells", "SS,WW", "--variant", "all"]
                 )
 
-        self.assertEqual(
-            [match.variant for match in captured],
-            ["default", "a1_first"],
-        )
-        self.assertIn("ZoqFotPik [default]", output.getvalue())
+        self.assertEqual({m.variant for m in captured}, {"default", "a1_first"})
+        self.assertEqual({m.seed for m in captured}, {10, 11})
+        self.assertEqual({(m.ship_condition, m.opponent_condition) for m in captured}, {(STRONG, STRONG), (WEAK, WEAK)})
+        text = output.getvalue()
+        self.assertIn("ZoqFotPik [default]", text)
+        self.assertIn("ZoqFotPik [a1_first] vs [default]: equal", text)
+
+    def test_cli_rejects_unknown_cells(self):
+        with self.assertRaises(SystemExit):
+            arena.main(["--ships", "Spathi", "--cells", "XX"])
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class ArenaSatelliteTests(unittest.TestCase):
-    def test_fights_against_the_chmmr_report_satellite_hp_lost(self):
-        result = run_match(ArenaMatch("Vux", "Chmmr", seed=0), seconds=0.5)
-        other = run_match(ArenaMatch("Vux", "Spathi", seed=0), seconds=0.5)
-
-        self.assertIsNotNone(result.opponent_satellite_hp_lost)
-        self.assertGreaterEqual(result.opponent_satellite_hp_lost, 0.0)
-        self.assertIsNone(other.opponent_satellite_hp_lost)
-
-    def test_tally_averages_satellite_hp_over_satellite_fights_only(self):
-        with_satellites = ArenaResult(
-            "Vux", "default", "Chmmr", 0, OUTCOME_LOSS, 5.0, 20.0, 0.0, 42.0, 40.0,
-            opponent_satellite_hp_lost=6.0,
-        )
-        table = tally([with_satellites, _result(OUTCOME_WIN, opponent="Spathi")])
-
-        chmmr = table[("Vux", "default")]["all"]
-        self.assertAlmostEqual(chmmr.mean_satellite_hp_lost, 6.0)
-        self.assertIn("sat HP  6.0", chmmr.cell())
-        spathi = table[("ZoqFotPik", "default")]["all"]
-        self.assertIsNone(spathi.mean_satellite_hp_lost)
-        self.assertNotIn("sat HP", spathi.cell())
-        self.assertIn("fight  10s", spathi.cell())
