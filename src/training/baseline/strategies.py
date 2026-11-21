@@ -36,6 +36,7 @@ from src.training.baseline.ship_specs import (
     FORM_YWING,
     TYPICAL_HULL_RADIUS,
     shofixti_kill_distance,
+    ship_spec,
     weapon_spec,
 )
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
@@ -100,7 +101,12 @@ DRUUGE_ESCAPE_RANGE = 500.0
 DRUUGE_ESCAPE_DANGER_SHIPS = frozenset({"KzerZa", "Chenjesu", "Vux"})
 # Ships whose hulls the Kzer-Za fighters should not be wasted on.
 KZER_ZA_FIGHTER_COUNTERS = frozenset({"Earthling", "Thraddash"})
-TRACTOR_IMMUNE_SHIPS = frozenset({"Arilou", "Slylandro"})
+# Chmmr tractor: pull an opponent from laser reach out to CHMMR_TRACTOR_FAR
+# in, or one within reach plus the margin that is getting away, while the
+# battery is at least this full.
+CHMMR_TRACTOR_FAR = 1500.0
+CHMMR_TRACTOR_ESCAPE_MARGIN = 100.0
+CHMMR_TRACTOR_BATTERY = 0.30
 # Pkunk shots live only briefly: fire within this fraction of their reach
 # unless the opponent is closing, and wait out recharges just beyond reach.
 PKUNK_FIRE_RANGE_FRACTION = 0.7
@@ -187,10 +193,10 @@ ORZ_MARINE_COUNTERS = frozenset({"Thraddash"})
 # Against a Chmmr, marines launch only once this many satellites or fewer
 # are left to shoot them down.
 ORZ_CHMMR_MARINE_SATELLITES = 1
-# Standoff band from a Chmmr, beyond its reach and within turret reach of a
-# satellite.
-ORZ_CHMMR_NEAR = 900.0
-ORZ_CHMMR_FAR = 1250.0
+# Standoff band from a Chmmr, beyond its tractor's 1500 (which would drag
+# the Orz into its laser) and near the turret's reach of a satellite.
+ORZ_CHMMR_NEAR = 1550.0
+ORZ_CHMMR_FAR = 1800.0
 # Opponents whose shots are too tough to shoot down and must be dodged:
 # the Orz aims with the hull alone, its turret kept as it is, which the
 # arena shows dodges them better.
@@ -209,12 +215,13 @@ ORZ_KITE_OPPONENTS = frozenset(
 )
 ORZ_KITE_NEAR = 700.0
 ORZ_KITE_FAR = 1100.0
-# Utwig against a Chmmr: hold it in this band, beyond its laser and under
-# the tractor's 1000, firing from inside the bolts' 1080 reach. While
-# running from it, shield whenever within this margin of the Chmmr laser's
+# Utwig against a Chmmr: hold it in this band, just beyond its laser,
+# firing from inside the bolts' 1080 reach. Run from it only while its
+# battery is at least this full; shield within this margin of its laser's
 # reach, which also covers its satellites': the hits charge the battery.
-UTWIG_CHMMR_NEAR = 800.0
+UTWIG_CHMMR_NEAR = 650.0
 UTWIG_CHMMR_FAR = 1050.0
+UTWIG_CHMMR_RUN_BATTERY = 0.70
 UTWIG_CHMMR_EXPOSURE_MARGIN = 50.0
 # Supox: hold a distance band, by default 600-900, or just outside a
 # shorter-reaching opponent's weapons. With the gun within the slide aim
@@ -442,14 +449,31 @@ def chenjesu(ctx: BaselineContext) -> None:
         ctx.a1(True)
 
 
+def _chmmr_tractor_helps(ctx: BaselineContext) -> bool:
+    """Whether the tractor brings the opponent into laser reach or keeps it there.
+
+    Pulls one between laser reach and ``CHMMR_TRACTOR_FAR`` in, and one
+    within reach (plus a margin) that is getting away. Farther opponents
+    aren't worth the battery. The beam pulls inertial ships only and needs a
+    visible target.
+    """
+
+    enemy = ctx.enemy
+    if (
+        enemy is None
+        or ctx.enemy_cloaked()
+        or not ctx.battery_at_least(CHMMR_TRACTOR_BATTERY)
+        or not ship_spec(ctx.enemy_name, ctx.enemy_form).inertial
+    ):
+        return False
+    if ctx.distance <= ctx.weapon(1).range + CHMMR_TRACTOR_ESCAPE_MARGIN:
+        return enemy.closing_speed < 0.0
+    return ctx.distance <= CHMMR_TRACTOR_FAR
+
+
 def chmmr(ctx: BaselineContext) -> None:
     ctx.approach_opponent()
-    if (
-        ctx.distance > LONG_RANGE
-        and ctx.battery_at_least(0.30)
-        and ctx.enemy_name not in TRACTOR_IMMUNE_SHIPS
-        and not ctx.enemy_cloaked()
-    ):
+    if _chmmr_tractor_helps(ctx):
         ctx.a2(True)
     if ctx.pointing(1) and ctx.in_range(1):
         ctx.a1(True)
@@ -1739,16 +1763,30 @@ def utwig(ctx: BaselineContext) -> None:
 
 
 def _utwig_vs_chmmr(ctx: BaselineContext) -> None:
-    """Outrange the Chmmr, and shield while running so its lasers charge
-    the battery. Its laser drains the Chmmr's own battery, which leaves it
-    open to the bolts once spent."""
+    """Outrange the Chmmr, and shield in its laser's reach so the lasers
+    charge the battery while it drains its own.
+
+    It runs from the Chmmr only while the Chmmr's battery is high: its
+    tractor would otherwise hold the Utwig on the run, never firing. Once
+    the Chmmr is low it stands and fights, shielding against each laser
+    shot the Chmmr can still afford and firing in between.
+    """
 
     if ctx.imminent_threat(SHIELD_SECONDS) is not None or ctx.crew_dropped():
         ctx.a2(True)
-    running = ctx.keep_standoff("utwig_chmmr", UTWIG_CHMMR_NEAR, UTWIG_CHMMR_FAR)
+    key = "utwig_chmmr"
+    if ctx.enemy_block.battery_fraction >= UTWIG_CHMMR_RUN_BATTERY:
+        running = ctx.keep_standoff(key, UTWIG_CHMMR_NEAR, UTWIG_CHMMR_FAR)
+    else:
+        ctx.memory.values[f"{key}_running"] = False
+        running = False
+        if ctx.distance > UTWIG_CHMMR_FAR:
+            ctx.keep_standoff(key, UTWIG_CHMMR_NEAR, UTWIG_CHMMR_FAR)
     # A satellite reaches no farther from the Chmmr (orbit 256 plus laser
     # 256) than the Chmmr laser does.
-    if running and ctx.distance <= CHMMR_LASER_RANGE + UTWIG_CHMMR_EXPOSURE_MARGIN:
+    exposed = ctx.distance <= CHMMR_LASER_RANGE + UTWIG_CHMMR_EXPOSURE_MARGIN
+    laser_ready = ctx.enemy_block.battery >= ship_spec("Chmmr").a1_cost
+    if exposed and (running or laser_ready):
         ctx.a2(True)
     ctx.point_weapon(1)
     # The shield blocks the bolts.

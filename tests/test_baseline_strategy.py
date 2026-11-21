@@ -71,6 +71,8 @@ from src.training.baseline.ship_specs import (
     weapon_spec,
 )
 from src.training.baseline.strategies import (
+    CHMMR_TRACTOR_BATTERY,
+    CHMMR_TRACTOR_FAR,
     EARTHLING_CHMMR_ORBIT_OFFSET,
     EARTHLING_NUKE_MIN_DISTANCE,
     EARTHLING_NUKE_OVERRUN_SPEED,
@@ -78,6 +80,7 @@ from src.training.baseline.strategies import (
     UMGAH_CONE_HALF_ANGLE,
     UMGAH_PASS_CLEARANCE,
     UMGAH_RUN_CLEARANCE,
+    UTWIG_CHMMR_RUN_BATTERY,
 )
 from src.training.baseline.strategies import _umgah_hops_needed as umgah_hops_needed
 from src.training.baseline.strategies import _umgah_tail_heading as umgah_tail_heading
@@ -2013,7 +2016,7 @@ class AndrosynthChmmrTests(unittest.TestCase):
 
 
 class UtwigChmmrTests(unittest.TestCase):
-    def _context(self, enemy, *, enemy_name="Chmmr"):
+    def _context(self, enemy, *, enemy_name="Chmmr", enemy_battery=42.0):
         # The satellite on the far side of the Chmmr.
         satellites = (_satellite(enemy, 0.0),) if enemy_name == "Chmmr" else ()
         context = _rule_context(
@@ -2025,9 +2028,11 @@ class UtwigChmmrTests(unittest.TestCase):
             max_battery=20.0,
         )
         context.view.me.crew = 20.0
+        context.view.enemy_block.battery = enemy_battery
+        context.view.enemy_block.battery_fraction = enemy_battery / 42.0
         return context
 
-    def test_runs_shielded_from_a_chmmr_within_laser_reach(self):
+    def test_runs_shielded_from_a_charged_chmmr_within_laser_reach(self):
         context = self._context(_seen(0.0, 550.0, closing=40.0))
 
         STRATEGIES["Utwig"](context)
@@ -2054,6 +2059,25 @@ class UtwigChmmrTests(unittest.TestCase):
         self.assertTrue(context.plan.a1)
         self.assertFalse(context.plan.a2)
 
+    def test_stands_shielded_against_a_low_chmmr_that_can_still_fire(self):
+        low = UTWIG_CHMMR_RUN_BATTERY * 42.0 - 1.0
+        context = self._context(_seen(0.0, 550.0, closing=40.0), enemy_battery=low)
+
+        STRATEGIES["Utwig"](context)
+
+        self.assertFalse(context.memory.values.get("utwig_chmmr_running"))
+        self.assertTrue(context.plan.a2)
+        self.assertFalse(context.plan.a1)
+
+    def test_fires_at_a_chmmr_without_battery_for_a_shot(self):
+        context = self._context(_seen(0.0, 550.0, closing=40.0), enemy_battery=1.0)
+
+        STRATEGIES["Utwig"](context)
+
+        self.assertFalse(context.memory.values.get("utwig_chmmr_running"))
+        self.assertFalse(context.plan.a2)
+        self.assertTrue(context.plan.a1)
+
     def test_other_opponents_keep_the_shield_rules(self):
         context = self._context(_seen(0.0, 550.0, closing=40.0), enemy_name="Spathi")
 
@@ -2061,6 +2085,37 @@ class UtwigChmmrTests(unittest.TestCase):
 
         self.assertNotIn("utwig_chmmr_running", context.memory.values)
         self.assertFalse(context.plan.a2)
+
+
+class ChmmrTractorTests(unittest.TestCase):
+    def _tractor(self, enemy, *, enemy_name="Spathi", battery_fraction=1.0, cloaked=False, blazer=False):
+        context = _rule_context(
+            "Chmmr", enemy=enemy, enemy_name=enemy_name, battery_fraction=battery_fraction
+        )
+        context.view.enemy_block.trackable = not cloaked
+        context.view.enemy_block.androsynth_blazer = blazer
+        STRATEGIES["Chmmr"](context)
+        return bool(context.plan.a2)
+
+    def test_pulls_a_mid_range_opponent_in_but_not_a_far_one(self):
+        self.assertTrue(self._tractor(_seen(0.0, 1000.0)))
+        self.assertTrue(self._tractor(_seen(0.0, CHMMR_TRACTOR_FAR - 50.0)))
+        self.assertFalse(self._tractor(_seen(0.0, CHMMR_TRACTOR_FAR + 50.0)))
+
+    def test_holds_a_close_opponent_getting_away_but_not_one_closing(self):
+        self.assertTrue(self._tractor(_seen(0.0, 400.0, closing=-10.0)))
+        self.assertFalse(self._tractor(_seen(0.0, 400.0, closing=10.0)))
+
+    def test_no_pull_on_ships_it_cannot_hold_or_see_or_without_battery(self):
+        mid = _seen(0.0, 1000.0)
+        self.assertFalse(self._tractor(mid, enemy_name="Arilou"))
+        self.assertFalse(self._tractor(mid, enemy_name="Slylandro"))
+        self.assertFalse(self._tractor(mid, enemy_name="Androsynth", blazer=True))
+        self.assertTrue(self._tractor(mid, enemy_name="Androsynth"))
+        self.assertFalse(self._tractor(mid, enemy_name="Ilwrath", cloaked=True))
+        self.assertFalse(
+            self._tractor(mid, battery_fraction=CHMMR_TRACTOR_BATTERY - 0.05)
+        )
 
 
 class EarthlingNukeAndChmmrTests(unittest.TestCase):
