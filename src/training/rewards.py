@@ -134,6 +134,23 @@ DISCOUNT_HALF_LIFE_MIN_SECONDS = 1.0
 DISCOUNT_HALF_LIFE_MAX_SECONDS = 30.0
 DEFAULT_DISCOUNT_HALF_LIFE_SECONDS = 5.0
 
+# Reward and penalty weights take one of these steps: 0 and +/-0.001 * 2**k
+# for k = 0-10.
+_POSITIVE_REWARD_WEIGHT_STEPS = tuple(
+    round(0.001 * 2**exponent, 3) for exponent in range(11)
+)
+REWARD_WEIGHT_STEPS = (
+    tuple(-step for step in reversed(_POSITIVE_REWARD_WEIGHT_STEPS))
+    + (0.0,)
+    + _POSITIVE_REWARD_WEIGHT_STEPS
+)
+# Version 1 weights were +/-0.01 * 2**k for k = 0-12, 40 times today's scale.
+# Version 2 is the scale above.
+REWARD_SCALE_VERSION = 2
+REWARD_SCALE_VERSION_METADATA_KEY = "reward_scale_version"
+LEGACY_REWARD_SCALE_VERSION = 1
+LEGACY_REWARD_SCALE_DIVISOR = 40.0
+
 
 @dataclass(frozen=True)
 class RewardDecisionFrame:
@@ -1013,6 +1030,77 @@ def half_life_cutoff_frames(seconds: float, fps: int = const.FPS) -> int:
     """Frames a return reaches back at a half-life of ``seconds``."""
 
     return discount_cutoff_frames(gamma_for_half_life(seconds, fps))
+
+
+def legacy_reward_weight_to_step(value: float) -> float:
+    """Map a version 1 reward weight onto today's steps.
+
+    The weight is divided by 40 and snapped to the nearest step on the log
+    scale, keeping its sign. Every old step but 0.01 and 0.02 maps exactly, and
+    those two become the smallest step.
+    """
+
+    value = float(value)
+    if value == 0.0 or not math.isfinite(value):
+        return 0.0
+    scaled = abs(value) / LEGACY_REWARD_SCALE_DIVISOR
+    step = min(
+        _POSITIVE_REWARD_WEIGHT_STEPS,
+        key=lambda candidate: abs(math.log(scaled / candidate)),
+    )
+    return math.copysign(step, value)
+
+
+def reward_scale_version(training: Mapping[str, object] | None) -> int:
+    """The reward scale saved training settings were written under.
+
+    Settings without the version predate it and use version 1.
+    """
+
+    if not isinstance(training, Mapping):
+        return LEGACY_REWARD_SCALE_VERSION
+    try:
+        return int(training.get(
+            REWARD_SCALE_VERSION_METADATA_KEY,
+            LEGACY_REWARD_SCALE_VERSION,
+        ))
+    except (TypeError, ValueError):
+        return LEGACY_REWARD_SCALE_VERSION
+
+
+def rescale_legacy_reward_weights(rewards: Mapping[str, object]) -> dict:
+    """Return version 1 reward weights on today's scale.
+
+    Values that aren't numbers are kept as they are, so callers can report
+    them as unreadable.
+    """
+
+    rescaled = {}
+    for key, value in rewards.items():
+        try:
+            rescaled[key] = legacy_reward_weight_to_step(float(value))
+        except (TypeError, ValueError):
+            rescaled[key] = value
+    return rescaled
+
+
+def with_current_reward_scale(training):
+    """Return training settings with their rewards on today's scale.
+
+    Version 1 rewards are rescaled, and the result carries today's version.
+    Anything that isn't a settings dict is returned unchanged.
+    """
+
+    if not isinstance(training, Mapping):
+        return training
+    if reward_scale_version(training) >= REWARD_SCALE_VERSION:
+        return training
+    updated = dict(training)
+    rewards = updated.get("rewards")
+    if isinstance(rewards, Mapping):
+        updated["rewards"] = rescale_legacy_reward_weights(rewards)
+    updated[REWARD_SCALE_VERSION_METADATA_KEY] = REWARD_SCALE_VERSION
+    return updated
 
 
 def _zero_component_vector() -> tuple[float, ...]:

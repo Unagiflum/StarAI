@@ -263,11 +263,11 @@ class TrainingUIStateTests(unittest.TestCase):
         expected_rewards = {label: 0.0 for label in REWARD_LABELS}
         expected_rewards.update(
             {
-                "Kill enemy": 40.96,
-                "Reduce enemy crew": 5.12,
-                "Get debuffed": -1.28,
-                "Lose crew": -2.56,
-                "Die": -20.48,
+                "Kill enemy": 1.024,
+                "Reduce enemy crew": 0.128,
+                "Get debuffed": -0.032,
+                "Lose crew": -0.064,
+                "Die": -0.512,
             }
         )
         self.assertEqual(state.rewards, expected_rewards)
@@ -1164,7 +1164,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         manager.set_apply_future_changes_to_all(True)
 
         reward_label = REWARD_LABELS[0]
-        first.state.rewards[reward_label] = 10.24
+        first.state.rewards[reward_label] = 0.256
         first.state.selected_slot = 3
         first.state.slot_labels[2] = "changed"
         manager.propagate_future_changes(
@@ -1174,7 +1174,7 @@ class TrainingInstanceManagerTests(unittest.TestCase):
         )
         manager.propagate_selected_slot(first)
 
-        self.assertEqual(second.state.rewards[reward_label], 10.24)
+        self.assertEqual(second.state.rewards[reward_label], 0.256)
         self.assertEqual(second.state.selected_slot, 3)
         self.assertEqual(second.state.slot_labels[2], "changed")
 
@@ -2205,6 +2205,113 @@ class TrainingUIRunWiringTests(unittest.TestCase):
                 repository.slot.metadata["progress"]["completed_batches"],
                 0,
             )
+            self.assertEqual(len(self.FakeSession.created), 1)
+            self.assertTrue(self.FakeSession.created[0].started)
+
+    def test_individual_start_warns_before_resuming_an_old_reward_scale_model(self):
+        with tempfile.TemporaryDirectory() as directory:
+            screen = pygame.Surface((const.SCREEN_WIDTH, const.SCREEN_HEIGHT))
+            pth_path = Path(directory) / "Earthling-01.pth"
+            pth_path.write_bytes(b"trained checkpoint")
+            metadata = metadata_from_state(
+                ship="Earthling",
+                slot=1,
+                description="Ready",
+                architecture=model_architecture_metadata(256, 2),
+                training={"rewards": {"Kill enemy": 40.96}},
+                progress={"completed_batches": 42},
+            )
+
+            class Repository:
+                def __init__(self):
+                    self.user_dir = Path(directory)
+                    self.slot = TrainingModelSlot(
+                        "Earthling",
+                        1,
+                        SLOT_USER,
+                        description="Ready",
+                        pth_path=pth_path,
+                        metadata=metadata,
+                    )
+
+                def slot_for(self, ship, slot):
+                    if ship == "Earthling" and int(slot) == 1:
+                        return self.slot
+                    return TrainingModelSlot(str(ship), int(slot), SLOT_EMPTY)
+
+                def slots_for_ship(self, ship):
+                    return [self.slot_for(ship, slot) for slot in range(1, 5)]
+
+                def create_or_update_user_model(self, updated_metadata):
+                    self.slot = TrainingModelSlot(
+                        "Earthling",
+                        1,
+                        SLOT_USER,
+                        description=updated_metadata.get("description", ""),
+                        pth_path=pth_path,
+                        metadata=dict(updated_metadata),
+                    )
+                    return self.slot
+
+            repository = Repository()
+            manager = TrainingInstanceManager()
+            manager.active_state.selected_ship = "Earthling"
+            manager.active_state.selected_slot = 1
+            self.FakeSession.created = []
+            start_event = pygame.event.Event(
+                pygame.MOUSEBUTTONDOWN,
+                {
+                    "button": 1,
+                    "pos": self.trainee_start_position(),
+                },
+            )
+            sprite = pygame.Surface((32, 32), pygame.SRCALPHA)
+
+            with (
+                mock.patch(
+                    "src.Menus.train_ai.TrainingInstanceManager",
+                    return_value=manager,
+                ),
+                mock.patch(
+                    "src.Menus.train_ai.load_training_ui_session",
+                    return_value=manager,
+                ),
+                mock.patch(
+                    "src.Menus.train_ai.TrainingModelRepository",
+                    return_value=repository,
+                ),
+                mock.patch("src.Menus.train_ai.TrainingSession", self.FakeSession),
+                mock.patch(
+                    "src.Menus.train_ai.independent_session_class",
+                    return_value=self.FakeSession,
+                ),
+                mock.patch("src.Menus.train_ai.ConfirmationPrompt") as prompt_class,
+                mock.patch("src.Menus.train_ai.ui.load_background", return_value=None),
+                mock.patch("src.Menus.train_ai.load_menu_ship_sprites", return_value={}),
+                mock.patch(
+                    "src.Menus.train_ai.fit_ship_sprites",
+                    return_value={"Earthling": sprite},
+                ),
+                mock.patch("pygame.mouse.get_pos", return_value=(0, 0)),
+                mock.patch("pygame.event.get", return_value=[start_event]),
+                mock.patch("pygame.display.flip", side_effect=self.StopRun),
+            ):
+                with self.assertRaises(self.StopRun):
+                    train_ai.run(screen)
+
+                prompt_text, on_confirm = prompt_class.call_args.args
+                self.assertIn("40 times today's scale", prompt_text)
+                self.assertEqual(self.FakeSession.created, [])
+                on_confirm()
+
+            saved_training = repository.slot.metadata["training"]
+            self.assertEqual(saved_training["reward_scale_version"], 2)
+            self.assertEqual(saved_training["rewards"]["Kill enemy"], 1.024)
+            self.assertEqual(
+                repository.slot.metadata["progress"]["completed_batches"],
+                42,
+            )
+            self.assertEqual(pth_path.read_bytes(), b"trained checkpoint")
             self.assertEqual(len(self.FakeSession.created), 1)
             self.assertTrue(self.FakeSession.created[0].started)
 
@@ -4311,28 +4418,34 @@ class TrainingHudBadgeTests(unittest.TestCase):
 
 
 class RewardSliderTests(unittest.TestCase):
-    def test_reward_scale_has_all_27_doubling_values(self):
-        self.assertEqual(len(REWARD_VALUES), 27)
-        self.assertEqual(REWARD_VALUES[0], -40.96)
-        self.assertEqual(REWARD_VALUES[12:15], (-0.01, 0.0, 0.01))
-        self.assertEqual(REWARD_VALUES[-1], 40.96)
+    def test_reward_scale_has_23_doubling_values_from_a_thousandth(self):
+        positive = (
+            0.001, 0.002, 0.004, 0.008, 0.016, 0.032,
+            0.064, 0.128, 0.256, 0.512, 1.024,
+        )
+        self.assertEqual(
+            REWARD_VALUES,
+            tuple(-value for value in reversed(positive)) + (0.0,) + positive,
+        )
+        self.assertEqual(len(REWARD_VALUES), 23)
+        self.assertEqual(list(REWARD_VALUES), sorted(REWARD_VALUES))
 
     def test_slider_snaps_to_discrete_reward_values(self):
         slider = RewardSlider((0, 0, 550, 40), "Reward")
 
         slider.set_from_x(slider.line_rect.left)
-        self.assertEqual(slider.value, -40.96)
+        self.assertEqual(slider.value, -1.024)
         slider.set_from_x(slider.line_rect.centerx)
         self.assertEqual(slider.value, 0.0)
         slider.set_from_x(slider.line_rect.right)
-        self.assertEqual(slider.value, 40.96)
+        self.assertEqual(slider.value, 1.024)
 
     def test_saved_reward_value_loads_without_position_api(self):
         slider = RewardSlider((0, 0, 550, 40), "Reward")
 
-        self.assertTrue(_set_slider_value(slider, 2.56))
-
-        self.assertEqual(slider.value, 2.56)
+        self.assertTrue(_set_slider_value(slider, 0.064))
+        self.assertEqual(slider.value, 0.064)
+        self.assertFalse(_set_slider_value(slider, 2.56))
 
     def test_disabled_reward_slider_uses_gray_background(self):
         slider = RewardSlider((0, 0, 550, 40), "Reward")
@@ -4344,26 +4457,28 @@ class RewardSliderTests(unittest.TestCase):
 
         self.assertEqual(surface.get_at((2, 2))[:3], ui.DARK_GREY)
 
-    def test_reward_values_use_hundredths_without_positive_sign(self):
-        slider = RewardSlider((0, 0, 550, 40), REWARD_SPAWN_A1, 40.96)
+    def test_reward_values_use_thousandths_without_positive_sign(self):
+        slider = RewardSlider((0, 0, 550, 40), REWARD_SPAWN_A1, 1.024)
 
-        self.assertEqual(slider.format_value(), "40.96")
+        self.assertEqual(slider.format_value(), "1.024")
         slider.value = 0.0
-        self.assertEqual(slider.format_value(), "0.00")
-        slider.value = -5.12
-        self.assertEqual(slider.format_value(), "-5.12")
+        self.assertEqual(slider.format_value(), "0.000")
+        slider.value = 0.001
+        self.assertEqual(slider.format_value(), "0.001")
+        slider.value = -0.128
+        self.assertEqual(slider.format_value(), "-0.128")
 
     def test_ongoing_reward_uses_per_second_suffix_and_aligned_numeric_edge(self):
         font = pygame.font.Font(None, 20)
-        discrete = RewardSlider((0, 0, 550, 40), REWARD_SPAWN_A1, 40.96)
-        ongoing = RewardSlider((0, 40, 550, 40), REWARD_POINT_A1, 40.96)
+        discrete = RewardSlider((0, 0, 550, 40), REWARD_SPAWN_A1, -1.024)
+        ongoing = RewardSlider((0, 40, 550, 40), REWARD_POINT_A1, -1.024)
 
         _, discrete_rect = discrete._rendered_value(font)
         _, ongoing_rect = ongoing._rendered_value(font)
         suffix_width = font.size("/s")[0]
 
-        self.assertEqual(discrete.format_value(), "40.96")
-        self.assertEqual(ongoing.format_value(), "40.96/s")
+        self.assertEqual(discrete.format_value(), "-1.024")
+        self.assertEqual(ongoing.format_value(), "-1.024/s")
         self.assertEqual(discrete_rect.right, ongoing_rect.right - suffix_width)
         self.assertEqual(discrete.layout, SliderRow.LABEL_VALUE_SLIDER)
 
@@ -4371,19 +4486,106 @@ class RewardSliderTests(unittest.TestCase):
         slider = RewardSlider(
             (0, 0, 550, 40),
             REWARD_SPAWN_A2,
-            10.24,
+            0.256,
             ship_name="Ilwrath",
         )
 
         self.assertEqual(slider.reward_key, REWARD_SPAWN_A2)
         self.assertEqual(slider.label, "Maintain A2")
-        self.assertEqual(slider.format_value(), "10.24/s")
+        self.assertEqual(slider.format_value(), "0.256/s")
 
         slider.set_ship("Earthling")
 
         self.assertEqual(slider.reward_key, REWARD_SPAWN_A2)
         self.assertEqual(slider.label, REWARD_SPAWN_A2)
-        self.assertEqual(slider.format_value(), "10.24")
+        self.assertEqual(slider.format_value(), "0.256")
+
+
+class RewardScaleMigrationTests(unittest.TestCase):
+    OLD_REWARDS = {
+        "Kill enemy": 40.96,
+        "Reduce enemy crew": 5.12,
+        "Get debuffed": -1.28,
+        "Lose crew": -2.56,
+        "Die": -20.48,
+        "Use A1": 0.01,
+        "Gain crew": 0.0,
+    }
+    NEW_REWARDS = {
+        "Kill enemy": 1.024,
+        "Reduce enemy crew": 0.128,
+        "Get debuffed": -0.032,
+        "Lose crew": -0.064,
+        "Die": -0.512,
+        "Use A1": 0.001,
+        "Gain crew": 0.0,
+    }
+
+    def assert_new_rewards(self, rewards):
+        for label, value in self.NEW_REWARDS.items():
+            self.assertEqual(rewards[label], value, label)
+
+    def test_saved_ui_state_without_a_scale_version_is_rescaled(self):
+        restored = train_ai._training_ui_state_from_json(
+            {"rewards": dict(self.OLD_REWARDS)}
+        )
+        self.assert_new_rewards(restored.rewards)
+
+        saved = train_ai._training_ui_state_to_json(restored)
+        self.assertEqual(saved["reward_scale_version"], 2)
+        again = train_ai._training_ui_state_from_json(saved)
+        self.assert_new_rewards(again.rewards)
+
+    def test_model_conditions_without_a_scale_version_are_rescaled(self):
+        state = TrainingUIState()
+        skipped = train_ai.apply_model_conditions_to_state(
+            state, {"training": {"rewards": dict(self.OLD_REWARDS)}}
+        )
+        self.assert_new_rewards(state.rewards)
+        self.assertFalse(set(self.OLD_REWARDS) & set(skipped))
+
+        current = TrainingUIState()
+        skipped = train_ai.apply_model_conditions_to_state(
+            current,
+            {
+                "training": {
+                    "reward_scale_version": 2,
+                    "rewards": {"Kill enemy": 0.256},
+                }
+            },
+        )
+        self.assertEqual(current.rewards["Kill enemy"], 0.256)
+
+    def test_old_scale_settings_match_the_rewards_they_load_as(self):
+        legacy = {"rewards": dict(self.OLD_REWARDS)}
+        current = {"rewards": dict(self.NEW_REWARDS), "reward_scale_version": 2}
+        unscaled = {"rewards": dict(self.OLD_REWARDS), "reward_scale_version": 2}
+
+        self.assertTrue(_training_settings_match(legacy, current))
+        self.assertFalse(_training_settings_match(unscaled, current))
+
+    def test_resume_warning_covers_trained_old_scale_models_only(self):
+        def metadata(batches, **training):
+            return {
+                "training": {"rewards": {}, **training},
+                "progress": {"completed_batches": batches},
+            }
+
+        self.assertTrue(train_ai.legacy_reward_scale_resume(metadata(42)))
+        self.assertFalse(train_ai.legacy_reward_scale_resume(metadata(0)))
+        self.assertFalse(
+            train_ai.legacy_reward_scale_resume(
+                metadata(42, reward_scale_version=2)
+            )
+        )
+        self.assertFalse(train_ai.legacy_reward_scale_resume({}))
+        self.assertEqual(train_ai.legacy_reward_scale_note(0), "")
+        self.assertEqual(
+            train_ai.legacy_reward_scale_note(1),
+            " 1 model was trained with rewards 40 times today's scale and "
+            "will take time to relearn value estimates.",
+        )
+        self.assertIn("3 models were", train_ai.legacy_reward_scale_note(3))
 
 
 class SliderRowTests(unittest.TestCase):
@@ -4745,7 +4947,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
 
     def test_training_config_from_state_carries_ui_values(self):
         state = TrainingUIState(selected_ship="Earthling")
-        state.rewards["Kill enemy"] = 2.56
+        state.rewards["Kill enemy"] = 0.064
         state.ai_opponent_chance = 50.0
         state.opponent_mode = "all"
         state.starting_baseline_use = 0.6
@@ -4769,7 +4971,7 @@ class TrainingConfigAdapterTests(unittest.TestCase):
         config = training_config_from_state(state)
 
         self.assertEqual(config.trainee_ship, "Earthling")
-        self.assertEqual(config.reward_weights["Kill enemy"], 2.56)
+        self.assertEqual(config.reward_weights["Kill enemy"], 0.064)
         self.assertEqual(config.opponent_mode, "all")
         self.assertEqual(config.ai_opponent_chance, 50.0)
         self.assertEqual(config.starting_baseline_use, 0.6)

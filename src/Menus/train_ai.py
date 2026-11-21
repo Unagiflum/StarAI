@@ -78,6 +78,11 @@ from src.training.rewards import (
     gamma_for_half_life,
     half_life_cutoff_frames,
     half_life_for_gamma,
+    REWARD_SCALE_VERSION,
+    REWARD_SCALE_VERSION_METADATA_KEY,
+    REWARD_WEIGHT_STEPS,
+    reward_scale_version,
+    with_current_reward_scale,
 )
 from src.training.replay import PACKED_REPLAY_SAMPLE_BYTES
 from src.training.session import (
@@ -90,11 +95,7 @@ from src.training.session import (
 )
 
 
-REWARD_VALUES = tuple(
-    [-40.96, -20.48, -10.24, -5.12, -2.56, -1.28, -0.64, -0.32, -0.16, -0.08, -0.04, -0.02, -0.01]
-    + [0.0]
-    + [0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96]
-)
+REWARD_VALUES = REWARD_WEIGHT_STEPS
 
 REWARD_LABELS = REWARD_COMPONENTS
 TRAINING_DEVICE_TOOLTIP = (
@@ -483,11 +484,11 @@ class TrainingUIState:
     rewards: dict[str, float] = field(
         default_factory=lambda: {
             label: {
-                "Kill enemy": 40.96,
-                "Reduce enemy crew": 5.12,
-                "Get debuffed": -1.28,
-                "Lose crew": -2.56,
-                "Die": -20.48,
+                "Kill enemy": 1.024,
+                "Reduce enemy crew": 0.128,
+                "Get debuffed": -0.032,
+                "Lose crew": -0.064,
+                "Die": -0.512,
             }.get(label, 0.0)
             for label in REWARD_LABELS
         }
@@ -1672,6 +1673,7 @@ def _training_ui_state_to_json(state):
             payload[field_name] = False
         else:
             payload[field_name] = value
+    payload[REWARD_SCALE_VERSION_METADATA_KEY] = REWARD_SCALE_VERSION
     return payload
 
 
@@ -1679,7 +1681,9 @@ def _training_ui_state_from_json(payload):
     state = TrainingUIState()
     if not isinstance(payload, dict):
         return state
-    payload = _with_discount_half_life_key(_with_action_frame_span_key(payload))
+    payload = with_current_reward_scale(
+        _with_discount_half_life_key(_with_action_frame_span_key(payload))
+    )
     for field_name, value in payload.items():
         if field_name not in _TRAINING_UI_STATE_FIELDS:
             continue
@@ -1957,6 +1961,44 @@ def clear_deleted_model_references(manager, targets) -> None:
         )
         if session_key in deleted_keys:
             manager.clear_session_continuity(instance)
+
+
+LEGACY_REWARD_SCALE_RESUME_WARNING = (
+    "{model} was trained with rewards 40 times today's scale, so its value "
+    "estimates will take time to relearn. Continue?"
+)
+
+
+def legacy_reward_scale_resume(metadata) -> bool:
+    """Whether starting resumes a trained model saved under the old reward
+    scale, whose value estimates are 40 times too large."""
+
+    if not isinstance(metadata, Mapping):
+        return False
+    if reward_scale_version(metadata.get("training")) >= REWARD_SCALE_VERSION:
+        return False
+    progress = metadata.get("progress", {})
+    if not isinstance(progress, Mapping):
+        return False
+    try:
+        return int(progress.get("completed_batches", 0)) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def legacy_reward_scale_note(count: int) -> str:
+    """Sentence added to a start prompt for ``count`` old-scale models."""
+
+    if count <= 0:
+        return ""
+    if count == 1:
+        subject = "1 model was"
+    else:
+        subject = f"{count} models were"
+    return (
+        f" {subject} trained with rewards 40 times today's scale and will "
+        "take time to relearn value estimates."
+    )
 
 
 def coordinated_reset_confirmation_text(manager, affected_instances) -> str:
@@ -2533,7 +2575,7 @@ def largest_fitting_font(texts, max_width, max_height=36, maximum=36, minimum=16
 
 
 def _format_reward(value):
-    return f"{value:.2f}"
+    return f"{value:.3f}"
 
 
 def _format_percent(value):
@@ -2650,6 +2692,8 @@ def _with_action_frame_span_key(values):
 def _normalized_training_settings(training):
     if not isinstance(training, dict):
         return training
+    training = dict(with_current_reward_scale(training))
+    training.pop(REWARD_SCALE_VERSION_METADATA_KEY, None)
     normalized = {}
     for group, settings in training.items():
         if isinstance(settings, dict):
@@ -2704,7 +2748,7 @@ def apply_model_conditions_to_state(state, metadata):
     if not isinstance(metadata, dict):
         return ("saved conditions",)
 
-    training = metadata.get("training", {})
+    training = with_current_reward_scale(metadata.get("training", {}))
     architecture = metadata.get("architecture", {})
 
     def assign_allowed(field_name, raw_value, caster, allowed, label):
@@ -5128,6 +5172,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 "ai_opponent_chance": training_state.ai_opponent_chance,
             },
             "rewards": dict(training_state.rewards),
+            REWARD_SCALE_VERSION_METADATA_KEY: REWARD_SCALE_VERSION,
             "regimen": {
                 REFLECTION_AUGMENTATION_METADATA_KEY: (
                     REFLECTION_AUGMENTATION_MODE
@@ -5423,13 +5468,16 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         return updated_slot
 
     def changed_training_groups(old_training, new_training):
+        old = _normalized_training_settings(
+            old_training if isinstance(old_training, dict) else {}
+        )
+        new = _normalized_training_settings(
+            new_training if isinstance(new_training, dict) else {}
+        )
         return [
             name
             for name in ("opponent", "rewards", "regimen")
-            if not _training_settings_match(
-                {name: old_training.get(name)},
-                {name: new_training.get(name)},
-            )
+            if old.get(name) != new.get(name)
         ]
 
     def describe_model(model_slot):
@@ -5552,7 +5600,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
 
         skipped = []
         architecture = metadata.get("architecture", {})
-        training = metadata.get("training", {})
+        training = with_current_reward_scale(metadata.get("training", {}))
 
         if isinstance(training, dict):
             opponent = training.get("opponent", {})
@@ -6178,6 +6226,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         changed_count = sum(
             1 for _instance, _slot, _reset, changed in specs if changed
         )
+        legacy_scale_note = legacy_reward_scale_note(
+            sum(
+                1
+                for _instance, model_slot, reset, _changed in specs
+                if not reset and legacy_reward_scale_resume(model_slot.metadata)
+            )
+        )
 
         def launch():
             launch_independent_start_specs(specs, skipped_count)
@@ -6188,7 +6243,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     f"Start all {len(specs)} eligible instances? This will reset "
                     f"{reset_count} incompatible saved model"
                     f"{'s' if reset_count != 1 else ''}, including checkpoint, replay "
-                    "data, and progress."
+                    f"data, and progress.{legacy_scale_note}"
                 ),
                 lambda: defer_start_action(launch, count=len(specs)),
             )
@@ -6197,8 +6252,13 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                 (
                     f"Start all {len(specs)} eligible instances and update saved "
                     f"settings for {changed_count} model"
-                    f"{'s' if changed_count != 1 else ''}?"
+                    f"{'s' if changed_count != 1 else ''}?{legacy_scale_note}"
                 ),
+                lambda: defer_start_action(launch, count=len(specs)),
+            )
+        elif legacy_scale_note:
+            confirmation_prompt[0] = ConfirmationPrompt(
+                f"Start all {len(specs)} eligible instances?{legacy_scale_note}",
                 lambda: defer_start_action(launch, count=len(specs)),
             )
         else:
@@ -6272,6 +6332,17 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
                     "Continue?"
                 ),
                 lambda: defer_start_action(reset_and_begin_training),
+            )
+            return
+
+        if legacy_reward_scale_resume(metadata):
+            confirmation_prompt[0] = ConfirmationPrompt(
+                LEGACY_REWARD_SCALE_RESUME_WARNING.format(
+                    model=describe_model(model_slot)
+                ),
+                lambda: defer_start_action(
+                    lambda: (persist_selected_model(), begin_training())
+                ),
             )
             return
 
@@ -6487,12 +6558,35 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         if not validation.can_start_all:
             show_notice(validation.blocking_reason)
             return
-        if validation.reset_required_instances:
-            confirmation_prompt[0] = ConfirmationPrompt(
+        reset_ids = {
+            instance.instance_id
+            for instance in validation.reset_required_instances
+        }
+        legacy_scale_note = legacy_reward_scale_note(
+            sum(
+                1
+                for instance in validation.included_instances
+                if instance.instance_id not in reset_ids
+                and legacy_reward_scale_resume(
+                    model_repository.slot_for(
+                        instance.state.selected_ship,
+                        instance.state.selected_slot,
+                    ).metadata
+                )
+            )
+        )
+        if validation.reset_required_instances or legacy_scale_note:
+            prompt_text = (
                 coordinated_reset_confirmation_text(
                     instance_manager,
                     validation.reset_required_instances,
-                ),
+                )
+                + legacy_scale_note
+                if validation.reset_required_instances
+                else f"Start the synced run?{legacy_scale_note}"
+            )
+            confirmation_prompt[0] = ConfirmationPrompt(
+                prompt_text,
                 lambda: defer_start_action(
                     lambda: start_coordinated_run(validation),
                     count=len(validation.included_instances),

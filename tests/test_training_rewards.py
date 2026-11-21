@@ -897,6 +897,56 @@ class WeightAwareRewardTests(unittest.TestCase):
         self.assertEqual(sample.return_value, 0.0)
 
 
+class RewardWeightStepTests(unittest.TestCase):
+    def test_steps_double_from_a_thousandth_to_1_024(self):
+        from src.training.rewards import REWARD_WEIGHT_STEPS
+
+        self.assertEqual(len(REWARD_WEIGHT_STEPS), 23)
+        self.assertEqual(REWARD_WEIGHT_STEPS[0], -1.024)
+        self.assertEqual(REWARD_WEIGHT_STEPS[10:13], (-0.001, 0.0, 0.001))
+        self.assertEqual(REWARD_WEIGHT_STEPS[-1], 1.024)
+
+    def test_legacy_weights_divide_by_40_onto_the_nearest_step(self):
+        from src.training.rewards import (
+            REWARD_WEIGHT_STEPS,
+            legacy_reward_weight_to_step,
+        )
+
+        cases = {
+            40.96: 1.024,
+            5.12: 0.128,
+            -1.28: -0.032,
+            -2.56: -0.064,
+            -20.48: -0.512,
+            0.04: 0.001,
+            0.02: 0.001,
+            0.01: 0.001,
+            -0.01: -0.001,
+            0.0: 0.0,
+        }
+        for old, new in cases.items():
+            self.assertEqual(legacy_reward_weight_to_step(old), new, old)
+        old_steps = [0.01 * 2**k for k in range(13)]
+        for old in old_steps:
+            self.assertIn(legacy_reward_weight_to_step(old), REWARD_WEIGHT_STEPS)
+            self.assertIn(legacy_reward_weight_to_step(-old), REWARD_WEIGHT_STEPS)
+
+    def test_only_settings_without_the_current_version_are_rescaled(self):
+        from src.training.rewards import with_current_reward_scale
+
+        legacy = {"rewards": {"Kill enemy": 40.96, "Die": "bad"}}
+        current = {"rewards": {"Kill enemy": 0.512}, "reward_scale_version": 2}
+
+        self.assertEqual(
+            with_current_reward_scale(legacy),
+            {
+                "rewards": {"Kill enemy": 1.024, "Die": "bad"},
+                "reward_scale_version": 2,
+            },
+        )
+        self.assertIs(with_current_reward_scale(current), current)
+
+
 class DiscountHalfLifeTests(unittest.TestCase):
     def test_half_life_and_gamma_convert_back_and_forth(self):
         for seconds in (1.0, 2.9, 5.0, 10.0, 15.0, 30.0):
