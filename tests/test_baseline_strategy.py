@@ -48,8 +48,12 @@ from src.training.baseline.engine import (
     TURN_LEFT,
     TURN_NONE,
     TURN_RIGHT,
+    PLANET_HORIZON_MARGIN_FRAMES,
     planet_contact_distance,
+    planet_horizon_frames,
     simulate_planet_pass,
+    top_speed_frames,
+    turn_about_frames,
 )
 from src.training.baseline.flight import ShipFlight
 from src.training.baseline.threats import (
@@ -491,6 +495,37 @@ class PlanetRuleTests(unittest.TestCase):
 
         self.assertTrue(kept.avoid_planet())
         self.assertEqual(kept.plan.turn, TURN_LEFT)
+
+    def test_horizon_of_an_agile_ship_is_its_turn_and_thrust_time(self):
+        # The Supox turns one step every 2 frames and pushes every frame:
+        # 8 steps take 15 frames, 5 pushes to top speed take 5.
+        spec = ship_spec("Supox")
+        self.assertEqual(turn_about_frames(spec), 15)
+        self.assertEqual(top_speed_frames(spec), 5)
+        self.assertEqual(planet_horizon_frames(spec), 15 + 5 + PLANET_HORIZON_MARGIN_FRAMES)
+
+    def test_horizon_of_a_slow_ship_is_capped(self):
+        # The Chenjesu needs 50 frames to turn about and 41 to reach top speed.
+        spec = ship_spec("Chenjesu")
+        self.assertEqual(turn_about_frames(spec), 50)
+        self.assertEqual(top_speed_frames(spec), 41)
+        self.assertEqual(planet_horizon_frames(spec), 4 * const.FPS)
+
+    def test_ships_at_top_speed_at_once_need_no_acceleration_time(self):
+        for name in ("Arilou", "Slylandro"):
+            with self.subTest(ship=name):
+                spec = ship_spec(name)
+                self.assertEqual(top_speed_frames(spec), 0)
+                self.assertEqual(turn_about_frames(spec), 8)
+                # 8 + 0 + margin is under the floor of one second.
+                self.assertEqual(planet_horizon_frames(spec), const.FPS)
+
+    def test_agile_ship_leaves_a_distant_hit_to_the_strategy(self):
+        # Falling in from 900 hits the surface in about 29 frames: past the
+        # Pkunk's horizon, within the Chenjesu's.
+        planet = _planet(0.0, 900.0, own_forward=10.0)
+        self.assertFalse(_rule_context("Pkunk", planet=planet).avoid_planet())
+        self.assertTrue(_rule_context("Chenjesu", planet=planet).avoid_planet())
 
 
 def _shot(bearing, distance, *, closing, damage=1.0, hit_points=1.0, group="enemy_a1",

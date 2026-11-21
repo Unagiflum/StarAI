@@ -16,7 +16,7 @@ import math
 from typing import Callable
 
 import src.const as const
-from src.training.baseline.flight import ShipFlight
+from src.training.baseline.flight import ShipFlight, turn_step_degrees
 from src.training.baseline.threats import (
     THREAT_SIZE,
     FlownPath,
@@ -65,10 +65,15 @@ PLANET_SIDESTEP_OFFSET = 45.0
 APPROACH_RANGE_INNER_FRACTION = 0.7
 PLANET_AVOID_LOOKAHEAD = 1.5
 # Rule 0, the planet: it steps in only when the ship's coasting path,
-# followed this far ahead, brings the hull within the clearance of the
-# surface (the hull's own reach plus the margin), and lets go once that path
-# clears it by the release margin too.
-PLANET_AVOID_HORIZON_SECONDS = 4.0
+# followed ahead for the ship's horizon, brings the hull within the clearance
+# of the surface (the hull's own reach plus the margin), and lets go once
+# that path clears it by the release margin too. The horizon is the frames
+# the ship takes to turn about and reach top speed, plus the margin frames,
+# kept within the bounds in seconds: a ship that turns and accelerates
+# quickly needs to see less of its path to get clear.
+PLANET_HORIZON_MARGIN_FRAMES = 12
+PLANET_HORIZON_MIN_SECONDS = 1.0
+PLANET_HORIZON_MAX_SECONDS = 4.0
 PLANET_CLEARANCE_MARGIN = 20.0
 PLANET_RELEASE_MARGIN = 40.0
 # Escape headings tried, in degrees off the planet's bearing: straight across
@@ -794,7 +799,7 @@ class BaselineContext:
         planet = self.planet
         if planet is None:
             return False
-        frames = int(round(PLANET_AVOID_HORIZON_SECONDS * const.FPS))
+        frames = planet_horizon_frames(self.spec)
         if planet.distance - planet.relative_speed * frames > const.GRAVITY_RANGE:
             return False
         spec = self.spec
@@ -1430,6 +1435,35 @@ def planet_contact_distance(spec: ShipSpec) -> float:
     """Centre distance from the planet that rule 0 keeps this hull beyond."""
 
     return PLANET_RADIUS + spec.planet_reach + PLANET_CLEARANCE_MARGIN
+
+
+def turn_about_frames(spec: ShipSpec) -> int:
+    """Frames the ship takes to turn its nose 180 degrees, as
+    ``flight.ShipFlight`` turns it: the first step at once, then one every
+    ``turn_wait + 1`` frames."""
+
+    steps = math.ceil(180.0 / turn_step_degrees() - 1e-9)
+    return (steps - 1) * (spec.turn_wait + 1) + 1
+
+
+def top_speed_frames(spec: ShipSpec) -> int:
+    """Frames of thrust from rest to top speed, as ``flight.ShipFlight``
+    pushes it: 0 for ships without inertia or of constant speed, which fly
+    at top speed whenever they move."""
+
+    if not spec.inertial or spec.constant_speed or spec.thrust_increment <= 0.0:
+        return 0
+    pushes = math.ceil(spec.max_thrust / spec.thrust_increment - 1e-9)
+    return (pushes - 1) * (spec.thrust_wait + 1) + 1
+
+
+def planet_horizon_frames(spec: ShipSpec) -> int:
+    """Frames ahead rule 0 follows the ship's path past the planet."""
+
+    frames = turn_about_frames(spec) + top_speed_frames(spec) + PLANET_HORIZON_MARGIN_FRAMES
+    low = int(round(PLANET_HORIZON_MIN_SECONDS * const.FPS))
+    high = int(round(PLANET_HORIZON_MAX_SECONDS * const.FPS))
+    return max(low, min(high, frames))
 
 
 def _heading_controller(bearing: float):
