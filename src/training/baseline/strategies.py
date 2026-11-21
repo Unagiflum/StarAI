@@ -87,6 +87,12 @@ EARTHLING_BAND_NEAR = 1200.0
 EARTHLING_BAND_FAR = 2000.0
 EARTHLING_NUKE_MIN_DISTANCE = 400.0
 EARTHLING_NUKE_TOLERANCE = 30.0
+# Nukes launch at 40 without the ship's own speed and can hit their own ship:
+# hold them while flying forward this fast, or the hull overruns them.
+EARTHLING_NUKE_OVERRUN_SPEED = 30.0
+# Against a Chmmr, fly across its bearing: its tractor would otherwise drag
+# the Earthling through the satellites and laser at twice its top speed.
+EARTHLING_CHMMR_ORBIT_OFFSET = 90.0
 EARTHLING_WHIP_AWAY_ANGLE = 120.0
 EARTHLING_PD_CLOSE_FRACTION = 0.5
 DRUUGE_ESCAPE_RANGE = 500.0
@@ -536,7 +542,8 @@ def earthling(ctx: BaselineContext) -> None:
 
     Above top speed it coasts, thrusting only to bend its path; it turns
     quickly enough to face the opponent for a nuke and turn back without
-    losing speed.
+    losing speed. Against a Chmmr it flies across the bearing instead, out
+    of the tractor's drag, nuking whenever it can.
     """
 
     ctx.coast_above_top_speed = True
@@ -550,12 +557,16 @@ def earthling(ctx: BaselineContext) -> None:
         ctx.me.battery >= ctx.spec.a1_cost
         and ctx.me.a1_ready
         and EARTHLING_NUKE_MIN_DISTANCE <= distance <= nuke_range
+        and ctx.me.velocity_forward < EARTHLING_NUKE_OVERRUN_SPEED
     )
     if can_nuke:
         ctx.point_weapon(1)
         ctx.plan.claim_thrust(False)
         if ctx.pointing(1, tolerance=EARTHLING_NUKE_TOLERANCE):
             ctx.a1(True)
+        return
+    if ctx.enemy_name == "Chmmr":
+        ctx.steer(ctx.side("earthling_chmmr_orbit", enemy.bearing, EARTHLING_CHMMR_ORBIT_OFFSET))
         return
     if _earthling_whip(ctx):
         return

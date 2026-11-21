@@ -71,7 +71,9 @@ from src.training.baseline.ship_specs import (
     weapon_spec,
 )
 from src.training.baseline.strategies import (
+    EARTHLING_CHMMR_ORBIT_OFFSET,
     EARTHLING_NUKE_MIN_DISTANCE,
+    EARTHLING_NUKE_OVERRUN_SPEED,
     may_evade,
     UMGAH_CONE_HALF_ANGLE,
     UMGAH_PASS_CLEARANCE,
@@ -2059,6 +2061,47 @@ class UtwigChmmrTests(unittest.TestCase):
 
         self.assertNotIn("utwig_chmmr_running", context.memory.values)
         self.assertFalse(context.plan.a2)
+
+
+class EarthlingNukeAndChmmrTests(unittest.TestCase):
+    def _context(self, enemy, *, enemy_name="Spathi", battery=18.0, forward_speed=0.0):
+        context = _rule_context(
+            "Earthling",
+            enemy=enemy,
+            enemy_name=enemy_name,
+            battery=battery,
+            max_battery=18.0,
+        )
+        context.view.me.a1_ready = True
+        context.view.me.velocity_forward = forward_speed
+        context.view.me.speed = abs(forward_speed)
+        return context
+
+    def test_holds_nukes_while_flying_fast_enough_to_overrun_them(self):
+        fast = self._context(_seen(0.0, 1500.0), forward_speed=EARTHLING_NUKE_OVERRUN_SPEED + 5.0)
+        STRATEGIES["Earthling"](fast)
+        self.assertFalse(fast.plan.a1)
+
+        slow = self._context(_seen(0.0, 1500.0), forward_speed=EARTHLING_NUKE_OVERRUN_SPEED - 5.0)
+        STRATEGIES["Earthling"](slow)
+        self.assertTrue(slow.plan.a1)
+
+    def test_flies_across_a_chmmrs_bearing_between_nukes(self):
+        # No battery for a nuke: it steers 90 degrees off the Chmmr.
+        context = self._context(_seen(20.0, 1500.0), enemy_name="Chmmr", battery=0.0)
+
+        with mock.patch.object(BaselineContext, "steer", wraps=context.steer) as steer:
+            STRATEGIES["Earthling"](context)
+
+        heading = steer.call_args_list[0].args[0]
+        self.assertAlmostEqual(abs(wrap_degrees(heading - 20.0)), EARTHLING_CHMMR_ORBIT_OFFSET)
+
+    def test_still_nukes_a_chmmr_when_it_can(self):
+        context = self._context(_seen(0.0, 1500.0), enemy_name="Chmmr")
+
+        STRATEGIES["Earthling"](context)
+
+        self.assertTrue(context.plan.a1)
 
 
 class AndrosynthBlazerSteeringTests(unittest.TestCase):
