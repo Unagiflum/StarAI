@@ -55,9 +55,20 @@ from src.training.baseline.engine import (
     top_speed_frames,
     turn_about_frames,
 )
+from src.training.baseline import behaviours as behaviour_table
+from src.training.baseline import strategies as strategy_module
 from src.training.baseline.behaviours import (
+    BAND_INSIDE_FACE,
+    BAND_INSIDE_ORBIT,
     DEFAULT_BEHAVIOUR,
+    FIRE_AIMED,
+    FIRE_DEFEND,
+    FIRE_LAUNCH,
+    FIRE_SPECIAL,
     SHIP_BEHAVIOURS,
+    Band,
+    ShipBehaviour,
+    WeaponUse,
     ship_behaviour,
 )
 from src.training.baseline.engine import (
@@ -907,6 +918,224 @@ class SharedBehaviourTests(unittest.TestCase):
         with mock.patch.object(table, "steer", return_value=True) as steer:
             self.assertTrue(table.hold_band())
         self.assertAlmostEqual(abs(steer.call_args.args[0]), 180.0)
+
+
+class BehaviourSchemaTests(unittest.TestCase):
+    """Per-opponent overrides, bands, recharging, weapon use and the shared
+    strategy run from the table."""
+
+    def _with(self, ship, entry, *, enemy=None, enemy_name="Mycon", **kwargs):
+        patch = mock.patch.dict(behaviour_table.SHIP_BEHAVIOURS, {ship: entry})
+        patch.start()
+        self.addCleanup(patch.stop)
+        return _rule_context(ship, enemy=enemy, enemy_name=enemy_name, **kwargs)
+
+    def test_overrides_apply_against_their_opponent_only(self):
+        entry = ShipBehaviour(
+            recharge_battery=5.0,
+            opponents={"Vux": {"recharge_battery": 2.0, "run_from_threats": True}},
+        )
+        with mock.patch.dict(behaviour_table.SHIP_BEHAVIOURS, {"Spathi": entry}):
+            against = ship_behaviour("Spathi", "Vux")
+            self.assertEqual((against.recharge_battery, against.run_from_threats), (2.0, True))
+            self.assertIs(ship_behaviour("Spathi", "Mycon"), entry)
+            self.assertIs(ship_behaviour("Spathi"), entry)
+            # A replaced entry is not served from the cache.
+            changed = dataclasses.replace(entry, recharge_battery=7.0)
+            behaviour_table.SHIP_BEHAVIOURS["Spathi"] = changed
+            self.assertIs(ship_behaviour("Spathi", "Vux").evade, True)
+            self.assertEqual(ship_behaviour("Spathi", "Mycon").recharge_battery, 7.0)
+        self.assertEqual(_rule_context("Spathi", enemy_name="Chmmr").behaviour.band.near, 1000.0)
+
+    def test_unknown_postures_and_fire_kinds_are_rejected(self):
+        with self.assertRaises(ValueError):
+            Band(500.0, 900.0, inside="sideways")
+        with self.assertRaises(ValueError):
+            WeaponUse("lob")
+
+    def test_band_rises_outside_the_opponent_reach(self):
+        context = self._with(
+            "Spathi", ShipBehaviour(), enemy=_seen(0.0, 2000.0), enemy_name="Earthling"
+        )
+        reach = context.enemy_reach()
+        self.assertEqual(
+            context.band_limits(Band(300.0, 500.0, outside_reach_margin=100.0)),
+            (reach + 45.0 + 100.0, reach + 45.0 + 100.0 + 150.0),
+        )
+        self.assertEqual(context.band_limits(Band(5000.0, 6000.0, outside_reach_margin=0.0)), (5000.0, 6000.0))
+        self.assertEqual(context.band_limits(Band(500.0, None)), (500.0, math.inf))
+
+    def test_band_without_a_far_edge_never_closes_in(self):
+        context = self._with("Spathi", ShipBehaviour(band=Band(500.0, None)), enemy=_seen(0.0, 5000.0))
+
+        self.assertFalse(context.hold_band())
+        self.assertIsNone(context.plan.turn)
+        self.assertIsNone(context.plan.thrust)
+
+    def test_band_postures_inside_the_band(self):
+        inside = _seen(40.0, 800.0)
+        free = self._with("Spathi", ShipBehaviour(band=Band(600.0, 1000.0)), enemy=inside)
+        free.hold_band()
+        self.assertIsNone(free.plan.turn)
+
+        face = self._with(
+            "Spathi", ShipBehaviour(band=Band(600.0, 1000.0, inside=BAND_INSIDE_FACE)), enemy=inside
+        )
+        face.hold_band()
+        self.assertEqual(face.plan.turn, TURN_RIGHT)
+        self.assertFalse(face.plan.thrust)
+
+        orbit = self._with(
+            "Spathi", ShipBehaviour(band=Band(600.0, 1000.0, inside=BAND_INSIDE_ORBIT)), enemy=inside
+        )
+        with mock.patch.object(orbit, "steer", return_value=True) as steer:
+            orbit.hold_band()
+        self.assertAlmostEqual(abs(wrap_degrees(steer.call_args.args[0] - 40.0)), 90.0)
+
+    def test_band_and_recharge_can_run_off_the_opponent_line(self):
+        closer = _seen(0.0, 650.0, closing=40.0)
+        veer = self._with(
+            "Spathi", ShipBehaviour(band=Band(600.0, 1000.0, run_offset=110.0)), enemy=closer
+        )
+        with mock.patch.object(veer, "steer", return_value=True) as steer:
+            self.assertTrue(veer.hold_band())
+        self.assertAlmostEqual(abs(steer.call_args.args[0]), 110.0)
+
+        reach = _rule_context("Spathi", enemy_name="Earthling").enemy_reach()
+        entry = ShipBehaviour(recharge_battery=5.0, recharge_run_offset=135.0)
+        recharging = self._with(
+            "Spathi",
+            entry,
+            enemy=_seen(0.0, reach + 45.0 + RECHARGE_REACH_MARGIN + 50.0, closing=30.0),
+            enemy_name="Earthling",
+            battery=1.0,
+        )
+        with mock.patch.object(recharging, "steer", return_value=True) as steer:
+            self.assertTrue(recharging.recharge_retreat())
+        self.assertAlmostEqual(abs(steer.call_args.args[0]), 135.0)
+
+    def test_spathi_settings_differ_by_opponent(self):
+        self.assertEqual(ship_behaviour("Spathi", "Mycon").band, Band(756.0, 1080.0))
+        self.assertEqual(ship_behaviour("Spathi", "Earthling").recharge_battery, 2.0)
+        self.assertIsNone(ship_behaviour("Spathi", "Utwig").recharge_battery)
+        vux = ship_behaviour("Spathi", "Vux")
+        self.assertEqual((vux.band.near, vux.band.run_offset, vux.recharge_resume), (300.0, 110.0, 8.0))
+        self.assertIsNone(ship_behaviour("Spathi", "Chmmr").weapon_use(2))
+
+    def test_recharging_lasts_until_the_resume_battery(self):
+        memory = BaselineMemory()
+        entry = ShipBehaviour(recharge_battery=3.0, recharge_resume=8.0)
+
+        def recharging(battery):
+            return self._with("Spathi", entry, battery=battery, memory=memory).recharging()
+
+        self.assertFalse(recharging(5.0))
+        self.assertTrue(recharging(2.0))
+        self.assertTrue(recharging(5.0))
+        self.assertFalse(recharging(8.0))
+        self.assertFalse(recharging(5.0))
+
+    def test_aimed_weapon_turns_onto_the_opponent_and_fires_on_target(self):
+        entry = ShipBehaviour(weapons=(WeaponUse(FIRE_AIMED),))
+        off = self._with("Spathi", entry, enemy=_seen(40.0, 800.0))
+        self.assertFalse(off.fire_weapon(1))
+        self.assertEqual(off.plan.turn, TURN_RIGHT)
+
+        on = self._with("Spathi", entry, enemy=_seen(0.0, 800.0))
+        self.assertTrue(on.fire_weapon(1))
+        self.assertTrue(on.plan.a1)
+
+        beyond = self._with("Spathi", entry, enemy=_seen(0.0, 800.0))
+        self.assertFalse(beyond.fire_weapon(1, WeaponUse(range_fraction=0.5)))
+
+    def test_aimed_weapon_without_aim_leaves_the_nose_alone(self):
+        context = self._with("Spathi", ShipBehaviour(), enemy=_seen(40.0, 800.0))
+
+        self.assertFalse(context.fire_weapon(1, WeaponUse(aim=False)))
+        self.assertIsNone(context.plan.turn)
+
+    def test_reserve_keeps_battery_for_another_weapon(self):
+        use = WeaponUse(FIRE_AIMED, reserve=3.0)
+        enemy = _seen(0.0, 800.0)
+        # The Spathi gun costs 2.
+        self.assertFalse(self._with("Spathi", ShipBehaviour(), enemy=enemy, battery=4.0).fire_weapon(1, use))
+        self.assertTrue(self._with("Spathi", ShipBehaviour(), enemy=enemy, battery=5.0).fire_weapon(1, use))
+
+    def test_aimed_weapon_can_aim_at_a_satellite(self):
+        enemy = _seen(0.0, 1200.0)
+        satellite = _satellite(enemy, 180.0)
+        context = self._with("Spathi", ShipBehaviour(), enemy=enemy, enemy_name="Chmmr")
+        with mock.patch.object(BaselineContext, "satellite_shot", return_value=(satellite, 30.0)):
+            self.assertFalse(context.fire_weapon(1, WeaponUse(satellites=True)))
+        self.assertEqual(context.plan.turn, TURN_RIGHT)
+
+    def test_launched_weapon_needs_battery_and_to_outrun_me(self):
+        use = WeaponUse(FIRE_LAUNCH)
+        behind = _seen(180.0, 600.0)
+
+        launches = self._with("Spathi", ShipBehaviour(), enemy=behind)
+        self.assertTrue(launches.fire_weapon(2, use))
+        self.assertIsNone(launches.plan.turn)
+
+        self.assertFalse(self._with("Spathi", ShipBehaviour(), enemy=behind, battery=2.0).fire_weapon(2, use))
+        self.assertFalse(
+            self._with("Spathi", ShipBehaviour(), enemy=_seen(180.0, 2000.0)).fire_weapon(2, use)
+        )
+        # Backing up faster than the rear missile flies would overrun it.
+        overrun = self._with("Spathi", ShipBehaviour(), enemy=behind)
+        overrun.view.me.velocity_forward = -(weapon_spec("Spathi", 2).speed + 1.0)
+        self.assertFalse(overrun.fire_weapon(2, use))
+
+    def test_defending_weapon_presses_on_an_imminent_hit_or_crew_loss(self):
+        use = WeaponUse(FIRE_DEFEND, threat_seconds=0.5, on_crew_loss=True)
+        enemy = _seen(0.0, 2000.0)
+        close_shot = _shot(30.0, 60.0, closing=40.0)
+        far_shot = _shot(30.0, 1500.0, closing=40.0)
+
+        def presses(objects=(), *, dropped=False, battery=None):
+            memory = BaselineMemory()
+            context = self._with(
+                "Yehat", ShipBehaviour(), enemy=enemy, enemy_objects=objects,
+                memory=memory, battery=battery,
+            )
+            context.view.me.crew = 10.0
+            memory.previous_crew = 12.0 if dropped else 10.0
+            return context.fire_weapon(2, use)
+
+        self.assertTrue(presses([close_shot]))
+        self.assertFalse(presses([far_shot]))
+        self.assertTrue(presses(dropped=True))
+        self.assertFalse(presses([close_shot], battery=0.0))
+
+    def test_special_and_unused_weapons_fire_nothing(self):
+        context = self._with("Spathi", ShipBehaviour(weapons=(None, WeaponUse(FIRE_SPECIAL))), enemy=_seen(0.0, 500.0))
+
+        self.assertFalse(context.fire_weapon(1))
+        self.assertFalse(context.fire_weapon(2))
+        self.assertIsNone(context.plan.a1)
+        self.assertIsNone(context.plan.a2)
+
+    def test_shared_strategy_runs_specials_and_form_switch_first(self):
+        calls = []
+        entry = ShipBehaviour(
+            specials=("first", "second"),
+            form_switch="switch",
+            band=Band(600.0, 1000.0),
+            weapons=(WeaponUse(FIRE_AIMED),),
+        )
+        context = self._with("Spathi", entry, enemy=_seen(0.0, 800.0))
+        rules = {
+            "first": lambda ctx: calls.append("first"),
+            "second": lambda ctx: calls.append("second") or ctx.a2(True),
+        }
+        with mock.patch.dict(strategy_module.SPECIAL_RULES, rules), mock.patch.dict(
+            strategy_module.FORM_SWITCHES, {"switch": lambda ctx: calls.append("switch")}
+        ):
+            strategy_module.shared(context)
+
+        self.assertEqual(calls, ["first", "second", "switch"])
+        self.assertTrue(context.plan.a2)
+        self.assertTrue(context.plan.a1)
 
 
 class HeldWeaponTests(unittest.TestCase):
@@ -2589,12 +2818,14 @@ class SpathiBandTests(unittest.TestCase):
         STRATEGIES["Spathi"](recharging)
         self.assertIsNone(recharging.plan.thrust)
 
-    def test_still_closes_on_the_vux_at_an_angle(self):
-        context = self._context(_seen(0.0, 2500.0), enemy_name="Vux")
+    def test_fires_the_gun_ahead_and_the_rear_missile_behind(self):
+        ahead = self._context(_seen(0.0, 800.0))
+        STRATEGIES["Spathi"](ahead)
+        self.assertTrue(ahead.plan.a1)
 
-        heading = _first_steer(context, STRATEGIES["Spathi"])
-
-        self.assertAlmostEqual(abs(heading), 45.0)
+        behind = self._context(_seen(180.0, 800.0))
+        STRATEGIES["Spathi"](behind)
+        self.assertTrue(behind.plan.a2)
 
 
 class SyreenChmmrTests(unittest.TestCase):

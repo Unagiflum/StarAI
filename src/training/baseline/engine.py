@@ -16,7 +16,17 @@ import math
 from typing import Callable
 
 import src.const as const
-from src.training.baseline.behaviours import ShipBehaviour, ship_behaviour
+from src.training.baseline.behaviours import (
+    BAND_INSIDE_FACE,
+    BAND_INSIDE_ORBIT,
+    FIRE_AIMED,
+    FIRE_DEFEND,
+    FIRE_LAUNCH,
+    Band,
+    ShipBehaviour,
+    WeaponUse,
+    ship_behaviour,
+)
 from src.training.baseline.flight import ShipFlight, turn_step_degrees
 from src.training.baseline.threats import (
     SHOT_CONTACT,
@@ -331,7 +341,8 @@ class BaselineContext:
         self.memory = memory
         self.plan = ControlPlan()
         self.span_frames = DECISION_FRAMES
-        self.behaviour: ShipBehaviour = ship_behaviour(ship_name)
+        # The ship's table entry, with its overrides against this opponent.
+        self.behaviour: ShipBehaviour = ship_behaviour(ship_name, view.enemy_ship_type)
         # Strategies may opt in for one decision.
         self.coast_above_top_speed = self.behaviour.coast_above_top_speed
 
@@ -1539,12 +1550,15 @@ class BaselineContext:
         *,
         release: float | None = None,
         approach_speed: float = STANDOFF_APPROACH_SPEED,
+        run_offset: float = 180.0,
     ) -> bool:
         """Hold the opponent between ``near`` and ``far``; True while running.
 
-        Runs straight away from it once it would come within ``near`` before
-        the nose could turn away, until it is beyond ``release`` (default
-        midway) or clearly falling back. Closes in from beyond ``far`` at an
+        Runs away from it once it would come within ``near`` before the nose
+        could turn away, until it is beyond ``release`` (default midway) or
+        clearly falling back. It runs ``run_offset`` degrees off the
+        opponent's bearing: straight away at 180, or on the side the nose
+        reaches sooner below that. Closes in from beyond ``far`` at an
         angle, thrusting only below ``approach_speed``. Inside the band
         steering is left free, for aiming.
         """
@@ -1553,7 +1567,10 @@ class BaselineContext:
         if enemy is None:
             return False
         values = self.memory.values
-        away = wrap_degrees(enemy.bearing + 180.0)
+        if run_offset >= 180.0:
+            away = wrap_degrees(enemy.bearing + 180.0)
+        else:
+            away = self.side(f"{key}_run", enemy.bearing, float(run_offset))
         reach = self.closing_reach(key, self.turn_seconds(away) + STANDOFF_TURN_MARGIN)
         release = (near + far) / 2.0 if release is None else float(release)
         running_key = f"{key}_running"
@@ -1570,10 +1587,21 @@ class BaselineContext:
         return False
 
     def recharging(self) -> bool:
-        """Whether the battery is below the ship's ``recharge_battery``."""
+        """Whether the ship is recharging: from when the battery falls below
+        its ``recharge_battery`` until it is back to ``recharge_resume``
+        (by default the same)."""
 
-        threshold = self.behaviour.recharge_battery
-        return threshold is not None and self.me.battery < threshold
+        behaviour = self.behaviour
+        threshold = behaviour.recharge_battery
+        if threshold is None:
+            return False
+        resume = threshold if behaviour.recharge_resume is None else behaviour.recharge_resume
+        values = self.memory.values
+        if self.me.battery < threshold:
+            values["recharging"] = True
+        elif self.me.battery >= resume:
+            values["recharging"] = False
+        return bool(values.get("recharging", False))
 
     def recharge_retreat(self, key: str = "recharge") -> bool:
         """Keep out of the opponent's weapon reach while recharging.
@@ -1590,26 +1618,112 @@ class BaselineContext:
             return False
         near = self.enemy_reach() + TYPICAL_HULL_RADIUS + RECHARGE_REACH_MARGIN
         return self.keep_standoff(
-            key, near, math.inf, release=near + RECHARGE_RELEASE_MARGIN
+            key,
+            near,
+            math.inf,
+            release=near + RECHARGE_RELEASE_MARGIN,
+            run_offset=self.behaviour.recharge_run_offset,
         )
+
+    def band_limits(self, band: Band) -> tuple[float, float]:
+        """The band's near and far edges against this opponent (far may be
+        infinite)."""
+
+        near = float(band.near)
+        far = math.inf if band.far is None else float(band.far)
+        if band.outside_reach_margin is not None and self.enemy is not None:
+            outside = self.enemy_reach() + TYPICAL_HULL_RADIUS + band.outside_reach_margin
+            if outside > near:
+                near = outside
+                far = max(far, near + band.min_width)
+        return near, far
 
     def hold_band(
         self,
-        band: tuple[float, float] | None = None,
+        band: Band | tuple[float, float] | None = None,
         key: str = "band",
     ) -> bool:
         """Hold the opponent within a distance band, by ``keep_standoff``.
 
         The band is ``band`` or else the ship's ``band``
         (``behaviours.SHIP_BEHAVIOURS``); with neither, it does nothing.
-        True while running from a closer.
+        Runs from a closer, closes in from beyond the far edge, and within
+        the band takes the band's posture. True while running.
         """
 
         band = band or self.behaviour.band
-        if band is None:
+        if band is None or self.enemy is None:
             return False
-        near, far = band
-        return self.keep_standoff(key, float(near), float(far))
+        if not isinstance(band, Band):
+            band = Band(*band)
+        near, far = self.band_limits(band)
+        running = self.keep_standoff(
+            key,
+            near,
+            far,
+            approach_speed=band.approach_speed,
+            run_offset=band.run_offset,
+        )
+        if running or self.enemy.distance > far:
+            return running
+        if band.inside == BAND_INSIDE_FACE:
+            self.point_at_opponent()
+            self.plan.claim_thrust(False)
+        elif band.inside == BAND_INSIDE_ORBIT:
+            self.steer(self.side(f"{key}_orbit", self.enemy.bearing, 90.0))
+        return False
+
+    def fire_weapon(self, action: int, use: WeaponUse | None = None) -> bool:
+        """Fire weapon ``action`` by its ``WeaponUse`` (or the ship's).
+
+        An aimed weapon turns its gun onto the opponent, or onto the Chmmr
+        satellite ``satellite_shot`` picks when ``satellites`` is set and
+        one is in reach, and fires once on target within range. A launched
+        weapon aims itself: it fires within range whenever the battery
+        allows and the shot would outrun my own motion along its gun. A
+        defending weapon presses when a hit is about to land, or after crew
+        was lost, battery permitting. True when it fires.
+        """
+
+        use = use or self.behaviour.weapon_use(action)
+        if use is None or self.enemy is None:
+            return False
+        action = int(action)
+        cost = self.spec.a1_cost if action == 1 else self.spec.a2_cost
+        weapon = self.weapon(action)
+        if use.kind == FIRE_LAUNCH:
+            if not self.in_range(action, use.range_fraction):
+                return False
+            if self.me.battery < cost + use.reserve:
+                return False
+            gun = math.radians(weapon.gun_directions[0] if weapon.gun_directions else 0.0)
+            along = self.me.velocity_forward * math.cos(gun) + self.me.velocity_right * math.sin(gun)
+            if along > weapon.speed:
+                return False
+        elif use.kind == FIRE_AIMED:
+            shot = self.satellite_shot(action) if use.satellites else None
+            on_target = False
+            if shot is not None:
+                on_target = self.aim_gun(action, shot[1], use.tolerance)
+            elif use.aim:
+                self.point_weapon(action)
+            on_target = on_target or (
+                self.pointing(action, use.tolerance)
+                and self.in_range(action, use.range_fraction)
+            )
+            if not on_target:
+                return False
+            if use.reserve > 0.0 and self.me.battery - cost < use.reserve:
+                return False
+        elif use.kind == FIRE_DEFEND:
+            if self.me.battery < cost + use.reserve:
+                return False
+            threatened = self.imminent_threat(use.threat_seconds) is not None
+            if not threatened and not (use.on_crew_loss and self.crew_dropped()):
+                return False
+        else:
+            return False
+        return self.a1(True) if action == 1 else self.a2(True)
 
     def approach_weapon_range(self, action: int) -> bool:
         return self.approach_range(self.weapon(action).range, key=f"a{int(action)}_range")

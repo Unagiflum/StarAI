@@ -29,6 +29,7 @@ from src.training.baseline.engine import (
     StrategyFunction,
     _smallest_positive_root,
 )
+from src.training.baseline.behaviours import SHIP_BEHAVIOURS
 from src.training.baseline.observation_view import bearing_of, wrap_degrees
 from src.training.baseline.ship_specs import (
     FORM_BASE,
@@ -280,15 +281,10 @@ SYREEN_CHMMR_SONG_DISTANCE = 200.0
 SLYLANDRO_CHMMR_NEAR = 700.0
 SLYLANDRO_CHMMR_FAR = 850.0
 SLYLANDRO_CHMMR_FIRE = 1000.0
-# Spathi against a Chmmr: hold this band, shooting satellites within the
-# gun's reach of it. No rear missiles: the satellites shoot them all down,
-# and they drain the battery needed for the gun.
-SPATHI_CHMMR_NEAR = 1000.0
-SPATHI_CHMMR_FAR = 1300.0
-# The Spathi holds its band (``behaviours.SHIP_BEHAVIOURS``) and retreats to
-# recharge, except against these, which it still closes on at an angle,
-# fleeing at low battery: against them closing in won more in the arena.
-SPATHI_APPROACH_OPPONENTS = frozenset({"Earthling", "Pkunk", "Thraddash", "Utwig", "Vux"})
+# Spathi against a Chmmr: the band its table entry holds, shooting
+# satellites within the gun's reach of it.
+SPATHI_CHMMR_NEAR = SHIP_BEHAVIOURS["Spathi"].opponents["Chmmr"]["band"].near
+SPATHI_CHMMR_FAR = SHIP_BEHAVIOURS["Spathi"].opponents["Chmmr"]["band"].far
 # Yehat against a Chmmr: keep the shield up (refreshed as it ends) within
 # the Chmmr laser's reach, firing there only with this much battery left
 # after the shot.
@@ -1095,21 +1091,6 @@ def _slylandro_vs_chmmr(ctx: BaselineContext) -> None:
         ctx.steer(ctx.side("slylandro_chmmr_orbit", ctx.enemy.bearing, 90.0))
     if ctx.distance <= SLYLANDRO_CHMMR_FIRE:
         ctx.a1(True)
-
-
-def spathi(ctx: BaselineContext) -> None:
-    """Hold the gun's band, falling back out of reach to recharge."""
-
-    if ctx.enemy_name == "Chmmr" and ctx.enemy is not None:
-        _spathi_vs_chmmr(ctx)
-        return
-    if ctx.enemy_name in SPATHI_APPROACH_OPPONENTS:
-        _spathi_approach(ctx)
-    elif ctx.recharging():
-        ctx.recharge_retreat()
-    else:
-        ctx.hold_band()
-    _spathi_fire(ctx)
 
 
 def spathi_approach(ctx: BaselineContext) -> None:
@@ -2155,6 +2136,29 @@ def pkunk_full_range(ctx: BaselineContext) -> None:
         ctx.a1(True)
 
 
+# Unique rules a ship's table entry names in ``specials``, and mode
+# switches it names in ``form_switch`` (``behaviours.SHIP_BEHAVIOURS``).
+SPECIAL_RULES: dict[str, StrategyFunction] = {}
+FORM_SWITCHES: dict[str, StrategyFunction] = {}
+
+
+def shared(ctx: BaselineContext) -> None:
+    """A strategy run wholly from the ship's table entry, in priority order:
+    specials, mode switch, recharge or band, then each weapon."""
+
+    behaviour = ctx.behaviour
+    for name in behaviour.specials:
+        SPECIAL_RULES[name](ctx)
+    if behaviour.form_switch is not None:
+        FORM_SWITCHES[behaviour.form_switch](ctx)
+    if ctx.recharging():
+        ctx.recharge_retreat()
+    else:
+        ctx.hold_band()
+    for action in (1, 2):
+        ctx.fire_weapon(action)
+
+
 def generic(ctx: BaselineContext) -> None:
     """Fallback: close to weapon range, aim, and fire when aimed."""
 
@@ -2181,7 +2185,8 @@ STRATEGIES: dict[str, StrategyFunction] = {
     "Pkunk": pkunk,
     "Shofixti": shofixti,
     "Slylandro": slylandro,
-    "Spathi": spathi,
+    # Run from its table entry (``behaviours.SHIP_BEHAVIOURS``).
+    "Spathi": shared,
     "Supox": supox,
     "Syreen": syreen,
     "Thraddash": thraddash,
