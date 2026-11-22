@@ -353,7 +353,18 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         weapons=(None, WeaponUse(FIRE_AIMED, aim=False)),
     ),
     "Mmrnmrhm": ShipBehaviour(keep_moving_takes_aim=True),
-    "Mycon": ShipBehaviour(shoot_down=False),
+    # Pass 1 at the default perception delay, by the harm ranking:
+    # regeneration (a special), the planet whip when slow and the plasmoid
+    # aimed late, and no movement rule of its own: keep moving does the
+    # rest. The earlier rules also fled a closing opponent within 2,000;
+    # without it the ship deals as much and takes less. λ is high: slow,
+    # it can't run.
+    "Mycon": ShipBehaviour(
+        harm_taken_weight=1.0,
+        shoot_down=False,
+        specials=("mycon_regenerate",),
+        late_specials=("gravity_whip_when_slow", "mycon_plasmoid"),
+    ),
     "Slylandro": ShipBehaviour(keep_moving=False),
     # Pass 1 at the default perception delay, by the harm ranking: the band
     # runs from 0.7 of the gun's 1,080 reach to all of it, closing in at up
