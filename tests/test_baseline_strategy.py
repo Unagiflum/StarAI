@@ -1904,7 +1904,7 @@ class ShipRuleTests(unittest.TestCase):
 
         slower = self._ilwrath(_seen(0.0, 1000.0), enemy_thrust=10.0)
         self.assertTrue(slower.plan.thrust)
-        self.assertIn("flame_far", slower.memory.sides)
+        self.assertIn("band_far", slower.memory.sides)
 
         chasing = self._ilwrath(_seen(0.0, 1000.0), enemy_thrust=40.0, variant="chase")
         self.assertTrue(chasing.plan.thrust)

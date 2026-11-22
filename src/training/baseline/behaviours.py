@@ -304,6 +304,18 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             }
         },
     ),
+    # Pass 1 at the default perception delay, by the harm ranking: the
+    # flame (from the cloak, or on target) and cloaking while the fade can
+    # finish out of reach are specials, as are waiting for a faster
+    # opponent that isn't coming and following one pulling out of reach;
+    # it closes in at full speed to the flame's 300 reach (a back-off band
+    # with no near edge, as approach_range did). Equal to the earlier rules.
+    # λ stays 0.5: it can't outrun much, but the cloak hides its approach.
+    "Ilwrath": ShipBehaviour(
+        harm_taken_weight=0.5,
+        specials=("ilwrath_flame_cloak", "ilwrath_hang_back", "ilwrath_follow"),
+        band=Band(0.0, 300.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+    ),
     # The Kohr-Ah's shoot-downs cut crew lost by 0.9/min but crew dealt by
     # 1.3/min over 30 seeds.
     "KohrAh": ShipBehaviour(shoot_down=False),
