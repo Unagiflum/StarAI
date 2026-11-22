@@ -2723,7 +2723,7 @@ STRATEGIES: dict[str, StrategyFunction] = {
     "KohrAh": shared,
     "KzerZa": shared,
     "Mmrnmrhm": mmrnmrhm,
-    "Melnorme": melnorme,
+    "Melnorme": shared,
     "Mycon": mycon,
     "Orz": orz,
     "Pkunk": pkunk,
@@ -2772,6 +2772,7 @@ STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
     "Earthling": {"earlier": earthling, "flee_whip": earthling_flee_whip},
     "KohrAh": {"earlier": kohr_ah},
     "KzerZa": {"earlier": kzer_za},
+    "Melnorme": {"earlier": melnorme},
     "Ilwrath": {"earlier": ilwrath, "always_cloak": ilwrath_always_cloak, "chase": ilwrath_chase},
     "Pkunk": {
         "dodge": pkunk_dodge,

@@ -339,6 +339,19 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         band=Band(0.0, 1000.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, run_offset=110.0, back_off=True),
         weapons=(WeaponUse(FIRE_AIMED), None),
     ),
+    # Pass 1 at the default perception delay, by the harm ranking: the
+    # charged shot (a special) released on target, aimed late; confusion
+    # fired when aimed, without turning the nose. A back-off band closes in
+    # at full speed to 1,400 and steers 110 degrees off the bearing inside
+    # 800, in place of approach_range to the gun's 1,620. λ is middling: it
+    # keeps its range but can't outrun the fast ships.
+    "Melnorme": ShipBehaviour(
+        harm_taken_weight=0.5,
+        specials=("melnorme_charge",),
+        late_specials=("melnorme_aim",),
+        band=Band(800.0, 1400.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        weapons=(None, WeaponUse(FIRE_AIMED, aim=False)),
+    ),
     "Mmrnmrhm": ShipBehaviour(keep_moving_takes_aim=True),
     "Mycon": ShipBehaviour(shoot_down=False),
     "Slylandro": ShipBehaviour(keep_moving=False),
