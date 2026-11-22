@@ -107,6 +107,24 @@ class ArenaFightTests(unittest.TestCase):
         self.assertEqual(first, variant.random())
         self.assertNotEqual(first, other_cell.random())
 
+    def test_a_match_can_fly_a_candidate_table_entry(self):
+        from src.training.baseline.behaviours import Band, ship_behaviour
+
+        table = ship_behaviour("Spathi")
+        default = run_match(ArenaMatch("Spathi", "Mycon", 2), frames=240)
+        same = run_match(ArenaMatch("Spathi", "Mycon", 2, "same", entry=table), frames=240)
+        close = run_match(
+            ArenaMatch(
+                "Spathi", "Mycon", 2, "close", entry=replace(table, band=Band(0.0, 300.0))
+            ),
+            frames=240,
+        )
+
+        self.assertEqual(replace(same, variant="default"), default)
+        self.assertNotEqual(replace(close, variant="default"), default)
+        # λ is the ship's own, whatever the entry.
+        self.assertEqual(close.harm_taken_weight, table.harm_taken_weight)
+
     def test_sides_start_strong_or_weak(self):
         strong_crew = SHIP_DEFINITIONS["Chmmr"].start_hp
         simulation, _ = new_arena_battle(ArenaMatch("Chmmr", "Chmmr", 0, ship_condition=STRONG, opponent_condition=WEAK))
@@ -400,6 +418,24 @@ class ArenaRankingTests(unittest.TestCase):
         # Three distinct settings left, the better two flown on.
         self.assertEqual(len({variant for variant, _ in flown[1]}), 2)
         self.assertNotIn("same", {variant for variant, _ in flown[1]})
+
+
+    def test_screen_flies_named_table_entries(self):
+        from src.training.baseline.behaviours import ShipBehaviour
+
+        entry = ShipBehaviour(recharge_battery=3.0)
+        seen = []
+
+        def run(matches):
+            seen.extend((m.variant, m.entry) for m in matches)
+            return [_result(variant=m.variant, seed=m.seed) for m in matches]
+
+        screen(
+            "ZoqFotPik", ["default", "low"], ["Spathi"], first_seeds=1, max_seeds=1,
+            cells=[(STRONG, STRONG)], run=run, entries={"low": entry},
+        )
+
+        self.assertEqual(dict(seen), {"default": None, "low": entry})
 
 
 class ArenaProgressTests(unittest.TestCase):

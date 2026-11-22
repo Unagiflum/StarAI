@@ -335,14 +335,18 @@ class BaselineContext:
         ship_name: str,
         view: ObservationView,
         memory: BaselineMemory,
+        entry: ShipBehaviour | None = None,
     ):
         self.ship_name = ship_name
         self.view = view
         self.memory = memory
         self.plan = ControlPlan()
         self.span_frames = DECISION_FRAMES
-        # The ship's table entry, with its overrides against this opponent.
-        self.behaviour: ShipBehaviour = ship_behaviour(ship_name, view.enemy_ship_type)
+        # The ship's table entry (or ``entry`` in its place), with its
+        # overrides against this opponent.
+        self.behaviour: ShipBehaviour = ship_behaviour(
+            ship_name, view.enemy_ship_type, entry
+        )
         # Strategies may opt in for one decision.
         self.coast_above_top_speed = self.behaviour.coast_above_top_speed
 

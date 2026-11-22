@@ -6,19 +6,31 @@ from __future__ import annotations
 import random
 from typing import Any, Sequence
 
+from src.training.baseline.behaviours import ShipBehaviour
 from src.training.baseline.engine import BaselineContext, BaselineMemory
 from src.training.baseline.observation_view import ObservationView
-from src.training.baseline.strategies import may_evade, strategy_for
+from src.training.baseline.strategies import may_evade, shared, strategy_for
 from src.training.contracts import TrainingAction, action_for_index
 
 
 class BaselineController:
-    """Choose one action per frame from a ship's baseline strategy."""
+    """Choose one action per frame from a ship's baseline strategy.
 
-    def __init__(self, ship_name: str, variant: str | None = None):
+    With ``entry``, the ship flies ``strategies.shared`` from that table
+    entry instead of its own (candidate settings in the arena).
+    """
+
+    def __init__(
+        self,
+        ship_name: str,
+        variant: str | None = None,
+        *,
+        entry: ShipBehaviour | None = None,
+    ):
         self.ship_name = str(ship_name)
         self.variant = variant
-        self._strategy = strategy_for(self.ship_name, variant)
+        self.entry = entry
+        self._strategy = shared if entry is not None else strategy_for(self.ship_name, variant)
         self.memory = BaselineMemory()
 
     def reset(self) -> None:
@@ -43,6 +55,7 @@ class BaselineController:
             ship_name=self.ship_name,
             view=view,
             memory=self.memory,
+            entry=self.entry,
         )
         context.avoid_planet()
         if may_evade(context):

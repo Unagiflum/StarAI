@@ -44,7 +44,7 @@ from types import SimpleNamespace
 from typing import Iterable, Mapping, Sequence
 
 import src.const as const
-from src.training.baseline.behaviours import ship_behaviour
+from src.training.baseline.behaviours import ShipBehaviour, ship_behaviour
 from src.training.baseline.strategies import (
     DEFAULT_VARIANT,
     STRATEGY_VARIANTS,
@@ -88,7 +88,12 @@ SCREEN_MAX_SEEDS = 100
 
 @dataclass(frozen=True, slots=True)
 class ArenaMatch:
-    """One fight to run: ``ship`` flying ``variant`` against ``opponent``."""
+    """One fight to run: ``ship`` flying ``variant`` against ``opponent``.
+
+    With ``entry``, the ship flies ``strategies.shared`` from that table
+    entry, named ``variant`` in the results; λ still comes from the ship's
+    own table entry, so every setting is measured alike.
+    """
 
     ship: str
     opponent: str
@@ -96,6 +101,7 @@ class ArenaMatch:
     variant: str = DEFAULT_VARIANT
     ship_condition: str = STRONG
     opponent_condition: str = STRONG
+    entry: ShipBehaviour | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,7 +357,7 @@ def run_match(
 
     simulation, ledger = new_arena_battle(match)
     controllers = {
-        1: BaselineController(match.ship, match.variant),
+        1: BaselineController(match.ship, match.variant, entry=match.entry),
         2: BaselineController(match.opponent),
     }
     flown = {1: simulation.player1, 2: simulation.player2}
@@ -753,9 +759,13 @@ def screen(
     cells: Sequence[tuple[str, str]] = CELLS,
     run=None,
     log=None,
+    entries: Mapping[str, ShipBehaviour] | None = None,
 ) -> tuple[list[str], dict[str, list[ArenaResult]]]:
     """Drop settings as they fall behind; return the settings of the last
     round, best first, and every result flown.
+
+    A setting is a strategy variant, or a name in ``entries``, whose table
+    entry the ship then flies (``ArenaMatch.entry``).
 
     Every setting starts on ``first_seeds`` seeds. After each round:
 
@@ -777,8 +787,9 @@ def screen(
     rounds = 0
     while True:
         seeds = range(first_seed + flown, first_seed + target)
+        entries = entries or {}
         matches = [
-            ArenaMatch(ship, opponent, seed, name, mine, theirs)
+            ArenaMatch(ship, opponent, seed, name, mine, theirs, entries.get(name))
             for name in alive
             for opponent in opponents
             for seed in seeds

@@ -204,45 +204,21 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     "Mmrnmrhm": ShipBehaviour(keep_moving_takes_aim=True),
     "Mycon": ShipBehaviour(shoot_down=False),
     "Slylandro": ShipBehaviour(keep_moving=False),
-    # The band runs from 0.7 of the gun's 1,080 reach to all of it. Below
-    # half its 10 battery it keeps out of the opponent's reach. The rear
-    # missile homes, so it launches whenever the opponent is in its reach.
-    # Against a Chmmr it holds farther out and shoots satellites, without
-    # rear missiles: the satellites shoot them all down, and they drain the
-    # battery the gun needs. Against five others, settings chosen in the
-    # arena: it recharges only below 2 against the Earthling; it closes in
-    # to 300-756 on the short-reaching Pkunk, Thraddash and Vux (at full
-    # speed on the Vux), veering off at 110 degrees from the Vux rather than running
-    # into its limpets and recharging there until 8; and it stays beyond
-    # the Utwig's bolts, which its shield turns into battery.
+    # Pass 1 at the default perception delay, by the harm ranking: the band
+    # runs from 0.7 of the gun's 1,080 reach to all of it, closing in at up
+    # to 60, with no recharging; the rear missile homes, so it launches
+    # whenever the opponent is in its reach. Against the Vux it closes in to
+    # 300-756 at full speed and veers off at 110 degrees rather than running
+    # into its limpets. The earlier per-opponent settings (Chmmr, Earthling,
+    # Pkunk, Thraddash, Utwig) dealt less harm and were dropped.
     # λ is low: the Spathi is cheap and outruns nearly everything, so a high
     # λ would reward running away.
     "Spathi": ShipBehaviour(
         harm_taken_weight=0.25,
-        recharge_battery=5.0,
-        band=Band(756.0, 1080.0),
+        band=Band(756.0, 1080.0, approach_speed=60.0),
         weapons=(WeaponUse(FIRE_AIMED), WeaponUse(FIRE_LAUNCH)),
         opponents={
-            "Chmmr": {
-                "recharge_battery": None,
-                "band": Band(1000.0, 1300.0),
-                "weapons": (WeaponUse(FIRE_AIMED, satellites=True), None),
-            },
-            "Earthling": {
-                "recharge_battery": 2.0,
-                "band": Band(756.0, 1080.0, approach_speed=60.0),
-            },
-            "Pkunk": {
-                "recharge_battery": None,
-                "band": Band(300.0, 756.0, approach_speed=60.0),
-            },
-            "Thraddash": {"band": Band(300.0, 756.0, approach_speed=60.0)},
-            "Utwig": {
-                "recharge_battery": None,
-                "band": Band(900.0, 1300.0, approach_speed=60.0),
-            },
             "Vux": {
-                "recharge_resume": 8.0,
                 "band": Band(300.0, 756.0, approach_speed=math.inf, run_offset=110.0),
             },
         },
@@ -251,18 +227,27 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     "Umgah": ShipBehaviour(evade_headings=False, shoot_down=False, keep_moving=False),
 }
 
-# (ship, opponent) -> (base entry, entry with the overrides applied).
-_AGAINST: dict[tuple[str, str], tuple[ShipBehaviour, ShipBehaviour]] = {}
+# (id of the base entry, opponent) -> (base entry, entry with the overrides
+# applied). The base is kept so a reused id is never served stale.
+_AGAINST: dict[tuple[int, str], tuple[ShipBehaviour, ShipBehaviour]] = {}
 
 
-def ship_behaviour(ship_name: str | None, opponent: str | None = None) -> ShipBehaviour:
-    """The ship's behaviour, with its overrides against ``opponent`` applied."""
+def ship_behaviour(
+    ship_name: str | None,
+    opponent: str | None = None,
+    entry: ShipBehaviour | None = None,
+) -> ShipBehaviour:
+    """The ship's behaviour, with its overrides against ``opponent`` applied.
 
-    base = SHIP_BEHAVIOURS.get(str(ship_name), DEFAULT_BEHAVIOUR)
+    ``entry`` replaces the ship's table entry, for flying candidate
+    settings in the arena.
+    """
+
+    base = entry if entry is not None else SHIP_BEHAVIOURS.get(str(ship_name), DEFAULT_BEHAVIOUR)
     overrides = base.opponents.get(str(opponent)) if opponent is not None else None
     if not overrides:
         return base
-    key = (str(ship_name), str(opponent))
+    key = (id(base), str(opponent))
     cached = _AGAINST.get(key)
     if cached is None or cached[0] is not base:
         cached = (base, replace(base, **overrides))

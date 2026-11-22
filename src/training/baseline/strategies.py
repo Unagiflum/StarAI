@@ -281,10 +281,10 @@ SYREEN_CHMMR_SONG_DISTANCE = 200.0
 SLYLANDRO_CHMMR_NEAR = 700.0
 SLYLANDRO_CHMMR_FAR = 850.0
 SLYLANDRO_CHMMR_FIRE = 1000.0
-# Spathi against a Chmmr: the band its table entry holds, shooting
-# satellites within the gun's reach of it.
-SPATHI_CHMMR_NEAR = SHIP_BEHAVIOURS["Spathi"].opponents["Chmmr"]["band"].near
-SPATHI_CHMMR_FAR = SHIP_BEHAVIOURS["Spathi"].opponents["Chmmr"]["band"].far
+# Spathi against a Chmmr, in its earlier rules (the ``approach`` variant):
+# hold this band, shooting satellites within the gun's reach of it.
+SPATHI_CHMMR_NEAR = 1000.0
+SPATHI_CHMMR_FAR = 1300.0
 # Yehat against a Chmmr: keep the shield up (refreshed as it ends) within
 # the Chmmr laser's reach, firing there only with this much battery left
 # after the shot.

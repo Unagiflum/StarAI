@@ -952,7 +952,7 @@ class BehaviourSchemaTests(unittest.TestCase):
             behaviour_table.SHIP_BEHAVIOURS["Spathi"] = changed
             self.assertIs(ship_behaviour("Spathi", "Vux").evade, True)
             self.assertEqual(ship_behaviour("Spathi", "Mycon").recharge_battery, 7.0)
-        self.assertEqual(_rule_context("Spathi", enemy_name="Chmmr").behaviour.band.near, 1000.0)
+        self.assertEqual(_rule_context("Spathi", enemy_name="Vux").behaviour.band.near, 300.0)
 
     def test_unknown_postures_and_fire_kinds_are_rejected(self):
         with self.assertRaises(ValueError):
@@ -1022,12 +1022,13 @@ class BehaviourSchemaTests(unittest.TestCase):
         self.assertAlmostEqual(abs(steer.call_args.args[0]), 135.0)
 
     def test_spathi_settings_differ_by_opponent(self):
-        self.assertEqual(ship_behaviour("Spathi", "Mycon").band, Band(756.0, 1080.0))
-        self.assertEqual(ship_behaviour("Spathi", "Earthling").recharge_battery, 2.0)
-        self.assertIsNone(ship_behaviour("Spathi", "Utwig").recharge_battery)
+        self.assertEqual(
+            ship_behaviour("Spathi", "Mycon").band, Band(756.0, 1080.0, approach_speed=60.0)
+        )
+        self.assertIsNone(ship_behaviour("Spathi", "Mycon").recharge_battery)
+        self.assertIs(ship_behaviour("Spathi", "Chmmr"), ship_behaviour("Spathi"))
         vux = ship_behaviour("Spathi", "Vux")
-        self.assertEqual((vux.band.near, vux.band.run_offset, vux.recharge_resume), (300.0, 110.0, 8.0))
-        self.assertIsNone(ship_behaviour("Spathi", "Chmmr").weapon_use(2))
+        self.assertEqual((vux.band.near, vux.band.far, vux.band.run_offset), (300.0, 756.0, 110.0))
 
     def test_recharging_lasts_until_the_resume_battery(self):
         memory = BaselineMemory()
@@ -2756,6 +2757,10 @@ class SlylandroChmmrTests(unittest.TestCase):
 
 
 class SpathiChmmrTests(unittest.TestCase):
+    """The earlier Chmmr rule, kept in the ``approach`` variant."""
+
+    rules = staticmethod(strategy_for("Spathi", "approach"))
+
     def _context(self, enemy, *, enemy_name="Chmmr", satellites=()):
         return _rule_context(
             "Spathi",
@@ -2776,25 +2781,25 @@ class SpathiChmmrTests(unittest.TestCase):
             with mock.patch.object(
                 BaselineContext, "satellite_shot", return_value=(satellite, lead)
             ):
-                STRATEGIES["Spathi"](context)
+                self.rules(context)
             self.assertEqual(bool(context.plan.a1), fires)
             self.assertEqual(context.plan.turn or TURN_NONE, turn)
 
     def test_runs_from_a_closing_chmmr(self):
         context = self._context(_seen(0.0, SPATHI_CHMMR_NEAR + 20.0, closing=30.0))
 
-        heading = _first_steer(context, STRATEGIES["Spathi"])
+        heading = _first_steer(context, self.rules)
 
         self.assertAlmostEqual(abs(heading), 180.0)
 
     def test_no_rear_missiles_at_the_chmmr(self):
         behind = _seen(180.0, 800.0)
         chmmr = self._context(behind)
-        STRATEGIES["Spathi"](chmmr)
+        self.rules(chmmr)
         self.assertFalse(chmmr.plan.a2)
 
         other = self._context(behind, enemy_name="Earthling")
-        STRATEGIES["Spathi"](other)
+        self.rules(other)
         self.assertTrue(other.plan.a2)
 
 
@@ -2816,14 +2821,13 @@ class SpathiBandTests(unittest.TestCase):
 
         self.assertAlmostEqual(abs(heading), 180.0)
 
-    def test_recharging_never_closes_in(self):
+    def test_a_low_battery_does_not_stop_it_closing_in(self):
+        # Pass 1 dropped recharging: it dealt less harm.
         far = _seen(20.0, 2500.0, closing=-5.0)
-        charged = self._context(far)
-        self.assertIsNotNone(_first_steer(charged, STRATEGIES["Spathi"]))
 
-        recharging = self._context(far, battery=4.0)
-        STRATEGIES["Spathi"](recharging)
-        self.assertIsNone(recharging.plan.thrust)
+        for battery in (10.0, 1.0):
+            context = self._context(far, battery=battery)
+            self.assertIsNotNone(_first_steer(context, STRATEGIES["Spathi"]))
 
     def test_fires_the_gun_ahead_and_the_rear_missile_behind(self):
         ahead = self._context(_seen(0.0, 800.0))
