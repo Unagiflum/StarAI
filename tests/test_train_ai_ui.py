@@ -4390,7 +4390,7 @@ class TrainingLayoutTests(unittest.TestCase):
         )
 
     def test_instance_dropdown_fits_longest_ship_and_optimizing_status(self):
-        font = pygame.font.SysFont("Consolas", 19)
+        font = ui.monospace_font(train_ai.INSTANCE_FONT_SIZE)
         dropdown_width = (
             train_ai.CONTROL_WIDTH
             - 2 * INSTANCE_HORIZONTAL_MARGIN
@@ -5478,7 +5478,10 @@ class TrainingConsoleTests(unittest.TestCase):
         self.assertIn("Current batch", lines)
 
     def test_batch_log_font_size_keeps_log_fitting(self):
-        self.assertEqual(TRAINING_BATCH_LOG_FONT_SIZE, 11)
+        # Six pixels a character, as Consolas 11 had: the log's columns fit.
+        font = ui.monospace_font(TRAINING_BATCH_LOG_FONT_SIZE)
+
+        self.assertEqual(font.size("x" * 40)[0], 240)
 
     def test_speedometer_caps_bar_without_capping_speed_label(self):
         speed_line, scale_line = _speedometer_console_lines(

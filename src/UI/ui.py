@@ -67,6 +67,19 @@ def load_background(path, screen_width, screen_height, resources=None):
         return None
 
 
+_monospace_fonts = {}
+
+
+def monospace_font(size):
+    """The bundled monospaced font at ``size``, the same on every platform."""
+    size = int(size)
+    font = _monospace_fonts.get(size)
+    if font is None:
+        font = pygame.font.Font(str(Const.MONOSPACE_FONT_PATH), size)
+        _monospace_fonts[size] = font
+    return font
+
+
 def draw_title(screen, text, font_size=40, y_pos=50):
     """Utility function to draw a centered title with consistent styling"""
     font = pygame.font.SysFont(None, font_size)

@@ -216,6 +216,9 @@ PROJ_GAP = 5
 
 # File Paths
 DEFAULT_GAME_JSON_PATH = source_path("Config/game_settings.json")
+# Bundled so monospaced text measures the same on every platform; system
+# monospace fonts differ by OS (Consolas is Windows-only).
+MONOSPACE_FONT_PATH = source_path("Fonts/DejaVuSansMono.ttf")
 DEFAULT_DISPLAY_JSON_PATH = source_path("Config/display_settings.json")
 DEFAULT_FLEETS_JSON_PATH = source_path("Config/fleets.json")
 DEFAULT_MODELS_PATH = source_path("Models")

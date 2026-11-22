@@ -459,7 +459,10 @@ CURRENT_BATCH_LABEL_WIDTH = 10
 CURRENT_BATCH_TEXT_VALUE_WIDTH = 11
 CURRENT_BATCH_REWARD_NAME_WIDTH = max((len(label) for label in REWARD_LABELS), default=0)
 CURRENT_BATCH_REWARD_VALUE_WIDTH = 8
-TRAINING_BATCH_LOG_FONT_SIZE = 11
+# Sizes for ui.monospace_font, chosen to keep the character widths the
+# Consolas 19 and 11 these replaced had on Windows (10 and 6 pixels).
+INSTANCE_FONT_SIZE = 17
+TRAINING_BATCH_LOG_FONT_SIZE = 10
 
 CONTROL_WIDTH = const.SCREEN_WIDTH - const.SCREEN_HEIGHT
 TAB_MARGIN = 8
@@ -4762,7 +4765,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         maximum=32,
     )
     small_font = pygame.font.SysFont(None, 24)
-    instance_font = pygame.font.SysFont("Consolas", 19)
+    instance_font = ui.monospace_font(INSTANCE_FONT_SIZE)
     tooltip_toggle_font = largest_fitting_font(
         ("?",),
         HELP_ICON_DIAMETER - 6,
@@ -4772,7 +4775,7 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     )
     control_tooltip_font = pygame.font.SysFont(None, 22)
     arena_font = pygame.font.SysFont(None, 32)
-    log_font = pygame.font.SysFont("Consolas", TRAINING_BATCH_LOG_FONT_SIZE)
+    log_font = ui.monospace_font(TRAINING_BATCH_LOG_FONT_SIZE)
     picker_title_font = pygame.font.SysFont(None, int(const.SCREEN_HEIGHT * 0.042))
     picker_tooltip_font = pygame.font.SysFont(None, PICKER_TOOLTIP_FONT_SIZE)
     training_battle_renderer = DisplayStarField()

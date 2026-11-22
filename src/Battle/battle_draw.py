@@ -47,7 +47,10 @@ HUD_BADGE_FONT_SIZE = 18
 HUD_BADGE_CONTROLLER_FONT_SIZE = 30
 HUD_BADGE_MIN_FONT_SIZE = 8
 HUD_BADGE_TEXT_PADDING = 4
-HUD_COUNTDOWN_FONT_NAME = "Consolas"
+# Names the bundled monospaced font (ui.monospace_font), which measures the
+# same on every platform.
+MONOSPACE_FONT_NAME = "monospace"
+HUD_COUNTDOWN_FONT_NAME = MONOSPACE_FONT_NAME
 HUD_COUNTDOWN_FIT_TEXT = "000"
 
 # Derived layout — constant once the screen geometry is set.
@@ -723,15 +726,21 @@ def _render_hud_badge_text(
     max_height = HUD_BADGE_SIZE - 2 * HUD_BADGE_TEXT_PADDING
     fit_text = text if fit_text is None else fit_text
     for size in range(int(max_font_size), HUD_BADGE_MIN_FONT_SIZE - 1, -1):
-        font = pygame.font.SysFont(font_name, size)
+        font = _hud_font(font_name, size)
         fit_width, fit_height = font.size(fit_text)
         if fit_width <= max_width and fit_height <= max_height:
             return font.render(text, True, color)
-    return pygame.font.SysFont(font_name, HUD_BADGE_MIN_FONT_SIZE).render(
+    return _hud_font(font_name, HUD_BADGE_MIN_FONT_SIZE).render(
         text,
         True,
         color,
     )
+
+
+def _hud_font(font_name, size):
+    if font_name == MONOSPACE_FONT_NAME:
+        return ui.monospace_font(size)
+    return pygame.font.SysFont(font_name, size)
 
 
 def _draw_human_badge_icon(screen, center):
