@@ -2733,10 +2733,10 @@ STRATEGIES: dict[str, StrategyFunction] = {
     "Spathi": shared,
     "Supox": supox,
     "Syreen": syreen,
-    "Thraddash": thraddash,
-    "Umgah": umgah,
+    "Thraddash": shared,
+    "Umgah": shared,
     "Utwig": utwig,
-    "Vux": vux,
+    "Vux": shared,
     "Yehat": yehat,
     "ZoqFotPik": zoq_fot_pik,
 }
@@ -2787,13 +2787,14 @@ STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
         "full_reach": syreen_full_reach,
         "pressing": syreen_pressing,
     },
-    "Thraddash": {"dodge_only": thraddash_dodge_only},
+    "Thraddash": {"earlier": thraddash, "dodge_only": thraddash_dodge_only},
     "Vux": {
+        "earlier": vux,
         "flee_or_chase": vux_flee_or_chase,
         "keep_away": vux_keep_away,
         "slingshot": vux_slingshot,
     },
-    "Umgah": {"approach_cone": umgah_approach_cone, "hop_in": umgah_hop_in},
+    "Umgah": {"earlier": umgah, "approach_cone": umgah_approach_cone, "hop_in": umgah_hop_in},
     "ZoqFotPik": {"a1_first": zoq_fot_pik_a1_first},
 }
 

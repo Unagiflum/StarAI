@@ -62,14 +62,15 @@ class SpecialRuleTests(unittest.TestCase):
                 self.assertEqual(result.frames, 90)
 
     def test_whole_rule_specials_fly_as_the_ship_strategy(self):
-        whole = {"specials": (), "band": None, "recharge_battery": None, "weapons": ()}
-        for ship, rule in (("Thraddash", "thraddash_rules"), ("Umgah", "umgah_rules"), ("Vux", "vux_rules")):
-            entry = dataclasses.replace(ship_behaviour(ship), **{**whole, "specials": (rule,)})
+        # The Thraddash, Umgah and Vux run from their table entries, each a
+        # whole-rule special, fight for fight as their earlier rules.
+        for ship in ("Thraddash", "Umgah", "Vux"):
+            self.assertIs(strategies.STRATEGIES[ship], strategies.shared)
             for opponent in ("Chmmr", "Orz"):
                 with self.subTest(ship=ship, opponent=opponent):
-                    own = run_match(ArenaMatch(ship, opponent, 1), frames=240)
-                    shared = run_match(ArenaMatch(ship, opponent, 1, "x", entry=entry), frames=240)
-                    self.assertEqual(dataclasses.replace(shared, variant="default"), own)
+                    earlier = run_match(ArenaMatch(ship, opponent, 1, "earlier"), frames=240)
+                    moved = run_match(ArenaMatch(ship, opponent, 1), frames=240)
+                    self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
 
 
 class MovedShipTests(unittest.TestCase):

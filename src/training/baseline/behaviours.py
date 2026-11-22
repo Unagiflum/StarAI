@@ -361,8 +361,24 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             },
         },
     ),
-    "Thraddash": ShipBehaviour(coast_above_top_speed=True),
-    "Umgah": ShipBehaviour(evade_headings=False, shoot_down=False, keep_moving=False),
+    # Pass 1: the Thraddash, Umgah and Vux run their whole earlier rules as
+    # one special, fight for fight as before; their movement is split out in
+    # pass 2. λ low for the Thraddash, which outruns most ships on its
+    # afterburner; middling for the Umgah, which escapes only by hopping
+    # backwards; high for the Vux, slow and unable to run.
+    "Thraddash": ShipBehaviour(
+        harm_taken_weight=0.25,
+        coast_above_top_speed=True,
+        specials=("thraddash_rules",),
+    ),
+    "Umgah": ShipBehaviour(
+        harm_taken_weight=0.5,
+        evade_headings=False,
+        shoot_down=False,
+        keep_moving=False,
+        specials=("umgah_rules",),
+    ),
+    "Vux": ShipBehaviour(harm_taken_weight=1.0, specials=("vux_rules",)),
 }
 
 # (id of the base entry, opponent) -> (base entry, entry with the overrides
