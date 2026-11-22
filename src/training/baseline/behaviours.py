@@ -223,7 +223,17 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         opponents={"Chmmr": {"specials": ("androsynth_chmmr",)}},
     ),
     "Arilou": ShipBehaviour(shoot_down=False),
-    "Chenjesu": ShipBehaviour(keep_moving_takes_aim=True),
+    # Pass 1 at the default perception delay, by the harm ranking: keep up
+    # to 4 Dogi out, and aim the crystal at the opponent every decision,
+    # holding it while it closes; keep moving does the rest. No band: every
+    # band that moved the ship first left the crystal pointing away and
+    # dealt far less harm. λ is high: costly and outrunning nothing, it
+    # can't stall, so λ only picks the safer of two equally harmful plans.
+    "Chenjesu": ShipBehaviour(
+        harm_taken_weight=1.0,
+        keep_moving_takes_aim=True,
+        specials=("chenjesu_dogi", "chenjesu_crystal"),
+    ),
     "Earthling": ShipBehaviour(shoot_down=False),
     # The Kohr-Ah's shoot-downs cut crew lost by 0.9/min but crew dealt by
     # 1.3/min over 30 seeds.

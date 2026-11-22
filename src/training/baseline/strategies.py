@@ -2715,7 +2715,7 @@ STRATEGIES: dict[str, StrategyFunction] = {
     # Run from their table entries (``behaviours.SHIP_BEHAVIOURS``).
     "Androsynth": shared,
     "Arilou": arilou,
-    "Chenjesu": chenjesu,
+    "Chenjesu": shared,
     "Chmmr": chmmr,
     "Druuge": druuge,
     "Earthling": earthling,
@@ -2765,6 +2765,7 @@ DEFAULT_VARIANT = "default"
 # Training, opponents and battle mode always use ``STRATEGIES``.
 STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
     "Androsynth": {"earlier": androsynth},
+    "Chenjesu": {"earlier": chenjesu},
     "Earthling": {"flee_whip": earthling_flee_whip},
     "Ilwrath": {"always_cloak": ilwrath_always_cloak, "chase": ilwrath_chase},
     "Pkunk": {
