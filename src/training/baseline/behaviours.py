@@ -54,7 +54,10 @@ class Band:
     speed when coming in from beyond ``far``. ``inside`` is the posture
     within the band (``BAND_INSIDE_POSTURES``). ``run_offset`` is the
     heading, in degrees off the opponent's bearing, it runs from a closer
-    on: 180 straight away, less to veer off its line.
+    on: 180 straight away, less to veer off its line. With ``back_off``
+    the near edge works as ``approach_range``'s does: inside it the ship
+    steers ``run_offset`` off the bearing whether or not the opponent is
+    closing, with no prediction and no release distance.
     """
 
     near: float
@@ -64,6 +67,7 @@ class Band:
     approach_speed: float = BAND_APPROACH_SPEED
     inside: str = BAND_INSIDE_FREE
     run_offset: float = 180.0
+    back_off: bool = False
 
     def __post_init__(self) -> None:
         if self.inside not in BAND_INSIDE_POSTURES:

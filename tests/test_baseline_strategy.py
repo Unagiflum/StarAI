@@ -1021,6 +1021,24 @@ class BehaviourSchemaTests(unittest.TestCase):
             self.assertTrue(recharging.recharge_retreat())
         self.assertAlmostEqual(abs(steer.call_args.args[0]), 135.0)
 
+    def test_a_back_off_band_backs_off_inside_its_near_edge_closing_or_not(self):
+        band = Band(280.0, 400.0, approach_speed=math.inf, run_offset=110.0, back_off=True)
+        entry = ShipBehaviour(band=band)
+        for closing in (5.0, -5.0):
+            inside = self._with("Arilou", entry, enemy=_seen(0.0, 200.0, closing=closing))
+            with mock.patch.object(inside, "steer", return_value=True) as steer:
+                self.assertFalse(inside.hold_band())
+            self.assertAlmostEqual(abs(steer.call_args.args[0]), 110.0)
+
+        between = self._with("Arilou", entry, enemy=_seen(0.0, 350.0, closing=40.0))
+        self.assertFalse(between.hold_band())
+        self.assertIsNone(between.plan.turn)
+
+        beyond = self._with("Arilou", entry, enemy=_seen(0.0, 900.0, closing=40.0))
+        with mock.patch.object(beyond, "steer", return_value=True) as steer:
+            beyond.hold_band()
+        self.assertTrue(steer.call_args.kwargs["thrust"])
+
     def test_spathi_settings_differ_by_opponent(self):
         self.assertEqual(
             ship_behaviour("Spathi", "Mycon").band, Band(756.0, 1080.0, approach_speed=60.0)

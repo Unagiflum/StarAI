@@ -1661,6 +1661,8 @@ class BaselineContext:
         if not isinstance(band, Band):
             band = Band(*band)
         near, far = self.band_limits(band)
+        if band.back_off:
+            return self._back_off_band(band, near, far, key)
         running = self.keep_standoff(
             key,
             near,
@@ -1675,6 +1677,24 @@ class BaselineContext:
             self.plan.claim_thrust(False)
         elif band.inside == BAND_INSIDE_ORBIT:
             self.steer(self.side(f"{key}_orbit", self.enemy.bearing, 90.0))
+        return False
+
+    def _back_off_band(self, band: Band, near: float, far: float, key: str) -> bool:
+        """``hold_band`` for a ``back_off`` band: close in at an angle from
+        beyond ``far``, steer ``run_offset`` off the bearing inside
+        ``near``, and take the band's posture in between. Never running."""
+
+        enemy = self.enemy
+        if enemy.distance > far:
+            heading = self.drift_cancelling_side(f"{key}_far", enemy, APPROACH_ANGLE_OFFSET)
+            self.steer(heading, thrust=enemy.closing_speed < band.approach_speed)
+        elif enemy.distance < near:
+            self.steer(self.side(f"{key}_near", enemy.bearing, float(band.run_offset)))
+        elif band.inside == BAND_INSIDE_FACE:
+            self.point_at_opponent()
+            self.plan.claim_thrust(False)
+        elif band.inside == BAND_INSIDE_ORBIT:
+            self.steer(self.side(f"{key}_orbit", enemy.bearing, 90.0))
         return False
 
     def fire_weapon(self, action: int, use: WeaponUse | None = None) -> bool:
