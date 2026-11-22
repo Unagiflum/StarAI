@@ -17,6 +17,7 @@ from typing import Callable
 
 import src.const as const
 from src.training.baseline.behaviours import (
+    BAND_INSIDE_CHASE,
     BAND_INSIDE_FACE,
     BAND_INSIDE_ORBIT,
     FIRE_AIMED,
@@ -1677,6 +1678,8 @@ class BaselineContext:
             self.plan.claim_thrust(False)
         elif band.inside == BAND_INSIDE_ORBIT:
             self.steer(self.side(f"{key}_orbit", self.enemy.bearing, 90.0))
+        elif band.inside == BAND_INSIDE_CHASE:
+            self.approach_opponent()
         return False
 
     def _back_off_band(self, band: Band, near: float, far: float, key: str) -> bool:
@@ -1695,6 +1698,8 @@ class BaselineContext:
             self.plan.claim_thrust(False)
         elif band.inside == BAND_INSIDE_ORBIT:
             self.steer(self.side(f"{key}_orbit", enemy.bearing, 90.0))
+        elif band.inside == BAND_INSIDE_CHASE:
+            self.approach_opponent()
         return False
 
     def fire_weapon(self, action: int, use: WeaponUse | None = None) -> bool:

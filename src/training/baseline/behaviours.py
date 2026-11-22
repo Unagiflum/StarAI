@@ -32,11 +32,12 @@ from typing import Any, Mapping
 
 # What a band does with steering while the opponent is inside it and not
 # closing in fast: leave it free (for aiming), face the opponent without
-# thrust, or fly across the line to the opponent.
+# thrust, fly across the line to the opponent, or fly straight at it.
 BAND_INSIDE_FREE = "free"
 BAND_INSIDE_FACE = "face"
 BAND_INSIDE_ORBIT = "orbit"
-BAND_INSIDE_POSTURES = (BAND_INSIDE_FREE, BAND_INSIDE_FACE, BAND_INSIDE_ORBIT)
+BAND_INSIDE_CHASE = "chase"
+BAND_INSIDE_POSTURES = (BAND_INSIDE_FREE, BAND_INSIDE_FACE, BAND_INSIDE_ORBIT, BAND_INSIDE_CHASE)
 # Close in from beyond the band no faster than this closing speed, in world
 # units per frame.
 BAND_APPROACH_SPEED = 15.0
@@ -261,6 +262,18 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # battery when a shot can't be afforded; against the Chenjesu it shoots
     # the nearest Dogi first. Every band dealt far less harm: the recoil
     # already keeps its distance. λ is high: slow, it can't outrun anything.
+    # Pass 1 at the default perception delay, by the harm ranking: close in
+    # at full speed to the laser's 600 reach and inside it face the
+    # opponent without thrust (a back-off band that never backs off); the
+    # tractor pulls the opponent into reach (a special); the laser is aimed.
+    # λ is high: the costliest ship, it never runs, so λ only picks the
+    # safer of two equally harmful plans.
+    "Chmmr": ShipBehaviour(
+        harm_taken_weight=1.0,
+        specials=("chmmr_tractor",),
+        band=Band(0.0, 600.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, back_off=True),
+        weapons=(WeaponUse(FIRE_AIMED), None),
+    ),
     "Druuge": ShipBehaviour(
         harm_taken_weight=1.0,
         specials=("druuge_recoil_escape", "druuge_crew_battery"),

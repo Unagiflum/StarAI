@@ -58,6 +58,7 @@ from src.training.baseline.engine import (
 from src.training.baseline import behaviours as behaviour_table
 from src.training.baseline import strategies as strategy_module
 from src.training.baseline.behaviours import (
+    BAND_INSIDE_CHASE,
     BAND_INSIDE_FACE,
     BAND_INSIDE_ORBIT,
     DEFAULT_BEHAVIOUR,
@@ -1038,6 +1039,13 @@ class BehaviourSchemaTests(unittest.TestCase):
         with mock.patch.object(beyond, "steer", return_value=True) as steer:
             beyond.hold_band()
         self.assertTrue(steer.call_args.kwargs["thrust"])
+
+    def test_a_chase_band_flies_straight_at_the_opponent_inside_it(self):
+        band = Band(0.0, None, inside=BAND_INSIDE_CHASE, back_off=True)
+        context = self._with("Chmmr", ShipBehaviour(band=band), enemy=_seen(30.0, 900.0))
+        with mock.patch.object(context, "approach_opponent", return_value=True) as chase:
+            context.hold_band()
+        chase.assert_called_once()
 
     def test_spathi_settings_differ_by_opponent(self):
         self.assertEqual(
