@@ -278,8 +278,17 @@ def new_arena_battle(match: ArenaMatch):
     return simulation, ledger
 
 
-def run_match(match: ArenaMatch, *, frames: int = DEFAULT_FRAMES) -> ArenaResult:
-    """Fly one fixed-length fight between two baseline-controlled ships."""
+def run_match(
+    match: ArenaMatch,
+    *,
+    frames: int = DEFAULT_FRAMES,
+    on_step=None,
+) -> ArenaResult:
+    """Fly one fixed-length fight between two baseline-controlled ships.
+
+    ``on_step``, if given, is called with the simulation before the first
+    frame and after every frame, for measurements that follow the fight.
+    """
 
     from src.Battle.computer_control import guard_computer_controls
     from src.training.baseline.controller import BaselineController
@@ -305,6 +314,8 @@ def run_match(match: ArenaMatch, *, frames: int = DEFAULT_FRAMES) -> ArenaResult
     still_speed = STILL_SPEED_FRACTION * ship_spec(match.ship).max_thrust
     still_frames = kills = deaths = 0
     frame_limit = max(1, int(frames))
+    if on_step is not None:
+        on_step(simulation)
     for _ in range(frame_limit):
         ships = {1: simulation.player1, 2: simulation.player2}
         for player, ship in ships.items():
@@ -339,6 +350,8 @@ def run_match(match: ArenaMatch, *, frames: int = DEFAULT_FRAMES) -> ArenaResult
         )
         event_start = len(ledger.events)
         simulation.step(actions=actions)
+        if on_step is not None:
+            on_step(simulation)
         tracker.contributions(decision, SimpleNamespace(events=ledger.events[event_start:]))
         died = set(getattr(simulation, "training_episode_deaths", ()))
         killers = set(getattr(simulation, "training_episode_kills", ()))
