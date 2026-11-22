@@ -316,9 +316,18 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         specials=("ilwrath_flame_cloak", "ilwrath_hang_back", "ilwrath_follow"),
         band=Band(0.0, 300.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
     ),
-    # The Kohr-Ah's shoot-downs cut crew lost by 0.9/min but crew dealt by
-    # 1.3/min over 30 seeds.
-    "KohrAh": ShipBehaviour(shoot_down=False),
+    # Pass 1 at the default perception delay, by the harm ranking: gas when
+    # the opponent or any enemy object is within its reach, and aim the saw
+    # every decision, keeping a flying saw moving while it closes (both
+    # specials); keep moving does the rest. No band: every band that moved
+    # the ship first left the saw aimed away. No shoot-downs: they cut crew
+    # lost by 0.9/min but crew dealt by 1.3/min over 30 seeds. λ is high:
+    # costly and slow, it can't stall.
+    "KohrAh": ShipBehaviour(
+        harm_taken_weight=1.0,
+        shoot_down=False,
+        specials=("kohr_ah_gas", "kohr_ah_saw"),
+    ),
     "Mmrnmrhm": ShipBehaviour(keep_moving_takes_aim=True),
     "Mycon": ShipBehaviour(shoot_down=False),
     "Slylandro": ShipBehaviour(keep_moving=False),
