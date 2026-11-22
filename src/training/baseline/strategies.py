@@ -29,7 +29,7 @@ from src.training.baseline.engine import (
     StrategyFunction,
     _smallest_positive_root,
 )
-from src.training.baseline.behaviours import SHIP_BEHAVIOURS
+from src.training.baseline.behaviours import ARILOU_TELEPORT_SECONDS, SHIP_BEHAVIOURS
 from src.training.baseline.observation_view import bearing_of, wrap_degrees
 from src.training.baseline.ship_specs import (
     FORM_BASE,
@@ -44,8 +44,8 @@ from src.training.baseline.ship_specs import (
 from src.Objects.Ships.catalog import ABILITY_DEFINITIONS, SHIP_DEFINITIONS
 
 # Collision windows from the specification, in seconds. The engine adds one
-# action span to each so a reaction is never a decision late.
-ARILOU_TELEPORT_SECONDS = 0.1
+# action span to each so a reaction is never a decision late. The Arilou's
+# teleport window is in ``behaviours`` (ARILOU_TELEPORT_SECONDS).
 SHIELD_SECONDS = 0.2
 THRADDASH_AFTERBURNER_SECONDS = 0.5
 UMGAH_CONE_THREAT_SECONDS = 1.0
@@ -2714,7 +2714,7 @@ def generic(ctx: BaselineContext) -> None:
 STRATEGIES: dict[str, StrategyFunction] = {
     # Run from their table entries (``behaviours.SHIP_BEHAVIOURS``).
     "Androsynth": shared,
-    "Arilou": arilou,
+    "Arilou": shared,
     "Chenjesu": shared,
     "Chmmr": chmmr,
     "Druuge": druuge,
@@ -2765,6 +2765,7 @@ DEFAULT_VARIANT = "default"
 # Training, opponents and battle mode always use ``STRATEGIES``.
 STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
     "Androsynth": {"earlier": androsynth},
+    "Arilou": {"earlier": arilou},
     "Chenjesu": {"earlier": chenjesu},
     "Earthling": {"flee_whip": earthling_flee_whip},
     "Ilwrath": {"always_cloak": ilwrath_always_cloak, "chase": ilwrath_chase},

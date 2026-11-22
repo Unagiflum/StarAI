@@ -201,6 +201,10 @@ class ShipBehaviour:
         return self.weapons[index] if 0 <= index < len(self.weapons) else None
 
 
+# Collision window from the specification: the Arilou teleports from a hit
+# due within this many seconds.
+ARILOU_TELEPORT_SECONDS = 0.1
+
 DEFAULT_BEHAVIOUR = ShipBehaviour()
 
 SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
@@ -222,7 +226,24 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         weapons=(WeaponUse(FIRE_LAUNCH, reserve=9.0), None),
         opponents={"Chmmr": {"specials": ("androsynth_chmmr",)}},
     ),
-    "Arilou": ShipBehaviour(shoot_down=False),
+    # Pass 1 at the default perception delay, by the harm ranking: close in
+    # at full speed beyond the laser's 400 reach and, inside 200, steer 110
+    # degrees off the bearing (a back-off band, as approach_range did); the
+    # laser aims itself, so it launches keeping a teleport's 3 battery; the
+    # teleport defends against hits due within 0.1 s. Against a Chmmr it
+    # holds outside the laser and fires as satellites cross the beam.
+    # λ stays 0.5: it escapes by teleporting, but only from a hit about to
+    # land, not by running.
+    "Arilou": ShipBehaviour(
+        harm_taken_weight=0.5,
+        shoot_down=False,
+        band=Band(200.0, 400.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        weapons=(
+            WeaponUse(FIRE_LAUNCH, reserve=3.0),
+            WeaponUse(FIRE_DEFEND, threat_seconds=ARILOU_TELEPORT_SECONDS),
+        ),
+        opponents={"Chmmr": {"specials": ("arilou_chmmr",)}},
+    ),
     # Pass 1 at the default perception delay, by the harm ranking: keep up
     # to 4 Dogi out, and aim the crystal at the opponent every decision,
     # holding it while it closes; keep moving does the rest. No band: every
