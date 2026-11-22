@@ -1132,6 +1132,22 @@ checked rather than assumed.
   crew loss (and against the Chmmr, wherever its lasers reach), so the result
   depends on those rules and is rechecked when the shield ships move.
 
+### Ship checks
+
+Questions to settle when the ship comes up in a pass, beyond its screen:
+
+- **Androsynth against the Chmmr.** Today it saves its battery and blazes in
+  once, from close in, on a full battery; the bubbles (A1) aren't fired.
+  Check whether the bubbles get through the satellites, which shoot shots
+  down, with 3, 2, 1 and 0 satellites up (the strong and weak cells cover 3
+  and 1; respawns and kills give the others). Report the bubbles' shot
+  outcomes (`shot_outcomes.ShotTracker`: hit and shot-down shares) and harm
+  dealt and taken per satellite count. If bubbles land, compare the current
+  ram with firing bubbles from outside the satellites' reach and keeping the
+  blazer (A2) to escape the tractor and a closing Chmmr: A2 for escape, A1
+  for damage. Keep whichever ranks higher, per satellite count if that
+  differs (the special can read `ctx.chmmr_satellites()`).
+
 ---
 
 ## Phase 6B: Perception Delay For Computer Control
