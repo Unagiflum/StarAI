@@ -2712,7 +2712,8 @@ def generic(ctx: BaselineContext) -> None:
 
 
 STRATEGIES: dict[str, StrategyFunction] = {
-    "Androsynth": androsynth,
+    # Run from their table entries (``behaviours.SHIP_BEHAVIOURS``).
+    "Androsynth": shared,
     "Arilou": arilou,
     "Chenjesu": chenjesu,
     "Chmmr": chmmr,
@@ -2763,6 +2764,7 @@ DEFAULT_VARIANT = "default"
 # Alternative rule sets per ship, for comparing strategies in the arena.
 # Training, opponents and battle mode always use ``STRATEGIES``.
 STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
+    "Androsynth": {"earlier": androsynth},
     "Earthling": {"flee_whip": earthling_flee_whip},
     "Ilwrath": {"always_cloak": ilwrath_always_cloak, "chase": ilwrath_chase},
     "Pkunk": {

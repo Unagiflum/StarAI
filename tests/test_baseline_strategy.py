@@ -2756,6 +2756,40 @@ class SlylandroChmmrTests(unittest.TestCase):
         self.assertTrue(context.plan.a2)
 
 
+class AndrosynthSharedTests(unittest.TestCase):
+    def _context(self, enemy, *, battery, enemy_name="Mycon"):
+        return _rule_context(
+            "Androsynth",
+            enemy=enemy,
+            enemy_name=enemy_name,
+            battery=battery,
+            battery_fraction=battery / 24.0,
+            max_battery=24.0,
+        )
+
+    def test_runs_from_its_table_entry(self):
+        self.assertIs(STRATEGIES["Androsynth"], strategy_module.shared)
+
+    def test_blazes_in_close_on_half_a_battery(self):
+        near = self._context(_seen(0.0, 800.0), battery=14.0)
+        STRATEGIES["Androsynth"](near)
+        self.assertTrue(near.plan.a2)
+
+        low = self._context(_seen(0.0, 800.0), battery=10.0)
+        STRATEGIES["Androsynth"](low)
+        self.assertFalse(low.plan.a2)
+
+    def test_launches_bubbles_keeping_a_reserve(self):
+        far = _seen(0.0, 3000.0)
+        charged = self._context(far, battery=14.0)
+        STRATEGIES["Androsynth"](charged)
+        self.assertTrue(charged.plan.a1)
+
+        reserve = self._context(far, battery=11.0)
+        STRATEGIES["Androsynth"](reserve)
+        self.assertFalse(reserve.plan.a1)
+
+
 class SpathiChmmrTests(unittest.TestCase):
     """The earlier Chmmr rule, kept in the ``approach`` variant."""
 

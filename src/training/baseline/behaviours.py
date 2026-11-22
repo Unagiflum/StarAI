@@ -200,7 +200,24 @@ class ShipBehaviour:
 DEFAULT_BEHAVIOUR = ShipBehaviour()
 
 SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
-    "Androsynth": ShipBehaviour(shoot_down=False),
+    # Pass 1 at the default perception delay, by the harm ranking: the
+    # blazer is the mode switch (blaze in within 1,000 on half a battery,
+    # ram while it lasts); bubbles home, so they launch keeping 9 battery
+    # back; it keeps the opponent at least 1,000 off, veering 135 degrees
+    # from a closer, and below half its 24 battery keeps out of reach.
+    # Against a Chmmr it saves a full battery for one ram from close in:
+    # bubbles don't get through its satellites (Phase 6 ship checks).
+    # λ stays 0.5: slow in its normal form, it escapes only by blazing,
+    # which spends the battery the bubbles need.
+    "Androsynth": ShipBehaviour(
+        harm_taken_weight=0.5,
+        shoot_down=False,
+        form_switch="androsynth_blazer",
+        recharge_battery=12.0,
+        band=Band(1000.0, None, run_offset=135.0),
+        weapons=(WeaponUse(FIRE_LAUNCH, reserve=9.0), None),
+        opponents={"Chmmr": {"specials": ("androsynth_chmmr",)}},
+    ),
     "Arilou": ShipBehaviour(shoot_down=False),
     "Chenjesu": ShipBehaviour(keep_moving_takes_aim=True),
     "Earthling": ShipBehaviour(shoot_down=False),
