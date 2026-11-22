@@ -14,6 +14,8 @@ This document is the implementation source of truth and progress tracker for:
 5. A "harm" reward scheme that rewards only lasting harm to the opponent.
 6. A gradual refactor of baseline strategies into shared, prioritised
    behaviours.
+   6B. A perception delay for computer control: enemy objects are seen only
+   once they are a few frames old.
 
 Phases are implemented in the order of the tracker at the end. A later phase
 starts only after the earlier phase's acceptance checks pass. Phase 6 is
@@ -1051,6 +1053,139 @@ taken is at most 3 times the extra harm dealt.
 
 ---
 
+## Phase 6B: Perception Delay For Computer Control
+
+### Problem
+
+Computer controllers react to an enemy shot on the frame it appears. Measured
+2026-11-21 (5 seeds × 4 cells per pairing, every shot followed to its end):
+
+- **Arilou:** of more than 1,000 Spathi shots, 2 hit. About 60% of forward
+  shots were within 400 of the Arilou when it teleported; it outflew the
+  rest. The baseline teleports whenever any threat is due within 0.1 s, and
+  its battery (3 per teleport, about 3.4 regained per second) never runs
+  short.
+- **Yehat:** its shield absorbed 62–69% of Spathi forward shots and 58% of
+  missiles; 1–6 of about 450 forward shots hit. With 2 battery back every 7
+  frames against a 3-battery, 10-frame shield, it can shield almost
+  continuously.
+- **Utwig:** its shield absorbed 70–79% of forward shots, and its bolts shot
+  down most of the rest. Absorbed hits recharge it.
+- **Lasers, which give no warning, do land** (3 seeds × 4 cells):
+  - **Arilou:** 302 Slylandro hits in 12 fights, during which it teleported
+    once.
+  - **Yehat:** 52–77% of Arilou, Slylandro and Vux laser attempts landed.
+  - **Utwig:** all 424 Arilou laser attempts landed.
+  - **Exceptions:** shields block most laser attempts where a rule keeps them
+    up in advance (the Phase 2 rules against the Chmmr), or where a burst's
+    first hit triggers the crew-loss shield (Mmrnmrhm).
+
+The advantage is the warning, not the abilities. A human needs about 0.2 s to
+react, and can't respond to a shot fired from close by. UQM's Arilou AI
+(`arilou_intelligence`) is imperfect by design: it teleports on a random 1
+frame in 4 while a shot is due within 3 frames, and below its top difficulty
+it ignores non-homing shots. A rule like that would bind only the baseline,
+and a trained network could still learn perfect reflexes, so the limit goes
+in the observation both share.
+
+### Requirements
+
+1. **Setting.**
+   - "Perception delay (frames)" on the Game Play settings page, an integer
+     from 0 to 24. The default is 5 (0.21 s at 24 FPS).
+   - Stored with the other game-play settings (`DEFAULT_GAMEPLAY`,
+     `GameSettings`). A settings file without it loads the default.
+   - Applied at runtime with the other game settings (`apply_game_settings`).
+2. **What is delayed.**
+   - In a computer controller's observation, an object owned by the enemy
+     ship (its root owner, followed up the parents) is left out until it has
+     been in the world for the delay. That covers projectiles, fighters,
+     marines, limpets in flight, mines, Dogi, saws, shards, and any object a
+     release or a parent object spawns.
+   - The age counts frames since the object entered the world. A respawned
+     ship's objects, Chmmr satellites included, are new objects and wait like
+     any other.
+   - A delay of 0 gives observations identical to today's.
+3. **What is not delayed.**
+   - The ships themselves, including a respawned enemy ship.
+   - My own objects, which I know I fired.
+   - Neutral objects: the planet, asteroids, and Syreen crew pods.
+   - My own state, including limpets already attached to my ship and crew
+     lost.
+4. **Left out means left out everywhere.** An object under the delay is
+   absent from every observation feature built from objects: the slots, and
+   any counts or nearest-object values drawn from them. It must not leak
+   through a count before it appears in a slot.
+5. **Per viewer.** The arena and training build one observation context per
+   frame for both ships (`build_observation_context`). The delay filters per
+   viewer, as each ship's enemy objects differ. Visibility depends only on the
+   viewer, so the shared context still saves the work.
+6. **Game rules are unchanged.**
+   - Targeting inside the game rules reads the live world as today. The Chmmr
+     satellites (`ChmmrSatellite._select_laser_target`) and the Earthling
+     point defence choose their targets as now: with Earthling A2 held, it
+     shoots down a 1 HP projectile younger than the delay.
+   - Homing weapons, fighters and marines steer as now.
+   - What the delay changes is the controller's decisions. A baseline or
+     network deciding whether to hold Earthling A2 doesn't know of an enemy
+     shot younger than the delay.
+7. **Who is affected.**
+   - Every controller that decides from the encoded observation: baseline
+     strategies (trainee phases, training opponents, battle opponents, the
+     arena) and trained networks.
+   - Human players don't use the encoder, so human play is unchanged.
+   - Verify that no baseline path reads the live world for enemy objects
+     instead of the observation.
+8. **Models.**
+   - The training metadata records the delay (`perception_delay_frames`),
+     as it records `ship_directions` (`model_registry`).
+   - A model saved without it was trained with a delay of 0.
+   - Resuming or loading a model with a different delay is handled as a
+     ship-direction mismatch is handled today.
+9. **Arena.** `--perception-delay` sets the delay, default 5, independent of
+   the settings file so runs repeat. The report states the delay used.
+
+### Measurement
+
+- **Shot outcomes:** the Spathi against the Arilou, Yehat and Utwig, and
+  laser ships against them, at delays 0 and 5. Hit, absorbed, teleported and
+  shot-down shares for each.
+- **Every ship:** every ship against every opponent, 5 seeds × 4 cells, at
+  delays 0 and 5. Harm dealt and taken per ship, to show which ships lose most
+  of their defence. Expect the Arilou, Yehat and Utwig to lose most, and rule
+  1 dodges and shoot-downs of close shots to weaken for every ship.
+- **Tuned rules:** recheck the Phase 2 and Phase 6 rules that rest on
+  reactive defence. Examples: the Utwig and Yehat against the Chmmr, the
+  Phase 3A shoot-downs, and the Spathi settings.
+- **Other delays:** 3 and 8 frames, to show how sensitive the results are to
+  the default.
+
+### Tests
+
+- An enemy object is absent from the observation for the delay, and present
+  from the frame it reaches it.
+- Own objects, ships, the planet, asteroids and crew pods are present at
+  once.
+- A delay of 0 gives observations identical to today's.
+- An object under the delay leaks into no count or slot.
+- Per-viewer filtering with one shared context: each ship sees its own
+  objects at once and the other's after the delay.
+- A respawned enemy's new objects wait for the delay.
+- Chmmr satellites still shoot a projectile younger than the delay, and a
+  held Earthling A2 still shoots one down.
+- Settings: default 5, range 0–24, saved and loaded; an old settings file
+  loads 5.
+- Model metadata records the delay; a model without it reads as 0.
+
+### Order
+
+Phase 6B is implemented before the Spathi's settings are confirmed. It changes
+how every opponent defends against the Spathi's shots, and how the Spathi
+defends. Screening already flown at delay 0 shortlists settings, and the
+shortlist is screened again at the default delay before confirmation.
+
+---
+
 ## Decisions
 
 Recorded 2026-11-20.
@@ -1067,6 +1202,7 @@ Recorded 2026-11-20.
 | D8 | Supox end animation | Only on a hit. Other projectiles unchanged. |
 | D9 | Reward schemes | Classic and Harm both kept, switched by a slider at the top of the Rewards pane. |
 | D10 | Crew gains and losses | Opponent: for every opponent, the trainee is credited only for new lows it causes; gains and losses it didn't cause just move the low-water mark. Trainee: the penalty follows the crew level, so every loss is penalised and every gain credited, netting to the real change in crew. |
+| D11 | Perception delay | Recorded 2026-11-21. Computer controllers see enemy objects only once they are N frames old: a Game Play setting, 0–24, default 5. Ships, own objects, neutral objects and own state are not delayed. Game-rule targeting (Chmmr satellites, Earthling point defence, homing) still sees the live world. Chosen over a delay on everything, which would mistime every aim and dodge, and over UQM's random gate, which would bind only the baseline and not trained networks. |
 
 ---
 
@@ -1102,3 +1238,4 @@ Recorded 2026-11-20.
 | 5 | Harm reward scheme | Implemented | <ul><li>**Formulas** in the new `src/training/harm.py`: `HarmProfile` (s, HP, satHP, satellite count, p from the catalog; Vmax is the highest catalog cost, 30) and `HarmTracker`, which turns each frame's ledger events into the four components `Damage to enemy`, `Enemy kill`, `Damage taken` and `Own death`. The kill divides satellite kills by the ship's satellite count (3 for the Chmmr).</li><li>**Crew:** effective crew is tracked from crew events. Launches and recoveries emit none (escrow debits and refunds are skipped), and a unit lost for good is a 1-crew loss. Opponent damage counts new lows the trainee causes; the trainee's damage follows its crew level. "Starting crew" is the crew a ship spawns with (training spawns are randomised); HP stays the normal starting crew.</li><li>**Attribution:** harm counts as the trainee's when the event's source, followed up its parents, is the trainee ship. Units left by an earlier trainee life have no parent once it dies, so they earn the current life nothing; in a 2,400-frame Kzer-Za vs Mycon round the game credited such a fighter with a kill that harm didn't.</li><li>**Lives:** the tracker lives on the round's `BattleEventLedger` (`harm_tracker`), keyed by ship object, so opponent low-water marks outlast trainee-life trajectories. Respawns are new objects and start fresh; a Pkunk rebirth restarts tracking. The pre-step crew and limpet counts come from new `RewardDecisionFrame` fields.</li><li>**Placement:** `StagedTrajectoryPipeline._add_harm_components` puts each amount on the effect frame. In causal (and shadow) placement, trainee-caused opponent harm and self-inflicted own losses move to the origin frames of the event's causal credit when it is open; other penalties and all gains stay. In legacy placement everything stays on the effect frame.</li><li>**Schemes:** `REWARD_COMPONENTS` is now the classic components plus the four harm ones. The UI passes training only the active scheme's weights (`effective_reward_weights`), so the training config is unchanged and the tracker runs only when a harm weight is nonzero.</li><li>**UI and storage:** a "Reward scheme" slider (Classic/Harm) heads the Rewards pane, which shows the active scheme's sliders. Harm weights are stored in the rewards under their own keys, defaulting to 1.024, 1.024, 0 and 0; the scheme is stored as `reward_scheme` (default and old configs: classic) and propagates to other instances like other settings. Settings saved before the scheme compare as classic with default harm weights. The console's reward table lists the active scheme's components.</li><li>**Deferred:** the console shows each harm component's mean weighted return per sample, as it does for classic components, so a zero-weight penalty shows 0. Raw per-fight totals (`HarmTracker.totals`) aren't carried to the session status.</li></ul>Real rounds (`run_training_round`, random trainee actions, baseline opponents, 2,400 frames) for the Earthling, Kzer-Za, Chmmr and Vux against the Spathi, Mycon and Chmmr ran without errors in legacy and causal placement, with equal totals in both; e.g. six Earthling deaths gave Own death 3.633 = 6 × √(11/30). Tests: `tests/test_harm_reward.py` (formulas for a 6-crew and a 30-cost ship, the Chmmr, the Vux example, limpet series, Pkunk per life for both sides, the Mycon and no-gain new-low cases, unattributed and self-harm losses, launched crew, the Syreen example, per-frame sums, causal placement, tracking across trajectories); `RewardSchemeTests` and the Rewards pane screen test in `tests/test_train_ai_ui.py`. Full suite 1,631 tests OK. |
 | 6 | Shared behaviours, per ship | In progress: shared helpers, schema and harm evaluation (6A) done; Spathi to redo by the harm ranking | <ul><li>**Measuring:** the arena now reports crew dealt and lost per minute (`dealt_per_minute`, `lost_per_minute`) and still frames (`still_share`: frames alive below `STILL_SPEED_FRACTION`, 10%, of top speed). Fights are deterministic per seed, so a pure refactor is checked by identical results: every ship against every opponent, one seed (625 fights), matched exactly before and after the table and the helpers.</li><li>**Table:** the new `src/training/baseline/behaviours.py` holds `ShipBehaviour` per ship (`SHIP_BEHAVIOURS`, `ship_behaviour`), read through `BaselineContext.behaviour`. It replaces `SHOOT_DOWN_EXCLUDED_SHIPS`, `EVADE_NO_HEADING_SHIPS`, `KEEP_MOVING_EXCLUDED_SHIPS`, `KEEP_MOVING_AIM_SHIPS` and `COAST_ABOVE_TOP_SPEED_SHIPS`, and adds `evade`, `run_from_threats`, `planet_horizon_frames` (None: the Phase 3 horizon), `recharge_battery` and `band`. Opponent-dependent gates (`EVADE_GATES`) stay functions in `strategies.py`; weapon mechanics such as `HELD_WEAPON_SHIPS` stay facts in the engine.</li><li>**Helpers** in `engine.py`: `run_bearing` and the rule 1 run option (with `run_from_threats`, rule 1 also weighs flying straight away from the threats, each weighted by its crew cost over its distance); `recharging` and `recharge_retreat` (below `recharge_battery`, run once the opponent would come within its reach plus a hull and `RECHARGE_REACH_MARGIN`, 150, before the nose could turn away; release 200 farther; never close in); `hold_band` (`keep_standoff` on the given band or the table's); `enemy_reach`, moved from `strategies.py`. </li><li>**Schema:** extended after reading every strategy (see "Schema" under Phase 6): per-opponent overrides (`opponents`, applied by `ship_behaviour(ship, opponent)`), `Band` (as far as possible, outside the opponent's reach, approach speed, posture inside, run angle), recharge hysteresis and run angle, `WeaponUse` per weapon (`aimed`, `launch`, `defend`, `special`) run by `fire_weapon`, and the `specials` and `form_switch` slots (`strategies.SPECIAL_RULES`, `FORM_SWITCHES`). `strategies.shared` runs a ship wholly from its entry.</li><li>**Spathi (to redo):** these settings were chosen by wins and losses, which rewarded stalling (see "Evaluation" under Phase 6). They are kept until the harm evaluation exists, then retuned by the harm ranking. Currently it runs from its entry (`STRATEGIES["Spathi"] = shared`) against every opponent, with no per-opponent fallback to earlier rules. Default: band 756–1,080, recharging below 5 battery; gun aimed, rear missile launched. Overrides, chosen in the arena: Chmmr, band 1,000–1,300, no recharge, gun at satellites, no missiles (the former Chmmr rule, matched fight for fight); Earthling, recharge below 2, approach 60; Pkunk, band 300–756, approach 60, no recharge; Thraddash, band 300–756, approach 60; Utwig, band 900–1,300, approach 60, no recharge; Vux, band 300–756 at full approach speed, running 110° off its bearing, recharging until 8. Earlier rules stay as the `approach` variant. Fresh seeds 300–319 against all 25 opponents (500 fights each), earlier rules → now: W-L-T 144-240-116 → 212-98-190; crew dealt 9.0 → 9.1/min; crew lost 21.5 → 10.8/min; still frames 0% → 0%. The five former exceptions, earlier rules → now: Earthling 6-11-3 → 10-7-3 (seeds 100–119: 2-14 → 15-3); Pkunk, 100 seeds, 58-8-34 → 74-3-23, 5.0 → 6.2 dealt and 12.5 → 11.9 lost per minute; Thraddash, 100 seeds, 76-0-24 → 79-0-21, 6.3 → 6.0 dealt and 9.7 → 8.2 lost; Utwig 1-5-14 → 0-0-20, 3.1 → 0.7 dealt and 14.2 → 2.7 lost (seeds 100–119); Vux, 100 seeds, 81-19-0 → 73-22-5, 17.7 → 18.3 dealt and 13.9 → 12.6 lost, marginally fewer wins. Settings were screened on seeds 0–39 and confirmed on unused seeds: the Vux and Pkunk choices made on 20 seeds didn't hold on fresh ones, so those were rechecked over 100. Against the Utwig no setting won: the bands that fought it lost (0-18 and worse), so the Spathi stays beyond its bolts. Running from threats (seeds 0–19) changed 1 fight in 500, so it stays off.</li></ul>Tests: `SharedBehaviourTests`, `BehaviourSchemaTests` and `SpathiBandTests` in `tests/test_baseline_strategy.py`; the per-minute and still-frame tests in `tests/test_baseline_arena.py`. |
 | 6A | Harm evaluation in the arena | Implemented | <ul><li>**Fights:** `src/training/baseline/arena.py` now runs fixed 1,200-frame fights (`DEFAULT_FRAMES`) in the battle's training mode, which respawns a destroyed ship. An `ArenaSimulation` subclass sets each spawn's crew and satellites from its side's condition. The conditions are `STRONG` (normal crew, all satellites) and `WEAK` (a quarter of the crew rounded up, `WEAK_SATELLITES` = 1). They are drawn from a key per match, side and life, not the battle's random stream, so every variant meets the same starts. A respawned ship's controller is reset. Spawned ships get training's starting velocities, so they don't start at rest.</li><li>**Matrix:** `build_matches` flies each seed in the 4 cells (`CELLS`: SS, SW, WS, WW, mine then theirs).</li><li>**Harm:** a `HarmTracker` runs on each frame's ledger events. `ArenaResult` records damage and kill harm dealt and taken, kills, deaths, still frames and the λ in force; `score` is 0 without harm dealt.</li><li>**λ:** `ShipBehaviour.harm_taken_weight`, 0.5 until a ship moves; the Spathi has 0.25.</li><li>**Reports:** `tally` groups by ship and variant, then by all, opponent and cell. The report shows total and per-fight harm dealt, harm taken and λ score, plus kills, deaths, the share of fights with no harm, and still frames.</li><li>**Ranking:** `paired_difference` (95% interval, Student's t), `compare` (harm dealt first, then the λ score) and `rank_order` (lead group by λ score, then by harm dealt). The CLI compares each variant with the default.</li><li>**Screening:** `screen` and `--screen` drop settings as they fall behind, flying only the new seeds each round.</li><li>**CLI:** `--first-seed`, `--frames`, `--cells` and `--by-cell`.</li><li>**Speed:** see "Speed" under Phase 6 for the savings made and the worker measurements.</li></ul>Tests: `tests/test_baseline_arena.py` (conditions and respawns, repeatability, shared observations, scoring, paired intervals, ranking, screening, CLI). |
+| 6B | Perception delay for computer control | Specified | Spathi screening at delay 0 shortlists settings; the shortlist is rescreened at the default delay before the Spathi is confirmed. |
