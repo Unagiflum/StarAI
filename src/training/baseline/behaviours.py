@@ -255,6 +255,22 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         keep_moving_takes_aim=True,
         specials=("chenjesu_dogi", "chenjesu_crystal"),
     ),
+    # Pass 1 at the default perception delay, by the harm ranking: no band
+    # (keep moving only), the cannon aimed, recoiling away from close
+    # escorts and limpets of the ships that send them, and trading crew for
+    # battery when a shot can't be afforded; against the Chenjesu it shoots
+    # the nearest Dogi first. Every band dealt far less harm: the recoil
+    # already keeps its distance. λ is high: slow, it can't outrun anything.
+    "Druuge": ShipBehaviour(
+        harm_taken_weight=1.0,
+        specials=("druuge_recoil_escape", "druuge_crew_battery"),
+        weapons=(WeaponUse(FIRE_AIMED), None),
+        opponents={
+            "Chenjesu": {
+                "specials": ("druuge_recoil_escape", "druuge_dogi_targets", "druuge_crew_battery")
+            }
+        },
+    ),
     "Earthling": ShipBehaviour(shoot_down=False),
     # The Kohr-Ah's shoot-downs cut crew lost by 0.9/min but crew dealt by
     # 1.3/min over 30 seeds.

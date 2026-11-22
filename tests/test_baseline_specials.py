@@ -72,6 +72,15 @@ class SpecialRuleTests(unittest.TestCase):
                     self.assertEqual(dataclasses.replace(shared, variant="default"), own)
 
 
+class MovedShipTests(unittest.TestCase):
+    def test_the_druuge_entry_flies_as_its_earlier_rules(self):
+        for opponent in ("Chenjesu", "KzerZa", "Mycon"):
+            with self.subTest(opponent=opponent):
+                earlier = run_match(ArenaMatch("Druuge", opponent, 2, "earlier"), frames=240)
+                moved = run_match(ArenaMatch("Druuge", opponent, 2), frames=240)
+                self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
+
+
 class LateSpecialTests(unittest.TestCase):
     def test_late_specials_run_after_the_band_and_before_the_weapons(self):
         seen = {}
