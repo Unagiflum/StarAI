@@ -309,8 +309,9 @@ class CoordinatedSimulationWorker:
         self._timing_enabled = bool(command.timing_enabled)
         const.VIDEO_FPS_MULTIPLIER = max(1, int(command.video_fps_multiplier))
         const.VIDEO_FPS = const.FPS * const.VIDEO_FPS_MULTIPLIER
-        const._recompute_direction_constants()
-        const.PERCEPTION_DELAY_FRAMES = int(command.perception_delay_frames)
+        if const.apply_runtime_game_settings(command.game_settings):
+            # Sprite rotations depend on the ship directions.
+            self._resources.invalidate_interpolated_graphics()
         return WorkerReadyResult(
             worker_id=self.worker_id,
             record_id=self.record_id,

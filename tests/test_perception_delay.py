@@ -192,6 +192,18 @@ class EnemyObjectDelayTests(unittest.TestCase):
         self.assertEqual(_present(theirs, "enemy_a1"), 0.0)
         self.assertEqual(_present(mine_later, "enemy_a1"), 1.0)
 
+    def test_an_enemy_shield_is_ship_state_and_seen_at_once(self):
+        duel = _Duel(theirs="Yehat")
+        duel.add(
+            _obj("YehatA2", parent=duel.enemy, player=2, type="shield", position=[600.0, 100.0]),
+            40,
+        )
+
+        with _delay(5):
+            observation = duel.observe(40)
+
+        self.assertEqual(_present(observation, "enemy_non_a1"), 1.0)
+
     def test_a_respawned_enemys_new_objects_wait_for_the_delay(self):
         duel = _Duel(theirs="Chmmr")
         duel.add(_obj("ChmmrSatellite", parent=duel.enemy, player=2, position=[600.0, 360.0]), 0)
@@ -366,20 +378,97 @@ class PerceptionDelayModelTests(unittest.TestCase):
         )
 
 
-class PerceptionDelayProcessTests(unittest.TestCase):
-    def test_coordinated_workers_take_the_delay_from_the_start_command(self):
+_PLAYER_SETTINGS = {
+    "asteroid_count": 9,
+    "ship_directions": 32,
+    "repeat_key_delay": 2,
+    "perception_delay_frames": 8,
+}
+
+
+class SpawnedProcessSettingsTests(unittest.TestCase):
+    """Spawned processes start from the defaults; they take the parent's
+    game-play settings instead."""
+
+    def setUp(self):
+        saved = const.runtime_game_settings()
+        self.addCleanup(const.apply_runtime_game_settings, saved)
+
+    def test_runtime_settings_round_trip(self):
+        const.apply_runtime_game_settings(_PLAYER_SETTINGS)
+
+        self.assertEqual(const.runtime_game_settings(), _PLAYER_SETTINGS)
+        self.assertEqual(const.SHIP_DIRECTIONS, 32)
+
+    def test_the_start_command_carries_the_settings_in_force(self):
+        const.apply_runtime_game_settings(_PLAYER_SETTINGS)
+
+        command = StartRunCommand(worker_id=1, record_id=2, base_seed=3)
+
+        self.assertEqual(command.game_settings, _PLAYER_SETTINGS)
+
+    def test_coordinated_workers_apply_the_start_commands_settings(self):
         worker = CoordinatedSimulationWorker()
         command = StartRunCommand(
             worker_id=1,
             record_id=2,
             base_seed=3,
             video_fps_multiplier=const.VIDEO_FPS_MULTIPLIER,
-            perception_delay_frames=9,
+            game_settings=_PLAYER_SETTINGS,
         )
 
-        with _delay(5):
+        with mock.patch.object(
+            worker._resources, "invalidate_interpolated_graphics"
+        ) as invalidate:
             worker.handle(command)
-            self.assertEqual(const.PERCEPTION_DELAY_FRAMES, 9)
+
+        self.assertEqual(const.runtime_game_settings(), _PLAYER_SETTINGS)
+        self.assertEqual(current_game_settings_metadata()["ship_directions"], 32)
+        invalidate.assert_called_once()
+
+    def test_the_independent_training_process_applies_them_before_training(self):
+        from src.training import process_session
+
+        seen = {}
+
+        def engine(**_kwargs):
+            seen.update(const.runtime_game_settings())
+            raise RuntimeError("stop here")
+
+        with mock.patch.multiple(
+            process_session,
+            _set_worker_process_normal_priority=mock.DEFAULT,
+            _set_worker_process_below_normal_priority=mock.DEFAULT,
+            request_current_process_high_qos=mock.DEFAULT,
+            request_current_thread_high_qos=mock.DEFAULT,
+            _ProcessPublisher=mock.DEFAULT,
+            TrainingModelRepository=mock.DEFAULT,
+            _ProcessTrainingEngine=engine,
+        ), mock.patch.object(process_session.torch_backend, "get_torch", return_value=None):
+            process_session.independent_training_process_main(
+                bundled_dir=Path("bundled"),
+                user_dir=Path("user"),
+                slot=SimpleNamespace(ship="Spathi"),
+                metadata={},
+                config=None,
+                batch_grouping=1,
+                stop_at_batch=None,
+                stop_at_epsilon=None,
+                initial_history=(),
+                initial_log_lines=(),
+                save_coordinator=None,
+                message_queue=mock.Mock(),
+                control_queue=None,
+                stop_event=None,
+                display_event=None,
+                display_frame_count=1,
+                game_settings=_PLAYER_SETTINGS,
+            )
+
+        self.assertEqual(seen, _PLAYER_SETTINGS)
+
+
+class PerceptionDelayProcessTests(unittest.TestCase):
 
     def test_arena_defaults_to_five_and_takes_the_option(self):
         self.assertEqual(arena.parse_arguments([]).perception_delay, 5)

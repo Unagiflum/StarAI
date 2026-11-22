@@ -202,8 +202,9 @@ def _held_back(
         return False
     if observed.is_planet or observed.is_asteroid or observed.is_syreen_crew:
         return False
-    # Marines aboard the viewer are part of its own state.
-    if getattr(obj, "mode", None) == "boarded":
+    # Marines aboard the viewer are part of its own state, and a shield is
+    # part of its ship's (the ship block's shield flag shows it at once).
+    if getattr(obj, "mode", None) == "boarded" or getattr(obj, "type", None) == "shield":
         return False
     return _enemy_side(observed, self_ship, enemy_ship)
 

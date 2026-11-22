@@ -815,7 +815,7 @@ class _ProcessWorkerClient:
                 base_seed=int(base_seed),
                 video_fps_multiplier=const.VIDEO_FPS_MULTIPLIER,
                 timing_enabled=bool(const.TRAINING_TIMING_ENABLED),
-                perception_delay_frames=const.PERCEPTION_DELAY_FRAMES,
+                game_settings=const.runtime_game_settings(),
             ),
             record_timing=False,
         )

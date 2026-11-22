@@ -4,6 +4,7 @@ import pygame
 from pathlib import Path
 import shutil
 import sys
+from types import SimpleNamespace
 
 SOURCE_ROOT = (
     Path(sys._MEIPASS) / "src"
@@ -278,6 +279,26 @@ def apply_game_settings(settings):
     )
     _recompute_direction_constants()
     return DIRECTIONS_MULTIPLIER != previous_multiplier
+
+
+def runtime_game_settings():
+    """The game-play settings in force, for a spawned process to apply.
+
+    A spawned process imports this module afresh, so it starts from the
+    defaults rather than the player's saved settings.
+    """
+    return {
+        "asteroid_count": ASTEROID_COUNT,
+        "ship_directions": SHIP_DIRECTIONS,
+        "repeat_key_delay": INPUT_REPEAT_DELAY_FRAMES,
+        "perception_delay_frames": PERCEPTION_DELAY_FRAMES,
+    }
+
+
+def apply_runtime_game_settings(values):
+    """Apply ``runtime_game_settings()`` from another process; return
+    whether the ship directions changed."""
+    return apply_game_settings(SimpleNamespace(**dict(values)))
 
 
 def apply_display_settings(settings):

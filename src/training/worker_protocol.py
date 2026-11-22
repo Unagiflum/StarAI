@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import src.const as const
@@ -44,8 +44,9 @@ class StartRunCommand:
     base_seed: int
     video_fps_multiplier: int = const.VIDEO_FPS_MULTIPLIER
     timing_enabled: bool = False
-    # Spawned workers start from default settings, so the delay is sent.
-    perception_delay_frames: int = const.PERCEPTION_DELAY_FRAMES
+    # Spawned workers start from default settings, so the game-play settings
+    # in force are sent (``const.runtime_game_settings``).
+    game_settings: Mapping[str, int] = field(default_factory=const.runtime_game_settings)
     name: str = COMMAND_START_RUN
 
 
