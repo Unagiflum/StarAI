@@ -178,6 +178,50 @@ def _match_rng(match: ArenaMatch) -> random.Random:
 
 
 _RESOURCES = None
+# Ship types whose assets the current cache may hold.
+_CACHED_SHIP_TYPES: set[str] = set()
+# A ship type's rotated sprites and masks take about 30 MB at 64 directions
+# (with its weapons, up to about 120 MB), so a worker that met all 25 ships
+# held about 3 GB, and 24 workers ran a 61 GB machine out of memory. Past this
+# many types a worker starts a fresh cache; reloading a ship takes about
+# 0.1 s, and the assets, so the fights, come out the same.
+ARENA_CACHED_SHIP_TYPES = 6
+
+
+def _release_freed_memory() -> None:
+    """Return freed asset memory to the operating system.
+
+    glibc keeps freed sprite and mask memory in the process (dropping a
+    25-ship cache freed 7 MB of 820 until ``malloc_trim``), and reuses it
+    poorly for the next ships' assets.
+    """
+
+    import gc
+
+    gc.collect()
+    if sys.platform.startswith("linux"):
+        try:
+            import ctypes
+
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except (OSError, AttributeError):
+            pass
+
+
+def _limit_cached_ship_types(ship_types) -> None:
+    """Drop the asset cache before it would hold too many ship types."""
+
+    global _RESOURCES, _CACHED_SHIP_TYPES
+    needed = set(ship_types)
+    if (
+        _RESOURCES is not None
+        and not needed <= _CACHED_SHIP_TYPES
+        and len(_CACHED_SHIP_TYPES | needed) > ARENA_CACHED_SHIP_TYPES
+    ):
+        _RESOURCES = None
+        _CACHED_SHIP_TYPES = set()
+        _release_freed_memory()
+    _CACHED_SHIP_TYPES |= needed
 
 
 def _arena_resources():
@@ -259,6 +303,7 @@ def new_arena_battle(match: ArenaMatch):
     from src.training.event_ledger import BattleEventLedger
 
     audio = NullAudioService()
+    _limit_cached_ship_types((match.ship, match.opponent))
     resources = _arena_resources()
     ledger = BattleEventLedger()
     simulation = _arena_simulation_class()(

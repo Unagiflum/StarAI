@@ -171,6 +171,52 @@ class ArenaFightTests(unittest.TestCase):
             build_matches(["Spathi"], ["Spathi"], 1, {"Spathi": ["missing"]})
 
 
+class ArenaAssetCacheTests(unittest.TestCase):
+    """A worker's asset cache holds a bounded number of ship types."""
+
+    def setUp(self):
+        patches = [
+            mock.patch.object(arena, "_RESOURCES", None),
+            mock.patch.object(arena, "_CACHED_SHIP_TYPES", set()),
+            mock.patch.object(arena, "ARENA_CACHED_SHIP_TYPES", 4),
+            mock.patch.object(arena, "_release_freed_memory"),
+        ]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def _cache_for(self, *ships):
+        arena._limit_cached_ship_types(ships)
+        return arena._arena_resources()
+
+    def test_ships_within_the_limit_share_one_cache(self):
+        first = self._cache_for("Spathi", "Chmmr")
+        again = self._cache_for("Chmmr", "Spathi")
+        more = self._cache_for("Spathi", "Orz")
+
+        self.assertIs(first, again)
+        self.assertIs(first, more)
+        self.assertEqual(arena._CACHED_SHIP_TYPES, {"Spathi", "Chmmr", "Orz"})
+        arena._release_freed_memory.assert_not_called()
+
+    def test_a_fight_past_the_limit_starts_a_fresh_cache(self):
+        first = self._cache_for("Spathi", "Chmmr")
+        self._cache_for("Orz", "Utwig")
+        fresh = self._cache_for("Yehat", "Arilou")
+
+        self.assertIsNot(first, fresh)
+        self.assertEqual(arena._CACHED_SHIP_TYPES, {"Yehat", "Arilou"})
+        arena._release_freed_memory.assert_called_once()
+
+    def test_a_fresh_cache_gives_the_same_fight(self):
+        match = ArenaMatch("Chmmr", "Spathi", seed=2)
+        cached = run_match(match, frames=120)
+        arena._RESOURCES = None
+        arena._CACHED_SHIP_TYPES = set()
+
+        self.assertEqual(run_match(match, frames=120), cached)
+
+
 class ArenaScoreTests(unittest.TestCase):
     def test_score_is_nothing_without_harm_dealt(self):
         self.assertEqual(_result(dealt=0.0, taken=1.0).score, 0.0)
