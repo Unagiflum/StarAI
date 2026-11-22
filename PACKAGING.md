@@ -38,6 +38,28 @@ Player settings and fleets are stored outside the installation at
 Set `STARAI_DATA_DIR` to use a different location, which is also useful for
 isolated smoke tests.
 
+## Linux CPU build
+
+The Linux build bundles the CPU-only PyTorch wheel. Build it on Linux. Create
+its virtual environment once; it needs Python 3.12 or 3.13, found through `uv`,
+`python3.12`/`python3.13`, or `PYTHON=/path/to/python`:
+
+```bash
+./setup-linux-cpu-venv.sh
+```
+
+Then build:
+
+```bash
+./buildcpu-linux.sh            # or ./buildcpu-linux.sh --skip-tests
+```
+
+This creates `build/StarAI_Linux/StarAI_Linux` and the shareable
+`build/StarAI_Linux-linux-x64.tar.gz`. PyInstaller intermediates go in
+`build/pyinstaller-linux`. As on Windows, the executable depends on the
+adjacent `_internal` directory. Player data is stored in
+`$XDG_DATA_HOME/StarAI` (default `~/.local/share/StarAI`).
+
 Full builds and packaged smoke tests run on a separate packaging schedule. Do
 not use them for routine source-level iteration, and do not invoke packaging
 from the normal test suite. Run `build.cmd` only when explicitly performing
