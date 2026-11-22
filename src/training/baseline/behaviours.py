@@ -284,7 +284,26 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             }
         },
     ),
-    "Earthling": ShipBehaviour(shoot_down=False),
+    # Pass 1 at the default perception delay, by the harm ranking: point
+    # defence only at what matters, nukes from a standstill turn, and a
+    # planet whip away from the opponent are specials; it holds 1,000-2,160
+    # (the nuke's reach), facing the opponent inside, veering 135 degrees
+    # from a closer, coasting above top speed. Against a Chmmr it circles
+    # across the bearing, out of the tractor's drag, nuking when it can.
+    # λ stays 0.5: slow, it keeps its distance only by turning early.
+    "Earthling": ShipBehaviour(
+        harm_taken_weight=0.5,
+        shoot_down=False,
+        coast_above_top_speed=True,
+        specials=("earthling_point_defense", "earthling_nuke", "earthling_whip"),
+        band=Band(1000.0, 2160.0, inside=BAND_INSIDE_FACE, run_offset=135.0),
+        opponents={
+            "Chmmr": {
+                "specials": ("earthling_point_defense", "earthling_nuke"),
+                "band": Band(0.0, None, inside=BAND_INSIDE_ORBIT, run_offset=135.0),
+            }
+        },
+    ),
     # The Kohr-Ah's shoot-downs cut crew lost by 0.9/min but crew dealt by
     # 1.3/min over 30 seeds.
     "KohrAh": ShipBehaviour(shoot_down=False),

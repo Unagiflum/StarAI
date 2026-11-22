@@ -835,7 +835,7 @@ class SharedBehaviourTests(unittest.TestCase):
         self.assertEqual(ships("evade_headings", False), {"Umgah"})
         self.assertEqual(ships("keep_moving", False), {"Slylandro", "Umgah"})
         self.assertEqual(ships("keep_moving_takes_aim", True), {"Chenjesu", "Mmrnmrhm"})
-        self.assertEqual(ships("coast_above_top_speed", True), {"Thraddash"})
+        self.assertEqual(ships("coast_above_top_speed", True), {"Earthling", "Thraddash"})
         self.assertIs(ship_behaviour("Pkunk"), DEFAULT_BEHAVIOUR)
         self.assertIs(ship_behaviour(None), DEFAULT_BEHAVIOUR)
         self.assertTrue(_rule_context("Thraddash").coast_above_top_speed)
