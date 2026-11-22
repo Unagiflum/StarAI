@@ -1216,7 +1216,8 @@ def supox(ctx: BaselineContext) -> None:
         # The planet rule is flying the ship; A2 would turn its turns into slides.
         ctx.a2(False)
     else:
-        near, far = _supox_band(ctx)
+        band = ctx.behaviour.band
+        near, far = ctx.band_limits(band) if band is not None else _supox_band(ctx)
         error = ctx.aim_error(1)
         aimed = error is not None and abs(error) <= SUPOX_SLIDE_AIM_TOLERANCE
         facing = ctx.enemy_block.opponent_bearing
@@ -2136,15 +2137,540 @@ def pkunk_full_range(ctx: BaselineContext) -> None:
         ctx.a1(True)
 
 
+def _androsynth_blazer(ctx: BaselineContext) -> None:
+    """Mode switch: blaze in within ``LONG_RANGE`` on half a battery, and
+    ram while the battery lasts (straight at the ships that turn to meet
+    it, else where the opponent will be)."""
+
+    battery = ctx.me.battery_fraction
+    if ctx.me.androsynth_blazer:
+        if battery > 0.10:
+            if ctx.enemy_name in ANDROSYNTH_STRAIGHT_RAM_OPPONENTS:
+                ctx.approach_opponent()
+            else:
+                ctx.steer(_blazer_intercept_bearing(ctx))
+    elif ctx.distance < LONG_RANGE and battery >= 0.50:
+        ctx.a2(True)
+
+
+def _androsynth_chmmr(ctx: BaselineContext) -> None:
+    """Special against the Chmmr: while its satellites are up, one ram on a
+    full battery (``_androsynth_vs_chmmr``), claiming steering and both
+    weapons so the later rules leave the ram alone."""
+
+    if ctx.chmmr_satellites():
+        _androsynth_vs_chmmr(ctx)
+        ctx.point_at_opponent()
+        ctx.a1(False)
+        ctx.a2(False)
+
+
+def _arilou_chmmr(ctx: BaselineContext) -> None:
+    """Special against the Chmmr: while its satellites are up, hold just
+    outside its laser and fire only as a satellite crosses the beam
+    (``_arilou_vs_chmmr``)."""
+
+    if ctx.chmmr_satellites():
+        _arilou_vs_chmmr(ctx)
+        ctx.a1(False)
+
+
+def _chenjesu_dogi(ctx: BaselineContext) -> None:
+    """Special: keep up to 4 Dogi out."""
+
+    if ctx.me.battery >= ctx.spec.a2_cost and ctx.me.chenjesu_dogis < 4:
+        ctx.a2(True)
+
+
+def _chenjesu_crystal(ctx: BaselineContext) -> None:
+    """Special: aim the crystal and hold it while it still closes or is due
+    to meet a threat; it bursts on release."""
+
+    ctx.point_weapon(1)
+    if ctx.held("a1"):
+        ctx.a1(_keep_held_shot(ctx))
+    elif ctx.pointing(1):
+        ctx.a1(True)
+
+
+def _chmmr_tractor(ctx: BaselineContext) -> None:
+    """Special: pull the opponent into laser reach (``_chmmr_tractor_helps``)."""
+
+    if _chmmr_tractor_helps(ctx):
+        ctx.a2(True)
+
+
+def _druuge_recoil_escape(ctx: BaselineContext) -> None:
+    """Special: against escort and limpet ships, fire to recoil away from
+    close dangers that are closing, when they all sit ahead."""
+
+    if ctx.enemy_name not in DRUUGE_ESCAPE_DANGER_SHIPS:
+        return
+    dangers = [
+        danger
+        for danger in ctx.view.objects("enemy_non_a1")
+        if danger.distance < DRUUGE_ESCAPE_RANGE
+    ]
+    if any(danger.closing_speed > 0.0 for danger in dangers) and all(
+        # Recoil pushes the ship backward, so every danger must sit ahead.
+        abs(danger.bearing) <= 90.0
+        for danger in dangers
+    ):
+        ctx.a1(True)
+
+
+def _druuge_dogi_targets(ctx: BaselineContext) -> None:
+    """Special against the Chenjesu: shoot the nearest Dogi when it is
+    nearer than the Chenjesu."""
+
+    dogis = ctx.view.objects("enemy_non_a1")
+    target = min(dogis, key=lambda item: item.distance, default=None)
+    if target is None or ctx.enemy is None or target.distance >= ctx.enemy.distance:
+        return
+    ctx.point_at(target.bearing)
+    tolerance = max(ctx.weapon(1).pointing_tolerance, ctx.memory.tap_degrees / 2.0)
+    aimed = abs(wrap_degrees(target.bearing)) <= tolerance
+    ctx.a1(aimed and target.distance <= ctx.weapon(1).range)
+
+
+def _druuge_crew_battery(ctx: BaselineContext) -> None:
+    """Special: trade crew for battery when a shot can't be afforded."""
+
+    if ctx.me.battery < ctx.spec.a1_cost:
+        ctx.a2(True)
+
+
+def _earthling_nuke(ctx: BaselineContext) -> None:
+    """Special: with a nuke ready, its range clear of the minimum and no
+    overrun, stop thrusting and turn onto the opponent to fire it."""
+
+    enemy = ctx.enemy
+    if enemy is None:
+        return
+    can_nuke = (
+        ctx.me.battery >= ctx.spec.a1_cost
+        and ctx.me.a1_ready
+        and EARTHLING_NUKE_MIN_DISTANCE <= enemy.distance <= ctx.weapon(1).range
+        and ctx.me.velocity_forward < EARTHLING_NUKE_OVERRUN_SPEED
+    )
+    if can_nuke:
+        ctx.point_weapon(1)
+        ctx.plan.claim_thrust(False)
+        if ctx.pointing(1, tolerance=EARTHLING_NUKE_TOLERANCE):
+            ctx.a1(True)
+
+
+def _earthling_whip_special(ctx: BaselineContext) -> None:
+    """Special: gravity-whip off the planet away from the opponent."""
+
+    _earthling_whip(ctx)
+
+
+def _ilwrath_flame_cloak(ctx: BaselineContext) -> None:
+    """Special: flame within reach when on target (or from the cloak), and
+    cloak while the fade can finish before the opponent is in reach."""
+
+    enemy = ctx.enemy
+    if enemy is None:
+        return
+    cloaked = not ctx.me.trackable
+    fading = ctx.me.cloak_transition_direction != 0
+    in_reach = ctx.distance <= ILWRATH_FLAME_REACH
+    tolerance = _ilwrath_flame_tolerance(ctx)
+    if cloaked and in_reach:
+        ctx.a1(True)
+    elif in_reach and ctx.pointing(1, tolerance=tolerance):
+        ctx.a1(True)
+    fade_frames = ILWRATH_FADE_FRAMES + ctx.span_frames
+    cloak_distance = ILWRATH_FLAME_REACH + max(0.0, enemy.closing_speed) * fade_frames
+    if (
+        not cloaked
+        and not fading
+        and ctx.distance > cloak_distance
+        and ctx.me.battery >= ctx.spec.a2_cost + ILWRATH_CLOAK_RESERVE
+    ):
+        ctx.a2(ctx.press("a2"))
+
+
+def _ilwrath_hang_back(ctx: BaselineContext) -> None:
+    """Special: wait, facing it, for a faster opponent that isn't coming."""
+
+    enemy = ctx.enemy
+    if (
+        enemy is not None
+        and ctx.distance > ILWRATH_FLAME_REACH
+        and enemy.closing_speed <= 0.0
+        and ctx.enemy_block.max_thrust > ctx.spec.max_thrust
+    ):
+        ctx.plan.claim_thrust(False)
+        ctx.point_at_opponent()
+
+
+def _ilwrath_follow(ctx: BaselineContext) -> None:
+    """Special: within reach, follow an opponent pulling out of it, and
+    keep the flame on it."""
+
+    enemy = ctx.enemy
+    if enemy is None or ctx.distance > ILWRATH_FLAME_REACH:
+        return
+    if enemy.closing_speed < 0.0 and ctx.pointing(1, tolerance=_ilwrath_flame_tolerance(ctx)):
+        ctx.approach_opponent()
+    ctx.point_weapon(1)
+
+
+def _kohr_ah_gas(ctx: BaselineContext) -> None:
+    """Special: gas when the opponent or any enemy object is within reach."""
+
+    reach = ctx.weapon(2).range
+    if ctx.in_range(2) or any(threat.distance <= reach for threat in ctx.threats()):
+        ctx.a2(True)
+
+
+def _kohr_ah_saw(ctx: BaselineContext) -> None:
+    """Special: aim the saw; keep a flying saw moving while it closes
+    (releasing parks it)."""
+
+    ctx.point_weapon(1)
+    if ctx.held("a1") and ctx.held_shot() is not None:
+        ctx.a1(_keep_held_shot(ctx))
+    elif ctx.pointing(1):
+        ctx.a1(ctx.press("a1"))
+
+
+def _kzer_za_fighters(ctx: BaselineContext) -> None:
+    """Special: keep 8 fighters out, except against their counters and a
+    Chmmr with satellites, while crew allows."""
+
+    fighter_counter = ctx.enemy_name in KZER_ZA_FIGHTER_COUNTERS or (
+        ctx.enemy_name == "Chmmr" and ctx.enemy_block.chmmr_satellites > 0
+    )
+    if ctx.me.kzer_za_fighters < 8 and not fighter_counter and ctx.me.crew > 8:
+        ctx.a2(True)
+
+
+def _face_opponent(ctx: BaselineContext) -> None:
+    """Late special: turn the nose onto the opponent if nothing else steers."""
+
+    ctx.point_at_opponent()
+
+
+def _mmrnmrhm_forms(ctx: BaselineContext) -> None:
+    """Mode switch: the X-form within its laser's reach, the Y-wing beyond."""
+
+    if ctx.enemy is None:
+        return
+    x_form = not ctx.me.mmrnmrhm_ywing
+    in_x_range = ctx.distance <= weapon_spec("Mmrnmrhm", 1, FORM_XFORM).range
+    if x_form != in_x_range:
+        # Weapon 2 toggles the form on a fresh press.
+        ctx.a2(ctx.press("a2"))
+
+
+def _mmrnmrhm_attack(ctx: BaselineContext) -> None:
+    """Special: the X-form lasers within reach, flying at the opponent; the
+    Y-wing fires its homing missiles throughout."""
+
+    if ctx.enemy is None:
+        return
+    if ctx.me.mmrnmrhm_ywing:
+        ctx.a1(True)
+    elif ctx.distance <= weapon_spec("Mmrnmrhm", 1, FORM_XFORM).range:
+        ctx.a1(True)
+        ctx.approach_opponent()
+
+
+def _melnorme_charge(ctx: BaselineContext) -> None:
+    """Special: keep a shot charging, and release it on target in range."""
+
+    charging = ctx.held("a1")
+    if charging and ctx.in_range(1) and ctx.pointing(1):
+        ctx.a1(False)
+    ctx.a1(True)
+
+
+def _melnorme_aim(ctx: BaselineContext) -> None:
+    """Late special: turn the gun on the opponent within reach."""
+
+    if ctx.in_range(1):
+        ctx.point_weapon(1)
+
+
+def _mycon_regenerate(ctx: BaselineContext) -> None:
+    """Special: regenerate crew whenever a full regeneration fits."""
+
+    if (
+        ctx.me.crew < ctx.me.max_crew - ctx.spec.hp_gain
+        and ctx.me.battery >= ctx.spec.a2_cost
+    ):
+        ctx.a2(True)
+
+
+def _gravity_whip_when_slow(ctx: BaselineContext) -> None:
+    """Late special: below top speed, whip round the planet if free to."""
+
+    if ctx.me.speed < ctx.spec.max_thrust:
+        ctx.gravity_whip()
+
+
+def _mycon_plasmoid(ctx: BaselineContext) -> None:
+    """Late special: aim the homing plasmoid, firing unless flying forward
+    faster than top speed (it would start behind the ship)."""
+
+    ctx.point_weapon(1)
+    velocity_bearing = None
+    if ctx.me.speed > 1e-6:
+        velocity_bearing = bearing_of(ctx.me.velocity_forward, ctx.me.velocity_right)
+    facing_away_from_velocity = velocity_bearing is not None and abs(velocity_bearing) > 90.0
+    if ctx.me.velocity_forward <= ctx.spec.max_thrust or facing_away_from_velocity:
+        ctx.a1(True)
+
+
+def _orz_marines(ctx: BaselineContext) -> None:
+    """Special: keep 2 marines out (not against their counters, nor a
+    Chmmr with more than one satellite to shoot them down)."""
+
+    if (
+        ctx.me.orz_marines < 2
+        and ctx.me.crew > 2
+        and ctx.enemy_name not in ORZ_MARINE_COUNTERS
+        and len(ctx.chmmr_satellites()) <= ORZ_CHMMR_MARINE_SATELLITES
+    ):
+        # Weapon 1 and weapon 2 together launch a marine.
+        ctx.a1(True)
+        ctx.a2(True)
+
+
+def _orz_turret(ctx: BaselineContext) -> None:
+    """Late special: turret shots at the weakest Chmmr satellite in reach,
+    else at the opponent within range (``_orz_aim``)."""
+
+    satellites = ctx.chmmr_satellites()
+    shot = ctx.satellite_shot(1) if satellites else None
+    if shot is not None:
+        satellite, bearing = shot
+        tolerance = max(
+            ctx.weapon(1).pointing_tolerance,
+            math.degrees(math.atan2(SATELLITE_HIT_RADIUS, max(1.0, satellite.distance))),
+        )
+        if _orz_aim(ctx, bearing, tolerance):
+            ctx.a1(True)
+        return
+    bearing = ctx.aim_bearing(1)
+    if bearing is None:
+        return
+    if _orz_aim(ctx, bearing) and ctx.in_range(1):
+        ctx.a1(True)
+
+
+def _pkunk_insult(ctx: BaselineContext) -> None:
+    """Special: insults are the Pkunk's only battery source; they never
+    block firing."""
+
+    ctx.a2(True)
+
+
+def _pkunk_pass_special(ctx: BaselineContext) -> None:
+    """Special: charged, fly past the opponent's side (``_pkunk_pass``)."""
+
+    if ctx.enemy is not None and ctx.battery_at_least(0.50):
+        _pkunk_pass(ctx, ctx.enemy)
+
+
+def _pkunk_gun(ctx: BaselineContext) -> None:
+    """Late special: aim the nearest gun, and fire within 0.7 of its reach,
+    or within all of it at a closing opponent."""
+
+    if ctx.in_range(1) or not ctx.battery_at_least(0.50):
+        ctx.point_weapon(1)
+    enemy = ctx.enemy
+    closing = enemy is not None and enemy.closing_speed > 0.0
+    if ctx.pointing(1) and (
+        ctx.in_range(1, PKUNK_FIRE_RANGE_FRACTION) or (closing and ctx.in_range(1))
+    ):
+        ctx.a1(True)
+
+
+def _shofixti_glory(ctx: BaselineContext) -> None:
+    """Special: blow the glory device when about to die, or when it kills
+    (not against another Shofixti, where it would kill me too)."""
+
+    in_blast_range = ctx.enemy is not None and ctx.distance <= ctx.weapon(2).range
+    mirror_match = ctx.enemy_name == "Shofixti"
+    if in_blast_range and (
+        _about_to_die(ctx) or (not mirror_match and _glory_blast_kills(ctx))
+    ):
+        ctx.a2(ctx.press("a2"))
+
+
+def _slylandro_harvest(ctx: BaselineContext) -> None:
+    """Special: harvest asteroids throughout, flying at the nearest when
+    the battery is nearly out."""
+
+    ctx.a2(True)
+    if ctx.me.battery_fraction <= 0.10:
+        _approach_enemy_object(ctx, ctx.view.asteroids)
+
+
+def _slylandro_low_harvest(ctx: BaselineContext) -> None:
+    """Special: only when the battery is nearly out, harvest the nearest
+    asteroid (against the Chmmr, as before)."""
+
+    if ctx.me.battery_fraction <= 0.10:
+        ctx.a2(True)
+        _approach_enemy_object(ctx, ctx.view.asteroids)
+
+
+def _supox_slides(ctx: BaselineContext) -> None:
+    """Special: the Supox's sliding band and fire (``supox``); the band's
+    edges come from its table entry."""
+
+    supox(ctx)
+
+
+def _syreen_song(ctx: BaselineContext) -> None:
+    """Special: sing within 300 when the song is ready and can take crew."""
+
+    if (
+        _song_viable(ctx)
+        and ctx.me.battery >= ctx.spec.a2_cost
+        and ctx.distance <= SYREEN_SONG_DISTANCE
+    ):
+        ctx.a2(True)
+
+
+def _syreen_pods(ctx: BaselineContext) -> None:
+    """Special: collect the nearest crew pod."""
+
+    pods = ctx.view.crew_pods
+    if pods:
+        ctx.approach_object(min(pods, key=lambda pod: pod.distance))
+
+
+def _syreen_close_in(ctx: BaselineContext) -> None:
+    """Special: with the song ready, close in to sing unless that is too
+    risky while the crew is small."""
+
+    if (
+        _song_viable(ctx)
+        and ctx.me.battery >= ctx.spec.a2_cost
+        and not _syreen_risky(ctx, cautious=True)
+    ):
+        ctx.approach_range(SYREEN_SONG_DISTANCE, key="song")
+
+
+def _syreen_gun(ctx: BaselineContext) -> None:
+    """Late special: aim the gun; fire only with the song's battery spare,
+    unless the song can't take crew."""
+
+    ctx.point_weapon(1)
+    spare = ctx.me.battery - ctx.spec.a1_cost >= ctx.spec.a2_cost
+    if ctx.in_range(1) and ctx.pointing(1) and (spare or not _song_viable(ctx)):
+        ctx.a1(True)
+
+
+def _zoq_fot_pik_tongue(ctx: BaselineContext) -> None:
+    """Special: with the tongue ready and the opponent in its reach, aim
+    and lick."""
+
+    if ctx.me.battery >= ctx.spec.a2_cost and ctx.enemy is not None and ctx.distance <= _tongue_reach(ctx):
+        ctx.point_weapon(2)
+        if ctx.pointing(2, tolerance=_tongue_tolerance(ctx)):
+            ctx.a2(True)
+
+
+def _zoq_fot_pik_lunge(ctx: BaselineContext) -> None:
+    """Special: lunge at the opponent when the tongue is ready and can
+    reach it within a second."""
+
+    if (
+        ctx.me.battery >= ctx.spec.a2_cost
+        and _tongue_viable(ctx)
+        and ctx.intercept_seconds(_tongue_reach(ctx)) <= ZOQ_FOT_PIK_LUNGE_SECONDS
+    ):
+        ctx.approach_opponent()
+
+
+def _zoq_fot_pik_gun(ctx: BaselineContext) -> None:
+    """Late special: aim within range; fire only with the tongue's battery
+    spare while the tongue can land."""
+
+    if ctx.in_range(1):
+        ctx.point_weapon(1)
+    spare = ctx.me.battery - ctx.spec.a1_cost >= ctx.spec.a2_cost
+    if ctx.in_range(1) and ctx.pointing(1) and (spare or not _tongue_viable(ctx)):
+        ctx.a1(True)
+
+
+def _shield_glory(ctx: BaselineContext) -> None:
+    """Special against the Shofixti: shield wherever its blast would kill,
+    and always within half its reach."""
+
+    enemy = ctx.enemy
+    if enemy is None:
+        return
+    glory_radius = max(
+        SHOFIXTI_SHIELD_DISTANCE,
+        shofixti_kill_distance(ctx.me.crew) + SHOFIXTI_BLAST_MARGIN,
+    )
+    if ctx.distance <= glory_radius + max(0.0, enemy.closing_speed) * ctx.span_frames:
+        ctx.a2(True)
+
+
 # Unique rules a ship's table entry names in ``specials``, and mode
 # switches it names in ``form_switch`` (``behaviours.SHIP_BEHAVIOURS``).
-SPECIAL_RULES: dict[str, StrategyFunction] = {}
-FORM_SWITCHES: dict[str, StrategyFunction] = {}
+SPECIAL_RULES: dict[str, StrategyFunction] = {
+    "androsynth_chmmr": _androsynth_chmmr,
+    "arilou_chmmr": _arilou_chmmr,
+    "chenjesu_crystal": _chenjesu_crystal,
+    "chenjesu_dogi": _chenjesu_dogi,
+    "chmmr_tractor": _chmmr_tractor,
+    "druuge_crew_battery": _druuge_crew_battery,
+    "druuge_dogi_targets": _druuge_dogi_targets,
+    "druuge_recoil_escape": _druuge_recoil_escape,
+    "earthling_nuke": _earthling_nuke,
+    "earthling_point_defense": _earthling_point_defense,
+    "earthling_whip": _earthling_whip_special,
+    "ilwrath_flame_cloak": _ilwrath_flame_cloak,
+    "ilwrath_follow": _ilwrath_follow,
+    "ilwrath_hang_back": _ilwrath_hang_back,
+    "kohr_ah_gas": _kohr_ah_gas,
+    "kohr_ah_saw": _kohr_ah_saw,
+    "kzer_za_fighters": _kzer_za_fighters,
+    "face_opponent": _face_opponent,
+    "gravity_whip_when_slow": _gravity_whip_when_slow,
+    "melnorme_aim": _melnorme_aim,
+    "melnorme_charge": _melnorme_charge,
+    "mmrnmrhm_attack": _mmrnmrhm_attack,
+    "mycon_plasmoid": _mycon_plasmoid,
+    "mycon_regenerate": _mycon_regenerate,
+    "orz_marines": _orz_marines,
+    "orz_turret": _orz_turret,
+    "pkunk_gun": _pkunk_gun,
+    "pkunk_insult": _pkunk_insult,
+    "pkunk_pass": _pkunk_pass_special,
+    "shofixti_glory": _shofixti_glory,
+    "slylandro_harvest": _slylandro_harvest,
+    "slylandro_low_harvest": _slylandro_low_harvest,
+    "supox_slides": _supox_slides,
+    "shield_glory": _shield_glory,
+    "syreen_close_in": _syreen_close_in,
+    "syreen_gun": _syreen_gun,
+    "syreen_pods": _syreen_pods,
+    "syreen_song": _syreen_song,
+    "zoq_fot_pik_gun": _zoq_fot_pik_gun,
+    "zoq_fot_pik_lunge": _zoq_fot_pik_lunge,
+    "zoq_fot_pik_tongue": _zoq_fot_pik_tongue,
+}
+FORM_SWITCHES: dict[str, StrategyFunction] = {
+    "androsynth_blazer": _androsynth_blazer,
+    "mmrnmrhm_forms": _mmrnmrhm_forms,
+}
 
 
 def shared(ctx: BaselineContext) -> None:
     """A strategy run wholly from the ship's table entry, in priority order:
-    specials, mode switch, recharge or band, then each weapon."""
+    specials, mode switch, recharge or band, late specials, then each
+    weapon."""
 
     behaviour = ctx.behaviour
     for name in behaviour.specials:
@@ -2155,8 +2681,25 @@ def shared(ctx: BaselineContext) -> None:
         ctx.recharge_retreat()
     else:
         ctx.hold_band()
+    for name in behaviour.late_specials:
+        SPECIAL_RULES[name](ctx)
     for action in (1, 2):
         ctx.fire_weapon(action)
+
+
+# Whole rules a table entry can run as a special: per-opponent rules kept
+# as they are, and ships whose movement is wholly their own. An entry using
+# one sets no band, recharge or weapons, so nothing else acts.
+SPECIAL_RULES.update(
+    {
+        "syreen_chmmr": lambda ctx: _syreen_vs_chmmr(ctx) if ctx.enemy is not None else None,
+        "thraddash_rules": lambda ctx: thraddash(ctx),
+        "umgah_rules": lambda ctx: umgah(ctx),
+        "utwig_chmmr": lambda ctx: _utwig_vs_chmmr(ctx),
+        "vux_rules": lambda ctx: vux(ctx),
+        "yehat_chmmr": lambda ctx: _yehat_vs_chmmr(ctx) if ctx.enemy is not None else None,
+    }
+)
 
 
 def generic(ctx: BaselineContext) -> None:

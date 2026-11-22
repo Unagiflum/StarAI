@@ -15,8 +15,10 @@ Behaviours run in priority order, each claiming only the controls it sets
 3. mode switch, named in ``form_switch``;
 4. recharge: keep out of the opponent's reach while the battery is low;
 5. hold the distance band;
-6. fire each weapon by its ``WeaponUse``;
-7. keep moving (last rule).
+6. late specials: unique rules that depend on the movement chosen (a
+   turret that turns only while the hull is held on a course);
+7. fire each weapon by its ``WeaponUse``;
+8. keep moving (last rule).
 
 Specials and mode switches are functions in ``strategies.SPECIAL_RULES`` and
 ``strategies.FORM_SWITCHES``, named here so this table needs no imports.
@@ -133,6 +135,9 @@ class ShipBehaviour:
         run before movement, in order.
         ``form_switch``: name of the ship's mode-switch rule
         (``strategies.FORM_SWITCHES``).
+        ``late_specials``: unique rules run after recharge or the band,
+        before the weapons, for rules that depend on whether movement
+        claimed the steering.
     Recharge:
         ``recharge_battery``: below this battery, the ship recharges: it
         keeps out of the opponent's weapon range (``recharge_retreat``)
@@ -175,6 +180,7 @@ class ShipBehaviour:
     planet_horizon_frames: int | None = None
     specials: tuple[str, ...] = ()
     form_switch: str | None = None
+    late_specials: tuple[str, ...] = ()
     recharge_battery: float | None = None
     recharge_resume: float | None = None
     recharge_run_offset: float = 180.0
