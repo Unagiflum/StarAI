@@ -36,6 +36,7 @@ import json
 import math
 import os
 import random
+import shutil
 import statistics
 import sys
 import time
@@ -415,6 +416,70 @@ def run_arena(
         yield from pool.map(_run_one, work, chunksize=1)
 
 
+def describe_match(match: ArenaMatch) -> str:
+    cell = CELL_CODES[(match.ship_condition, match.opponent_condition)]
+    return f"{match.ship} [{match.variant}] vs {match.opponent}, seed {match.seed} {cell}"
+
+
+def progress_text(done: int, total: int, elapsed: float, now: ArenaMatch | None) -> str:
+    """One status line: fights done of the batch, time, and the oldest
+    fight still in flight."""
+
+    share = done / total if total else 1.0
+    text = f"{done}/{total} fights ({share:.0%})  {elapsed:.0f}s"
+    if 0 < done < total:
+        text += f", ~{elapsed * (total - done) / done:.0f}s left"
+    if now is not None and done < total:
+        text += f"  now: {describe_match(now)}"
+    return text
+
+
+def run_with_progress(
+    matches: Sequence[ArenaMatch],
+    *,
+    frames: int = DEFAULT_FRAMES,
+    workers: int = DEFAULT_WORKERS,
+    ship_directions: int = DEFAULT_SHIP_DIRECTIONS,
+    stream=None,
+) -> list[ArenaResult]:
+    """``run_arena`` with a status line on ``stream`` (stderr by default).
+
+    On a terminal the line is rewritten in place after every fight;
+    otherwise a line is written at each tenth of the batch.
+    """
+
+    stream = stream if stream is not None else sys.stderr
+    live = bool(getattr(stream, "isatty", lambda: False)())
+    total = len(matches)
+    started = time.perf_counter()
+    flown: list[ArenaResult] = []
+    width = 0
+    # Off a terminal, the next line is due once done reaches this many
+    # tenths of the batch.
+    tenths = 1
+    for result in run_arena(
+        matches, frames=frames, workers=workers, ship_directions=ship_directions
+    ):
+        flown.append(result)
+        done = len(flown)
+        now = matches[done] if done < total else None
+        text = progress_text(done, total, time.perf_counter() - started, now)
+        if live:
+            text = text[: max(20, shutil.get_terminal_size().columns - 1)]
+            stream.write("\r" + text.ljust(width))
+            width = max(width, len(text))
+            stream.flush()
+        elif done * 10 >= tenths * total:
+            stream.write(text + "\n")
+            stream.flush()
+            while tenths * total <= done * 10:
+                tenths += 1
+    if live:
+        stream.write("\n")
+        stream.flush()
+    return flown
+
+
 @dataclass(slots=True)
 class ArenaTally:
     fights: int = 0
@@ -638,6 +703,7 @@ def screen(
     results: dict[str, list[ArenaResult]] = {name: [] for name in alive}
     flown = 0
     target = min(int(first_seeds), int(max_seeds))
+    rounds = 0
     while True:
         seeds = range(first_seed + flown, first_seed + target)
         matches = [
@@ -647,6 +713,12 @@ def screen(
             for seed in seeds
             for mine, theirs in cells
         ]
+        rounds += 1
+        if log is not None:
+            log(
+                f"Round {rounds}: {len(alive)} settings x seeds {seeds.start}-{seeds.stop - 1}"
+                f" x {len(cells)} cells x {len(opponents)} opponents = {len(matches)} fights"
+            )
         for result in run(matches):
             results[result.variant].append(result)
         flown = target
@@ -854,17 +926,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     started = time.perf_counter()
 
     def run(matches):
-        flown = []
-        for result in run_arena(
+        return run_with_progress(
             matches,
             frames=arguments.frames,
             workers=arguments.workers,
             ship_directions=arguments.directions,
-        ):
-            flown.append(result)
-            print(f"\r{len(flown)}/{len(matches)} fights", end="", file=sys.stderr, flush=True)
-        print(file=sys.stderr)
-        return flown
+        )
 
     if arguments.screen:
         if len(ships) != 1:

@@ -356,6 +356,36 @@ class ArenaRankingTests(unittest.TestCase):
         self.assertNotIn("same", {variant for variant, _ in flown[1]})
 
 
+class ArenaProgressTests(unittest.TestCase):
+    def test_progress_text_shows_fights_time_left_and_the_fight_in_flight(self):
+        match = arena.ArenaMatch("Spathi", "Umgah", 3, "approach", STRONG, WEAK)
+
+        text = arena.progress_text(10, 40, 20.0, match)
+
+        self.assertEqual(
+            text,
+            "10/40 fights (25%)  20s, ~60s left  now: Spathi [approach] vs Umgah, seed 3 SW",
+        )
+        self.assertEqual(arena.progress_text(40, 40, 80.0, None), "40/40 fights (100%)  80s")
+
+    def test_progress_off_a_terminal_writes_a_line_each_tenth(self):
+        matches = [arena.ArenaMatch("ZoqFotPik", "Spathi", seed, "default", STRONG, STRONG) for seed in range(20)]
+
+        def fake_run_arena(batch, **_kwargs):
+            return [_result(seed=m.seed) for m in batch]
+
+        stream = io.StringIO()
+        with mock.patch.object(arena, "run_arena", side_effect=fake_run_arena):
+            results = arena.run_with_progress(matches, stream=stream)
+
+        lines = stream.getvalue().splitlines()
+        self.assertEqual(len(results), 20)
+        self.assertEqual(len(lines), 10)
+        self.assertTrue(lines[0].startswith("2/20 fights (10%)"))
+        self.assertIn("now: ZoqFotPik [default] vs Spathi, seed 2 SS", lines[0])
+        self.assertTrue(lines[-1].startswith("20/20 fights (100%)"))
+
+
 class ArenaCliTests(unittest.TestCase):
     def test_cli_flies_every_variant_and_compares_it_with_the_default(self):
         captured = []
