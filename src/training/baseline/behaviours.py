@@ -328,6 +328,17 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         shoot_down=False,
         specials=("kohr_ah_gas", "kohr_ah_saw"),
     ),
+    # Pass 1 at the default perception delay, by the harm ranking: fighters
+    # (a special) and the gun aimed, as before; a back-off band closes in at
+    # full speed to 1,000 and faces the opponent inside it, in place of
+    # flying straight at it. Level with the earlier rules on harm dealt (+3%).
+    # λ is high: the slowest ship with the most crew, it can't stall.
+    "KzerZa": ShipBehaviour(
+        harm_taken_weight=1.0,
+        specials=("kzer_za_fighters",),
+        band=Band(0.0, 1000.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, run_offset=110.0, back_off=True),
+        weapons=(WeaponUse(FIRE_AIMED), None),
+    ),
     "Mmrnmrhm": ShipBehaviour(keep_moving_takes_aim=True),
     "Mycon": ShipBehaviour(shoot_down=False),
     "Slylandro": ShipBehaviour(keep_moving=False),
