@@ -44,6 +44,8 @@ class StartRunCommand:
     base_seed: int
     video_fps_multiplier: int = const.VIDEO_FPS_MULTIPLIER
     timing_enabled: bool = False
+    # Spawned workers start from default settings, so the delay is sent.
+    perception_delay_frames: int = const.PERCEPTION_DELAY_FRAMES
     name: str = COMMAND_START_RUN
 
 

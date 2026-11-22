@@ -310,6 +310,7 @@ class CoordinatedSimulationWorker:
         const.VIDEO_FPS_MULTIPLIER = max(1, int(command.video_fps_multiplier))
         const.VIDEO_FPS = const.FPS * const.VIDEO_FPS_MULTIPLIER
         const._recompute_direction_constants()
+        const.PERCEPTION_DELAY_FRAMES = int(command.perception_delay_frames)
         return WorkerReadyResult(
             worker_id=self.worker_id,
             record_id=self.record_id,

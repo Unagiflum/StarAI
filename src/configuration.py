@@ -26,6 +26,7 @@ class GameSettings:
     asteroid_count: int = 5
     ship_directions: int = 16
     repeat_key_delay: int = 3
+    perception_delay_frames: int = 5
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "bindings", MappingProxyType(dict(self.bindings)))
@@ -42,6 +43,7 @@ class GameSettingsCodec:
         "asteroid_count": 5,
         "ship_directions": 16,
         "repeat_key_delay": 3,
+        "perception_delay_frames": 5,
     }
 
     def __init__(
@@ -78,6 +80,8 @@ class GameSettingsCodec:
             return value
         if name == "repeat_key_delay" and 0 <= value <= 10:
             return value
+        if name == "perception_delay_frames" and 0 <= value <= 24:
+            return value
         if name == "asteroid_count":
             raise PersistenceValidationError("asteroid_count must be from 1 to 20")
         if name == "ship_directions":
@@ -86,6 +90,10 @@ class GameSettingsCodec:
             )
         if name == "repeat_key_delay":
             raise PersistenceValidationError("repeat_key_delay must be from 0 to 10")
+        if name == "perception_delay_frames":
+            raise PersistenceValidationError(
+                "perception_delay_frames must be from 0 to 24"
+            )
         raise PersistenceValidationError(f"Unknown game setting {name}")
 
     def from_key_names(
@@ -111,6 +119,7 @@ class GameSettingsCodec:
             asteroid_count=current.asteroid_count,
             ship_directions=current.ship_directions,
             repeat_key_delay=current.repeat_key_delay,
+            perception_delay_frames=current.perception_delay_frames,
         )
 
     def encode(self, settings: GameSettings) -> dict[str, int]:
@@ -128,6 +137,9 @@ class GameSettingsCodec:
         )
         encoded["repeat_key_delay"] = self._gameplay_value(
             "repeat_key_delay", settings.repeat_key_delay
+        )
+        encoded["perception_delay_frames"] = self._gameplay_value(
+            "perception_delay_frames", settings.perception_delay_frames
         )
         return encoded
 

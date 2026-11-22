@@ -292,6 +292,7 @@ class BattleSimulation:
         reset_ship_controls(self.player2)
         self.key_states = self._initial_key_states()
         self.frame_id = 0
+        self.world.frame_id = self.frame_id
         self.aftermath: battle_aftermath.AftermathState | None = None
         self.entry_animations_enabled = screen is not None
         self.entry: EntryState | None = (
@@ -333,6 +334,7 @@ class BattleSimulation:
     @game_objects.setter
     def game_objects(self, objects):
         self.world = World(objects)
+        self.world.frame_id = getattr(self, "frame_id", 0)
         self.world.set_training_event_ledger(
             getattr(self, "training_event_ledger", None)
         )
@@ -349,6 +351,7 @@ class BattleSimulation:
             return self.state()
 
         self.frame_id += 1
+        self.world.frame_id = self.frame_id
         self.training_episode_kills = ()
         self.training_episode_deaths = ()
         self.training_post_death_completed = False

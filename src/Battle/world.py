@@ -64,9 +64,13 @@ class World:
     """
 
     def __init__(self, objects: Iterable[Any] | None = None):
+        # The simulation frame objects added now enter on; the battle keeps
+        # it current. Observations use it to age objects (perception delay).
+        self.frame_id = 0
         if isinstance(objects, World):
             self._objects = objects.objects
             self.training_event_ledger = objects.training_event_ledger
+            self.frame_id = objects.frame_id
         elif isinstance(objects, list):
             self._objects = objects
             self.training_event_ledger = None
@@ -178,6 +182,7 @@ class World:
     def add(self, obj: Any) -> None:
         if hasattr(obj, "position") and hasattr(obj, "previous_position"):
             obj.previous_position = obj.position.copy()
+        self._stamp_entry_frame(obj)
         event_ledger.bind_ledger(obj, self.training_event_ledger)
         self._objects.append(obj)
         event_ledger.record_spawned(obj)
@@ -187,10 +192,17 @@ class World:
         for obj in objects_list:
             if hasattr(obj, "position") and hasattr(obj, "previous_position"):
                 obj.previous_position = obj.position.copy()
+            self._stamp_entry_frame(obj)
             event_ledger.bind_ledger(obj, self.training_event_ledger)
         self._objects.extend(objects_list)
         for obj in objects_list:
             event_ledger.record_spawned(obj)
+
+    def _stamp_entry_frame(self, obj: Any) -> None:
+        try:
+            obj.world_entry_frame = self.frame_id
+        except AttributeError:
+            pass
 
     def set_training_event_ledger(self, ledger) -> None:
         self.training_event_ledger = ledger

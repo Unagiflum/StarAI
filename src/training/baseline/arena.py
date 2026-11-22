@@ -55,6 +55,9 @@ from src.training.contracts import SHIP_TYPE_CATALOG_ORDER
 DEFAULT_OPPONENTS = ("Spathi", "Earthling", "KzerZa")
 DEFAULT_FRAMES = 1200
 DEFAULT_SHIP_DIRECTIONS = 64
+# The game's default, fixed here rather than read from the settings file so
+# runs repeat.
+DEFAULT_PERCEPTION_DELAY = const.DEFAULT_GAMEPLAY["perception_delay_frames"]
 # One worker per logical CPU. On a 24-thread machine (8 performance cores
 # with 2 threads each, 8 efficiency cores), 1,200-frame fights ran at 6,430
 # frames per second with 24 workers, 6,069 with 20, 5,718 with 16 and 5,126
@@ -145,7 +148,10 @@ class ArenaResult:
         return (self.ship, self.opponent, self.seed, self.ship_condition, self.opponent_condition)
 
 
-def apply_arena_settings(ship_directions: int = DEFAULT_SHIP_DIRECTIONS) -> None:
+def apply_arena_settings(
+    ship_directions: int = DEFAULT_SHIP_DIRECTIONS,
+    perception_delay: int = DEFAULT_PERCEPTION_DELAY,
+) -> None:
     """Apply the gameplay settings fights run under (once per process)."""
 
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -154,6 +160,7 @@ def apply_arena_settings(ship_directions: int = DEFAULT_SHIP_DIRECTIONS) -> None
             asteroid_count=const.DEFAULT_GAMEPLAY["asteroid_count"],
             ship_directions=int(ship_directions),
             repeat_key_delay=const.DEFAULT_GAMEPLAY["repeat_key_delay"],
+            perception_delay_frames=int(perception_delay),
         )
     )
 
@@ -384,8 +391,8 @@ def build_matches(
     return matches
 
 
-def _worker_init(ship_directions: int) -> None:
-    apply_arena_settings(ship_directions)
+def _worker_init(ship_directions: int, perception_delay: int) -> None:
+    apply_arena_settings(ship_directions, perception_delay)
 
 
 def _run_one(arguments: tuple[ArenaMatch, int]) -> ArenaResult:
@@ -399,19 +406,20 @@ def run_arena(
     frames: int = DEFAULT_FRAMES,
     workers: int = DEFAULT_WORKERS,
     ship_directions: int = DEFAULT_SHIP_DIRECTIONS,
+    perception_delay: int = DEFAULT_PERCEPTION_DELAY,
 ) -> Iterable[ArenaResult]:
     """Yield results in ``matches`` order, using worker processes if asked."""
 
     work = [(match, int(frames)) for match in matches]
     if int(workers) <= 1:
-        apply_arena_settings(ship_directions)
+        apply_arena_settings(ship_directions, perception_delay)
         for item in work:
             yield _run_one(item)
         return
     with ProcessPoolExecutor(
         max_workers=int(workers),
         initializer=_worker_init,
-        initargs=(int(ship_directions),),
+        initargs=(int(ship_directions), int(perception_delay)),
     ) as pool:
         yield from pool.map(_run_one, work, chunksize=1)
 
@@ -440,6 +448,7 @@ def run_with_progress(
     frames: int = DEFAULT_FRAMES,
     workers: int = DEFAULT_WORKERS,
     ship_directions: int = DEFAULT_SHIP_DIRECTIONS,
+    perception_delay: int = DEFAULT_PERCEPTION_DELAY,
     stream=None,
 ) -> list[ArenaResult]:
     """``run_arena`` with a status line on ``stream`` (stderr by default).
@@ -458,7 +467,11 @@ def run_with_progress(
     # tenths of the batch.
     tenths = 1
     for result in run_arena(
-        matches, frames=frames, workers=workers, ship_directions=ship_directions
+        matches,
+        frames=frames,
+        workers=workers,
+        ship_directions=ship_directions,
+        perception_delay=perception_delay,
     ):
         flown.append(result)
         done = len(flown)
@@ -913,8 +926,30 @@ def parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=(16, 32, 64),
         help="Ship heading directions.",
     )
+    parser.add_argument(
+        "--perception-delay",
+        type=_perception_delay,
+        default=DEFAULT_PERCEPTION_DELAY,
+        help=(
+            "Frames before a ship sees an enemy object "
+            f"(0-{const.PERCEPTION_DELAY_MAX_FRAMES}, "
+            f"default {DEFAULT_PERCEPTION_DELAY})."
+        ),
+    )
     parser.add_argument("--json", help="Also write every fight result to this file.")
     return parser.parse_args(argv)
+
+
+def _perception_delay(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a whole number: {text!r}") from None
+    if not 0 <= value <= const.PERCEPTION_DELAY_MAX_FRAMES:
+        raise argparse.ArgumentTypeError(
+            f"must be from 0 to {const.PERCEPTION_DELAY_MAX_FRAMES}"
+        )
+    return value
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -931,8 +966,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             frames=arguments.frames,
             workers=arguments.workers,
             ship_directions=arguments.directions,
+            perception_delay=arguments.perception_delay,
         )
 
+    print(f"Perception delay: {arguments.perception_delay} frames")
     if arguments.screen:
         if len(ships) != 1:
             raise SystemExit("--screen takes one ship")
@@ -971,7 +1008,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     comparisons = format_comparisons(results)
     if comparisons:
         print(comparisons)
-    print(f"{len(results)} fights in {time.perf_counter() - started:.1f}s")
+    print(
+        f"{len(results)} fights in {time.perf_counter() - started:.1f}s "
+        f"at a perception delay of {arguments.perception_delay} frames"
+    )
     if arguments.json:
         with open(arguments.json, "w", encoding="utf-8") as handle:
             json.dump([asdict(result) for result in results], handle, indent=2)

@@ -131,6 +131,7 @@ def current_game_settings_metadata() -> dict[str, int]:
         "ship_directions": const.SHIP_DIRECTIONS,
         "asteroid_count": const.ASTEROID_COUNT,
         "repeat_key_delay": const.INPUT_REPEAT_DELAY_FRAMES,
+        "perception_delay_frames": const.PERCEPTION_DELAY_FRAMES,
         "fps": const.FPS,
     }
 

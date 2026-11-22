@@ -614,6 +614,13 @@ def _first_hit_frame(simulation, frames):
 
 
 class EvadeRuleTests(unittest.TestCase):
+    def setUp(self):
+        # These check the shot prediction against the simulation, so the
+        # shot must be seen the frame it is fired.
+        patcher = mock.patch.object(const, "PERCEPTION_DELAY_FRAMES", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _predicted_hit_frame(self, simulation, ship_name, frames):
         view = ObservationView(_observation(simulation))
         velocity = (view.me.velocity_forward, view.me.velocity_right)

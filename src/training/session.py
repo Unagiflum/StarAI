@@ -511,8 +511,13 @@ def validate_model_metadata(
             "ship_directions": "ship directions",
             "asteroid_count": "asteroid count",
             "repeat_key_delay": "repeat-key delay",
+            "perception_delay_frames": "perception delay",
             "fps": "simulation FPS",
         }
+        if "perception_delay_frames" in current_settings:
+            # A model saved before the perception delay existed saw every
+            # object at once: a delay of 0.
+            model_settings = {"perception_delay_frames": 0, **model_settings}
         for key, label in labels.items():
             if key in model_settings and model_settings.get(key) != current_settings.get(key):
                 warnings.append(

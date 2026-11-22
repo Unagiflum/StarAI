@@ -711,8 +711,12 @@ def independent_training_process_main(
     display_frame_count: int,
     batch_pacing_group: CpuBatchPacingGroup | None = None,
     batch_pacing_index: int | None = None,
+    perception_delay_frames: int | None = None,
 ) -> None:
     process_started_at = time.perf_counter()
+    if perception_delay_frames is not None:
+        # A spawned process starts from default settings.
+        const.PERCEPTION_DELAY_FRAMES = int(perception_delay_frames)
     if display_event is not None and display_event.is_set():
         _set_worker_process_normal_priority()
     else:
@@ -981,6 +985,7 @@ class ProcessTrainingSession:
                 "display_frame_count": self._display_frame_count,
                 "batch_pacing_group": self._batch_pacing_group,
                 "batch_pacing_index": self._batch_pacing_index,
+                "perception_delay_frames": const.PERCEPTION_DELAY_FRAMES,
             },
             daemon=True,
             name="StarAIIndependentCPUTraining",

@@ -55,6 +55,9 @@ class _ObservedObject:
     owner: object | None
     player_sort: float
     action_group: str
+    # The world frame the object entered on, or None when unknown (then it
+    # is never held back by the perception delay).
+    entry_frame: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +68,8 @@ class ObservationFrameContext:
     observed_objects: tuple[_ObservedObject, ...]
     owned_live_counts: dict[tuple[int, str], int]
     floating_orz_counts: dict[int, int]
+    # The world's current frame, which ages objects for the perception delay.
+    frame_id: int | None = None
 
     def owned_live_count(self, ship, name: str, *, floating_orz: bool = False) -> float:
         counts = self.floating_orz_counts if floating_orz else self.owned_live_counts
@@ -103,6 +108,7 @@ def build_observation_context(self_ship, enemy_ship, game_objects=None) -> Obser
                 owner=owner,
                 player_sort=_number(obj, "player", 0.0),
                 action_group="a1" if _is_a1_object(obj) else "non_a1",
+                entry_frame=_entry_frame(obj),
             )
         )
     return ObservationFrameContext(
@@ -110,7 +116,110 @@ def build_observation_context(self_ship, enemy_ship, game_objects=None) -> Obser
         observed_objects=tuple(observed),
         owned_live_counts=owned_live_counts,
         floating_orz_counts=floating_orz_counts,
+        frame_id=_world_frame(game_objects),
     )
+
+
+def _entry_frame(obj) -> int | None:
+    frame = getattr(obj, "world_entry_frame", None)
+    if isinstance(frame, int) and not isinstance(frame, bool):
+        return frame
+    return None
+
+
+def _world_frame(game_objects) -> int | None:
+    frame = getattr(game_objects, "frame_id", None)
+    if isinstance(frame, int) and not isinstance(frame, bool):
+        return frame
+    return None
+
+
+def _context_for_viewer(
+    context: ObservationFrameContext,
+    self_ship,
+    enemy_ship,
+    *,
+    frame_id: int | None,
+) -> ObservationFrameContext:
+    """Leave out enemy objects ``self_ship`` hasn't yet had time to see.
+
+    An object owned by the enemy side is absent from the slots and from the
+    enemy's object counts until it has been in the world for
+    ``const.PERCEPTION_DELAY_FRAMES``. Ships, own objects and neutral objects
+    are never held back. With no delay the shared context is returned as is.
+    """
+
+    delay = int(const.PERCEPTION_DELAY_FRAMES)
+    now = context.frame_id if context.frame_id is not None else frame_id
+    if delay <= 0 or now is None:
+        return context
+    hidden = [
+        observed
+        for observed in context.observed_objects
+        if _held_back(observed, self_ship, enemy_ship, now=int(now), delay=delay)
+    ]
+    if not hidden:
+        return context
+    hidden_ids = {id(observed.obj) for observed in hidden}
+    owned_live_counts = dict(context.owned_live_counts)
+    floating_orz_counts = dict(context.floating_orz_counts)
+    for observed in hidden:
+        if not observed.alive or observed.owner is None:
+            continue
+        count_key = (id(observed.owner), observed.name)
+        owned_live_counts[count_key] = owned_live_counts.get(count_key, 0) - 1
+        if observed.name == "OrzA3" and getattr(observed.obj, "mode", None) != "boarded":
+            owner_id = id(observed.owner)
+            floating_orz_counts[owner_id] = floating_orz_counts.get(owner_id, 0) - 1
+    return ObservationFrameContext(
+        objects=tuple(obj for obj in context.objects if id(obj) not in hidden_ids),
+        observed_objects=tuple(
+            observed
+            for observed in context.observed_objects
+            if id(observed.obj) not in hidden_ids
+        ),
+        owned_live_counts=owned_live_counts,
+        floating_orz_counts=floating_orz_counts,
+        frame_id=context.frame_id,
+    )
+
+
+def _held_back(
+    observed: _ObservedObject,
+    self_ship,
+    enemy_ship,
+    *,
+    now: int,
+    delay: int,
+) -> bool:
+    if observed.entry_frame is None:
+        return False
+    age = now - observed.entry_frame
+    if age < 0 or age >= delay:
+        return False
+    obj = observed.obj
+    if obj is self_ship or obj is enemy_ship:
+        return False
+    if observed.is_planet or observed.is_asteroid or observed.is_syreen_crew:
+        return False
+    # Marines aboard the viewer are part of its own state.
+    if getattr(obj, "mode", None) == "boarded":
+        return False
+    return _enemy_side(observed, self_ship, enemy_ship)
+
+
+def _enemy_side(observed: _ObservedObject, self_ship, enemy_ship) -> bool:
+    """Whether an object belongs to the viewer's enemy, as the slots sort it."""
+
+    owner = observed.owner
+    if owner is self_ship:
+        return False
+    if owner is not None:
+        if enemy_ship is not None and owner is enemy_ship:
+            return True
+        # An earlier life of either ship.
+        return not _same_player(owner, self_ship)
+    return observed.is_positional_ability and not _same_player(observed.obj, self_ship)
 
 def encode_observation(
     self_ship,
@@ -134,6 +243,7 @@ def encode_observation(
         enemy_ship,
         game_objects,
     )
+    context = _context_for_viewer(context, self_ship, enemy_ship, frame_id=frame_id)
     observed_enemy = enemy_ship if _object_alive(enemy_ship) else None
     enemy_type_index = _SHIP_TYPE_INDEX.get(getattr(observed_enemy, "name", None))
     if enemy_type_index is not None:

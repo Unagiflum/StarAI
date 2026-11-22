@@ -78,6 +78,7 @@ class GameSettingsPersistenceTests(unittest.TestCase):
                 "asteroid_count",
                 "ship_directions",
                 "repeat_key_delay",
+                "perception_delay_frames",
             ],
         )
         self.assertEqual(loaded.key_names()["Player 1: Left"], "z")
