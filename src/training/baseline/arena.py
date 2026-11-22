@@ -618,12 +618,19 @@ def screen(
     run=None,
     log=None,
 ) -> tuple[list[str], dict[str, list[ArenaResult]]]:
-    """Drop settings as they fall behind; return the survivors, best first,
-    and every result flown.
+    """Drop settings as they fall behind; return the settings of the last
+    round, best first, and every result flown.
 
-    Every setting starts on ``first_seeds`` seeds. Each round keeps the
-    better half (``rank_order``), doubles the seeds (flying only the new
-    ones), and stops once one setting is left or ``max_seeds`` is reached.
+    Every setting starts on ``first_seeds`` seeds. After each round:
+
+    - settings whose fights all came out identical are merged into the one
+      listed first (``variants`` order), as they fly the same way;
+    - settings clearly behind the leader (``compare``) are dropped;
+    - at most the better half (``rank_order``) is kept.
+
+    The screen stops once one setting is left, without flying it further,
+    or once ``max_seeds`` is reached. Otherwise it doubles the seeds,
+    flying only the new ones.
     """
 
     run = run or (lambda matches: list(run_arena(matches)))
@@ -643,6 +650,7 @@ def screen(
         for result in run(matches):
             results[result.variant].append(result)
         flown = target
+        alive, duplicates = _merge_identical(alive, results)
         tallies = {}
         for name in alive:
             entry = ArenaTally()
@@ -650,14 +658,56 @@ def screen(
                 entry.add(result)
             tallies[name] = entry
         order = rank_order(tallies)
+        leader = order[0]
+        behind = {
+            name
+            for name in order[1:]
+            if compare(results[leader], results[name]).verdict < 0
+        }
         if log is not None:
             log(f"{flown} seeds:")
             for name in order:
-                log(f"    {name:20s} {tallies[name].cell()}")
-        if len(order) <= 1 or flown >= max_seeds:
+                note = "  (clearly behind)" if name in behind else ""
+                log(f"    {name:20s} {tallies[name].cell()}{note}")
+            for name, kept in duplicates.items():
+                log(f"    {name} flies as {kept}; merged")
+        keep = [name for name in order if name not in behind]
+        alive = keep[: max(1, math.ceil(len(order) / 2))]
+        if len(alive) <= 1 or flown >= max_seeds:
             return order, results
-        alive = order[: max(1, math.ceil(len(order) / 2))]
         target = min(max_seeds, flown * 2)
+
+
+def _merge_identical(
+    names: Sequence[str],
+    results: Mapping[str, Sequence[ArenaResult]],
+) -> tuple[list[str], dict[str, str]]:
+    """Keep the first of each group of settings whose fights all came out
+    identical; return the kept names and each merged name's keeper."""
+
+    kept: dict[tuple, str] = {}
+    merged: dict[str, str] = {}
+    for name in names:
+        signature = tuple(
+            sorted(
+                (
+                    result.pair_key,
+                    result.damage_dealt,
+                    result.kills_dealt,
+                    result.damage_taken,
+                    result.deaths_taken,
+                    result.kills,
+                    result.deaths,
+                    result.still_frames,
+                )
+                for result in results[name]
+            )
+        )
+        if signature in kept:
+            merged[name] = kept[signature]
+        else:
+            kept[signature] = name
+    return list(kept.values()), merged
 
 
 def format_report(

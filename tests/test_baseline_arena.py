@@ -270,30 +270,90 @@ class ArenaRankingTests(unittest.TestCase):
 
         self.assertEqual(order, ["near_top_safer", "top", "behind", "far_behind"])
 
-    def test_screen_halves_the_field_and_doubles_the_seeds(self):
-        strength = {"default": 1.0, "a": 0.2, "b": 0.9, "c": 0.5, "d": 0.8}
+    @staticmethod
+    def _screen_run(dealt_for):
         flown = []
 
         def run(matches):
             flown.append(sorted({(m.variant, m.seed) for m in matches}))
             return [
-                _result(variant=m.variant, seed=m.seed, opponent=m.opponent, dealt=strength[m.variant])
+                _result(variant=m.variant, seed=m.seed, opponent=m.opponent, dealt=dealt_for(m.variant, m.seed))
                 for m in matches
             ]
 
+        return flown, run
+
+    @staticmethod
+    def _noise(key, seed):
+        return random.Random(f"{key}:{seed}").uniform(-1.0, 1.0)
+
+    def test_screen_halves_the_field_and_doubles_the_seeds(self):
+        # Close settings and wide noise: nobody is clearly behind.
+        strength = {"default": 1.0, "a": 0.99, "b": 0.98, "c": 0.97, "d": 0.96}
+        flown, run = self._screen_run(lambda v, s: 2.0 + strength[v] + self._noise(v, s))
+
         order, results = screen(
-            "ZoqFotPik", list(strength), ["Spathi"], first_seeds=2, max_seeds=8,
+            "ZoqFotPik", list(strength), ["Spathi"], first_seeds=2, max_seeds=16,
             cells=[(STRONG, STRONG)], run=run,
         )
 
-        self.assertEqual(order[0], "default")
         # 5 settings on seeds 0-1, the best 3 on 2-3, the best 2 on 4-7.
+        self.assertEqual(len(flown), 3)
         self.assertEqual({variant for variant, _ in flown[0]}, set(strength))
-        self.assertEqual({variant for variant, _ in flown[1]}, {"default", "b", "d"})
+        self.assertEqual(len({variant for variant, _ in flown[1]}), 3)
         self.assertEqual({seed for _, seed in flown[1]}, {2, 3})
-        self.assertEqual({variant for variant, _ in flown[2]}, {"default", "b"})
+        self.assertEqual(len({variant for variant, _ in flown[2]}), 2)
         self.assertEqual({seed for _, seed in flown[2]}, {4, 5, 6, 7})
-        self.assertEqual(len(results["default"]), 8)
+        # Halving to one ends the screen: the survivor isn't flown on to 16.
+        self.assertEqual(len(results[order[0]]), 8)
+
+    def test_screen_drops_settings_clearly_behind_and_stops_on_a_clear_leader(self):
+        strength = {"default": 1.0, "a": 0.2, "b": 0.9, "c": 0.5, "d": 0.8}
+        flown, run = self._screen_run(lambda v, s: strength[v])
+        lines = []
+
+        order, results = screen(
+            "ZoqFotPik", list(strength), ["Spathi"], first_seeds=2, max_seeds=8,
+            cells=[(STRONG, STRONG)], run=run, log=lines.append,
+        )
+
+        self.assertEqual(order[0], "default")
+        self.assertEqual(len(flown), 1)
+        self.assertEqual(len(results["default"]), 2)
+        self.assertEqual(sum("clearly behind" in line for line in lines), 4)
+
+    def test_screen_keeps_a_setting_that_is_not_clearly_behind(self):
+        # "b" trails closely and stays; "a" is clearly behind and goes.
+        strength = {"default": 1.0, "a": 0.2, "b": 0.99}
+        flown, run = self._screen_run(
+            lambda v, s: strength[v] + (0.0 if v == "a" else self._noise(v, s))
+        )
+
+        screen(
+            "ZoqFotPik", list(strength), ["Spathi"], first_seeds=2, max_seeds=4,
+            cells=[(STRONG, STRONG)], run=run,
+        )
+
+        self.assertEqual(len(flown), 2)
+        self.assertEqual({variant for variant, _ in flown[1]}, {"default", "b"})
+
+    def test_screen_merges_settings_that_fly_identically(self):
+        # "same" flies exactly as "default"; the others are close and noisy.
+        key = {"default": "default", "same": "default", "b": "b", "c": "c"}
+        strength = {"default": 1.0, "same": 1.0, "b": 0.99, "c": 0.98}
+        flown, run = self._screen_run(lambda v, s: 2.0 + strength[v] + self._noise(key[v], s))
+        lines = []
+
+        screen(
+            "ZoqFotPik", list(strength), ["Spathi"], first_seeds=2, max_seeds=8,
+            cells=[(STRONG, STRONG)], run=run, log=lines.append,
+        )
+
+        self.assertIn("same", {variant for variant, _ in flown[0]})
+        self.assertIn("    same flies as default; merged", lines)
+        # Three distinct settings left, the better two flown on.
+        self.assertEqual(len({variant for variant, _ in flown[1]}), 2)
+        self.assertNotIn("same", {variant for variant, _ in flown[1]})
 
 
 class ArenaCliTests(unittest.TestCase):
