@@ -301,26 +301,45 @@ def threat_path(
     speed = math.hypot(vx, vy)
     heading = bearing_of(vx, vy)
     step = turn_step_degrees()
-    fine_step = float(const.TURN_ANGLE)
+    half_fine_step = float(const.TURN_ANGLE) / 2.0
+    # The hottest loop in rule 1 (homing fighters, Dogi, missiles): names
+    # are bound locally, and bearing_of is inlined with the same arithmetic,
+    # so paths are bit-identical to the plain form.
+    turn_period = track.turn_period
+    steers = homing and speed > 0.0
+    path_xs, path_ys = path.xs, path.ys
+    atan2, degrees, radians_of = math.atan2, math.degrees, math.radians
+    cos, sin, copysign, hypot = math.cos, math.sin, math.copysign, math.hypot
+    append_x, append_y = xs.append, ys.append
+    # Without gravity, velocity set from an unchanged heading is unchanged,
+    # so it is recomputed only after a turn. Gravity alters velocity between
+    # frames, and the recompute undoes that, so with gravity it runs every
+    # time.
+    velocity_heading = None
     next_turn = 0
     for frame in range(last):
-        if track.homing and frame >= next_turn and speed > 0.0:
-            target = bearing_of(path.xs[frame] - x, path.ys[frame] - y)
+        if steers and frame >= next_turn:
+            dx = path_xs[frame] - x
+            dy = path_ys[frame] - y
+            target = 0.0 if dx == 0.0 and dy == 0.0 else degrees(atan2(dy, dx))
             error = (target - heading + 180.0) % 360.0 - 180.0
-            if abs(error) >= fine_step / 2.0:
-                heading += math.copysign(min(step, abs(error)), error)
-                next_turn = frame + track.turn_period
-            radians = math.radians(heading)
-            vx, vy = speed * math.cos(radians), speed * math.sin(radians)
+            size = abs(error)
+            if size >= half_fine_step:
+                heading += copysign(min(step, size), error)
+                next_turn = frame + turn_period
+            if pull > 0.0 or heading != velocity_heading:
+                radians = radians_of(heading)
+                vx, vy = speed * cos(radians), speed * sin(radians)
+                velocity_heading = heading
         if pull > 0.0:
             px, py = x - planet[0], y - planet[1]
-            gx, gy = planet_gravity(px, py, math.hypot(px, py), pull)
+            gx, gy = planet_gravity(px, py, hypot(px, py), pull)
             vx += gx
             vy += gy
         x += vx
         y += vy
-        xs.append(x)
-        ys.append(y)
+        append_x(x)
+        append_y(y)
     if not homing:
         track.fixed_path = (last, xs, ys)
     return xs, ys
@@ -350,12 +369,22 @@ def first_contact(
     closest = math.hypot(txs[0] - path.xs[0], tys[0] - path.ys[0])
     if closest <= reach:
         return 0, closest
-    previous_x = txs[0] - path.xs[0]
-    previous_y = tys[0] - path.ys[0]
+    path_xs, path_ys = path.xs, path.ys
+    hypot = math.hypot
+    previous_x = txs[0] - path_xs[0]
+    previous_y = tys[0] - path_ys[0]
     for frame in range(1, len(txs)):
-        rx = txs[frame] - path.xs[frame]
-        ry = tys[frame] - path.ys[frame]
-        distance = _segment_closest(previous_x, previous_y, rx, ry)
+        rx = txs[frame] - path_xs[frame]
+        ry = tys[frame] - path_ys[frame]
+        # _segment_closest, inlined with the same arithmetic.
+        dx, dy = rx - previous_x, ry - previous_y
+        length_squared = dx * dx + dy * dy
+        if length_squared <= 1e-12:
+            distance = hypot(previous_x, previous_y)
+        else:
+            t = -(previous_x * dx + previous_y * dy) / length_squared
+            t = 0.0 if t <= 0.0 else (1.0 if t > 1.0 else t)
+            distance = hypot(previous_x + dx * t, previous_y + dy * t)
         if distance < closest:
             closest = distance
         if distance <= reach:

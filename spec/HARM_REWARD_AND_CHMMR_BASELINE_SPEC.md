@@ -1020,7 +1020,27 @@ taken is at most 3 times the extra harm dealt.
     observations are identical (`test_shared_observation_context_changes_nothing`).
 - **Rule 1:** straight threats already reuse one predicted path across the
   moves rule 1 compares (`ThreatTrack.fixed_path`). Homing threats can't,
-  because their path depends on the move, so there was nothing to gain there.
+  because their path depends on the move.
+- **Profiled 2026-11-21** (the Spathi against every opponent, one
+  1,200-frame fight each, timed by part):
+  - Nothing builds up over a fight: objects in the world stay at 10–33, and
+    the ledger and harm tracker cost almost nothing.
+  - Later frames cost no more than early ones. Equal-work batches of 600-
+    and 1,200-frame fights took the same time (99 and 109 s, then 99 and
+    92 s). An earlier gap of 2× between two runs came from the machine: the
+    i9-12900K's 24 threads mix 8 performance and 8 efficiency cores, and
+    throughput varies by up to 2× between runs.
+  - Time per fight: battle step 39%, baseline decisions 34%, encoding 19%,
+    observation context 8%. Decisions are 52–62% of the fight against the
+    Kzer-Za, Orz, Chenjesu and Androsynth, nearly all in rule 1 predicting
+    homing fighters, Dogi and marines (`threat_path`, `first_contact`).
+  - `threat_path` and `first_contact` now bind names locally and inline
+    `bearing_of` and `_segment_closest` with the same arithmetic. Without
+    gravity, a homing threat's velocity is recomputed only after it turns.
+    Every ship against every opponent, one seed (625 fights), gave identical
+    results before and after. Time fell 5.5% over all opponents (46.3 to
+    43.7 s), and by 18% against the Kzer-Za, 12% against the Chenjesu and 8%
+    against the Orz.
 - **Workers:** one per logical CPU by default. Fixed-length fights are equal in
   length, so more workers keep paying off. 384 fights of 1,200 frames ran at:
 
