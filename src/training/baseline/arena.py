@@ -51,6 +51,10 @@ from src.training.baseline.strategies import (
     strategy_for,
 )
 from src.training.contracts import SHIP_TYPE_CATALOG_ORDER
+from src.training.windows_qos import (
+    request_current_process_below_normal_priority,
+    request_current_process_high_qos,
+)
 
 DEFAULT_OPPONENTS = ("Spathi", "Earthling", "KzerZa")
 DEFAULT_FRAMES = 1200
@@ -456,6 +460,12 @@ def build_matches(
 
 
 def _worker_init(ship_directions: int, perception_delay: int) -> None:
+    # Arena sweeps use every CPU for hours: run below normal, as training
+    # workers do, so the desktop stays responsive, and opt out of Eco QoS so
+    # Windows doesn't throttle the workers to efficiency cores. Neither
+    # changes a fight's result.
+    request_current_process_below_normal_priority()
+    request_current_process_high_qos()
     apply_arena_settings(ship_directions, perception_delay)
 
 
@@ -1023,6 +1033,7 @@ def _perception_delay(text: str) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = parse_arguments(argv)
+    request_current_process_below_normal_priority()
     ships = _ship_list(arguments.ships, SHIP_TYPE_CATALOG_ORDER)
     opponents = _ship_list(arguments.opponents, DEFAULT_OPPONENTS)
     variants = _variant_map(arguments.variants, ships)

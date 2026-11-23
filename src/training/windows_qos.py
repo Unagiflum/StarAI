@@ -14,6 +14,7 @@ import sys
 import threading
 
 
+_BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
 _PROCESS_POWER_THROTTLING = 4
 _THREAD_POWER_THROTTLING = 3
 _POWER_THROTTLING_CURRENT_VERSION = 1
@@ -69,6 +70,28 @@ def request_current_process_high_qos() -> bool:
         )
     except (AttributeError, OSError):
         # Older or restricted Windows environments may not expose the policy.
+        return False
+
+
+def request_current_process_below_normal_priority() -> bool:
+    """Give Windows foreground work precedence over the current process.
+
+    Scheduling priority only orders work when the CPUs are contended, so an
+    idle machine still runs the process at full speed.
+    """
+
+    if sys.platform != "win32":
+        return False
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        get_current_process = kernel32.GetCurrentProcess
+        get_current_process.restype = ctypes.c_void_p
+        set_priority_class = kernel32.SetPriorityClass
+        set_priority_class.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+        set_priority_class.restype = ctypes.c_int
+        return bool(set_priority_class(get_current_process(), _BELOW_NORMAL_PRIORITY_CLASS))
+    except (AttributeError, OSError):
+        # Priority is a responsiveness optimization, not a requirement.
         return False
 
 

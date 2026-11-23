@@ -59,10 +59,37 @@ class WindowsTrainingQosTests(unittest.TestCase):
         self.assertEqual(state.StateMask, 0)
         self.assertEqual(args[3], 12)
 
+    @mock.patch("src.training.windows_qos.ctypes.WinDLL", create=True)
+    @mock.patch("src.training.windows_qos.sys.platform", "win32")
+    def test_below_normal_priority_sets_the_process_priority_class(self, win_dll):
+        kernel32 = win_dll.return_value
+        kernel32.GetCurrentProcess.return_value = 123
+        kernel32.SetPriorityClass.return_value = 1
+
+        changed = windows_qos.request_current_process_below_normal_priority()
+
+        self.assertTrue(changed)
+        kernel32.SetPriorityClass.assert_called_once_with(123, 0x00004000)
+
     @mock.patch("src.training.windows_qos.sys.platform", "linux")
     def test_non_windows_requests_are_noops(self):
         self.assertFalse(windows_qos.request_current_process_high_qos())
         self.assertFalse(windows_qos.request_current_thread_high_qos())
+        self.assertFalse(windows_qos.request_current_process_below_normal_priority())
+
+    def test_arena_workers_run_below_normal_at_high_qos(self):
+        from src.training.baseline import arena
+
+        with (
+            mock.patch.object(arena, "request_current_process_below_normal_priority") as lower,
+            mock.patch.object(arena, "request_current_process_high_qos") as high_qos,
+            mock.patch.object(arena, "apply_arena_settings") as settings,
+        ):
+            arena._worker_init(64, 5)
+
+        lower.assert_called_once_with()
+        high_qos.assert_called_once_with()
+        settings.assert_called_once_with(64, 5)
 
     def test_nested_training_runs_share_and_restore_process_policy(self):
         with (
