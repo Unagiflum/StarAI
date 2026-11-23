@@ -1103,6 +1103,16 @@ tuned only once that opponent has moved.
    can beat each other in a loop, so passes may cycle rather than settle; a
    cycle is resolved by keeping the setting that ranks better over both
    passes. Baselines are sparring partners, so stable and sensible is enough.
+   Fights are deterministic, so a settling run moves only if the table
+   changed: in practice the passes stop when a recheck round confirms no
+   replacement. Two guards keep them finite:
+   - **Cycles.** When a pair's override would return to a setting it held
+     in an earlier round, the settings it has cycled through are flown
+     against each other on the confirmation seeds and the best by the harm
+     ranking is kept; that pair is then not rechecked again.
+   - **Round cap.** At most three recheck rounds follow pass 2. Pairs still
+     changing after the third are listed as unsettled and left as they
+     are.
 
 ### Irregular fire against shields
 
