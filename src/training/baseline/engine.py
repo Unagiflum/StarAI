@@ -352,6 +352,10 @@ class BaselineContext:
         )
         # Strategies may opt in for one decision.
         self.coast_above_top_speed = self.behaviour.coast_above_top_speed
+        # A special that moves the ship by its own rule for this decision
+        # sets this, so ``strategies.shared`` skips recharge and the band
+        # (which would otherwise still note the side they'd turn to).
+        self.movement_taken = False
 
     # ----------------------------------------------------------------- facts
 

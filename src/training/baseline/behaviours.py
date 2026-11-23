@@ -508,10 +508,27 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # pass 2. λ low for the Thraddash, which outruns most ships on its
     # afterburner; middling for the Umgah, which escapes only by hopping
     # backwards; high for the Vux, slow and unable to run.
+    # Pass 2, split from its whole earlier rules: burning forward from side
+    # or rear shots, leading a closing opponent or homing escorts through
+    # the trail tail first (holding fire), and dashing in from far off on
+    # the afterburner are specials; a back-off band closes in to 1,400 and
+    # steers 110 degrees off inside 900, as approach_range did; the gun is
+    # aimed within 1,400 keeping 8 battery for the afterburner. Against a
+    # Chmmr, the earlier rule. λ is low: it outruns most ships on its
+    # afterburner.
     "Thraddash": ShipBehaviour(
         harm_taken_weight=0.25,
         coast_above_top_speed=True,
-        specials=("thraddash_rules",),
+        specials=("thraddash_dodge_burn", "thraddash_trail"),
+        band=Band(900.0, 1400.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        weapons=(WeaponUse(FIRE_AIMED, range_fraction=1400.0 / 1620.0, reserve=8.0), None),
+        opponents={
+            "Chmmr": {
+                "specials": ("thraddash_dodge_burn", "thraddash_chmmr"),
+                "band": None,
+                "weapons": (),
+            },
+        },
     ),
     "Umgah": ShipBehaviour(
         harm_taken_weight=0.5,

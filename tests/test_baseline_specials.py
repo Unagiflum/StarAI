@@ -34,7 +34,7 @@ SPECIALS = {
     "Utwig": ("Chmmr", ("utwig_chmmr",), (), None),
     "Yehat": ("Shofixti", ("shield_glory", "yehat_chmmr"), (), None),
     "ZoqFotPik": ("Mycon", ("zoq_fot_pik_tongue", "zoq_fot_pik_lunge"), ("zoq_fot_pik_gun",), None),
-    "Thraddash": ("Chmmr", ("thraddash_rules",), (), None),
+    "Thraddash": ("Chmmr", ("thraddash_dodge_burn", "thraddash_trail", "thraddash_chmmr"), (), None),
     "Umgah": ("Spathi", ("umgah_rules",), (), None),
     "Vux": ("Chmmr", ("vux_rules",), (), None),
 }
@@ -62,8 +62,9 @@ class SpecialRuleTests(unittest.TestCase):
                 self.assertEqual(result.frames, 90)
 
     def test_whole_rule_specials_fly_as_the_ship_strategy(self):
-        # The Thraddash, Umgah and Vux run from their table entries, each a
-        # whole-rule special, fight for fight as their earlier rules.
+        # The Umgah and Vux run from their table entries, each a whole-rule
+        # special, fight for fight as their earlier rules; the Thraddash,
+        # split into the schema, still does.
         for ship in ("Thraddash", "Umgah", "Vux"):
             self.assertIs(strategies.STRATEGIES[ship], strategies.shared)
             for opponent in ("Chmmr", "Orz"):
@@ -147,6 +148,29 @@ class MovedShipTests(unittest.TestCase):
         self.assertEqual((band.near, band.far, band.back_off), (150.0, 300.0, True))
         self.assertIsNone(ship_behaviour("Slylandro", "Chmmr").band.outside_reach_margin)
         self.assertEqual(ship_behaviour("Slylandro", "Chmmr").band.far, 850.0)
+
+
+class MovementTakenTests(unittest.TestCase):
+    def test_a_special_that_takes_the_movement_skips_the_band(self):
+        from tests.test_baseline_strategy import _rule_context, _seen
+
+        def run(taken):
+            context = _rule_context("Thraddash", enemy=_seen(0.0, 400.0))
+            context.behaviour = dataclasses.replace(
+                context.behaviour,
+                specials=(),
+                band=Band(900.0, 1400.0, back_off=True),
+                weapons=(),
+                opponents={},
+            )
+            context.movement_taken = taken
+            strategies.shared(context)
+            return context
+
+        self.assertIn("band_near", run(False).memory.touched_sides)
+        skipped = run(True)
+        self.assertNotIn("band_near", skipped.memory.touched_sides)
+        self.assertIsNone(skipped.plan.turn)
 
 
 class FireShareTests(unittest.TestCase):

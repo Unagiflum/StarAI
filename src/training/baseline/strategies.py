@@ -1381,21 +1381,45 @@ def _thraddash_tail_burn(ctx: BaselineContext, target, *, burn: bool) -> None:
 
 
 def thraddash(ctx: BaselineContext) -> None:
-    enemy = ctx.enemy
-    if enemy is None:
+    if ctx.enemy is None:
         return
-    values = ctx.memory.values
-    # Shots about to land from the side or behind: burn forward, and the
-    # trail catches what follows.
+    _thraddash_dodge_burn(ctx)
+    if ctx.enemy_name == "Chmmr":
+        _thraddash_vs_chmmr(ctx)
+        return
+    if _thraddash_escape(ctx):
+        return
+    _thraddash_dash(ctx, "band_far")
+    # Hold the standoff band, coasting rather than thrusting above top speed.
+    ctx.approach_range(
+        THRADDASH_STANDOFF_FAR,
+        key="band",
+        inner_fraction=THRADDASH_STANDOFF_NEAR / THRADDASH_STANDOFF_FAR,
+    )
+    ctx.point_weapon(1)
+    spare = ctx.me.battery - ctx.spec.a1_cost >= THRADDASH_BURN_RESERVE
+    if ctx.distance <= THRADDASH_STANDOFF_FAR and ctx.pointing(1) and spare:
+        ctx.a1(True)
+
+
+def _thraddash_dodge_burn(ctx: BaselineContext) -> None:
+    """Shots about to land from the side or behind: burn forward, and the
+    trail catches what follows."""
+
     for threat in ctx.view.enemy_objects:
         if abs(threat.bearing) >= THRADDASH_DODGE_MIN_BEARING and ctx.imminent(
             threat, THRADDASH_AFTERBURNER_SECONDS
         ):
             ctx.a2(True)
             break
-    if ctx.enemy_name == "Chmmr":
-        _thraddash_vs_chmmr(ctx)
-        return
+
+
+def _thraddash_escape(ctx: BaselineContext) -> bool:
+    """Lead a closing opponent, or escorts and homing shots chasing me,
+    through the afterburner trail, tail first. True while doing so."""
+
+    enemy = ctx.enemy
+    values = ctx.memory.values
     # Escape: burn away from an opponent coming too close, or arriving soon.
     # Slow turners are baited in nearer, so they follow into the trail.
     slow_turner = ctx.enemy_name in THRADDASH_SLOW_TURNERS
@@ -1431,27 +1455,38 @@ def thraddash(ctx: BaselineContext) -> None:
         chaser = min(chasers, key=lambda item: item.distance)
         burn = chaser is enemy or chaser.distance <= THRADDASH_TRAIL_RANGE
         _thraddash_tail_burn(ctx, chaser, burn=burn)
-        return
-    # Far off: dash in on the afterburner past one side of the opponent,
-    # then coast; a few frames of burn reach the afterburner's top speed.
+        return True
+    return False
+
+
+def _thraddash_dash(ctx: BaselineContext, side_key: str) -> None:
+    """Far off: dash in on the afterburner past one side of the opponent,
+    then coast; a few frames of burn reach the afterburner's top speed.
+    ``side_key`` is the side memory shared with the band's approach."""
+
+    enemy = ctx.enemy
     if (
         enemy.distance > THRADDASH_STANDOFF_FAR + THRADDASH_DASH_MARGIN
         and ctx.me.battery >= THRADDASH_BURN_RESERVE + THRADDASH_DASH_COST
     ):
-        heading = ctx.drift_cancelling_side("standoff_far", enemy, APPROACH_ANGLE_OFFSET)
+        heading = ctx.drift_cancelling_side(side_key, enemy, APPROACH_ANGLE_OFFSET)
         ctx.steer(heading)
         if abs(heading) <= THRADDASH_DASH_ALIGN and ctx.me.speed < THRADDASH_DASH_SPEED:
             ctx.a2(True)
-    # Hold the standoff band, coasting rather than thrusting above top speed.
-    ctx.approach_range(
-        THRADDASH_STANDOFF_FAR,
-        key="standoff",
-        inner_fraction=THRADDASH_STANDOFF_NEAR / THRADDASH_STANDOFF_FAR,
-    )
-    ctx.point_weapon(1)
-    spare = ctx.me.battery - ctx.spec.a1_cost >= THRADDASH_BURN_RESERVE
-    if ctx.distance <= THRADDASH_STANDOFF_FAR and ctx.pointing(1) and spare:
-        ctx.a1(True)
+
+
+def _thraddash_trail(ctx: BaselineContext) -> None:
+    """Special: lead a chaser through the afterburner trail, holding fire
+    (the gun points away); otherwise dash in from far off. The dash shares
+    its side with the band's approach."""
+
+    if ctx.enemy is None:
+        return
+    if _thraddash_escape(ctx):
+        ctx.a1(False)
+        ctx.movement_taken = True
+    else:
+        _thraddash_dash(ctx, "band_far")
 
 
 def _thraddash_vs_chmmr(ctx: BaselineContext) -> None:
@@ -2677,7 +2712,9 @@ def shared(ctx: BaselineContext) -> None:
         SPECIAL_RULES[name](ctx)
     if behaviour.form_switch is not None:
         FORM_SWITCHES[behaviour.form_switch](ctx)
-    if ctx.recharging():
+    if ctx.movement_taken:
+        pass
+    elif ctx.recharging():
         ctx.recharge_retreat()
     else:
         ctx.hold_band()
@@ -2693,7 +2730,9 @@ def shared(ctx: BaselineContext) -> None:
 SPECIAL_RULES.update(
     {
         "syreen_chmmr": lambda ctx: _syreen_vs_chmmr(ctx) if ctx.enemy is not None else None,
-        "thraddash_rules": lambda ctx: thraddash(ctx),
+        "thraddash_chmmr": lambda ctx: _thraddash_vs_chmmr(ctx) if ctx.enemy is not None else None,
+        "thraddash_dodge_burn": lambda ctx: _thraddash_dodge_burn(ctx) if ctx.enemy is not None else None,
+        "thraddash_trail": _thraddash_trail,
         "umgah_rules": lambda ctx: umgah(ctx),
         "utwig_chmmr": lambda ctx: _utwig_vs_chmmr(ctx),
         "vux_rules": lambda ctx: vux(ctx),
