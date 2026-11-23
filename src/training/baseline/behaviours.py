@@ -101,7 +101,11 @@ class WeaponUse:
     while one is in reach. ``tolerance`` overrides the aim tolerance, in
     degrees. A defending weapon presses when an enemy object will touch
     the ship within ``threat_seconds``, or, with ``on_crew_loss``, when crew
-    was lost since the last decision.
+    was lost since the last decision. ``fire_share`` below 1 lets an aimed
+    or launched shot that would fire go ahead only on that share of
+    decisions, chosen by a hash of the distance and bearing to the target
+    (``engine.fire_gate_open``) so a shielding opponent can't time its
+    shield to the fire; fights stay repeatable.
     """
 
     kind: str = FIRE_AIMED
@@ -112,10 +116,13 @@ class WeaponUse:
     tolerance: float | None = None
     threat_seconds: float = 0.2
     on_crew_loss: bool = False
+    fire_share: float = 1.0
 
     def __post_init__(self) -> None:
         if self.kind not in FIRE_KINDS:
             raise ValueError(f"Unknown fire kind {self.kind!r}")
+        if not 0.0 < self.fire_share <= 1.0:
+            raise ValueError(f"fire_share must be in (0, 1], not {self.fire_share!r}")
 
 
 @dataclass(frozen=True, slots=True)

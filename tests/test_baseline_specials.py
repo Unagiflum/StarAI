@@ -149,6 +149,41 @@ class MovedShipTests(unittest.TestCase):
         self.assertEqual(ship_behaviour("Slylandro", "Chmmr").band.far, 850.0)
 
 
+class FireShareTests(unittest.TestCase):
+    def test_the_gate_is_always_open_at_a_full_share(self):
+        from src.training.baseline.engine import fire_gate_open
+
+        self.assertTrue(all(fire_gate_open(d, b, 1.0) for d in range(0, 2000, 37) for b in (-90.0, 0.0, 33.3)))
+
+    def test_the_gate_opens_on_about_its_share_and_repeats(self):
+        from src.training.baseline.engine import fire_gate_open
+
+        points = [(300.0 + d * 0.7, (d * 7.31) % 360.0 - 180.0) for d in range(4000)]
+        for share in (0.33, 0.5, 0.75):
+            with self.subTest(share=share):
+                opened = [fire_gate_open(d, b, share) for d, b in points]
+                self.assertAlmostEqual(sum(opened) / len(opened), share, delta=0.03)
+                self.assertEqual(opened, [fire_gate_open(d, b, share) for d, b in points])
+
+    def test_a_fire_share_must_be_a_share(self):
+        from src.training.baseline.behaviours import WeaponUse
+
+        for share in (0.0, -0.5, 1.5):
+            with self.subTest(share=share):
+                with self.assertRaises(ValueError):
+                    WeaponUse(fire_share=share)
+
+    def test_a_closed_gate_holds_a_shot_that_would_fire(self):
+        from src.training.baseline.behaviours import FIRE_LAUNCH, WeaponUse
+        from tests.test_baseline_strategy import _rule_context, _seen
+
+        fired = {}
+        for share in (1.0, 1e-9):
+            context = _rule_context("Slylandro", enemy=_seen(0.0, 500.0), battery=20.0)
+            fired[share] = context.fire_weapon(1, WeaponUse(FIRE_LAUNCH, fire_share=share))
+        self.assertEqual(fired, {1.0: True, 1e-9: False})
+
+
 class LateSpecialTests(unittest.TestCase):
     def test_late_specials_run_after_the_band_and_before_the_weapons(self):
         seen = {}

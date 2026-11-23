@@ -13,7 +13,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import math
+import struct
 from typing import Callable
+import zlib
 
 import src.const as const
 from src.training.baseline.behaviours import (
@@ -1752,6 +1754,10 @@ class BaselineContext:
                 return False
         else:
             return False
+        if use.kind in (FIRE_LAUNCH, FIRE_AIMED) and not fire_gate_open(
+            self.distance, self.enemy.bearing, use.fire_share
+        ):
+            return False
         return self.a1(True) if action == 1 else self.a2(True)
 
     def approach_weapon_range(self, action: int) -> bool:
@@ -1767,6 +1773,22 @@ class BaselineContext:
 
 
 StrategyFunction = Callable[[BaselineContext], None]
+
+
+def fire_gate_open(distance: float, bearing: float, share: float) -> bool:
+    """Whether a shot that would fire goes ahead, for ``WeaponUse.fire_share``.
+
+    A hash of the distance to the target (to the nearest unit) and the exact
+    bearing falls under ``share`` on that share of decisions. Both change
+    every frame the ships move, so the pattern is irregular, yet it draws
+    no random numbers: fights stay repeatable and the battle's random
+    stream is untouched.
+    """
+
+    if share >= 1.0:
+        return True
+    key = struct.pack("<qd", int(round(float(distance))), float(bearing))
+    return zlib.crc32(key) / 4294967296.0 < float(share)
 
 
 @dataclass(frozen=True, slots=True)
