@@ -378,6 +378,25 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         specials=("mycon_regenerate",),
         late_specials=("gravity_whip_when_slow", "mycon_plasmoid"),
     ),
+    # Pass 1 at the default perception delay, by the harm ranking: marines
+    # (a special) and the turret late. A back-off band closes in at full
+    # speed to the gun's 1,296 and steers 110 degrees off the bearing inside
+    # 907, as approach_range did; kiting opponents are held at 700-1,100 and
+    # a Chmmr at 1,550-1,800, as before. Level with the earlier rules.
+    # λ is middling: it can't outrun the fast ships.
+    "Orz": ShipBehaviour(
+        harm_taken_weight=0.5,
+        specials=("orz_marines",),
+        late_specials=("orz_turret",),
+        band=Band(907.2, 1296.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        opponents={
+            **{
+                name: {"band": Band(700.0, 1100.0)}
+                for name in ("Arilou", "Druuge", "KzerZa", "Orz", "Pkunk", "Shofixti", "Spathi", "Syreen", "Yehat")
+            },
+            "Chmmr": {"band": Band(1550.0, 1800.0)},
+        },
+    ),
     "Slylandro": ShipBehaviour(keep_moving=False),
     # Pass 1 at the default perception delay, by the harm ranking: the band
     # runs from 0.7 of the gun's 1,080 reach to all of it, closing in at up
