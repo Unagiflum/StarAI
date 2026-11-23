@@ -2333,7 +2333,13 @@ class ShipRuleTests(unittest.TestCase):
         STRATEGIES["Mmrnmrhm"](y_far)
         self.assertFalse(y_far.plan.a2)
         self.assertTrue(y_far.plan.a1)
-        self.assertEqual(y_far.memory.sides.keys(), {"avoid_opponent"})
+        # The Y-wing no longer flees a closing opponent; it faces it. The
+        # earlier rules fled.
+        self.assertEqual(y_far.plan.turn, TURN_RIGHT)
+        self.assertNotIn("avoid_opponent", y_far.memory.sides)
+        fled = _rule_context("Mmrnmrhm", enemy=far, ywing=True)
+        strategy_for("Mmrnmrhm", "earlier")(fled)
+        self.assertEqual(fled.memory.sides.keys(), {"avoid_opponent"})
 
 
 def _satellite(enemy, orbit_angle, *, hp=10.0, spin=1, orbit=256.0):

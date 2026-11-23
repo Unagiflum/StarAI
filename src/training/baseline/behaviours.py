@@ -352,7 +352,20 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         band=Band(800.0, 1400.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
         weapons=(None, WeaponUse(FIRE_AIMED, aim=False)),
     ),
-    "Mmrnmrhm": ShipBehaviour(keep_moving_takes_aim=True),
+    # Pass 1 at the default perception delay, by the harm ranking: the forms
+    # as the mode switch (the X-form within its laser's reach, the Y-wing
+    # beyond), the X-form lasers flying at the opponent and the Y-wing
+    # missiles (a special), facing the opponent late. No band and no
+    # fleeing: the earlier Y-wing fled a closing opponent, which kept harm
+    # taken down but dealt far less. λ is low: the Y-wing outruns most
+    # ships, so running away mustn't pay.
+    "Mmrnmrhm": ShipBehaviour(
+        harm_taken_weight=0.25,
+        keep_moving_takes_aim=True,
+        form_switch="mmrnmrhm_forms",
+        specials=("mmrnmrhm_attack",),
+        late_specials=("face_opponent",),
+    ),
     # Pass 1 at the default perception delay, by the harm ranking:
     # regeneration (a special), the planet whip when slow and the plasmoid
     # aimed late, and no movement rule of its own: keep moving does the
