@@ -492,18 +492,19 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             "Umgah": {"band": Band(635.04, 907.2, approach_speed=math.inf, run_offset=110.0, back_off=True)},
         },
     ),
-    # Pass 1 at the default perception delay, by the harm ranking: insults
-    # (its only battery source) and passing beside the opponent while
-    # charged are specials, the nearest gun aimed late; below 4 of 12 it
-    # recharges outside the opponent's reach. Level with the earlier rules.
-    # λ is low: among the fastest ships, it can always run.
+    # Deferred item, by the harm ranking: insults (its only battery source)
+    # are a special; a back-off band closes in at full speed to 350 and
+    # steers 110 degrees off the bearing inside 150; the nearest of its
+    # three guns fires whenever it is within 45 degrees of the target (the
+    # guns sit 90 apart), with no recharging. Pass 1's rules (passing beside
+    # the opponent, firing on a tight aim) held a full battery all fight and
+    # fired about 10 presses. λ is low: among the fastest ships, it can
+    # always run.
     "Pkunk": ShipBehaviour(
         harm_taken_weight=0.25,
-        specials=("pkunk_insult", "pkunk_pass"),
-        late_specials=("pkunk_gun",),
-        recharge_battery=4.0,
-        # Pass 2: a back-off band at 0.7-1 of the gun's 432 reach.
-        opponents={"Spathi": {"band": Band(302.4, 432.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}},
+        specials=("pkunk_insult",),
+        band=Band(150.0, 350.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        weapons=(WeaponUse(FIRE_AIMED, tolerance=45.0), None),
     ),
     # Pass 1 at the default perception delay, by the harm ranking: the
     # glory device a special, the gun aimed; from an empty battery it

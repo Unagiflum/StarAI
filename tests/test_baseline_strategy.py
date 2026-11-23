@@ -1418,14 +1418,27 @@ class ShipRuleTests(unittest.TestCase):
         self.assertIn("avoid_opponent", low.memory.sides)
         self.assertNotIn("pkunk_pass", low.memory.sides)
 
-    def test_the_pkunk_entry_recharges_below_a_third_of_its_battery(self):
-        enemy = _seen(0.0, 2000.0, closing=5.0)
-        low = _rule_context("Pkunk", enemy=enemy, battery=3.9, max_battery=12.0)
-        charged = _rule_context("Pkunk", enemy=enemy, battery=4.0, max_battery=12.0)
+    def test_the_pkunk_entry_never_recharges(self):
+        low = _rule_context("Pkunk", enemy=_seen(0.0, 2000.0, closing=5.0), battery=1.0, max_battery=12.0)
 
         self.assertIs(STRATEGIES["Pkunk"], strategy_module.shared)
-        self.assertTrue(low.recharging())
-        self.assertFalse(charged.recharging())
+        self.assertFalse(low.recharging())
+
+    def test_the_pkunk_entry_fires_the_nearest_gun_within_45_degrees(self):
+        reach = weapon_spec("Pkunk", 1).range
+
+        def fires(bearing, distance=250.0):
+            context = _rule_context("Pkunk", enemy=_seen(bearing, distance))
+            STRATEGIES["Pkunk"](context)
+            return bool(context.plan.a1)
+
+        # The front gun at 40 degrees off, a side gun at 50 and 130.
+        self.assertTrue(fires(40.0))
+        self.assertTrue(fires(50.0))
+        self.assertTrue(fires(-130.0))
+        # Behind it, every gun is more than 45 degrees off.
+        self.assertFalse(fires(170.0))
+        self.assertFalse(fires(40.0, distance=reach + 60.0))
 
     def test_pkunk_fires_a_side_gun_at_an_opponent_abeam(self):
         # Inside firing distance but outside the band where approach backs off.
