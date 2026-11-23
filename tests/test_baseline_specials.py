@@ -107,33 +107,35 @@ class MovedShipTests(unittest.TestCase):
         self.assertIsNone(chmmr.band)
         self.assertIsNone(chmmr.recharge_battery)
 
-    def test_the_utwig_entry_flies_its_earlier_rules_against_the_chmmr_and_spathi(self):
-        # Its Chmmr rule is a whole-rule special, and against the Spathi it
-        # keeps the earlier band (approach_range to the bolts' reach).
+    def test_the_utwig_entry_flies_its_earlier_rule_against_the_chmmr(self):
+        # Its Chmmr rule is a whole-rule special.
         self.assertIs(strategies.STRATEGIES["Utwig"], strategies.shared)
-        for opponent in ("Chmmr", "Spathi"):
-            with self.subTest(opponent=opponent):
-                earlier = run_match(ArenaMatch("Utwig", opponent, 1, "earlier"), frames=240)
-                moved = run_match(ArenaMatch("Utwig", opponent, 1), frames=240)
-                self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
+        earlier = run_match(ArenaMatch("Utwig", "Chmmr", 1, "earlier"), frames=240)
+        moved = run_match(ArenaMatch("Utwig", "Chmmr", 1), frames=240)
+        self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
 
     def test_the_utwig_holds_inside_its_bolts_reach(self):
         band = ship_behaviour("Utwig", "Mycon").band
         self.assertEqual((band.near, band.far, band.back_off), (500.0, 900.0, True))
-        self.assertEqual(ship_behaviour("Utwig", "Spathi").band.far, 1080.0)
+        spathi = ship_behaviour("Utwig", "Spathi").band
+        self.assertEqual((spathi.near, spathi.far, spathi.back_off), (756.0, 1080.0, False))
         self.assertEqual(ship_behaviour("Utwig", "Shofixti").specials, ("shield_glory",))
 
-    def test_the_yehat_entry_flies_its_earlier_chmmr_rule(self):
+    def test_the_yehat_flies_its_table_defaults_against_the_chmmr(self):
+        # Pass 3 dropped the earlier Chmmr rule.
         self.assertIs(strategies.STRATEGIES["Yehat"], strategies.shared)
+        chmmr = ship_behaviour("Yehat", "Chmmr")
+        self.assertEqual(chmmr.specials, ())
+        self.assertEqual(chmmr.band, ship_behaviour("Yehat").band)
         earlier = run_match(ArenaMatch("Yehat", "Chmmr", 1, "earlier"), frames=240)
         moved = run_match(ArenaMatch("Yehat", "Chmmr", 1), frames=240)
-        self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
+        self.assertNotEqual(dataclasses.replace(earlier, variant="default"), moved)
 
     def test_the_yehat_closes_to_its_guns_except_against_the_shofixti(self):
         band = ship_behaviour("Yehat", "Orz").band
         self.assertEqual((band.near, band.far, band.back_off), (100.0, 700.0, True))
         shofixti = ship_behaviour("Yehat", "Shofixti")
-        self.assertEqual((shofixti.band.near, shofixti.band.far), (504.0, 720.0))
+        self.assertIsNone(shofixti.band)
         self.assertEqual(shofixti.specials, ("shield_glory",))
 
     def test_the_zoq_fot_pik_closes_to_its_gun_except_against_the_orz(self):
@@ -146,10 +148,13 @@ class MovedShipTests(unittest.TestCase):
     def test_the_thraddash_holds_a_predictive_band_except_where_the_earlier_one_paid(self):
         band = ship_behaviour("Thraddash", "Pkunk").band
         self.assertEqual((band.near, band.far, band.back_off), (700.0, 1200.0, False))
-        for opponent in ("Mmrnmrhm", "Orz", "Spathi", "Thraddash", "Vux", "ZoqFotPik"):
+        for opponent in ("Mmrnmrhm", "Orz", "Thraddash", "Vux", "ZoqFotPik"):
             with self.subTest(opponent=opponent):
                 earlier = ship_behaviour("Thraddash", opponent).band
                 self.assertEqual((earlier.near, earlier.far, earlier.back_off), (900.0, 1400.0, True))
+        spathi = ship_behaviour("Thraddash", "Spathi")
+        self.assertEqual((spathi.band.near, spathi.band.far, spathi.band.back_off), (900.0, 1400.0, False))
+        self.assertEqual(spathi.weapons[0].range_fraction, 1400.0 / 1620.0)
 
     def test_the_slylandro_closes_inside_the_lightnings_reach(self):
         band = ship_behaviour("Slylandro", "Spathi").band
@@ -171,10 +176,10 @@ class PerOpponentOverrideTests(unittest.TestCase):
                     self.assertTrue(overrides)
                     self.assertLessEqual(set(overrides), fields)
 
-    def test_the_kzer_za_holds_its_band_only_against_nine_opponents(self):
+    def test_the_kzer_za_holds_its_band_only_against_eight_opponents(self):
         from src.training.baseline.arena import SHIP_TYPE_CATALOG_ORDER
 
-        banded = {"Arilou", "Chenjesu", "Earthling", "Ilwrath", "KohrAh", "Umgah", "Utwig", "Vux", "Yehat"}
+        banded = {"Arilou", "Chenjesu", "Earthling", "Ilwrath", "KohrAh", "Umgah", "Vux", "Yehat"}
         for opponent in SHIP_TYPE_CATALOG_ORDER:
             with self.subTest(opponent=opponent):
                 band = ship_behaviour("KzerZa", opponent).band

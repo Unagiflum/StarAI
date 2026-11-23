@@ -2961,7 +2961,9 @@ class YehatChmmrTests(unittest.TestCase):
             max_battery=10.0,
         )
         context.view.me.damage_shield_active = shield_up
-        STRATEGIES["Yehat"](context)
+        # The table flies its defaults against a Chmmr since pass 3; the
+        # Chmmr rule remains in the earlier rules.
+        strategy_for("Yehat", "earlier")(context)
         return context
 
     def test_raises_the_shield_within_the_chmmr_laser(self):
