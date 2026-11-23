@@ -408,6 +408,21 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         late_specials=("pkunk_gun",),
         recharge_battery=4.0,
     ),
+    # Pass 1 at the default perception delay, by the harm ranking: the
+    # glory device a special, the gun aimed; from an empty battery it
+    # recharges outside the opponent's reach until 4. A back-off band closes
+    # in at full speed to 700 and steers 110 degrees off the bearing inside
+    # 400, in place of approach_range to the gun's 864. Level with the
+    # earlier rules. λ is low: fast, and its glory blast spends its own crew
+    # on purpose.
+    "Shofixti": ShipBehaviour(
+        harm_taken_weight=0.25,
+        specials=("shofixti_glory",),
+        recharge_battery=1.0,
+        recharge_resume=4.0,
+        band=Band(400.0, 700.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        weapons=(WeaponUse(FIRE_AIMED), None),
+    ),
     "Slylandro": ShipBehaviour(keep_moving=False),
     # Pass 1 at the default perception delay, by the harm ranking: the band
     # runs from 0.7 of the gun's 1,080 reach to all of it, closing in at up

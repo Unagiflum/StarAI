@@ -1836,12 +1836,14 @@ class ShipRuleTests(unittest.TestCase):
         memory = BaselineMemory()
         enemy = _seen(0.0, 2000.0, closing=5.0)
 
+        # Recharging from empty, the band doesn't close in until it is full.
         empty = self._shofixti(enemy, battery=0.0, memory=memory)
-        self.assertIn("avoid_opponent", empty.memory.sides)
+        self.assertTrue(empty.recharging())
+        self.assertNotIn("band_far", empty.memory.sides)
         refilling = self._shofixti(enemy, battery=3.0, memory=memory)
-        self.assertNotIn("a1_range_far", refilling.memory.sides)
-        full =self._shofixti(enemy, battery=4.0, memory=memory)
-        self.assertIn("a1_range_far", full.memory.sides)
+        self.assertNotIn("band_far", refilling.memory.sides)
+        full = self._shofixti(enemy, battery=4.0, memory=memory)
+        self.assertIn("band_far", full.memory.sides)
 
     def test_shield_ships_shield_where_a_shofixti_blast_would_kill(self):
         def shields(distance, crew):
