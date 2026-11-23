@@ -118,7 +118,7 @@ class MovedShipTests(unittest.TestCase):
                 self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
 
     def test_the_utwig_holds_inside_its_bolts_reach(self):
-        band = ship_behaviour("Utwig", "Orz").band
+        band = ship_behaviour("Utwig", "Mycon").band
         self.assertEqual((band.near, band.far, band.back_off), (500.0, 900.0, True))
         self.assertEqual(ship_behaviour("Utwig", "Spathi").band.far, 1080.0)
         self.assertEqual(ship_behaviour("Utwig", "Shofixti").specials, ("shield_glory",))
@@ -156,6 +156,57 @@ class MovedShipTests(unittest.TestCase):
         self.assertEqual((band.near, band.far, band.back_off), (150.0, 300.0, True))
         self.assertIsNone(ship_behaviour("Slylandro", "Chmmr").band.outside_reach_margin)
         self.assertEqual(ship_behaviour("Slylandro", "Chmmr").band.far, 850.0)
+
+
+class PerOpponentOverrideTests(unittest.TestCase):
+    def test_every_override_names_a_ship_and_a_table_field(self):
+        from src.training.baseline.arena import SHIP_TYPE_CATALOG_ORDER
+        from src.training.baseline.behaviours import SHIP_BEHAVIOURS
+
+        fields = {field.name for field in dataclasses.fields(ShipBehaviour)} - {"opponents"}
+        for ship, entry in SHIP_BEHAVIOURS.items():
+            for opponent, overrides in entry.opponents.items():
+                with self.subTest(ship=ship, opponent=opponent):
+                    self.assertIn(opponent, SHIP_TYPE_CATALOG_ORDER)
+                    self.assertTrue(overrides)
+                    self.assertLessEqual(set(overrides), fields)
+
+    def test_the_kzer_za_holds_its_band_only_against_nine_opponents(self):
+        from src.training.baseline.arena import SHIP_TYPE_CATALOG_ORDER
+
+        banded = {"Arilou", "Chenjesu", "Earthling", "Ilwrath", "KohrAh", "Umgah", "Utwig", "Vux", "Yehat"}
+        for opponent in SHIP_TYPE_CATALOG_ORDER:
+            with self.subTest(opponent=opponent):
+                band = ship_behaviour("KzerZa", opponent).band
+                if opponent in banded:
+                    self.assertEqual((band.near, band.far, band.inside), (0.0, 1000.0, "face"))
+                else:
+                    self.assertIsNone(band)
+
+    def test_a_band_override_keeps_the_opponents_other_overrides(self):
+        arilou = ship_behaviour("Arilou", "Chmmr")
+        self.assertEqual(arilou.specials, ("arilou_chmmr",))
+        self.assertEqual((arilou.band.near, arilou.band.far), (140.0, 280.0))
+        utwig = ship_behaviour("Utwig", "Shofixti")
+        self.assertEqual(utwig.specials, ("shield_glory",))
+        self.assertIsNone(utwig.band)
+
+    def test_ships_without_a_band_hold_one_at_their_reach_against_some(self):
+        self.assertIsNone(ship_behaviour("Mycon", "Spathi").band)
+        mycon = ship_behaviour("Mycon", "Shofixti").band
+        self.assertEqual((mycon.near, mycon.far, mycon.back_off), (2882.88, 4118.4, False))
+        druuge = ship_behaviour("Druuge", "Orz").band
+        self.assertEqual((druuge.near, druuge.far, druuge.back_off), (1512.0, 2160.0, True))
+        self.assertIsNone(ship_behaviour("Supox", "Spathi").band)
+        self.assertEqual(ship_behaviour("Supox", "Pkunk").band.far, 1080.0)
+
+    def test_a_band_override_changes_the_fight(self):
+        # Against the Slylandro the Utwig drops its band (pass 2): it deals
+        # more in the opening seconds than with the band.
+        without = run_match(ArenaMatch("Utwig", "Slylandro", 1), frames=240)
+        base = dataclasses.replace(ship_behaviour("Utwig"), opponents={})
+        banded = run_match(ArenaMatch("Utwig", "Slylandro", 1, entry=base), frames=240)
+        self.assertGreater(without.damage_dealt, banded.damage_dealt)
 
 
 class MovementTakenTests(unittest.TestCase):

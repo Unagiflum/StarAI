@@ -215,6 +215,12 @@ ARILOU_TELEPORT_SECONDS = 0.1
 
 DEFAULT_BEHAVIOUR = ShipBehaviour()
 
+# Pass 2 (per opponent): against each opponent, the ship's band was flown
+# nearer (x0.7), farther (x1.3), switched between back-off and predictive,
+# and left off (a ship without a band: a back-off and a predictive band at
+# 0.7-1 of weapon 1's reach) on seeds 0-9; a variant clearly ahead was flown
+# again on seeds 100-119 and kept only if clearly ahead there too, by the
+# harm ranking. The kept variants are the band overrides marked "pass 2".
 SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # Pass 1 at the default perception delay, by the harm ranking: the
     # blazer is the mode switch (blaze in within 1,000 on half a battery,
@@ -232,7 +238,12 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         recharge_battery=12.0,
         band=Band(1000.0, None, run_offset=135.0),
         weapons=(WeaponUse(FIRE_LAUNCH, reserve=9.0), None),
-        opponents={"Chmmr": {"specials": ("androsynth_chmmr",)}},
+        opponents={
+            "Chmmr": {"specials": ("androsynth_chmmr",)},
+            # Pass 2: off or back-off.
+            "Mycon": {"band": None},
+            "Yehat": {"band": Band(1000.0, None, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+        },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: close in
     # at full speed beyond the laser's 400 reach and, inside 200, steer 110
@@ -250,7 +261,14 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             WeaponUse(FIRE_LAUNCH, reserve=3.0),
             WeaponUse(FIRE_DEFEND, threat_seconds=ARILOU_TELEPORT_SECONDS),
         ),
-        opponents={"Chmmr": {"specials": ("arilou_chmmr",)}},
+        opponents={
+            "Chmmr": {"specials": ("arilou_chmmr",), "band": Band(140.0, 280.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            # Pass 2 (and the Chmmr's band): nearer, predictive, off or farther.
+            **dict.fromkeys(("Pkunk", "Thraddash", "Utwig", "Yehat"), {"band": Band(140.0, 280.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}),
+            **dict.fromkeys(("Androsynth", "KohrAh", "Vux"), {"band": Band(200.0, 400.0, approach_speed=60.0)}),
+            **dict.fromkeys(("Slylandro", "Spathi"), {"band": None}),
+            "ZoqFotPik": {"band": Band(260.0, 520.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+        },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: keep up
     # to 4 Dogi out, and aim the crystal at the opponent every decision,
@@ -280,6 +298,15 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         specials=("chmmr_tractor",),
         band=Band(0.0, 600.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, back_off=True),
         weapons=(WeaponUse(FIRE_AIMED), None),
+        opponents={
+            # Pass 2: farther, predictive or off.
+            **dict.fromkeys(
+                ("Chmmr", "Yehat"),
+                {"band": Band(0.0, 780.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, back_off=True)},
+            ),
+            "Melnorme": {"band": Band(0.0, 600.0, approach_speed=60.0, inside=BAND_INSIDE_FACE)},
+            "ZoqFotPik": {"band": None},
+        },
     ),
     "Druuge": ShipBehaviour(
         harm_taken_weight=1.0,
@@ -288,7 +315,9 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         opponents={
             "Chenjesu": {
                 "specials": ("druuge_recoil_escape", "druuge_dogi_targets", "druuge_crew_battery")
-            }
+            },
+            # Pass 2: a back-off band at 0.7-1 of the cannon's 2,160 reach.
+            **dict.fromkeys(("Earthling", "Melnorme", "Orz", "Vux"), {"band": Band(1512.0, 2160.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}),
         },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: point
@@ -308,7 +337,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             "Chmmr": {
                 "specials": ("earthling_point_defense", "earthling_nuke"),
                 "band": Band(0.0, None, inside=BAND_INSIDE_ORBIT, run_offset=135.0),
-            }
+            },
+            # Pass 2: off or farther.
+            **dict.fromkeys(("Chenjesu", "Mmrnmrhm"), {"band": None}),
+            "Druuge": {"band": Band(1300.0, 2808.0, inside=BAND_INSIDE_FACE, run_offset=135.0)},
         },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: the
@@ -322,6 +354,11 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         harm_taken_weight=0.5,
         specials=("ilwrath_flame_cloak", "ilwrath_hang_back", "ilwrath_follow"),
         band=Band(0.0, 300.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        opponents={
+            # Pass 2: predictive or off.
+            **dict.fromkeys(("Chenjesu", "Slylandro"), {"band": Band(0.0, 300.0, approach_speed=60.0)}),
+            **dict.fromkeys(("KzerZa", "Pkunk"), {"band": None}),
+        },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: gas when
     # the opponent or any enemy object is within its reach, and aim the saw
@@ -339,12 +376,22 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # (a special) and the gun aimed, as before; a back-off band closes in at
     # full speed to 1,000 and faces the opponent inside it, in place of
     # flying straight at it. Level with the earlier rules on harm dealt (+3%).
-    # λ is high: the slowest ship with the most crew, it can't stall.
+    # Pass 2: with no band it dealt clearly more against 16 of the 25
+    # opponents (or as much, taking less), so the band is kept only against
+    # the other nine. λ is high: the slowest ship with the most crew, it
+    # can't stall.
     "KzerZa": ShipBehaviour(
         harm_taken_weight=1.0,
         specials=("kzer_za_fighters",),
-        band=Band(0.0, 1000.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, run_offset=110.0, back_off=True),
         weapons=(WeaponUse(FIRE_AIMED), None),
+        opponents=dict.fromkeys(
+            ("Arilou", "Chenjesu", "Earthling", "Ilwrath", "KohrAh", "Umgah", "Utwig", "Vux", "Yehat"),
+            {
+                "band": Band(
+                    0.0, 1000.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, run_offset=110.0, back_off=True
+                )
+            },
+        ),
     ),
     # Pass 1 at the default perception delay, by the harm ranking: the
     # charged shot (a special) released on target, aimed late; confusion
@@ -358,6 +405,13 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         late_specials=("melnorme_aim",),
         band=Band(800.0, 1400.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
         weapons=(None, WeaponUse(FIRE_AIMED, aim=False)),
+        opponents={
+            # Pass 2: off or farther.
+            **dict.fromkeys(
+                ("Arilou", "Chmmr", "Melnorme", "Pkunk", "Slylandro", "Umgah", "Utwig"), {"band": None}
+            ),
+            "Vux": {"band": Band(1040.0, 1820.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+        },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: the forms
     # as the mode switch (the X-form within its laser's reach, the Y-wing
@@ -372,6 +426,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         form_switch="mmrnmrhm_forms",
         specials=("mmrnmrhm_attack",),
         late_specials=("face_opponent",),
+        # Pass 2: a back-off band at 0.7-1 of the X-form laser's 564 reach.
+        opponents=dict.fromkeys(
+            ("Androsynth", "Chenjesu", "KohrAh", "Mmrnmrhm", "Mycon"), {"band": Band(394.8, 564.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}
+        ),
     ),
     # Pass 1 at the default perception delay, by the harm ranking:
     # regeneration (a special), the planet whip when slow and the plasmoid
@@ -384,6 +442,14 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         shoot_down=False,
         specials=("mycon_regenerate",),
         late_specials=("gravity_whip_when_slow", "mycon_plasmoid"),
+        opponents={
+            # Pass 2: a predictive (or back-off) band at 0.7-1 of the
+            # plasmoid's 4,118 reach.
+            **dict.fromkeys(
+                ("Chmmr", "Melnorme", "Orz", "Shofixti"), {"band": Band(2882.88, 4118.4, approach_speed=60.0)}
+            ),
+            "Yehat": {"band": Band(2882.88, 4118.4, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+        },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: marines
     # (a special) and the turret late. A back-off band closes in at full
@@ -402,6 +468,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 for name in ("Arilou", "Druuge", "KzerZa", "Orz", "Pkunk", "Shofixti", "Spathi", "Syreen", "Yehat")
             },
             "Chmmr": {"band": Band(1550.0, 1800.0)},
+            # Pass 2: predictive, off or nearer.
+            "KohrAh": {"band": Band(907.2, 1296.0, approach_speed=60.0)},
+            **dict.fromkeys(("Slylandro", "Supox"), {"band": None}),
+            "Umgah": {"band": Band(635.04, 907.2, approach_speed=math.inf, run_offset=110.0, back_off=True)},
         },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: insults
@@ -414,6 +484,8 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         specials=("pkunk_insult", "pkunk_pass"),
         late_specials=("pkunk_gun",),
         recharge_battery=4.0,
+        # Pass 2: a back-off band at 0.7-1 of the gun's 432 reach.
+        opponents={"Spathi": {"band": Band(302.4, 432.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}},
     ),
     # Pass 1 at the default perception delay, by the harm ranking: the
     # glory device a special, the gun aimed; from an empty battery it
@@ -429,6 +501,8 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         recharge_resume=4.0,
         band=Band(400.0, 700.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
         weapons=(WeaponUse(FIRE_AIMED), None),
+        # Pass 2: predictive.
+        opponents=dict.fromkeys(("Shofixti", "Yehat"), {"band": Band(400.0, 700.0, approach_speed=60.0)}),
     ),
     # Pass 1 at the default perception delay, by the harm ranking: harvest
     # asteroids throughout (a special, flying at the nearest below 10%
@@ -459,7 +533,15 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # before. Table bands with a reach margin don't stop at the gun's reach,
     # and held it out of range. λ is middling: it slides out of the way but
     # can't outrun the fast ships.
-    "Supox": ShipBehaviour(harm_taken_weight=0.5, specials=("supox_slides",)),
+    # Pass 2: against these, a back-off band at 0.7-1 of the gun's 1,080
+    # reach, where the slides leave the movement free.
+    "Supox": ShipBehaviour(
+        harm_taken_weight=0.5,
+        specials=("supox_slides",),
+        opponents=dict.fromkeys(
+            ("Ilwrath", "Pkunk", "Shofixti", "Supox", "ZoqFotPik"), {"band": Band(756.0, 1080.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}
+        ),
+    ),
     # Pass 1 at the default perception delay, by the harm ranking: sing
     # within 300 when the song can take crew, collect crew pods, and with
     # the song ready close in to sing unless that is too risky while the
@@ -481,7 +563,11 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 "late_specials": (),
                 "recharge_battery": None,
                 "band": None,
-            }
+            },
+            # Pass 2: off, farther or predictive.
+            **dict.fromkeys(("Slylandro", "ZoqFotPik"), {"band": None}),
+            "Supox": {"band": Band(650.0, 1170.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            "Yehat": {"band": Band(500.0, 900.0, approach_speed=60.0)},
         },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: the band
@@ -501,6 +587,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             "Vux": {
                 "band": Band(300.0, 756.0, approach_speed=math.inf, run_offset=110.0),
             },
+            # Pass 2: back-off, farther or off.
+            **dict.fromkeys(("Chenjesu", "Yehat"), {"band": Band(756.0, 1080.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}),
+            "Pkunk": {"band": Band(982.8, 1404.0, approach_speed=60.0)},
+            **dict.fromkeys(("Spathi", "Thraddash", "Utwig"), {"band": None}),
         },
     ),
     # Pass 1: the Thraddash, Umgah and Vux run their whole earlier rules as
@@ -538,6 +628,11 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 "band": None,
                 "weapons": (),
             },
+            # Pass 2: nearer, off, back-off or farther.
+            **dict.fromkeys(("Arilou", "Shofixti"), {"band": Band(490.0, 840.0, approach_speed=60.0)}),
+            **dict.fromkeys(("Chenjesu", "KohrAh", "Melnorme", "Mycon", "Umgah"), {"band": None}),
+            "Earthling": {"band": Band(700.0, 1200.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            "KzerZa": {"band": Band(910.0, 1560.0, approach_speed=60.0)},
         },
     ),
     "Umgah": ShipBehaviour(
@@ -561,9 +656,15 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         band=Band(500.0, 900.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
         weapons=(WeaponUse(FIRE_AIMED), WeaponUse(FIRE_DEFEND, threat_seconds=0.2, on_crew_loss=True)),
         opponents={
-            "Shofixti": {"specials": ("shield_glory",)},
+            "Shofixti": {"specials": ("shield_glory",), "band": None},
             "Spathi": {"band": Band(756.0, 1080.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             "Chmmr": {"specials": ("utwig_chmmr",), "band": None, "weapons": ()},
+            # Pass 2 (and the Shofixti's band): farther, off or predictive.
+            **dict.fromkeys(("Androsynth", "Orz", "Thraddash", "ZoqFotPik"), {"band": Band(650.0, 1170.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}),
+            **dict.fromkeys(
+                ("Ilwrath", "KzerZa", "Pkunk", "Slylandro", "Supox", "Syreen", "Umgah", "Utwig"), {"band": None}
+            ),
+            "Yehat": {"band": Band(500.0, 900.0, approach_speed=60.0)},
         },
     ),
     "Vux": ShipBehaviour(harm_taken_weight=1.0, specials=("vux_rules",)),
@@ -585,6 +686,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 "band": Band(504.0, 720.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
             },
             "Chmmr": {"specials": ("yehat_chmmr",), "band": None, "weapons": ()},
+            # Pass 2: predictive, off or farther.
+            "Ilwrath": {"band": Band(100.0, 700.0, approach_speed=60.0)},
+            **dict.fromkeys(("Melnorme", "Slylandro", "Utwig"), {"band": None}),
+            **dict.fromkeys(("Supox", "Syreen", "Vux", "ZoqFotPik"), {"band": Band(130.0, 910.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}),
         },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: with the
@@ -604,6 +709,9 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         band=Band(100.0, 864.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
         opponents={
             "Orz": {"band": Band(604.8, 864.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            # Pass 2: nearer or farther.
+            "Melnorme": {"band": Band(70.0, 604.8, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            "ZoqFotPik": {"band": Band(130.0, 1123.2, approach_speed=math.inf, run_offset=110.0, back_off=True)},
         },
     ),
 }

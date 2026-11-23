@@ -1985,14 +1985,14 @@ class ShipRuleTests(unittest.TestCase):
     def test_small_syreen_keeps_its_band_from_fast_close_fighters(self):
         enemy = _seen(0.0, 2000.0)
 
-        cautious = self._syreen(enemy, enemy_name="ZoqFotPik", enemy_thrust=40.0)
+        cautious = self._syreen(enemy, enemy_name="Shofixti", enemy_thrust=40.0)
         self.assertIn("band_far", cautious.memory.sides)
         self.assertNotIn("song_far", cautious.memory.sides)
-        grown = self._syreen(enemy, enemy_name="ZoqFotPik", enemy_thrust=40.0, crew=24.0)
+        grown = self._syreen(enemy, enemy_name="Shofixti", enemy_thrust=40.0, crew=24.0)
         self.assertIn("song_far", grown.memory.sides)
-        slower = self._syreen(enemy, enemy_name="ZoqFotPik", enemy_thrust=20.0)
+        slower = self._syreen(enemy, enemy_name="Shofixti", enemy_thrust=20.0)
         self.assertIn("song_far", slower.memory.sides)
-        earlier = self._syreen(enemy, enemy_name="ZoqFotPik", enemy_thrust=40.0, variant="earlier")
+        earlier = self._syreen(enemy, enemy_name="Shofixti", enemy_thrust=40.0, variant="earlier")
         self.assertIn("gun_far", earlier.memory.sides)
 
     def test_syreen_keeps_out_of_reach_while_the_song_recharges(self):
