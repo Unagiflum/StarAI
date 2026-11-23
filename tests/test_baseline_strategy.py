@@ -1930,6 +1930,7 @@ class ShipRuleTests(unittest.TestCase):
         crew=12.0,
         battery=16.0,
         pods=(),
+        variant=None,
     ):
         context = _rule_context(
             "Syreen",
@@ -1943,7 +1944,7 @@ class ShipRuleTests(unittest.TestCase):
         context.view.crew_pods = tuple(pods)
         context.view.enemy_block.crew = enemy_crew
         context.view.enemy_block.max_thrust = enemy_thrust
-        STRATEGIES["Syreen"](context)
+        strategy_for("Syreen", variant)(context)
         return context
 
     def test_syreen_sings_only_up_close_at_crew_it_can_take(self):
@@ -1974,20 +1975,26 @@ class ShipRuleTests(unittest.TestCase):
         self.assertEqual(context.plan.turn, TURN_LEFT)
         self.assertTrue(context.plan.thrust)
 
-    def test_small_syreen_keeps_gun_range_from_fast_close_fighters(self):
+    def test_small_syreen_keeps_its_band_from_fast_close_fighters(self):
         enemy = _seen(0.0, 2000.0)
 
         cautious = self._syreen(enemy, enemy_name="ZoqFotPik", enemy_thrust=40.0)
-        self.assertIn("gun_far", cautious.memory.sides)
+        self.assertIn("band_far", cautious.memory.sides)
+        self.assertNotIn("song_far", cautious.memory.sides)
         grown = self._syreen(enemy, enemy_name="ZoqFotPik", enemy_thrust=40.0, crew=24.0)
         self.assertIn("song_far", grown.memory.sides)
         slower = self._syreen(enemy, enemy_name="ZoqFotPik", enemy_thrust=20.0)
         self.assertIn("song_far", slower.memory.sides)
+        earlier = self._syreen(enemy, enemy_name="ZoqFotPik", enemy_thrust=40.0, variant="earlier")
+        self.assertIn("gun_far", earlier.memory.sides)
 
-    def test_syreen_backs_off_while_the_song_recharges(self):
+    def test_syreen_keeps_out_of_reach_while_the_song_recharges(self):
         context = self._syreen(_seen(0.0, 600.0, closing=5.0), battery=4.0)
 
-        self.assertIn("avoid_opponent", context.memory.sides)
+        self.assertTrue(context.memory.values.get("recharge_running"))
+        self.assertTrue(context.plan.steering_claimed)
+        earlier = self._syreen(_seen(0.0, 600.0, closing=5.0), battery=4.0, variant="earlier")
+        self.assertIn("avoid_opponent", earlier.memory.sides)
 
     def test_no_thrust_above_top_speed_outside_gravity(self):
         top = SHIP_DEFINITIONS["Thraddash"].max_thrust

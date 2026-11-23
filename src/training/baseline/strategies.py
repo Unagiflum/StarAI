@@ -2731,7 +2731,7 @@ STRATEGIES: dict[str, StrategyFunction] = {
     "Slylandro": shared,
     "Spathi": shared,
     "Supox": shared,
-    "Syreen": syreen,
+    "Syreen": shared,
     "Thraddash": shared,
     "Umgah": shared,
     "Utwig": utwig,
@@ -2788,6 +2788,7 @@ STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
     "Spathi": {"approach": spathi_approach},
     "Supox": {"earlier": supox, "no_slide": supox_no_slide},
     "Syreen": {
+        "earlier": syreen,
         "bold": syreen_bold,
         "full_reach": syreen_full_reach,
         "pressing": syreen_pressing,

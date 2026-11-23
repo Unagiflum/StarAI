@@ -91,6 +91,21 @@ class MovedShipTests(unittest.TestCase):
                 moved = run_match(ArenaMatch("Slylandro", "Chmmr", 1, "default", *cell), frames=240)
                 self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
 
+    def test_the_syreen_entry_flies_its_earlier_chmmr_rule(self):
+        self.assertIs(strategies.STRATEGIES["Syreen"], strategies.shared)
+        earlier = run_match(ArenaMatch("Syreen", "Chmmr", 1, "earlier"), frames=240)
+        moved = run_match(ArenaMatch("Syreen", "Chmmr", 1), frames=240)
+        self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
+
+    def test_the_syreen_recharges_below_the_songs_cost(self):
+        behaviour = ship_behaviour("Syreen", "Spathi")
+        self.assertEqual(behaviour.recharge_battery, 5.0)
+        self.assertEqual((behaviour.band.near, behaviour.band.far), (500.0, 900.0))
+        chmmr = ship_behaviour("Syreen", "Chmmr")
+        self.assertEqual(chmmr.specials, ("syreen_chmmr",))
+        self.assertIsNone(chmmr.band)
+        self.assertIsNone(chmmr.recharge_battery)
+
     def test_the_slylandro_closes_inside_the_lightnings_reach(self):
         band = ship_behaviour("Slylandro", "Spathi").band
         self.assertEqual((band.near, band.far, band.back_off), (150.0, 300.0, True))
