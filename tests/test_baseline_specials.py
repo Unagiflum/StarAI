@@ -135,6 +135,13 @@ class MovedShipTests(unittest.TestCase):
         self.assertEqual((shofixti.band.near, shofixti.band.far), (504.0, 720.0))
         self.assertEqual(shofixti.specials, ("shield_glory",))
 
+    def test_the_zoq_fot_pik_closes_to_its_gun_except_against_the_orz(self):
+        self.assertIs(strategies.STRATEGIES["ZoqFotPik"], strategies.shared)
+        behaviour = ship_behaviour("ZoqFotPik", "Spathi")
+        self.assertEqual((behaviour.band.near, behaviour.band.far), (100.0, 864.0))
+        self.assertEqual(behaviour.recharge_battery, 3.0)
+        self.assertEqual(ship_behaviour("ZoqFotPik", "Orz").band.near, 604.8)
+
     def test_the_slylandro_closes_inside_the_lightnings_reach(self):
         band = ship_behaviour("Slylandro", "Spathi").band
         self.assertEqual((band.near, band.far, band.back_off), (150.0, 300.0, True))

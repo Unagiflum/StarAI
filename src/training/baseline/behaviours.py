@@ -553,6 +553,25 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             "Chmmr": {"specials": ("yehat_chmmr",), "band": None, "weapons": ()},
         },
     ),
+    # Pass 1 at the default perception delay, by the harm ranking: with the
+    # tongue ready, lick when aimed within its reach and lunge at an
+    # opponent it can reach within a second (specials); the gun is aimed
+    # late, keeping the tongue's 7 battery spare while the tongue can land.
+    # Below 30% battery it keeps out of reach; otherwise a back-off band
+    # closes in at full speed to the gun's 864 and steers 110 degrees off
+    # only inside 100, where approach_range backed off inside 605. Against
+    # the Orz it keeps that earlier band. λ is middling: it outruns only
+    # the slow ships.
+    "ZoqFotPik": ShipBehaviour(
+        harm_taken_weight=0.5,
+        specials=("zoq_fot_pik_tongue", "zoq_fot_pik_lunge"),
+        late_specials=("zoq_fot_pik_gun",),
+        recharge_battery=3.0,
+        band=Band(100.0, 864.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        opponents={
+            "Orz": {"band": Band(604.8, 864.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+        },
+    ),
 }
 
 # (id of the base entry, opponent) -> (base entry, entry with the overrides

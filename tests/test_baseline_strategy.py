@@ -1496,7 +1496,7 @@ class ShipRuleTests(unittest.TestCase):
     def test_zoq_fot_pik_lunges_and_tongues_when_ready(self):
         a2_cost = SHIP_DEFINITIONS["ZoqFotPik"].a2_cost
 
-        def context_at(bearing, distance, battery):
+        def context_at(bearing, distance, battery, variant=None):
             context = _rule_context(
                 "ZoqFotPik",
                 enemy=_seen(bearing, distance),
@@ -1505,7 +1505,7 @@ class ShipRuleTests(unittest.TestCase):
             )
             context.view.enemy_block.trackable = True
             context.view.enemy_block.max_thrust = 0.0
-            STRATEGIES["ZoqFotPik"](context)
+            strategy_for("ZoqFotPik", variant)(context)
             return context
 
         lunging = context_at(0.0, 600.0, a2_cost)
@@ -1518,10 +1518,17 @@ class ShipRuleTests(unittest.TestCase):
         striking = context_at(6.0, weapon_spec("ZoqFotPik", 2).range + 15.0, a2_cost)
         self.assertTrue(striking.plan.a2)
 
-        # Without tongue battery it keeps weapon 1 distance instead.
-        recharging = context_at(0.0, 600.0, a2_cost - 1)
-        self.assertIn("a1_range_near", recharging.memory.sides)
-        self.assertFalse(recharging.plan.a2)
+        # Without tongue battery it holds its band (backing off only inside
+        # 100) instead of lunging; the earlier rules backed off inside 0.7
+        # of weapon 1's reach.
+        waiting = context_at(0.0, 600.0, a2_cost - 1)
+        self.assertFalse(waiting.plan.a2)
+        self.assertNotIn("band_near", waiting.memory.sides)
+        backing_off = context_at(0.0, 80.0, a2_cost - 1)
+        self.assertIn("band_near", backing_off.memory.sides)
+        earlier = context_at(0.0, 600.0, a2_cost - 1, variant="earlier")
+        self.assertIn("a1_range_near", earlier.memory.sides)
+        self.assertFalse(earlier.plan.a2)
 
     def test_intercept_seconds_use_top_speed_and_opponent_motion(self):
         max_thrust = SHIP_DEFINITIONS["ZoqFotPik"].max_thrust

@@ -486,7 +486,7 @@ class ArenaCliTests(unittest.TestCase):
                      "--first-seed", "10", "--cells", "SS,WW", "--variant", "all"]
                 )
 
-        self.assertEqual({m.variant for m in captured}, {"default", "a1_first"})
+        self.assertEqual({m.variant for m in captured}, {"default", "earlier", "a1_first"})
         self.assertEqual({m.seed for m in captured}, {10, 11})
         self.assertEqual({(m.ship_condition, m.opponent_condition) for m in captured}, {(STRONG, STRONG), (WEAK, WEAK)})
         text = output.getvalue()
