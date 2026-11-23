@@ -519,10 +519,11 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         recharge_resume=4.0,
         band=Band(400.0, 700.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
         weapons=(WeaponUse(FIRE_AIMED), None),
-        # In the mirror, predictive and farther (passes 2 and 3, twice).
-        # Against the Yehat pass 2 went predictive and the recheck went back
-        # (a cycle; the base band ranks better flown together).
-        opponents={"Shofixti": {"band": Band(676.0, 1183.0, approach_speed=60.0)}},
+        # In the mirror the band went predictive (pass 2), farther in two
+        # recheck rounds, then off (round 3): left unsettled at the round
+        # cap. Against the Yehat pass 2 went predictive and a recheck went
+        # back (a cycle; the base band ranks better flown together).
+        opponents={"Shofixti": {"band": None}},
     ),
     # Pass 1 at the default perception delay, by the harm ranking: harvest
     # asteroids throughout (a special, flying at the nearest below 10%
@@ -649,12 +650,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                     "band": Band(900.0, 1400.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
                     "weapons": (WeaponUse(FIRE_AIMED, range_fraction=1400.0 / 1620.0, reserve=8.0), None),
                 }
-                for name in ("Mmrnmrhm", "Orz", "Thraddash", "Vux", "ZoqFotPik")
-            },
-            # Pass 3: that band, predictive.
-            "Spathi": {
-                "band": Band(900.0, 1400.0, approach_speed=60.0),
-                "weapons": (WeaponUse(FIRE_AIMED, range_fraction=1400.0 / 1620.0, reserve=8.0), None),
+                # The Spathi: recheck round 1 made the band predictive and
+                # round 3 went back (a cycle; back-off ranks better flown
+                # together).
+                for name in ("Mmrnmrhm", "Orz", "Spathi", "Thraddash", "Vux", "ZoqFotPik")
             },
             "Chmmr": {
                 "specials": ("thraddash_dodge_burn", "thraddash_chmmr"),
