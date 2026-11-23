@@ -836,7 +836,7 @@ class SharedBehaviourTests(unittest.TestCase):
         self.assertEqual(ships("keep_moving", False), {"Slylandro", "Umgah"})
         self.assertEqual(ships("keep_moving_takes_aim", True), {"Chenjesu", "Mmrnmrhm"})
         self.assertEqual(ships("coast_above_top_speed", True), {"Earthling", "Thraddash"})
-        self.assertIs(ship_behaviour("Pkunk"), DEFAULT_BEHAVIOUR)
+        self.assertIs(ship_behaviour("NoSuchShip"), DEFAULT_BEHAVIOUR)
         self.assertIs(ship_behaviour(None), DEFAULT_BEHAVIOUR)
         self.assertTrue(_rule_context("Thraddash").coast_above_top_speed)
 
@@ -907,7 +907,7 @@ class SharedBehaviourTests(unittest.TestCase):
         self.assertIsNone(far.plan.thrust)
 
     def test_recharge_retreat_is_off_without_a_threshold(self):
-        context = _rule_context("Pkunk", enemy=_seen(0.0, 300.0, closing=30.0), battery=0.0)
+        context = _rule_context("Druuge", enemy=_seen(0.0, 300.0, closing=30.0), battery=0.0)
 
         self.assertFalse(context.recharge_retreat())
         self.assertIsNone(context.plan.turn)
@@ -1405,9 +1405,9 @@ class ShipRuleTests(unittest.TestCase):
     def test_pkunk_approaches_from_half_battery_and_flees_below(self):
         enemy = _seen(0.0, 2000.0, closing=5.0)
         charged = _rule_context("Pkunk", enemy=enemy, battery_fraction=0.5)
-        STRATEGIES["Pkunk"](charged)
+        strategy_for("Pkunk", "earlier")(charged)
         low = _rule_context("Pkunk", enemy=enemy, battery_fraction=0.49)
-        STRATEGIES["Pkunk"](low)
+        strategy_for("Pkunk", "earlier")(low)
 
         self.assertTrue(charged.plan.a2)
         self.assertTrue(low.plan.a2)
@@ -1418,10 +1418,19 @@ class ShipRuleTests(unittest.TestCase):
         self.assertIn("avoid_opponent", low.memory.sides)
         self.assertNotIn("pkunk_pass", low.memory.sides)
 
+    def test_the_pkunk_entry_recharges_below_a_third_of_its_battery(self):
+        enemy = _seen(0.0, 2000.0, closing=5.0)
+        low = _rule_context("Pkunk", enemy=enemy, battery=3.9, max_battery=12.0)
+        charged = _rule_context("Pkunk", enemy=enemy, battery=4.0, max_battery=12.0)
+
+        self.assertIs(STRATEGIES["Pkunk"], strategy_module.shared)
+        self.assertTrue(low.recharging())
+        self.assertFalse(charged.recharging())
+
     def test_pkunk_fires_a_side_gun_at_an_opponent_abeam(self):
         # Inside firing distance but outside the band where approach backs off.
         context = _rule_context("Pkunk", enemy=_seen(90.0, 250.0))
-        STRATEGIES["Pkunk"](context)
+        strategy_for("Pkunk", "earlier")(context)
 
         self.assertTrue(context.plan.a1)
         self.assertEqual(context.plan.turn, TURN_NONE)
@@ -1436,7 +1445,7 @@ class ShipRuleTests(unittest.TestCase):
                 enemy=_seen(90.0, distance, closing=closing),
                 battery_fraction=0.2,
             )
-            STRATEGIES["Pkunk"](context)
+            strategy_for("Pkunk", "earlier")(context)
             return bool(context.plan.a1)
 
         self.assertFalse(fires(0.0))
@@ -1444,7 +1453,7 @@ class ShipRuleTests(unittest.TestCase):
 
     def test_low_battery_pkunk_keeps_station_just_outside_weapon_range(self):
         far = _rule_context("Pkunk", enemy=_seen(0.0, 2000.0), battery_fraction=0.2)
-        STRATEGIES["Pkunk"](far)
+        strategy_for("Pkunk", "earlier")(far)
         self.assertTrue(far.plan.thrust)
         self.assertIn("station_far", far.memory.sides)
 
@@ -1456,7 +1465,7 @@ class ShipRuleTests(unittest.TestCase):
             enemy_name="Pkunk",
             battery_fraction=0.2,
         )
-        STRATEGIES["Pkunk"](holding)
+        strategy_for("Pkunk", "earlier")(holding)
         self.assertFalse(holding.plan.thrust)
         # Points the starboard gun at the opponent while it waits.
         self.assertEqual(holding.plan.turn, TURN_NONE)
@@ -1633,7 +1642,7 @@ class ShipRuleTests(unittest.TestCase):
         enemy_name="Spathi",
         enemy_objects=(),
         facing=None,
-        variant=None,
+        variant="earlier",
     ):
         context = _rule_context(
             "Pkunk",

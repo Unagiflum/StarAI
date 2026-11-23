@@ -397,6 +397,17 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             "Chmmr": {"band": Band(1550.0, 1800.0)},
         },
     ),
+    # Pass 1 at the default perception delay, by the harm ranking: insults
+    # (its only battery source) and passing beside the opponent while
+    # charged are specials, the nearest gun aimed late; below 4 of 12 it
+    # recharges outside the opponent's reach. Level with the earlier rules.
+    # λ is low: among the fastest ships, it can always run.
+    "Pkunk": ShipBehaviour(
+        harm_taken_weight=0.25,
+        specials=("pkunk_insult", "pkunk_pass"),
+        late_specials=("pkunk_gun",),
+        recharge_battery=4.0,
+    ),
     "Slylandro": ShipBehaviour(keep_moving=False),
     # Pass 1 at the default perception delay, by the harm ranking: the band
     # runs from 0.7 of the gun's 1,080 reach to all of it, closing in at up
