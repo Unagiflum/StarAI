@@ -2728,8 +2728,7 @@ STRATEGIES: dict[str, StrategyFunction] = {
     "Orz": shared,
     "Pkunk": shared,
     "Shofixti": shared,
-    "Slylandro": slylandro,
-    # Run from its table entry (``behaviours.SHIP_BEHAVIOURS``).
+    "Slylandro": shared,
     "Spathi": shared,
     "Supox": shared,
     "Syreen": syreen,
@@ -2785,6 +2784,7 @@ STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
         "near_station": pkunk_near_station,
     },
     "Shofixti": {"earlier": shofixti, "glory_dive": shofixti_glory_dive},
+    "Slylandro": {"earlier": slylandro},
     "Spathi": {"approach": spathi_approach},
     "Supox": {"earlier": supox, "no_slide": supox_no_slide},
     "Syreen": {

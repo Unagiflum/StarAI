@@ -423,7 +423,29 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         band=Band(400.0, 700.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
         weapons=(WeaponUse(FIRE_AIMED), None),
     ),
-    "Slylandro": ShipBehaviour(keep_moving=False),
+    # Pass 1 at the default perception delay, by the harm ranking: harvest
+    # asteroids throughout (a special, flying at the nearest below 10%
+    # battery); lightning seeks its target, so it launches within its 1,152
+    # reach. A back-off band closes in at full speed to 300 and steers 110
+    # degrees off the bearing inside 150, in place of approach_range to the
+    # lightning's reach: the lightning lands far more often from close in.
+    # Against a Chmmr it circles 700-850 out, firing within 1,000.
+    # Constant speed, so keep moving is off. λ is low: among the fastest
+    # ships, and the tractor can't hold it, so it can always run.
+    "Slylandro": ShipBehaviour(
+        harm_taken_weight=0.25,
+        keep_moving=False,
+        specials=("slylandro_harvest",),
+        band=Band(150.0, 300.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        weapons=(WeaponUse(FIRE_LAUNCH), None),
+        opponents={
+            "Chmmr": {
+                "specials": ("slylandro_low_harvest",),
+                "band": Band(700.0, 850.0, inside=BAND_INSIDE_ORBIT),
+                "weapons": (WeaponUse(FIRE_LAUNCH, range_fraction=1000.0 / 1152.0), None),
+            },
+        },
+    ),
     # Pass 1: the slides are its movement and fire (a special), holding the
     # earlier band (600-900, or just outside a shorter-reaching opponent
     # while its gun still reaches) with no table band; fight for fight as

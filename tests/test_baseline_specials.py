@@ -81,6 +81,22 @@ class MovedShipTests(unittest.TestCase):
                 moved = run_match(ArenaMatch("Druuge", opponent, 2), frames=240)
                 self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
 
+    def test_the_slylandro_entry_flies_its_earlier_chmmr_rules(self):
+        # Against the Chmmr the entry's override (low harvest, a 700-850
+        # orbit band, lightning within 1,000) is the earlier rule.
+        self.assertIs(strategies.STRATEGIES["Slylandro"], strategies.shared)
+        for cell in (("strong", "strong"), ("weak", "strong")):
+            with self.subTest(cell=cell):
+                earlier = run_match(ArenaMatch("Slylandro", "Chmmr", 1, "earlier", *cell), frames=240)
+                moved = run_match(ArenaMatch("Slylandro", "Chmmr", 1, "default", *cell), frames=240)
+                self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
+
+    def test_the_slylandro_closes_inside_the_lightnings_reach(self):
+        band = ship_behaviour("Slylandro", "Spathi").band
+        self.assertEqual((band.near, band.far, band.back_off), (150.0, 300.0, True))
+        self.assertIsNone(ship_behaviour("Slylandro", "Chmmr").band.outside_reach_margin)
+        self.assertEqual(ship_behaviour("Slylandro", "Chmmr").band.far, 850.0)
+
 
 class LateSpecialTests(unittest.TestCase):
     def test_late_specials_run_after_the_band_and_before_the_weapons(self):
