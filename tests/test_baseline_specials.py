@@ -143,6 +143,14 @@ class MovedShipTests(unittest.TestCase):
         self.assertEqual(behaviour.recharge_battery, 3.0)
         self.assertEqual(ship_behaviour("ZoqFotPik", "Orz").band.near, 604.8)
 
+    def test_the_thraddash_holds_a_predictive_band_except_where_the_earlier_one_paid(self):
+        band = ship_behaviour("Thraddash", "Pkunk").band
+        self.assertEqual((band.near, band.far, band.back_off), (700.0, 1200.0, False))
+        for opponent in ("Mmrnmrhm", "Orz", "Spathi", "Thraddash", "Vux", "ZoqFotPik"):
+            with self.subTest(opponent=opponent):
+                earlier = ship_behaviour("Thraddash", opponent).band
+                self.assertEqual((earlier.near, earlier.far, earlier.back_off), (900.0, 1400.0, True))
+
     def test_the_slylandro_closes_inside_the_lightnings_reach(self):
         band = ship_behaviour("Slylandro", "Spathi").band
         self.assertEqual((band.near, band.far, band.back_off), (150.0, 300.0, True))
