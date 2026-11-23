@@ -326,9 +326,11 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             },
             # Pass 2: a back-off band at 0.7-1 of the cannon's 2,160 reach.
             **dict.fromkeys(
-                ("Earthling", "Melnorme", "Orz", "Vux"),
+                ("Earthling", "Melnorme", "Vux"),
                 {"band": Band(1512.0, 2160.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             ),
+            # Recheck round 2: nearer.
+            "Orz": {"band": Band(1058.4, 1512.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
         },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: point
@@ -420,9 +422,9 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         opponents={
             # Pass 2: off or farther.
             **dict.fromkeys(("Arilou", "Chmmr", "Pkunk", "Slylandro", "Umgah", "Utwig"), {"band": None}),
-            # Pass 3: in the mirror, a back-off band at 0.7-1 of the gun's
-            # 1,620 reach.
-            "Melnorme": {"band": Band(1134.0, 1620.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            # The mirror keeps the base band: it cycled through no band (pass
+            # 2) and a band at the gun's reach (pass 3) and back; flown
+            # together, the base band ranks best.
             "Vux": {"band": Band(1040.0, 1820.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
         },
     ),
@@ -517,11 +519,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         recharge_resume=4.0,
         band=Band(400.0, 700.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
         weapons=(WeaponUse(FIRE_AIMED), None),
-        # Pass 2: predictive; in the mirror, farther as well (pass 3).
-        opponents={
-            "Yehat": {"band": Band(400.0, 700.0, approach_speed=60.0)},
-            "Shofixti": {"band": Band(520.0, 910.0, approach_speed=60.0)},
-        },
+        # In the mirror, predictive and farther (passes 2 and 3, twice).
+        # Against the Yehat pass 2 went predictive and the recheck went back
+        # (a cycle; the base band ranks better flown together).
+        opponents={"Shofixti": {"band": Band(676.0, 1183.0, approach_speed=60.0)}},
     ),
     # Pass 1 at the default perception delay, by the harm ranking: harvest
     # asteroids throughout (a special, flying at the nearest below 10%
@@ -614,9 +615,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 {"band": Band(756.0, 1080.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             ),
             "Pkunk": {"band": Band(982.8, 1404.0, approach_speed=60.0)},
-            **dict.fromkeys(("Thraddash", "Utwig"), {"band": None}),
-            # The mirror keeps the base band: pass 2 dropped it, pass 3 went
-            # back (a cycle; the band ranks better over both).
+            "Utwig": {"band": None},
+            # The mirror and the Thraddash keep the base band: pass 2
+            # dropped it and a recheck went back (cycles; the band ranks
+            # better flown together).
         },
     ),
     # Pass 1: the Thraddash, Umgah and Vux run their whole earlier rules as
@@ -697,9 +699,11 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 {"band": Band(650.0, 1170.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             ),
             **dict.fromkeys(
-                ("Ilwrath", "KzerZa", "Pkunk", "Slylandro", "Supox", "Syreen", "Umgah", "Utwig"), {"band": None}
+                ("Ilwrath", "Pkunk", "Slylandro", "Supox", "Syreen", "Umgah", "Utwig"), {"band": None}
             ),
             "Yehat": {"band": Band(500.0, 900.0, approach_speed=60.0)},
+            # Recheck round 2: a predictive band at 0.7-1 of the bolts' reach.
+            "KzerZa": {"band": Band(756.0, 1080.0, approach_speed=60.0)},
         },
     ),
     "Vux": ShipBehaviour(harm_taken_weight=1.0, specials=("vux_rules",)),

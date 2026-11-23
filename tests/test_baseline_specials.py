@@ -200,7 +200,7 @@ class PerOpponentOverrideTests(unittest.TestCase):
         self.assertIsNone(ship_behaviour("Mycon", "Spathi").band)
         mycon = ship_behaviour("Mycon", "Shofixti").band
         self.assertEqual((mycon.near, mycon.far, mycon.back_off), (2882.88, 4118.4, False))
-        druuge = ship_behaviour("Druuge", "Orz").band
+        druuge = ship_behaviour("Druuge", "Vux").band
         self.assertEqual((druuge.near, druuge.far, druuge.back_off), (1512.0, 2160.0, True))
         self.assertIsNone(ship_behaviour("Supox", "Spathi").band)
         self.assertEqual(ship_behaviour("Supox", "Pkunk").band.far, 1080.0)
