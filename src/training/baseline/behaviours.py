@@ -424,6 +424,13 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         weapons=(WeaponUse(FIRE_AIMED), None),
     ),
     "Slylandro": ShipBehaviour(keep_moving=False),
+    # Pass 1: the slides are its movement and fire (a special), holding the
+    # earlier band (600-900, or just outside a shorter-reaching opponent
+    # while its gun still reaches) with no table band; fight for fight as
+    # before. Table bands with a reach margin don't stop at the gun's reach,
+    # and held it out of range. λ is middling: it slides out of the way but
+    # can't outrun the fast ships.
+    "Supox": ShipBehaviour(harm_taken_weight=0.5, specials=("supox_slides",)),
     # Pass 1 at the default perception delay, by the harm ranking: the band
     # runs from 0.7 of the gun's 1,080 reach to all of it, closing in at up
     # to 60, with no recharging; the rear missile homes, so it launches
