@@ -533,6 +533,26 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         },
     ),
     "Vux": ShipBehaviour(harm_taken_weight=1.0, specials=("vux_rules",)),
+    # Pass 1 at the default perception delay, by the harm ranking: the
+    # shield defends against a hit due within 0.2 s or after crew was lost;
+    # the guns are aimed. A back-off band closes in at full speed to 700,
+    # near the guns' 720, and steers 110 degrees off only inside 100, where
+    # approach_range backed off inside 504. Against the Shofixti it keeps
+    # that earlier band, shielding wherever its blast would kill (closer in
+    # it took still more harm); against a Chmmr, the earlier rule. λ is
+    # middling: slow, it can't run.
+    "Yehat": ShipBehaviour(
+        harm_taken_weight=0.5,
+        band=Band(100.0, 700.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        weapons=(WeaponUse(FIRE_AIMED), WeaponUse(FIRE_DEFEND, threat_seconds=0.2, on_crew_loss=True)),
+        opponents={
+            "Shofixti": {
+                "specials": ("shield_glory",),
+                "band": Band(504.0, 720.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+            },
+            "Chmmr": {"specials": ("yehat_chmmr",), "band": None, "weapons": ()},
+        },
+    ),
 }
 
 # (id of the base entry, opponent) -> (base entry, entry with the overrides

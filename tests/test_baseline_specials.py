@@ -122,6 +122,19 @@ class MovedShipTests(unittest.TestCase):
         self.assertEqual(ship_behaviour("Utwig", "Spathi").band.far, 1080.0)
         self.assertEqual(ship_behaviour("Utwig", "Shofixti").specials, ("shield_glory",))
 
+    def test_the_yehat_entry_flies_its_earlier_chmmr_rule(self):
+        self.assertIs(strategies.STRATEGIES["Yehat"], strategies.shared)
+        earlier = run_match(ArenaMatch("Yehat", "Chmmr", 1, "earlier"), frames=240)
+        moved = run_match(ArenaMatch("Yehat", "Chmmr", 1), frames=240)
+        self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
+
+    def test_the_yehat_closes_to_its_guns_except_against_the_shofixti(self):
+        band = ship_behaviour("Yehat", "Orz").band
+        self.assertEqual((band.near, band.far, band.back_off), (100.0, 700.0, True))
+        shofixti = ship_behaviour("Yehat", "Shofixti")
+        self.assertEqual((shofixti.band.near, shofixti.band.far), (504.0, 720.0))
+        self.assertEqual(shofixti.specials, ("shield_glory",))
+
     def test_the_slylandro_closes_inside_the_lightnings_reach(self):
         band = ship_behaviour("Slylandro", "Spathi").band
         self.assertEqual((band.near, band.far, band.back_off), (150.0, 300.0, True))
