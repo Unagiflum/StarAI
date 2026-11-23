@@ -2734,7 +2734,7 @@ STRATEGIES: dict[str, StrategyFunction] = {
     "Syreen": shared,
     "Thraddash": shared,
     "Umgah": shared,
-    "Utwig": utwig,
+    "Utwig": shared,
     "Vux": shared,
     "Yehat": yehat,
     "ZoqFotPik": zoq_fot_pik,
@@ -2801,6 +2801,7 @@ STRATEGY_VARIANTS: dict[str, dict[str, StrategyFunction]] = {
         "slingshot": vux_slingshot,
     },
     "Umgah": {"earlier": umgah, "approach_cone": umgah_approach_cone, "hop_in": umgah_hop_in},
+    "Utwig": {"earlier": utwig},
     "ZoqFotPik": {"a1_first": zoq_fot_pik_a1_first},
 }
 

@@ -106,6 +106,22 @@ class MovedShipTests(unittest.TestCase):
         self.assertIsNone(chmmr.band)
         self.assertIsNone(chmmr.recharge_battery)
 
+    def test_the_utwig_entry_flies_its_earlier_rules_against_the_chmmr_and_spathi(self):
+        # Its Chmmr rule is a whole-rule special, and against the Spathi it
+        # keeps the earlier band (approach_range to the bolts' reach).
+        self.assertIs(strategies.STRATEGIES["Utwig"], strategies.shared)
+        for opponent in ("Chmmr", "Spathi"):
+            with self.subTest(opponent=opponent):
+                earlier = run_match(ArenaMatch("Utwig", opponent, 1, "earlier"), frames=240)
+                moved = run_match(ArenaMatch("Utwig", opponent, 1), frames=240)
+                self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
+
+    def test_the_utwig_holds_inside_its_bolts_reach(self):
+        band = ship_behaviour("Utwig", "Orz").band
+        self.assertEqual((band.near, band.far, band.back_off), (500.0, 900.0, True))
+        self.assertEqual(ship_behaviour("Utwig", "Spathi").band.far, 1080.0)
+        self.assertEqual(ship_behaviour("Utwig", "Shofixti").specials, ("shield_glory",))
+
     def test_the_slylandro_closes_inside_the_lightnings_reach(self):
         band = ship_behaviour("Slylandro", "Spathi").band
         self.assertEqual((band.near, band.far, band.back_off), (150.0, 300.0, True))

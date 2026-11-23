@@ -513,6 +513,25 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         keep_moving=False,
         specials=("umgah_rules",),
     ),
+    # Pass 1 at the default perception delay, by the harm ranking: the
+    # shield defends against a hit due within 0.2 s or after crew was lost
+    # (against the Shofixti also wherever its blast would kill); the bolts
+    # are aimed. A back-off band closes in at full speed to 900 and steers
+    # 110 degrees off inside 500, nearer than the bolts' 1,080 that
+    # approach_range held. Against the Spathi it keeps that earlier band
+    # (756-1,080), which deals more than twice the harm; against a Chmmr,
+    # the earlier rule. λ is middling: heavy and no faster than most, it
+    # can't run.
+    "Utwig": ShipBehaviour(
+        harm_taken_weight=0.5,
+        band=Band(500.0, 900.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        weapons=(WeaponUse(FIRE_AIMED), WeaponUse(FIRE_DEFEND, threat_seconds=0.2, on_crew_loss=True)),
+        opponents={
+            "Shofixti": {"specials": ("shield_glory",)},
+            "Spathi": {"band": Band(756.0, 1080.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            "Chmmr": {"specials": ("utwig_chmmr",), "band": None, "weapons": ()},
+        },
+    ),
     "Vux": ShipBehaviour(harm_taken_weight=1.0, specials=("vux_rules",)),
 }
 
