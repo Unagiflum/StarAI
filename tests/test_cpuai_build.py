@@ -102,45 +102,6 @@ class CpuAIBuildConfigurationTests(unittest.TestCase):
         self.assertFalse(any(line.startswith("-r ") for line in requirements))
         self.assertFalse(any("torch" in line for line in requirements))
 
-    def test_linux_spec_bundles_torch_but_excludes_companion_packages(self):
-        excludes = _literal_keyword_from_call(
-            _spec_tree("StarAI_Linux.spec"),
-            "Analysis",
-            "excludes",
-        )
-
-        self.assertNotIn("torch", excludes)
-        self.assertIn("torchvision", excludes)
-        self.assertIn("torchaudio", excludes)
-
-    def test_linux_spec_uses_linux_executable_and_collect_names(self):
-        tree = _spec_tree("StarAI_Linux.spec")
-
-        self.assertEqual(_literal_keyword_from_call(tree, "EXE", "name"), "StarAI_Linux")
-        self.assertEqual(
-            _literal_keyword_from_call(tree, "COLLECT", "name"),
-            "StarAI_Linux",
-        )
-
-    def test_linux_build_script_uses_cpu_venv_and_build_output(self):
-        script = (PROJECT_ROOT / "buildcpu-linux.sh").read_text(encoding="utf-8")
-
-        self.assertIn('BUILD_NAME="StarAI_Linux"', script)
-        self.assertIn(".venv-CPU-Linux/bin/python", script)
-        self.assertIn('DIST_ROOT="$PROJECT_ROOT/build"', script)
-        self.assertIn('--distpath "$DIST_ROOT"', script)
-        self.assertIn('--workpath "$WORK_ROOT"', script)
-        self.assertNotIn("\r\n", script)
-
-    def test_linux_setup_script_installs_cpu_requirements(self):
-        script = (PROJECT_ROOT / "setup-linux-cpu-venv.sh").read_text(encoding="utf-8")
-
-        self.assertIn(".venv-CPU-Linux", script)
-        self.assertIn("requirements-cpuai.txt", script)
-        self.assertIn("requirements-build-tools.txt", script)
-        self.assertNotIn(" requirements.txt", script)
-        self.assertNotIn("\r\n", script)
-
     def test_cpuai_requirements_use_cpu_torch_wheel_index(self):
         requirements = (
             PROJECT_ROOT / "requirements-cpuai.txt"

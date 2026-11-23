@@ -1,6 +1,5 @@
 # created by virtualenv automatically
 .venv/
-.venv-CPU-Linux/
 src/Model/
 __pycache__/
 *.py[cod]

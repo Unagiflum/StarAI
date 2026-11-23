@@ -14,7 +14,7 @@ from src.UI import ui
 pygame.font.init()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SPECS = ("StarAI.spec", "StarAI_CPUAI.spec", "StarAI_Train.spec", "StarAI_Linux.spec")
+SPECS = ("StarAI.spec", "StarAI_CPUAI.spec", "StarAI_Train.spec")
 # SysFont("Name", ...) or Font("Name", ...) with a literal family name; None
 # selects pygame's own bundled default font, which is the same everywhere.
 _NAMED_SYSTEM_FONT = re.compile(r"""\b(?:SysFont|font\.Font)\(\s*["']""")
