@@ -305,13 +305,15 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # at full speed to the laser's 600 reach and inside it face the
     # opponent without thrust (a back-off band that never backs off); the
     # tractor pulls the opponent into reach (a special); the laser is aimed.
-    # λ is high: the costliest ship, it never runs, so λ only picks the
-    # safer of two equally harmful plans.
+    # Tolerance check: the laser fires within 45 degrees of the opponent,
+    # in place of half a turn step (22.5), dealing a little more and taking
+    # clearly less. λ is high: the costliest ship, it never runs, so λ only
+    # picks the safer of two equally harmful plans.
     "Chmmr": ShipBehaviour(
         harm_taken_weight=1.0,
         specials=("chmmr_tractor",),
         band=Band(0.0, 600.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, back_off=True),
-        weapons=(WeaponUse(FIRE_AIMED), None),
+        weapons=(WeaponUse(FIRE_AIMED, tolerance=45.0), None),
         opponents={
             # Pass 2: farther, predictive or off.
             "Yehat": {"band": Band(0.0, 780.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, back_off=True)},
@@ -399,12 +401,13 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # Pass 2: with no band it dealt clearly more against 16 of the 25
     # opponents (or as much, taking less), so the band is kept only against
     # the other nine; pass 3 dropped it against the Utwig, which had dropped
-    # its own band against the Kzer-Za. λ is high: the slowest ship with the most crew, it
-    # can't stall.
+    # its own band against the Kzer-Za. Tolerance check: the gun fires
+    # within 15 degrees, in place of 11.25. λ is high: the slowest ship
+    # with the most crew, it can't stall.
     "KzerZa": ShipBehaviour(
         harm_taken_weight=1.0,
         specials=("kzer_za_fighters",),
-        weapons=(WeaponUse(FIRE_AIMED), None),
+        weapons=(WeaponUse(FIRE_AIMED, tolerance=15.0), None),
         opponents=dict.fromkeys(
             ("Arilou", "Chenjesu", "Earthling", "Ilwrath", "KohrAh", "Umgah", "Vux", "Yehat"),
             {
@@ -716,12 +719,13 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # 110 degrees off inside 500, nearer than the bolts' 1,080 that
     # approach_range held. Against the Spathi it keeps that earlier band
     # (756-1,080), which deals more than twice the harm; against a Chmmr,
-    # the earlier rule. λ is middling: heavy and no faster than most, it
-    # can't run.
+    # the earlier rule. Tolerance check: the bolts fire within 15 degrees,
+    # in place of 11.25, dealing 13% more. λ is middling: heavy and no
+    # faster than most, it can't run.
     "Utwig": ShipBehaviour(
         harm_taken_weight=0.5,
         band=Band(500.0, 900.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
-        weapons=(WeaponUse(FIRE_AIMED), WeaponUse(FIRE_DEFEND, threat_seconds=0.2, on_crew_loss=True)),
+        weapons=(WeaponUse(FIRE_AIMED, tolerance=15.0), WeaponUse(FIRE_DEFEND, threat_seconds=0.2, on_crew_loss=True)),
         opponents={
             "Shofixti": {"specials": ("shield_glory",), "band": None},
             # Pass 3: the earlier band, predictive.
@@ -748,11 +752,12 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # approach_range backed off inside 504. Against the Shofixti it shields
     # wherever its blast would kill. Pass 3 dropped its earlier Chmmr rule:
     # against the Chmmr's pass 2 band the table defaults dealt clearly more.
-    # λ is middling: slow, it can't run.
+    # Tolerance check: the guns fire within 30 degrees, in place of 11.25,
+    # dealing half as much again. λ is middling: slow, it can't run.
     "Yehat": ShipBehaviour(
         harm_taken_weight=0.5,
         band=Band(100.0, 700.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
-        weapons=(WeaponUse(FIRE_AIMED), WeaponUse(FIRE_DEFEND, threat_seconds=0.2, on_crew_loss=True)),
+        weapons=(WeaponUse(FIRE_AIMED, tolerance=30.0), WeaponUse(FIRE_DEFEND, threat_seconds=0.2, on_crew_loss=True)),
         opponents={
             # Pass 3: no band against the Shofixti.
             "Shofixti": {"specials": ("shield_glory",), "band": None},
@@ -771,6 +776,9 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # tongue ready, lick when aimed within its reach and lunge at an
     # opponent it can reach within a second (specials); the gun is aimed
     # late, keeping the tongue's 7 battery spare while the tongue can land.
+    # Tolerance check: the gun is a table weapon instead, fired within 30
+    # degrees (not 11.25) and keeping the tongue's 7 battery spare; it
+    # took clearly less harm.
     # Below 30% battery it keeps out of reach; otherwise a back-off band
     # closes in at full speed to the gun's 864 and steers 110 degrees off
     # only inside 100, where approach_range backed off inside 605. Against
@@ -779,9 +787,9 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     "ZoqFotPik": ShipBehaviour(
         harm_taken_weight=0.5,
         specials=("zoq_fot_pik_tongue", "zoq_fot_pik_lunge"),
-        late_specials=("zoq_fot_pik_gun",),
         recharge_battery=3.0,
         band=Band(100.0, 864.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        weapons=(WeaponUse(FIRE_AIMED, tolerance=30.0, reserve=7.0), None),
         opponents={
             "Orz": {"band": Band(604.8, 864.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             # Pass 2: nearer or farther.

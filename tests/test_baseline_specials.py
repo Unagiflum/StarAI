@@ -199,6 +199,20 @@ class PerOpponentOverrideTests(unittest.TestCase):
         # The Arilou flies its base band against the retuned Pkunk.
         self.assertIs(ship_behaviour("Arilou", "Pkunk").band, ship_behaviour("Arilou").band)
 
+    def test_the_tolerance_check_widens_the_aim_of_five_ships(self):
+        tolerances = {"Chmmr": 45.0, "KzerZa": 15.0, "Utwig": 15.0, "Yehat": 30.0, "ZoqFotPik": 30.0}
+        for ship, tolerance in tolerances.items():
+            with self.subTest(ship=ship):
+                self.assertEqual(ship_behaviour(ship, "Mycon").weapons[0].tolerance, tolerance)
+        # The Zoq-Fot-Pik's gun is a table weapon keeping the tongue's battery.
+        zoq = ship_behaviour("ZoqFotPik", "Mycon")
+        self.assertEqual(zoq.late_specials, ())
+        self.assertEqual(zoq.weapons[0].reserve, 7.0)
+        # Ships the check left alone keep half a turn step.
+        for ship in ("Druuge", "Shofixti", "Spathi", "Thraddash"):
+            with self.subTest(ship=ship):
+                self.assertIsNone(ship_behaviour(ship, "Mycon").weapons[0].tolerance)
+
     def test_a_band_override_keeps_the_opponents_other_overrides(self):
         arilou = ship_behaviour("Arilou", "Chmmr")
         self.assertEqual(arilou.specials, ("arilou_chmmr",))

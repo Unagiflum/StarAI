@@ -1504,22 +1504,31 @@ class ShipRuleTests(unittest.TestCase):
         enemy = _seen(0.0, a1_range * 0.8)
         a2_cost = SHIP_DEFINITIONS["ZoqFotPik"].a2_cost
 
-        def fires_a1(battery, enemy_name="Spathi"):
+        def fires_a1(battery, enemy_name="Spathi", variant=None, target=enemy):
             context = _rule_context(
                 "ZoqFotPik",
-                enemy=enemy,
+                enemy=target,
                 enemy_name=enemy_name,
                 battery=battery,
             )
             context.view.enemy_block.trackable = True
             context.view.enemy_block.max_thrust = 0.0
-            STRATEGIES["ZoqFotPik"](context)
+            strategy = STRATEGIES["ZoqFotPik"] if variant is None else strategy_for("ZoqFotPik", variant)
+            strategy(context)
             return bool(context.plan.a1)
 
-        self.assertFalse(fires_a1(a2_cost))
-        self.assertTrue(fires_a1(a2_cost + 1))
-        # The tongue cannot catch a Slylandro, so weapon 1 fires freely.
-        self.assertTrue(fires_a1(a2_cost, enemy_name="Slylandro"))
+        for variant in (None, "earlier"):
+            with self.subTest(variant=variant):
+                self.assertFalse(fires_a1(a2_cost, variant=variant))
+                self.assertTrue(fires_a1(a2_cost + 1, variant=variant))
+        # The earlier late special fires freely where the tongue cannot
+        # catch the opponent (a Slylandro); the entry's table gun always
+        # keeps the tongue's battery spare.
+        self.assertTrue(fires_a1(a2_cost, enemy_name="Slylandro", variant="earlier"))
+        self.assertFalse(fires_a1(a2_cost, enemy_name="Slylandro"))
+        # The table gun fires within 30 degrees of the opponent.
+        self.assertTrue(fires_a1(a2_cost + 1, target=_seen(25.0, a1_range * 0.8)))
+        self.assertFalse(fires_a1(a2_cost + 1, target=_seen(35.0, a1_range * 0.8)))
 
     def test_zoq_fot_pik_lunges_and_tongues_when_ready(self):
         a2_cost = SHIP_DEFINITIONS["ZoqFotPik"].a2_cost
