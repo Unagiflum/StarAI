@@ -1637,8 +1637,11 @@ class ShipRuleTests(unittest.TestCase):
     def test_umgah_blitzes_from_afar_only_with_the_battery_for_the_whole_run(self):
         enemy = self._umgah_tail_aligned_enemy(3000.0)
 
-        self.assertTrue(self._umgah(enemy).plan.a2)
-        self.assertFalse(self._umgah(enemy, battery=12.0).plan.a2)
+        # The Supox, against which the Umgah's runs aren't capped.
+        self.assertTrue(self._umgah(enemy, enemy_name="Supox").plan.a2)
+        self.assertFalse(self._umgah(enemy, battery=12.0, enemy_name="Supox").plan.a2)
+        # Against the Spathi a run starts only within 1,000.
+        self.assertFalse(self._umgah(enemy).plan.a2)
 
     def test_umgah_starts_runs_only_within_a_run_cap(self):
         def flown(distance, **rules):
