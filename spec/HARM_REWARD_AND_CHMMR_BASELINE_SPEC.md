@@ -1257,6 +1257,21 @@ this order:
    closing in on the Chmmr itself (0.96 a fight in kills). **No change**;
    the burst rule was not kept. Results: `yehat_chmmr_*`,
    `yehat_chmmr_probe.py`.
+6. **Umgah hop runs from too far off.** A run started from as far as the
+   battery allowed (up to 29 hops), seldom landed, and left it empty.
+   `umgah` now takes a run cap (`run_max_distance`) and, beyond it,
+   either waits tail lined up or flies in nose first (`close_in`).
+   Against every opponent together (`all_screen.py`, seeds 0–9, confirmed
+   on 100–119), a cap of 800 closing in was tied on harm dealt and clearly
+   ahead on the λ score, but split by opponent (Slylandro +1.8, Supox
+   −1.2), and waiting caps dealt clearly less. So it was screened per
+   opponent (entry, close-in caps of 800 and 1,000). **Kept** as
+   overrides: 800 against the Pkunk, Slylandro, Umgah and Vux; 1,000
+   against the Earthling, Melnorme, Mycon, Spathi, Syreen, Thraddash and
+   Utwig. Harm dealt rose clearly against the Slylandro (2.27 a fight to
+   0.46), Vux (1.58 to 0.77), Thraddash (0.84 to 0.39) and Syreen; against
+   the rest harm dealt was tied and the λ score clearly ahead. Results:
+   `umgah_runs_*`, `umgah_runs_per_*`.
 
 ---
 

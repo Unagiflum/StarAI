@@ -1640,6 +1640,21 @@ class ShipRuleTests(unittest.TestCase):
         self.assertTrue(self._umgah(enemy).plan.a2)
         self.assertFalse(self._umgah(enemy, battery=12.0).plan.a2)
 
+    def test_umgah_starts_runs_only_within_a_run_cap(self):
+        def flown(distance, **rules):
+            context = _rule_context("Umgah", enemy=self._umgah_tail_aligned_enemy(distance), battery=30.0)
+            context.view.enemy_block.opponent_bearing = None
+            strategy_module.umgah(context, **rules)
+            return context
+
+        self.assertFalse(flown(3000.0, run_max_distance=800.0).plan.a2)
+        self.assertFalse(flown(3000.0, run_max_distance=800.0).plan.thrust)
+        # Closing in, it flies at the opponent nose first instead.
+        closing = flown(3000.0, run_max_distance=800.0, close_in=True)
+        self.assertFalse(closing.plan.a2)
+        self.assertTrue(closing.plan.thrust)
+        self.assertTrue(flown(700.0, run_max_distance=800.0, close_in=True).plan.a2)
+
     def test_umgah_will_not_hop_onto_a_mine_but_hops_through_an_incoming_shot(self):
         enemy = self._umgah_tail_aligned_enemy(1000.0)
         mine = _seen(180.0, 400.0, group="enemy_a2")
@@ -2632,6 +2647,48 @@ class ChmmrMatchupMoreTests(unittest.TestCase):
         self.assertFalse(self._orz(2).plan.a2)
         self.assertTrue(self._orz(1).plan.a2)
         self.assertTrue(self._orz(0).plan.a2)
+
+    def _orz_marines_context(self, marines, *, enemy=None, out=2):
+        context = _rule_context(
+            "Orz", enemy=enemy or _seen(0.0, 1500.0), enemy_name="Mycon", enemy_objects=marines
+        )
+        context.view.me.orz_marines = out
+        context.view.me.crew = 16
+        return context
+
+    def test_orz_tells_a_marine_heading_home_from_one_heading_out(self):
+        home = _seen(90.0, 500.0, closing=10.0, group="friendly_non_a1")
+        out = _seen(0.0, 500.0, closing=-10.0, group="friendly_non_a1")
+        context = self._orz_marines_context((home, out))
+        self.assertEqual(strategy_module._orz_returning_marines(context), (home,))
+        # One riding the opponent isn't heading home, whatever its motion.
+        riding = _seen(0.0, 1450.0, closing=10.0, group="friendly_non_a1")
+        self.assertEqual(strategy_module._orz_returning_marines(self._orz_marines_context((riding,))), ())
+
+    def test_orz_flies_to_meet_a_marine_heading_home_while_the_opponent_is_far(self):
+        ahead = _seen(20.0, 600.0, closing=10.0, group="friendly_non_a1")
+        meeting = self._orz_marines_context((ahead,))
+        strategy_module._orz_collect(meeting)
+        self.assertEqual(meeting.plan.turn, TURN_RIGHT)
+        self.assertTrue(meeting.plan.thrust)
+
+        beside = self._orz_marines_context((_seen(90.0, 600.0, closing=10.0, group="friendly_non_a1"),))
+        strategy_module._orz_collect(beside)
+        self.assertEqual(beside.plan.turn, TURN_RIGHT)
+        self.assertFalse(beside.plan.thrust)
+
+        pressed = self._orz_marines_context((ahead,), enemy=_seen(0.0, 500.0))
+        strategy_module._orz_collect(pressed)
+        self.assertIsNone(pressed.plan.turn)
+
+    def test_orz_launches_without_counting_marines_heading_home(self):
+        home = _seen(90.0, 500.0, closing=10.0, group="friendly_non_a1")
+        counted = self._orz_marines_context((home,))
+        strategy_module._orz_marines(counted)
+        self.assertFalse(counted.plan.a2)
+        uncounted = self._orz_marines_context((home,))
+        strategy_module._orz_marines(uncounted, count_returning=False)
+        self.assertTrue(uncounted.plan.a2)
 
     def _vux(self, enemy, objects):
         context = _rule_context("Vux", enemy=enemy, enemy_name="Chmmr", enemy_objects=objects)

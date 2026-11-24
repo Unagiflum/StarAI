@@ -25,7 +25,7 @@ SPECIALS = {
     "Mmrnmrhm": ("Mycon", ("mmrnmrhm_attack",), ("face_opponent",), "mmrnmrhm_forms"),
     "Melnorme": ("Mycon", ("melnorme_charge",), ("melnorme_aim",), None),
     "Mycon": ("Spathi", ("mycon_regenerate",), ("gravity_whip_when_slow", "mycon_plasmoid"), None),
-    "Orz": ("Chmmr", ("orz_chmmr_dash", "orz_marines"), ("orz_turret",), None),
+    "Orz": ("Chmmr", ("orz_chmmr_dash", "orz_collect", "orz_marines"), ("orz_turret",), None),
     "Pkunk": ("Mycon", ("pkunk_insult", "pkunk_pass"), ("pkunk_gun",), None),
     "Shofixti": ("Mycon", ("shofixti_glory",), (), None),
     "Slylandro": ("Chmmr", ("slylandro_harvest", "slylandro_low_harvest"), (), None),
@@ -35,7 +35,7 @@ SPECIALS = {
     "Yehat": ("Shofixti", ("shield_glory", "yehat_chmmr"), (), None),
     "ZoqFotPik": ("Mycon", ("zoq_fot_pik_tongue", "zoq_fot_pik_lunge"), ("zoq_fot_pik_gun",), None),
     "Thraddash": ("Chmmr", ("thraddash_dodge_burn", "thraddash_trail", "thraddash_chmmr"), (), None),
-    "Umgah": ("Spathi", ("umgah_rules",), (), None),
+    "Umgah": ("Spathi", ("umgah_rules", "umgah_close_in_800", "umgah_close_in_1000"), (), None),
     "Vux": ("Chmmr", ("vux_rules",), (), None),
 }
 
@@ -185,6 +185,18 @@ class PerOpponentOverrideTests(unittest.TestCase):
                     self.assertEqual((band.near, band.far, band.inside), (0.0, 1000.0, "face"))
                 else:
                     self.assertIsNone(band)
+
+    def test_the_umgah_caps_its_runs_against_eleven_opponents(self):
+        caps = {
+            **dict.fromkeys(("Pkunk", "Slylandro", "Umgah", "Vux"), ("umgah_close_in_800",)),
+            **dict.fromkeys(
+                ("Earthling", "Melnorme", "Mycon", "Spathi", "Syreen", "Thraddash", "Utwig"),
+                ("umgah_close_in_1000",),
+            ),
+        }
+        for opponent in ("Chmmr", "Supox", *caps):
+            with self.subTest(opponent=opponent):
+                self.assertEqual(ship_behaviour("Umgah", opponent).specials, caps.get(opponent, ("umgah_rules",)))
 
     def test_the_kzer_za_launches_fighters_at_the_thraddash_but_not_the_earthling(self):
         from tests.test_baseline_strategy import _rule_context, _seen

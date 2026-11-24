@@ -728,12 +728,28 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             "KzerZa": {"band": Band(1183.0, 2028.0, approach_speed=60.0)},
         },
     ),
+    # The Umgah against 11 opponents (user note, 2026-11-24): its hop runs
+    # started from as far as the battery allowed and seldom landed. Against
+    # these a run starts only within 800 or 1,000, and beyond it the Umgah
+    # flies in nose first. Each was confirmed on seeds 100-119: clearly
+    # ahead on harm dealt against the Slylandro (+1.8 a fight), Vux, Thraddash
+    # and Syreen, and on the λ score, harm dealt tied, against the rest.
+    # Against the other 13 the earlier rule ranked as well or better.
     "Umgah": ShipBehaviour(
         harm_taken_weight=0.5,
         evade_headings=False,
         shoot_down=False,
         keep_moving=False,
         specials=("umgah_rules",),
+        opponents={
+            **dict.fromkeys(
+                ("Pkunk", "Slylandro", "Umgah", "Vux"), {"specials": ("umgah_close_in_800",)}
+            ),
+            **dict.fromkeys(
+                ("Earthling", "Melnorme", "Mycon", "Spathi", "Syreen", "Thraddash", "Utwig"),
+                {"specials": ("umgah_close_in_1000",)},
+            ),
+        },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: the
     # shield defends against a hit due within 0.2 s or after crew was lost

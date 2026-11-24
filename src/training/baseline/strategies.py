@@ -31,7 +31,7 @@ from src.training.baseline.engine import (
     fire_gate_open,
 )
 from src.training.baseline.behaviours import ARILOU_TELEPORT_SECONDS, SHIP_BEHAVIOURS
-from src.training.baseline.observation_view import bearing_of, wrap_degrees
+from src.training.baseline.observation_view import ObservedObject, bearing_of, wrap_degrees
 from src.training.baseline.ship_specs import (
     FORM_BASE,
     FORM_BLAZER,
@@ -210,6 +210,15 @@ ORZ_DASH_BATTERY = 18.0
 ORZ_DASH_DISTANCE = 900.0
 ORZ_DASH_FIRE_DISTANCE = 1000.0
 ORZ_DASH_RETREAT = 1250.0
+# A marine moving faster than this, within about 25 degrees of straight
+# home (cosine), more toward me than the opponent, and farther than this from
+# the opponent, is heading home; the Orz flies to meet one within the
+# collect reach while the opponent is farther than the keep-off distance.
+ORZ_RETURNING_CLOSING_SPEED = 2.0
+ORZ_RETURNING_ENEMY_CLEARANCE = 200.0
+ORZ_RETURNING_HOMEWARD = 0.9
+ORZ_COLLECT_REACH = 1200.0
+ORZ_COLLECT_KEEP_OFF = 700.0
 # Opponents whose shots are too tough to shoot down and must be dodged:
 # the Orz aims with the hull alone, its turret kept as it is, which the
 # arena shows dodges them better.
@@ -1727,12 +1736,17 @@ def _umgah_run(ctx: BaselineContext, enemy) -> bool:
     return True
 
 
-def umgah(ctx: BaselineContext) -> None:
+def umgah(
+    ctx: BaselineContext, *, run_max_distance: float = math.inf, close_in: bool = False
+) -> None:
     """Hop backward past the opponent, landing it just in front of the cone.
 
     The backward hop (weapon 2) jumps 160 units every other frame per
     battery point, only while thrust is released; the cone (weapon 1) is
-    free yet stops the all-at-once battery refill while it fires.
+    free yet stops the all-at-once battery refill while it fires. A run
+    starts only within ``run_max_distance``; beyond it, with ``close_in``
+    the Umgah flies at the opponent nose first, else it waits with its
+    tail lined up.
     """
 
     enemy = ctx.enemy
@@ -1765,7 +1779,11 @@ def umgah(ctx: BaselineContext) -> None:
         ctx.point_at_opponent()
         ctx.plan.claim_thrust(False)
         return
-    if _umgah_run(ctx, enemy):
+    beyond = ctx.distance > run_max_distance and not ctx.memory.values.get("umgah_running", False)
+    if beyond and close_in and not recharging:
+        ctx.approach_opponent()
+        return
+    if not beyond and _umgah_run(ctx, enemy):
         return
     if recharging:
         ctx.avoid_opponent()
@@ -2498,12 +2516,49 @@ def _mycon_plasmoid(ctx: BaselineContext) -> None:
         ctx.a1(True)
 
 
-def _orz_marines(ctx: BaselineContext) -> None:
-    """Special: keep 2 marines out (not against their counters, nor a
-    Chmmr with more than one satellite to shoot them down)."""
+def _orz_returning_marines(ctx: BaselineContext) -> tuple[ObservedObject, ...]:
+    """My marines heading home: closing on me and clear of the opponent.
 
+    The observation carries no marine mode; an outbound or boarded marine
+    rides with the opponent or closes on it, so one closing on me and away
+    from the opponent is returning."""
+
+    enemy = ctx.enemy
+    returning = []
+    for marine in ctx.view.objects("friendly_non_a1"):
+        # Its own velocity, not relative to mine.
+        moving_forward = marine.velocity_forward + ctx.me.velocity_forward
+        moving_right = marine.velocity_right + ctx.me.velocity_right
+        speed = math.hypot(moving_forward, moving_right)
+        if speed <= ORZ_RETURNING_CLOSING_SPEED or marine.distance <= 0.0:
+            continue
+        # Cosine of the angle between its motion and the way home.
+        homeward = -(moving_forward * marine.forward + moving_right * marine.right) / (speed * marine.distance)
+        if homeward < ORZ_RETURNING_HOMEWARD:
+            continue
+        if enemy is not None:
+            to_enemy_forward = enemy.forward - marine.forward
+            to_enemy_right = enemy.right - marine.right
+            gap = math.hypot(to_enemy_forward, to_enemy_right)
+            if gap <= ORZ_RETURNING_ENEMY_CLEARANCE:
+                continue
+            chasing = (moving_forward * to_enemy_forward + moving_right * to_enemy_right) / (speed * gap)
+            if chasing >= homeward:
+                continue
+        returning.append(marine)
+    return tuple(returning)
+
+
+def _orz_marines(ctx: BaselineContext, *, count_returning: bool = True) -> None:
+    """Special: keep 2 marines out (not against their counters, nor a
+    Chmmr with more than one satellite to shoot them down). Without
+    ``count_returning``, marines heading home don't count."""
+
+    out = ctx.me.orz_marines
+    if not count_returning:
+        out -= len(_orz_returning_marines(ctx))
     if (
-        ctx.me.orz_marines < 2
+        out < 2
         and ctx.me.crew > 2
         and ctx.enemy_name not in ORZ_MARINE_COUNTERS
         and len(ctx.chmmr_satellites()) <= ORZ_CHMMR_MARINE_SATELLITES
@@ -2511,6 +2566,26 @@ def _orz_marines(ctx: BaselineContext) -> None:
         # Weapon 1 and weapon 2 together launch a marine.
         ctx.a1(True)
         ctx.a2(True)
+
+
+def _orz_collect(
+    ctx: BaselineContext,
+    *,
+    reach: float = ORZ_COLLECT_REACH,
+    keep_off: float = ORZ_COLLECT_KEEP_OFF,
+) -> None:
+    """Special: fly to meet the nearest marine heading home within
+    ``reach``, while the opponent is farther than ``keep_off``. Picked up,
+    it gives back its crew and frees its place for a new launch."""
+
+    if ctx.enemy is not None and ctx.distance <= keep_off:
+        return
+    marines = [m for m in _orz_returning_marines(ctx) if m.distance <= reach]
+    if not marines:
+        return
+    nearest = min(marines, key=lambda m: m.distance)
+    ctx.point_at(nearest.bearing)
+    ctx.plan.claim_thrust(abs(nearest.bearing) <= 45.0)
 
 
 def _orz_chmmr_dash(
@@ -2762,6 +2837,7 @@ SPECIAL_RULES: dict[str, StrategyFunction] = {
     "mycon_plasmoid": _mycon_plasmoid,
     "mycon_regenerate": _mycon_regenerate,
     "orz_chmmr_dash": _orz_chmmr_dash,
+    "orz_collect": _orz_collect,
     "orz_marines": _orz_marines,
     "orz_turret": _orz_turret,
     "pkunk_gun": _pkunk_gun,
@@ -2818,6 +2894,8 @@ SPECIAL_RULES.update(
         "thraddash_dodge_burn": lambda ctx: _thraddash_dodge_burn(ctx) if ctx.enemy is not None else None,
         "thraddash_trail": _thraddash_trail,
         "umgah_rules": lambda ctx: umgah(ctx),
+        "umgah_close_in_800": lambda ctx: umgah(ctx, run_max_distance=800.0, close_in=True),
+        "umgah_close_in_1000": lambda ctx: umgah(ctx, run_max_distance=1000.0, close_in=True),
         "utwig_chmmr": lambda ctx: _utwig_vs_chmmr(ctx),
         "vux_rules": lambda ctx: vux(ctx),
         "yehat_chmmr": lambda ctx: _yehat_vs_chmmr(ctx) if ctx.enemy is not None else None,
