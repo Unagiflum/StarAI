@@ -372,8 +372,13 @@ def androsynth(ctx: BaselineContext) -> None:
         ctx.a1(True)
 
 
-def _androsynth_vs_chmmr(ctx: BaselineContext) -> None:
-    """Save the battery, then blaze into the Chmmr once and keep ramming.
+def _androsynth_vs_chmmr(
+    ctx: BaselineContext,
+    *,
+    blaze_range: float = ANDROSYNTH_CHMMR_BLAZE_RANGE,
+    blaze_battery: float = ANDROSYNTH_CHMMR_BLAZE_BATTERY,
+) -> None:
+    """Save the battery, then blaze into the opponent once and keep ramming.
 
     Inside the satellite ring the lasers take about a crew a frame, so the
     crew buys one ram: from close in, on a full battery, at where the Chmmr
@@ -384,10 +389,7 @@ def _androsynth_vs_chmmr(ctx: BaselineContext) -> None:
         ctx.steer(_blazer_intercept_bearing(ctx))
         return
     ctx.point_at_opponent()
-    if (
-        ctx.distance <= ANDROSYNTH_CHMMR_BLAZE_RANGE
-        and ctx.me.battery >= ANDROSYNTH_CHMMR_BLAZE_BATTERY * ctx.me.max_battery
-    ):
+    if ctx.distance <= blaze_range and ctx.me.battery >= blaze_battery * ctx.me.max_battery:
         ctx.a2(True)
 
 
@@ -2206,10 +2208,25 @@ def _androsynth_chmmr(ctx: BaselineContext) -> None:
     weapons so the later rules leave the ram alone."""
 
     if ctx.chmmr_satellites():
-        _androsynth_vs_chmmr(ctx)
-        ctx.point_at_opponent()
-        ctx.a1(False)
-        ctx.a2(False)
+        _androsynth_saved_ram(ctx, blaze_range=ANDROSYNTH_CHMMR_BLAZE_RANGE)
+
+
+def _androsynth_saved_ram(
+    ctx: BaselineContext,
+    *,
+    blaze_range: float = math.inf,
+    blaze_battery: float = ANDROSYNTH_CHMMR_BLAZE_BATTERY,
+) -> None:
+    """Special: save the battery, firing no bubbles, and blaze in on a
+    nearly full battery once within ``blaze_range`` (by default at any
+    range), ramming until the blazer gives out (``_androsynth_vs_chmmr``).
+    It claims steering and both weapons so the later rules leave the ram
+    alone."""
+
+    _androsynth_vs_chmmr(ctx, blaze_range=blaze_range, blaze_battery=blaze_battery)
+    ctx.point_at_opponent()
+    ctx.a1(False)
+    ctx.a2(False)
 
 
 def _arilou_chmmr(ctx: BaselineContext) -> None:
@@ -2384,15 +2401,24 @@ def _kohr_ah_saw(ctx: BaselineContext) -> None:
         ctx.a1(ctx.press("a1"))
 
 
-def _kzer_za_fighters(ctx: BaselineContext) -> None:
-    """Special: keep 8 fighters out, except against their counters and a
-    Chmmr with satellites, while crew allows."""
+def _kzer_za_fighters(
+    ctx: BaselineContext, *, counters: frozenset[str] = KZER_ZA_FIGHTER_COUNTERS
+) -> None:
+    """Special: keep 8 fighters out, except against their ``counters`` and
+    a Chmmr with satellites, while crew allows."""
 
-    fighter_counter = ctx.enemy_name in KZER_ZA_FIGHTER_COUNTERS or (
+    fighter_counter = ctx.enemy_name in counters or (
         ctx.enemy_name == "Chmmr" and ctx.enemy_block.chmmr_satellites > 0
     )
     if ctx.me.kzer_za_fighters < 8 and not fighter_counter and ctx.me.crew > 8:
         ctx.a2(True)
+
+
+def _kzer_za_fighters_always(ctx: BaselineContext) -> None:
+    """Special: ``_kzer_za_fighters`` with no counters (a Chmmr with
+    satellites still gets none)."""
+
+    _kzer_za_fighters(ctx, counters=frozenset())
 
 
 def _face_opponent(ctx: BaselineContext) -> None:
@@ -2710,6 +2736,7 @@ def _shield_glory(ctx: BaselineContext) -> None:
 # switches it names in ``form_switch`` (``behaviours.SHIP_BEHAVIOURS``).
 SPECIAL_RULES: dict[str, StrategyFunction] = {
     "androsynth_chmmr": _androsynth_chmmr,
+    "androsynth_saved_ram": _androsynth_saved_ram,
     "arilou_chmmr": _arilou_chmmr,
     "chenjesu_crystal": _chenjesu_crystal,
     "chenjesu_dogi": _chenjesu_dogi,
@@ -2726,6 +2753,7 @@ SPECIAL_RULES: dict[str, StrategyFunction] = {
     "kohr_ah_gas": _kohr_ah_gas,
     "kohr_ah_saw": _kohr_ah_saw,
     "kzer_za_fighters": _kzer_za_fighters,
+    "kzer_za_fighters_always": _kzer_za_fighters_always,
     "face_opponent": _face_opponent,
     "gravity_whip_when_slow": _gravity_whip_when_slow,
     "melnorme_aim": _melnorme_aim,

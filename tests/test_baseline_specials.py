@@ -13,7 +13,7 @@ from src.training.baseline.behaviours import SHIP_BEHAVIOURS, Band, ShipBehaviou
 # Every special and mode switch, with the ship that uses it, an opponent
 # that exercises it, and whether it runs late.
 SPECIALS = {
-    "Androsynth": ("Chmmr", ("androsynth_chmmr",), (), "androsynth_blazer"),
+    "Androsynth": ("Chmmr", ("androsynth_chmmr", "androsynth_saved_ram"), (), "androsynth_blazer"),
     "Arilou": ("Chmmr", ("arilou_chmmr",), (), None),
     "Chenjesu": ("Mycon", ("chenjesu_dogi", "chenjesu_crystal"), (), None),
     "Chmmr": ("Mycon", ("chmmr_tractor",), (), None),
@@ -21,7 +21,7 @@ SPECIALS = {
     "Earthling": ("Mycon", ("earthling_point_defense", "earthling_nuke", "earthling_whip"), (), None),
     "Ilwrath": ("Mycon", ("ilwrath_flame_cloak", "ilwrath_hang_back", "ilwrath_follow"), (), None),
     "KohrAh": ("Spathi", ("kohr_ah_gas", "kohr_ah_saw"), (), None),
-    "KzerZa": ("Mycon", ("kzer_za_fighters",), (), None),
+    "KzerZa": ("Mycon", ("kzer_za_fighters", "kzer_za_fighters_always"), (), None),
     "Mmrnmrhm": ("Mycon", ("mmrnmrhm_attack",), ("face_opponent",), "mmrnmrhm_forms"),
     "Melnorme": ("Mycon", ("melnorme_charge",), ("melnorme_aim",), None),
     "Mycon": ("Spathi", ("mycon_regenerate",), ("gravity_whip_when_slow", "mycon_plasmoid"), None),

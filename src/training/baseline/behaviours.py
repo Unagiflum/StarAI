@@ -240,6 +240,11 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # from a closer, and below half its 24 battery keeps out of reach.
     # Against a Chmmr it saves a full battery for one ram from close in:
     # bubbles don't get through its satellites (Phase 6 ship checks).
+    # Against the Kohr-Ah (user note, 2026-11-24) it fires no bubbles and
+    # blazes in whenever the battery is 90% full, from any range, with no
+    # band: from far off the bubbles were picked off by the saws. It deals
+    # 4.97 harm a fight to 0.09 and takes 7.63 to 0.36, clearly ahead on
+    # both measures on seeds 100-119; ramming from 600-2,000 dealt less.
     # λ stays 0.5: slow in its normal form, it escapes only by blazing,
     # which spends the battery the bubbles need.
     "Androsynth": ShipBehaviour(
@@ -251,6 +256,7 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         weapons=(WeaponUse(FIRE_LAUNCH, reserve=9.0), None),
         opponents={
             "Chmmr": {"specials": ("androsynth_chmmr",)},
+            "KohrAh": {"specials": ("androsynth_saved_ram",), "band": None},
             # Pass 2: off or back-off.
             "Mycon": {"band": None},
             "Yehat": {"band": Band(1000.0, None, approach_speed=math.inf, run_offset=110.0, back_off=True)},

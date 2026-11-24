@@ -2730,6 +2730,26 @@ class AndrosynthChmmrTests(unittest.TestCase):
         STRATEGIES["Androsynth"](drained)
         self.assertFalse(drained.plan.a2)
 
+    def test_against_the_kohr_ah_it_saves_the_battery_and_blazes_in_from_any_range(self):
+        def context(battery):
+            ctx = _rule_context(
+                "Androsynth", enemy=_seen(0.0, 2500.0), enemy_name="KohrAh", battery=battery, max_battery=24.0
+            )
+            ctx.view.me.androsynth_blazer = False
+            return ctx
+
+        self.assertIsNone(ship_behaviour("Androsynth", "KohrAh").band)
+        full = context(24.0)
+        STRATEGIES["Androsynth"](full)
+        self.assertTrue(full.plan.a2)
+        self.assertFalse(full.plan.a1)
+
+        saving = context(18.0)
+        STRATEGIES["Androsynth"](saving)
+        self.assertFalse(saving.plan.a2)
+        # No bubbles while it saves.
+        self.assertFalse(saving.plan.a1)
+
     def test_blazer_rams_where_the_chmmr_will_be(self):
         # Off to the right, crossing ahead of me.
         crossing = dataclasses.replace(_seen(90.0, 600.0), velocity_forward=30.0)

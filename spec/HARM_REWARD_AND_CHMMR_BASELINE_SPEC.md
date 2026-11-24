@@ -1201,6 +1201,24 @@ Questions to settle when the ship comes up in a pass, beyond its screen:
   rejects. The ram stays at every satellite count. Script and results:
   `~/StarAI-measurements/phase6/androsynth_chmmr.*`, outside the repository.
 
+### Notes from play (2026-11-24)
+
+The user watched the baselines and noted matchups that looked weak. Each is
+screened against the named opponent with `pair_screen.py` (every candidate
+on seeds 0–19 × 4 cells against the entry; the leader by the harm ranking
+confirmed on seeds 100–119 and kept only if clearly ahead there too), in
+this order:
+
+1. **Androsynth against the Kohr-Ah.** From far off its bubbles were picked
+   off by the saws, and both sides dealt little (0.12 dealt, 0.36 taken).
+   **Kept:** no bubbles and no band; blaze in whenever the battery is 90%
+   full, from any range (`androsynth_saved_ram`). It deals 4.97 a fight to
+   the entry's 0.09 and takes 7.63 to 0.36, clearly ahead on harm dealt and
+   on the λ score on seeds 100–119; the extra harm taken is 1.5 times the
+   extra dealt. Blazing in only within 600, 800, 1,000, 1,200, 1,500 or
+   2,000 dealt less, the more so the nearer; the battery needed (70–100%)
+   made no difference within 800. Results: `androsynth_kohrah*`.
+
 ---
 
 ## Phase 6B: Perception Delay For Computer Control
