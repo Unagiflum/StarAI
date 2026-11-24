@@ -488,15 +488,15 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         opponents={
             **{
                 name: {"band": Band(700.0, 1100.0)}
-                for name in ("Arilou", "KzerZa", "Orz", "Shofixti", "Spathi", "Syreen", "Yehat")
+                for name in ("Arilou", "KzerZa", "Orz", "Shofixti", "Spathi", "Yehat")
             },
             # Pass 3: the same band, backing off.
             "Druuge": {"band": Band(700.0, 1100.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             "Chmmr": {"band": Band(1550.0, 1800.0)},
             # Pass 2: predictive, off or nearer.
             "KohrAh": {"band": Band(907.2, 1296.0, approach_speed=60.0)},
-            # Against the retuned Pkunk too.
-            **dict.fromkeys(("Pkunk", "Slylandro", "Supox"), {"band": None}),
+            # Against the retuned Pkunk and Syreen too.
+            **dict.fromkeys(("Pkunk", "Slylandro", "Supox", "Syreen"), {"band": None}),
             "Umgah": {"band": Band(635.04, 907.2, approach_speed=math.inf, run_offset=110.0, back_off=True)},
         },
     ),
@@ -617,9 +617,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 "band": None,
             },
             # Pass 2: off or farther (rechecked against the retuned base:
-            # kept; the predictive Yehat override dropped).
+            # kept, the Supox's farther again; the predictive Yehat override
+            # dropped).
             **dict.fromkeys(("Slylandro", "ZoqFotPik"), {"band": None}),
-            "Supox": {"band": Band(650.0, 1170.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            "Supox": {"band": Band(845.0, 1521.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             # Its per-opponent sweep against the retuned base: off or farther.
             **dict.fromkeys(("Spathi", "Thraddash"), {"band": None}),
             **dict.fromkeys(
