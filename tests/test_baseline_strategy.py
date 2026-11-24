@@ -2828,6 +2828,8 @@ def _first_steer(context, strategy):
 
 
 class SlylandroChmmrTests(unittest.TestCase):
+    # The earlier rules: the entry's Chmmr override was dropped after the
+    # tolerance check.
     def _context(self, enemy, enemy_name="Chmmr"):
         context = _rule_context(
             "Slylandro", enemy=enemy, enemy_name=enemy_name, battery=20.0, max_battery=20.0
@@ -2838,7 +2840,7 @@ class SlylandroChmmrTests(unittest.TestCase):
     def test_circles_the_chmmr_in_its_band_firing(self):
         context = self._context(_seen(0.0, (SLYLANDRO_CHMMR_NEAR + SLYLANDRO_CHMMR_FAR) / 2))
 
-        heading = _first_steer(context, STRATEGIES["Slylandro"])
+        heading = _first_steer(context, strategy_for("Slylandro", "earlier"))
 
         self.assertAlmostEqual(abs(heading), 90.0)
         self.assertTrue(context.plan.a1)
@@ -2847,14 +2849,14 @@ class SlylandroChmmrTests(unittest.TestCase):
     def test_runs_from_a_closing_chmmr(self):
         context = self._context(_seen(0.0, SLYLANDRO_CHMMR_NEAR + 20.0, closing=30.0))
 
-        heading = _first_steer(context, STRATEGIES["Slylandro"])
+        heading = _first_steer(context, strategy_for("Slylandro", "earlier"))
 
         self.assertAlmostEqual(abs(heading), 180.0)
 
     def test_holds_fire_beyond_the_fire_distance(self):
         context = self._context(_seen(0.0, SLYLANDRO_CHMMR_FIRE + 100.0))
 
-        STRATEGIES["Slylandro"](context)
+        strategy_for("Slylandro", "earlier")(context)
 
         self.assertFalse(context.plan.a1)
 
@@ -2989,7 +2991,9 @@ class SyreenChmmrTests(unittest.TestCase):
             "Syreen", enemy=enemy, enemy_name="Chmmr", battery=16.0, max_battery=16.0
         )
         context.view.crew_pods = ()
-        STRATEGIES["Syreen"](context)
+        # The earlier rule: the entry's Chmmr override was dropped after
+        # the tolerance check.
+        strategy_for("Syreen", "earlier")(context)
         return context
 
     def test_waits_nose_first_without_thrust(self):
@@ -3098,8 +3102,10 @@ class EarthlingNukeAndChmmrTests(unittest.TestCase):
         # No battery for a nuke: it steers 90 degrees off the Chmmr.
         context = self._context(_seen(20.0, 1500.0), enemy_name="Chmmr", battery=0.0)
 
+        # The earlier rule: the entry's Chmmr override was dropped after
+        # the tolerance check.
         with mock.patch.object(BaselineContext, "steer", wraps=context.steer) as steer:
-            STRATEGIES["Earthling"](context)
+            strategy_for("Earthling", "earlier")(context)
 
         heading = steer.call_args_list[0].args[0]
         self.assertAlmostEqual(abs(wrap_degrees(heading - 20.0)), EARTHLING_CHMMR_ORBIT_OFFSET)
@@ -3107,7 +3113,7 @@ class EarthlingNukeAndChmmrTests(unittest.TestCase):
     def test_still_nukes_a_chmmr_when_it_can(self):
         context = self._context(_seen(0.0, 1500.0), enemy_name="Chmmr")
 
-        STRATEGIES["Earthling"](context)
+        strategy_for("Earthling", "earlier")(context)
 
         self.assertTrue(context.plan.a1)
 

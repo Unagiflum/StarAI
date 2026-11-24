@@ -8,7 +8,7 @@ from unittest import mock
 
 from src.training.baseline import strategies
 from src.training.baseline.arena import ArenaMatch, run_match
-from src.training.baseline.behaviours import Band, ShipBehaviour, ship_behaviour
+from src.training.baseline.behaviours import SHIP_BEHAVIOURS, Band, ShipBehaviour, ship_behaviour
 
 # Every special and mode switch, with the ship that uses it, an opponent
 # that exercises it, and whether it runs late.
@@ -82,30 +82,22 @@ class MovedShipTests(unittest.TestCase):
                 moved = run_match(ArenaMatch("Druuge", opponent, 2), frames=240)
                 self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
 
-    def test_the_slylandro_entry_flies_its_earlier_chmmr_rules(self):
-        # Against the Chmmr the entry's override (low harvest, a 700-850
-        # orbit band, lightning within 1,000) is the earlier rule.
-        self.assertIs(strategies.STRATEGIES["Slylandro"], strategies.shared)
-        for cell in (("strong", "strong"), ("weak", "strong")):
-            with self.subTest(cell=cell):
-                earlier = run_match(ArenaMatch("Slylandro", "Chmmr", 1, "earlier", *cell), frames=240)
-                moved = run_match(ArenaMatch("Slylandro", "Chmmr", 1, "default", *cell), frames=240)
-                self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
-
-    def test_the_syreen_entry_flies_its_earlier_chmmr_rule(self):
-        self.assertIs(strategies.STRATEGIES["Syreen"], strategies.shared)
-        earlier = run_match(ArenaMatch("Syreen", "Chmmr", 1, "earlier"), frames=240)
-        moved = run_match(ArenaMatch("Syreen", "Chmmr", 1), frames=240)
-        self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
+    def test_the_slylandro_syreen_and_earthling_fly_their_entries_against_the_chmmr(self):
+        # The recheck after the tolerance check dropped their Chmmr rules.
+        for ship in ("Earthling", "Slylandro", "Syreen"):
+            with self.subTest(ship=ship):
+                self.assertIs(strategies.STRATEGIES[ship], strategies.shared)
+                self.assertNotIn("Chmmr", SHIP_BEHAVIOURS[ship].opponents)
+                self.assertEqual(ship_behaviour(ship, "Chmmr").band, ship_behaviour(ship).band)
+                earlier = run_match(ArenaMatch(ship, "Chmmr", 1, "earlier"), frames=240)
+                moved = run_match(ArenaMatch(ship, "Chmmr", 1), frames=240)
+                self.assertNotEqual(dataclasses.replace(earlier, variant="default"), moved)
 
     def test_the_syreen_recharges_below_the_songs_cost(self):
         behaviour = ship_behaviour("Syreen", "Mycon")
         self.assertEqual(behaviour.recharge_battery, 5.0)
         self.assertEqual((behaviour.band.near, behaviour.band.far), (200.0, 600.0))
-        chmmr = ship_behaviour("Syreen", "Chmmr")
-        self.assertEqual(chmmr.specials, ("syreen_chmmr",))
-        self.assertIsNone(chmmr.band)
-        self.assertIsNone(chmmr.recharge_battery)
+        self.assertEqual(ship_behaviour("Syreen", "Chmmr").specials, ("syreen_song",))
 
     def test_the_utwig_entry_flies_its_earlier_rule_against_the_chmmr(self):
         # Its Chmmr rule is a whole-rule special.
@@ -155,14 +147,14 @@ class MovedShipTests(unittest.TestCase):
         for opponent in ("Mmrnmrhm", "Orz", "Spathi", "Thraddash", "Vux", "ZoqFotPik"):
             with self.subTest(opponent=opponent):
                 earlier = ship_behaviour("Thraddash", opponent)
-                self.assertEqual((earlier.band.near, earlier.band.far, earlier.band.back_off), (900.0, 1400.0, True))
+                back_off = opponent != "ZoqFotPik"  # predictive after the tolerance check
+                band = earlier.band
+                self.assertEqual((band.near, band.far, band.back_off), (900.0, 1400.0, back_off))
                 self.assertEqual(earlier.weapons[0].range_fraction, 1400.0 / 1620.0)
 
     def test_the_slylandro_closes_inside_the_lightnings_reach(self):
         band = ship_behaviour("Slylandro", "Spathi").band
         self.assertEqual((band.near, band.far, band.back_off), (150.0, 300.0, True))
-        self.assertIsNone(ship_behaviour("Slylandro", "Chmmr").band.outside_reach_margin)
-        self.assertEqual(ship_behaviour("Slylandro", "Chmmr").band.far, 850.0)
 
 
 class PerOpponentOverrideTests(unittest.TestCase):
@@ -178,10 +170,11 @@ class PerOpponentOverrideTests(unittest.TestCase):
                     self.assertTrue(overrides)
                     self.assertLessEqual(set(overrides), fields)
 
-    def test_the_kzer_za_holds_its_band_only_against_eight_opponents(self):
+    def test_the_kzer_za_holds_its_band_only_against_seven_opponents(self):
         from src.training.baseline.arena import SHIP_TYPE_CATALOG_ORDER
 
-        banded = {"Arilou", "Chenjesu", "Earthling", "Ilwrath", "KohrAh", "Umgah", "Vux", "Yehat"}
+        # The recheck after the tolerance check dropped the Yehat.
+        banded = {"Arilou", "Chenjesu", "Earthling", "Ilwrath", "KohrAh", "Umgah", "Vux"}
         for opponent in SHIP_TYPE_CATALOG_ORDER:
             with self.subTest(opponent=opponent):
                 band = ship_behaviour("KzerZa", opponent).band
@@ -207,7 +200,7 @@ class PerOpponentOverrideTests(unittest.TestCase):
         # The Chmmr's laser keeps half a turn step against the Yehat, and
         # fires within 30 degrees against the Mmrnmrhm.
         self.assertIsNone(ship_behaviour("Chmmr", "Yehat").weapons[0].tolerance)
-        self.assertEqual(ship_behaviour("Chmmr", "Yehat").band.far, 780.0)
+        self.assertEqual(ship_behaviour("Chmmr", "Yehat").band.far, 1014.0)
         self.assertEqual(ship_behaviour("Chmmr", "Mmrnmrhm").weapons[0].tolerance, 30.0)
         # The Zoq-Fot-Pik's gun is a table weapon keeping the tongue's battery.
         zoq = ship_behaviour("ZoqFotPik", "Mycon")
