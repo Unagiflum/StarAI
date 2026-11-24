@@ -125,11 +125,12 @@ class ArenaResult:
     damage_taken: float = 0.0
     deaths_taken: float = 0.0
     # Diagnostics: opponent ships the evaluated ship destroyed, its own
-    # deaths, and frames it spent alive below STILL_SPEED_FRACTION of top
-    # speed.
+    # deaths, frames it spent alive below STILL_SPEED_FRACTION of top
+    # speed, and planet impacts that cost it crew.
     kills: int = 0
     deaths: int = 0
     still_frames: int = 0
+    planet_hits: int = 0
 
     @property
     def harm_dealt(self) -> float:
@@ -357,6 +358,7 @@ def run_match(
         HARM_OWN_DEATH,
         HarmTracker,
     )
+    from src.training.event_ledger import EVENT_CREW_CHANGED
     from src.training.observation import build_observation_context, encode_observation
 
     simulation, ledger = new_arena_battle(match)
@@ -367,7 +369,7 @@ def run_match(
     flown = {1: simulation.player1, 2: simulation.player2}
     tracker = HarmTracker()
     still_speed = STILL_SPEED_FRACTION * ship_spec(match.ship).max_thrust
-    still_frames = kills = deaths = 0
+    still_frames = kills = deaths = planet_hits = 0
     frame_limit = max(1, int(frames))
     if on_step is not None:
         on_step(simulation)
@@ -407,7 +409,16 @@ def run_match(
         simulation.step(actions=actions)
         if on_step is not None:
             on_step(simulation)
-        tracker.contributions(decision, SimpleNamespace(events=ledger.events[event_start:]))
+        events = ledger.events[event_start:]
+        tracker.contributions(decision, SimpleNamespace(events=events))
+        planet_hits += sum(
+            1
+            for event in events
+            if event.event_type == EVENT_CREW_CHANGED
+            and event.target is ships[1]
+            and event.magnitude < 0
+            and type(event.obj).__name__ == "Planet"
+        )
         died = set(getattr(simulation, "training_episode_deaths", ()))
         killers = set(getattr(simulation, "training_episode_kills", ()))
         deaths += int(1 in died)
@@ -429,6 +440,7 @@ def run_match(
         kills=kills,
         deaths=deaths,
         still_frames=still_frames,
+        planet_hits=planet_hits,
     )
 
 

@@ -1272,6 +1272,17 @@ this order:
    0.46), Vux (1.58 to 0.77), Thraddash (0.84 to 0.39) and Syreen; against
    the rest harm dealt was tied and the λ score clearly ahead. Results:
    `umgah_runs_*`, `umgah_runs_per_*`.
+7. *(Orz returning marines: see below.)*
+8. *(Running from escorts: see below.)*
+9. **Utwig into the planet; shield on impact.** The Utwig's shield defends
+   against enemy objects due to hit within 0.2 s or after crew loss, so
+   against a planet impact it came up only after the hit. Planet damage is
+   shieldable, and an impact costs a quarter of the current crew. The
+   arena now counts `planet_hits` (impacts that cost the evaluated ship
+   crew). Over every opponent (seeds 0–1 × 4 cells) the Utwig hit the
+   planet 0.07 times a fight and the Yehat 0.06, about a third of a crew a
+   fight, too little for a shield rule to show in the harm ranking. **No
+   rule change.**
 
 ---
 

@@ -75,6 +75,19 @@ class ArenaFightTests(unittest.TestCase):
         self.assertEqual(result.harm_taken_weight, 0.5)
         self.assertTrue(0 <= result.still_frames <= 12)
 
+    def test_planet_impacts_that_cost_crew_are_counted(self):
+        def into_the_planet(simulation):
+            if simulation.frame_id:
+                return
+            planet = simulation.world.planets[0]
+            ship = simulation.player1
+            ship.position = [planet.position[0] + 300.0, planet.position[1]]
+            ship.velocity = [-30.0, 0.0]
+
+        crashed = run_match(ArenaMatch("Yehat", "Mycon", seed=0), frames=48, on_step=into_the_planet)
+        self.assertGreaterEqual(crashed.planet_hits, 1)
+        self.assertEqual(run_match(ArenaMatch("Yehat", "Mycon", seed=0), frames=12).planet_hits, 0)
+
     def test_fights_repeat_exactly(self):
         match = ArenaMatch("Earthling", "Mycon", seed=1, ship_condition=WEAK)
 
