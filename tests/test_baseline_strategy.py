@@ -2165,7 +2165,8 @@ class ShipRuleTests(unittest.TestCase):
         self.assertEqual(context.plan.turn, TURN_RIGHT)
 
     def test_supox_backs_off_without_turning_when_too_close(self):
-        context = self._supox(_seen(0.0, 400.0))
+        # Inside the band's 400 near edge.
+        context = self._supox(_seen(0.0, 300.0))
 
         self.assertTrue(context.plan.a2)
         self.assertTrue(context.plan.thrust)

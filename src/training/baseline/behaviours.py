@@ -571,9 +571,12 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # Pass 2: against these, a back-off band at 0.7-1 of the gun's 1,080
     # reach, where the slides leave the movement free. In the mirror pass 3
     # went back to no band (a cycle: no band ranks better over both).
+    # Deferred item: with the band's reach cap (0.95 of the gun) its own
+    # rule is a table band, and nearer, 400-700, dealt clearly more.
     "Supox": ShipBehaviour(
         harm_taken_weight=0.5,
         specials=("supox_slides",),
+        band=Band(400.0, 700.0, outside_reach_margin=150.0, reach_cap=0.95),
         opponents=dict.fromkeys(
             ("Ilwrath", "Pkunk", "Shofixti", "ZoqFotPik"),
             {"band": Band(756.0, 1080.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
