@@ -1286,7 +1286,15 @@ this order:
    default; against the Arilou and Ilwrath, where it dealt clearly less,
    per-opponent screens confirmed the counting rule (+0.47 and +0.40 harm
    dealt). Results: `orz_collect_all_*`, `orz_counted_*`.
-8. *(Running from escorts: see below.)*
+8. **Running from escorts.** Against the Kzer-Za's fighters and the Orz's
+   marines, the Syreen, Yehat and Shofixti were flown with rule 1 also
+   weighing running from threats (`run_from_threats`), with and without
+   shoot-downs, without shoot-downs alone, and running with the planet
+   whip when slow. None was clearly ahead in any of the six pairs. The
+   Syreen flew identically with or without running and shoot-downs: its
+   rule 1 doesn't act on these escorts. Running cost the Shofixti
+   clearly against the Kzer-Za (−0.61 harm dealt). **No change.**
+   Results: `run_threats_*`.
 9. **Utwig into the planet; shield on impact.** The Utwig's shield defends
    against enemy objects due to hit within 0.2 s or after crew loss, so
    against a planet impact it came up only after the hit. Planet damage is
