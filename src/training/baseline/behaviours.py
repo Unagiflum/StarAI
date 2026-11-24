@@ -515,7 +515,9 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         weapons=(WeaponUse(FIRE_AIMED, tolerance=45.0), None),
         # Per opponent (the pass 2 sweep): farther or nearer.
         opponents={
-            **dict.fromkeys(("Androsynth", "Spathi"), {"band": Band(195.0, 455.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}),
+            **dict.fromkeys(
+                ("Androsynth", "Spathi"), {"band": Band(195.0, 455.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}
+            ),
             "Syreen": {"band": Band(105.0, 245.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
         },
     ),
@@ -614,10 +616,15 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 "recharge_battery": None,
                 "band": None,
             },
-            # Pass 2: off, farther or predictive.
+            # Pass 2: off or farther (rechecked against the retuned base:
+            # kept; the predictive Yehat override dropped).
             **dict.fromkeys(("Slylandro", "ZoqFotPik"), {"band": None}),
             "Supox": {"band": Band(650.0, 1170.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
-            "Yehat": {"band": Band(500.0, 900.0, approach_speed=60.0)},
+            # Its per-opponent sweep against the retuned base: off or farther.
+            **dict.fromkeys(("Spathi", "Thraddash"), {"band": None}),
+            **dict.fromkeys(
+                ("Ilwrath", "Pkunk", "Shofixti"), {"band": Band(260.0, 780.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}
+            ),
         },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: the band
@@ -779,6 +786,14 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             # Pass 2: nearer or farther.
             "Melnorme": {"band": Band(70.0, 604.8, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             "ZoqFotPik": {"band": Band(130.0, 1123.2, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            # Deferred item: against the Spathi, which keeps its distance,
+            # chase it within 600, with no recharging.
+            "Spathi": {
+                "band": Band(
+                    0.0, 600.0, approach_speed=math.inf, inside=BAND_INSIDE_CHASE, run_offset=110.0, back_off=True
+                ),
+                "recharge_battery": None,
+            },
         },
     ),
 }

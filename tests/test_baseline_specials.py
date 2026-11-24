@@ -99,7 +99,7 @@ class MovedShipTests(unittest.TestCase):
         self.assertEqual(dataclasses.replace(earlier, variant="default"), moved)
 
     def test_the_syreen_recharges_below_the_songs_cost(self):
-        behaviour = ship_behaviour("Syreen", "Spathi")
+        behaviour = ship_behaviour("Syreen", "Mycon")
         self.assertEqual(behaviour.recharge_battery, 5.0)
         self.assertEqual((behaviour.band.near, behaviour.band.far), (200.0, 600.0))
         chmmr = ship_behaviour("Syreen", "Chmmr")
@@ -140,10 +140,14 @@ class MovedShipTests(unittest.TestCase):
 
     def test_the_zoq_fot_pik_closes_to_its_gun_except_against_the_orz(self):
         self.assertIs(strategies.STRATEGIES["ZoqFotPik"], strategies.shared)
-        behaviour = ship_behaviour("ZoqFotPik", "Spathi")
+        behaviour = ship_behaviour("ZoqFotPik", "Mycon")
         self.assertEqual((behaviour.band.near, behaviour.band.far), (100.0, 864.0))
         self.assertEqual(behaviour.recharge_battery, 3.0)
         self.assertEqual(ship_behaviour("ZoqFotPik", "Orz").band.near, 604.8)
+        # It chases the Spathi, with no recharging.
+        spathi = ship_behaviour("ZoqFotPik", "Spathi")
+        self.assertEqual((spathi.band.far, spathi.band.inside), (600.0, "chase"))
+        self.assertIsNone(spathi.recharge_battery)
 
     def test_the_thraddash_holds_a_predictive_band_except_where_the_earlier_one_paid(self):
         band = ship_behaviour("Thraddash", "Pkunk").band

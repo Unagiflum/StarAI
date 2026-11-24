@@ -1528,6 +1528,7 @@ class ShipRuleTests(unittest.TestCase):
             context = _rule_context(
                 "ZoqFotPik",
                 enemy=_seen(bearing, distance),
+                enemy_name="Mycon",
                 battery=battery,
                 battery_fraction=battery / 10.0,
             )
@@ -2005,7 +2006,7 @@ class ShipRuleTests(unittest.TestCase):
 
     def test_the_syreen_entry_holds_its_band_and_fires_within_15_degrees(self):
         # No closing in to sing: from far off the band closes in.
-        far = self._syreen(_seen(0.0, 2000.0))
+        far = self._syreen(_seen(0.0, 2000.0), enemy_name="Mycon")
         self.assertIn("band_far", far.memory.sides)
         self.assertNotIn("song_far", far.memory.sides)
         # The gun spends the song's battery too, 12 degrees off the nose.
