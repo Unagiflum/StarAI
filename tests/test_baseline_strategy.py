@@ -2668,22 +2668,6 @@ class ChmmrMatchupMoreTests(unittest.TestCase):
         riding = _seen(0.0, 1450.0, closing=10.0, group="friendly_non_a1")
         self.assertEqual(strategy_module._orz_returning_marines(self._orz_marines_context((riding,))), ())
 
-    def test_orz_flies_to_meet_a_marine_heading_home_while_the_opponent_is_far(self):
-        ahead = _seen(20.0, 600.0, closing=10.0, group="friendly_non_a1")
-        meeting = self._orz_marines_context((ahead,))
-        strategy_module._orz_collect(meeting)
-        self.assertEqual(meeting.plan.turn, TURN_RIGHT)
-        self.assertTrue(meeting.plan.thrust)
-
-        beside = self._orz_marines_context((_seen(90.0, 600.0, closing=10.0, group="friendly_non_a1"),))
-        strategy_module._orz_collect(beside)
-        self.assertEqual(beside.plan.turn, TURN_RIGHT)
-        self.assertFalse(beside.plan.thrust)
-
-        pressed = self._orz_marines_context((ahead,), enemy=_seen(0.0, 500.0))
-        strategy_module._orz_collect(pressed)
-        self.assertIsNone(pressed.plan.turn)
-
     def test_orz_launches_without_counting_marines_heading_home(self):
         home = _seen(90.0, 500.0, closing=10.0, group="friendly_non_a1")
         counted = self._orz_marines_context((home,))
@@ -2692,6 +2676,14 @@ class ChmmrMatchupMoreTests(unittest.TestCase):
         uncounted = self._orz_marines_context((home,))
         strategy_module._orz_marines(uncounted, count_returning=False)
         self.assertTrue(uncounted.plan.a2)
+        # The table's rule.
+        self.assertEqual(ship_behaviour("Orz", "Mycon").specials, ("orz_marines_uncounted",))
+        for opponent in ("Arilou", "Ilwrath"):
+            self.assertEqual(ship_behaviour("Orz", opponent).specials, ("orz_marines",))
+        self.assertEqual(ship_behaviour("Orz", "Arilou").band, ship_behaviour("Orz", "Spathi").band)
+        table = self._orz_marines_context((home,))
+        strategy_module.SPECIAL_RULES["orz_marines_uncounted"](table)
+        self.assertTrue(table.plan.a2)
 
     def _vux(self, enemy, objects):
         context = _rule_context("Vux", enemy=enemy, enemy_name="Chmmr", enemy_objects=objects)

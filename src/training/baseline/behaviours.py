@@ -509,17 +509,26 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # then 1,085-1,260 (predictive). It deals 0.66 harm a fight to the 0.86
     # of the base band but takes 0.2, not 9.9: its rounds can't clear the
     # satellites, from afar or in dashes, and closing in gets it dragged
-    # into the laser. λ is middling: it can't outrun the fast ships.
+    # into the laser. Marines heading home don't count toward the two kept
+    # out (user note, 2026-11-24): over every opponent it ranks higher, harm
+    # dealt tied (+0.05) and the λ score clearly ahead on seeds 100-119,
+    # except against the Arilou and Ilwrath. Flying to meet them ranked
+    # lower. λ is middling: it can't outrun the
+    # fast ships.
     "Orz": ShipBehaviour(
         harm_taken_weight=0.5,
-        specials=("orz_marines",),
+        specials=("orz_marines_uncounted",),
         late_specials=("orz_turret",),
         band=Band(907.2, 1296.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
         opponents={
             **{
                 name: {"band": Band(700.0, 1100.0)}
-                for name in ("Arilou", "KzerZa", "Orz", "Shofixti", "Spathi")
+                for name in ("KzerZa", "Orz", "Shofixti", "Spathi")
             },
+            # Against these it counts marines heading home after all: per
+            # opponent the counting rule dealt clearly more (seeds 100-119).
+            "Arilou": {"band": Band(700.0, 1100.0), "specials": ("orz_marines",)},
+            "Ilwrath": {"specials": ("orz_marines",)},
             # Recheck after the tolerance check: nearer against the Yehat.
             "Yehat": {"band": Band(490.0, 770.0)},
             "Chmmr": {"satellite_band": Band(1250.0, 1450.0), "band": Band(1085.0, 1260.0)},

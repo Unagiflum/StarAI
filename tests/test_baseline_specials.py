@@ -25,7 +25,7 @@ SPECIALS = {
     "Mmrnmrhm": ("Mycon", ("mmrnmrhm_attack",), ("face_opponent",), "mmrnmrhm_forms"),
     "Melnorme": ("Mycon", ("melnorme_charge",), ("melnorme_aim",), None),
     "Mycon": ("Spathi", ("mycon_regenerate",), ("gravity_whip_when_slow", "mycon_plasmoid"), None),
-    "Orz": ("Chmmr", ("orz_chmmr_dash", "orz_collect", "orz_marines"), ("orz_turret",), None),
+    "Orz": ("Chmmr", ("orz_chmmr_dash", "orz_marines", "orz_marines_uncounted"), ("orz_turret",), None),
     "Pkunk": ("Mycon", ("pkunk_insult", "pkunk_pass"), ("pkunk_gun",), None),
     "Shofixti": ("Mycon", ("shofixti_glory",), (), None),
     "Slylandro": ("Chmmr", ("slylandro_harvest", "slylandro_low_harvest"), (), None),
@@ -247,7 +247,7 @@ class PerOpponentOverrideTests(unittest.TestCase):
         chmmr = ship_behaviour("Orz", "Chmmr")
         self.assertEqual((chmmr.satellite_band.near, chmmr.satellite_band.far), (1250.0, 1450.0))
         self.assertEqual((chmmr.band.near, chmmr.band.far, chmmr.band.back_off), (1085.0, 1260.0, False))
-        self.assertEqual(chmmr.specials, ("orz_marines",))
+        self.assertEqual(chmmr.specials, ("orz_marines_uncounted",))
         self.assertIsNone(ship_behaviour("Orz", "Mycon").satellite_band)
 
     def test_a_band_override_keeps_the_opponents_other_overrides(self):

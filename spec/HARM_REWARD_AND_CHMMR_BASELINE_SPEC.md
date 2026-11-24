@@ -1272,7 +1272,20 @@ this order:
    0.46), Vux (1.58 to 0.77), Thraddash (0.84 to 0.39) and Syreen; against
    the rest harm dealt was tied and the λ score clearly ahead. Results:
    `umgah_runs_*`, `umgah_runs_per_*`.
-7. *(Orz returning marines: see below.)*
+7. **Orz marines heading home.** Returning marines counted toward the two
+   kept out, delaying the next launch. The observation has no marine mode,
+   so `_orz_returning_marines` infers one: flying nearly straight at the
+   Orz (within about 25 degrees), more toward it than toward the
+   opponent, and clear of the opponent (81% of its detections were true,
+   and it found 73% of returning marines). Over every opponent, launching
+   without counting them (`orz_marines_uncounted`) ranked higher: harm
+   dealt +0.05 a fight (tied) and the λ score clearly ahead on seeds
+   100–119. Flying to meet them (`orz_collect`, within 700 or 1,200 of the
+   marine, while the opponent was over 400 or 700 off) ranked lower, alone
+   or combined, and was not kept. **Kept:** the uncounted launch as the
+   default; against the Arilou and Ilwrath, where it dealt clearly less,
+   per-opponent screens confirmed the counting rule (+0.47 and +0.40 harm
+   dealt). Results: `orz_collect_all_*`, `orz_counted_*`.
 8. *(Running from escorts: see below.)*
 9. **Utwig into the planet; shield on impact.** The Utwig's shield defends
    against enemy objects due to hit within 0.2 s or after crew loss, so

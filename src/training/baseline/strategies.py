@@ -211,14 +211,11 @@ ORZ_DASH_DISTANCE = 900.0
 ORZ_DASH_FIRE_DISTANCE = 1000.0
 ORZ_DASH_RETREAT = 1250.0
 # A marine moving faster than this, within about 25 degrees of straight
-# home (cosine), more toward me than the opponent, and farther than this from
-# the opponent, is heading home; the Orz flies to meet one within the
-# collect reach while the opponent is farther than the keep-off distance.
-ORZ_RETURNING_CLOSING_SPEED = 2.0
+# home (the cosine), more toward me than toward the opponent, and farther
+# than this from the opponent, is heading home.
+ORZ_RETURNING_SPEED = 2.0
 ORZ_RETURNING_ENEMY_CLEARANCE = 200.0
 ORZ_RETURNING_HOMEWARD = 0.9
-ORZ_COLLECT_REACH = 1200.0
-ORZ_COLLECT_KEEP_OFF = 700.0
 # Opponents whose shots are too tough to shoot down and must be dodged:
 # the Orz aims with the hull alone, its turret kept as it is, which the
 # arena shows dodges them better.
@@ -2517,11 +2514,12 @@ def _mycon_plasmoid(ctx: BaselineContext) -> None:
 
 
 def _orz_returning_marines(ctx: BaselineContext) -> tuple[ObservedObject, ...]:
-    """My marines heading home: closing on me and clear of the opponent.
+    """My marines heading home.
 
-    The observation carries no marine mode; an outbound or boarded marine
-    rides with the opponent or closes on it, so one closing on me and away
-    from the opponent is returning."""
+    The observation carries no marine mode. An outbound or boarded marine
+    rides with the opponent or flies at it, so one flying nearly straight at
+    me, more toward me than toward the opponent and clear of it, is
+    returning."""
 
     enemy = ctx.enemy
     returning = []
@@ -2530,7 +2528,7 @@ def _orz_returning_marines(ctx: BaselineContext) -> tuple[ObservedObject, ...]:
         moving_forward = marine.velocity_forward + ctx.me.velocity_forward
         moving_right = marine.velocity_right + ctx.me.velocity_right
         speed = math.hypot(moving_forward, moving_right)
-        if speed <= ORZ_RETURNING_CLOSING_SPEED or marine.distance <= 0.0:
+        if speed <= ORZ_RETURNING_SPEED or marine.distance <= 0.0:
             continue
         # Cosine of the angle between its motion and the way home.
         homeward = -(moving_forward * marine.forward + moving_right * marine.right) / (speed * marine.distance)
@@ -2566,26 +2564,6 @@ def _orz_marines(ctx: BaselineContext, *, count_returning: bool = True) -> None:
         # Weapon 1 and weapon 2 together launch a marine.
         ctx.a1(True)
         ctx.a2(True)
-
-
-def _orz_collect(
-    ctx: BaselineContext,
-    *,
-    reach: float = ORZ_COLLECT_REACH,
-    keep_off: float = ORZ_COLLECT_KEEP_OFF,
-) -> None:
-    """Special: fly to meet the nearest marine heading home within
-    ``reach``, while the opponent is farther than ``keep_off``. Picked up,
-    it gives back its crew and frees its place for a new launch."""
-
-    if ctx.enemy is not None and ctx.distance <= keep_off:
-        return
-    marines = [m for m in _orz_returning_marines(ctx) if m.distance <= reach]
-    if not marines:
-        return
-    nearest = min(marines, key=lambda m: m.distance)
-    ctx.point_at(nearest.bearing)
-    ctx.plan.claim_thrust(abs(nearest.bearing) <= 45.0)
 
 
 def _orz_chmmr_dash(
@@ -2837,7 +2815,7 @@ SPECIAL_RULES: dict[str, StrategyFunction] = {
     "mycon_plasmoid": _mycon_plasmoid,
     "mycon_regenerate": _mycon_regenerate,
     "orz_chmmr_dash": _orz_chmmr_dash,
-    "orz_collect": _orz_collect,
+    "orz_marines_uncounted": lambda ctx: _orz_marines(ctx, count_returning=False),
     "orz_marines": _orz_marines,
     "orz_turret": _orz_turret,
     "pkunk_gun": _pkunk_gun,
