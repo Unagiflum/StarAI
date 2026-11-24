@@ -592,21 +592,21 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             "Supox": {"band": None},
         },
     ),
-    # Pass 1 at the default perception delay, by the harm ranking: sing
-    # within 300 when the song can take crew, collect crew pods, and with
-    # the song ready close in to sing unless that is too risky while the
-    # crew is small (specials); the gun is aimed late, keeping the song's 5
-    # battery spare. Below the song's cost it keeps out of reach (level with
-    # not recharging); otherwise a back-off band closes in at full speed to
-    # 900 and steers 110 degrees off inside 500, nearer than the gun's
-    # 1,080 that approach_range held. Against a Chmmr, the earlier rule.
-    # λ is middling: it can't outrun the fast ships.
+    # Deferred item, by the harm ranking: sing within 300 when the song can
+    # take crew (a special); the gun fires within 15 degrees of the target,
+    # with no battery kept for the song. Below the song's cost it keeps out
+    # of reach; otherwise a back-off band closes in at full speed to 600
+    # and steers 110 degrees off inside 200. Pass 1's close-in and crew-pod
+    # specials, and its gun on the half-step aim keeping the song's battery,
+    # held a full battery all fight and dealt half as much. Against a
+    # Chmmr, the earlier rule. λ is middling: it can't outrun the fast
+    # ships.
     "Syreen": ShipBehaviour(
         harm_taken_weight=0.5,
-        specials=("syreen_song", "syreen_pods", "syreen_close_in"),
-        late_specials=("syreen_gun",),
+        specials=("syreen_song",),
         recharge_battery=5.0,
-        band=Band(500.0, 900.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        band=Band(200.0, 600.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
+        weapons=(WeaponUse(FIRE_AIMED, tolerance=15.0), None),
         opponents={
             "Chmmr": {
                 "specials": ("syreen_chmmr",),

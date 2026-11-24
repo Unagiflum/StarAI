@@ -1991,37 +1991,45 @@ class ShipRuleTests(unittest.TestCase):
             self._syreen(_seen(0.0, 250.0), enemy_name="Slylandro").plan.a2
         )
 
-    def test_syreen_closes_to_sing_and_keeps_battery_for_the_song(self):
-        approaching = self._syreen(_seen(0.0, 600.0))
+    def test_earlier_syreen_closes_to_sing_and_keeps_battery_for_the_song(self):
+        approaching = self._syreen(_seen(0.0, 600.0), variant="earlier")
         self.assertIn("song_far", approaching.memory.sides)
         self.assertTrue(approaching.plan.a1)
 
         a2_cost = SHIP_DEFINITIONS["Syreen"].a2_cost
-        self.assertFalse(self._syreen(_seen(0.0, 600.0), battery=a2_cost).plan.a1)
+        self.assertFalse(self._syreen(_seen(0.0, 600.0), battery=a2_cost, variant="earlier").plan.a1)
         # With no crew to take, weapon 1 fires freely.
         self.assertTrue(
-            self._syreen(_seen(0.0, 600.0), battery=a2_cost, enemy_crew=1.0).plan.a1
+            self._syreen(_seen(0.0, 600.0), battery=a2_cost, enemy_crew=1.0, variant="earlier").plan.a1
         )
 
-    def test_syreen_collects_crew_pods_first(self):
+    def test_the_syreen_entry_holds_its_band_and_fires_within_15_degrees(self):
+        # No closing in to sing: from far off the band closes in.
+        far = self._syreen(_seen(0.0, 2000.0))
+        self.assertIn("band_far", far.memory.sides)
+        self.assertNotIn("song_far", far.memory.sides)
+        # The gun spends the song's battery too, 12 degrees off the nose.
+        a2_cost = SHIP_DEFINITIONS["Syreen"].a2_cost
+        self.assertTrue(self._syreen(_seen(12.0, 500.0), battery=a2_cost).plan.a1)
+        self.assertFalse(self._syreen(_seen(25.0, 500.0)).plan.a1)
+
+    def test_earlier_syreen_collects_crew_pods_first(self):
         pod = _seen(-60.0, 200.0, group="syreen_crew")
-        context = self._syreen(_seen(0.0, 600.0), pods=(pod,))
+        context = self._syreen(_seen(0.0, 600.0), pods=(pod,), variant="earlier")
 
         self.assertEqual(context.plan.turn, TURN_LEFT)
         self.assertTrue(context.plan.thrust)
 
-    def test_small_syreen_keeps_its_band_from_fast_close_fighters(self):
+    def test_small_earlier_syreen_keeps_to_gun_range_from_fast_close_fighters(self):
         enemy = _seen(0.0, 2000.0)
 
-        cautious = self._syreen(enemy, enemy_name="Shofixti", enemy_thrust=40.0)
-        self.assertIn("band_far", cautious.memory.sides)
+        cautious = self._syreen(enemy, enemy_name="Shofixti", enemy_thrust=40.0, variant="earlier")
+        self.assertIn("gun_far", cautious.memory.sides)
         self.assertNotIn("song_far", cautious.memory.sides)
-        grown = self._syreen(enemy, enemy_name="Shofixti", enemy_thrust=40.0, crew=24.0)
+        grown = self._syreen(enemy, enemy_name="Shofixti", enemy_thrust=40.0, crew=24.0, variant="earlier")
         self.assertIn("song_far", grown.memory.sides)
-        slower = self._syreen(enemy, enemy_name="Shofixti", enemy_thrust=20.0)
+        slower = self._syreen(enemy, enemy_name="Shofixti", enemy_thrust=20.0, variant="earlier")
         self.assertIn("song_far", slower.memory.sides)
-        earlier = self._syreen(enemy, enemy_name="Shofixti", enemy_thrust=40.0, variant="earlier")
-        self.assertIn("gun_far", earlier.memory.sides)
 
     def test_syreen_keeps_out_of_reach_while_the_song_recharges(self):
         context = self._syreen(_seen(0.0, 600.0, closing=5.0), battery=4.0)

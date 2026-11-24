@@ -101,7 +101,7 @@ class MovedShipTests(unittest.TestCase):
     def test_the_syreen_recharges_below_the_songs_cost(self):
         behaviour = ship_behaviour("Syreen", "Spathi")
         self.assertEqual(behaviour.recharge_battery, 5.0)
-        self.assertEqual((behaviour.band.near, behaviour.band.far), (500.0, 900.0))
+        self.assertEqual((behaviour.band.near, behaviour.band.far), (200.0, 600.0))
         chmmr = ship_behaviour("Syreen", "Chmmr")
         self.assertEqual(chmmr.specials, ("syreen_chmmr",))
         self.assertIsNone(chmmr.band)
