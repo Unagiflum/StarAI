@@ -1338,7 +1338,19 @@ clearly ahead on seeds 100–119. They are the Arilou against the
 Zoq-Fot-Pik (a back-off band at 280–400, +1.59 harm dealt); the Melnorme
 and Utwig against the Umgah (their base bands, +1.19 and +1.28); the Orz
 mirror (its base band, +1.24); and the Thraddash against the Orz (no band,
-the same weapons, +0.43).
+the same weapons, +0.43). **Round 2** (`pass3_recheck.py f5f8ac5`): the
+three overrides held against ships round 1 changed all kept, so the
+passes stop.
+
+**Settling run** (`results/settle_user_notes.json`, against
+`settle_tolerance.json`): the pairs that moved all involve a ship changed
+here, or the Orz's Chmmr standoff chosen just before (the Chmmr against
+the Orz, 6.75 → 0.19 harm dealt a fight). Harm dealt rose clearly for the
+Androsynth (+0.19 a fight over all opponents), Orz (+0.18), Umgah (+0.24)
+and Zoq-Fot-Pik (+0.12), and for the Kohr-Ah (+0.24), which the
+Androsynth's rams now reach; it fell for the ships that met the Umgah's
+and Zoq-Fot-Pik's former dives (the Vux −0.07, Mycon −0.07, Spathi −0.06,
+Utwig −0.05) and for the Chmmr (−0.26).
 
 ---
 
