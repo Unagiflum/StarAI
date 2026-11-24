@@ -1332,6 +1332,14 @@ this order:
     rule, and the dash-in bursts were screened earlier. **No change**; the
     rule lives only in `orz_decoy.py`.
 
+**Recheck round 1** (`pass3_recheck.py 0ad77f1`): of the 13 overrides
+held against ships these notes changed, five were replaced, each
+clearly ahead on seeds 100–119. They are the Arilou against the
+Zoq-Fot-Pik (a back-off band at 280–400, +1.59 harm dealt); the Melnorme
+and Utwig against the Umgah (their base bands, +1.19 and +1.28); the Orz
+mirror (its base band, +1.24); and the Thraddash against the Orz (no band,
+the same weapons, +0.43).
+
 ---
 
 ## Phase 6B: Perception Delay For Computer Control

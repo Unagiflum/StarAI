@@ -64,10 +64,12 @@ class SpecialRuleTests(unittest.TestCase):
     def test_whole_rule_specials_fly_as_the_ship_strategy(self):
         # The Umgah and Vux run from their table entries, each a whole-rule
         # special, fight for fight as their earlier rules; the Thraddash,
-        # split into the schema, still does.
+        # split into the schema, still does where it keeps the earlier band
+        # (against the Orz it holds none since the recheck after the user
+        # notes, so the Mmrnmrhm stands in).
         for ship in ("Thraddash", "Umgah", "Vux"):
             self.assertIs(strategies.STRATEGIES[ship], strategies.shared)
-            for opponent in ("Chmmr", "Orz"):
+            for opponent in ("Chmmr", "Mmrnmrhm" if ship == "Thraddash" else "Orz"):
                 with self.subTest(ship=ship, opponent=opponent):
                     earlier = run_match(ArenaMatch(ship, opponent, 1, "earlier"), frames=240)
                     moved = run_match(ArenaMatch(ship, opponent, 1), frames=240)
@@ -147,13 +149,18 @@ class MovedShipTests(unittest.TestCase):
     def test_the_thraddash_holds_a_predictive_band_except_where_the_earlier_one_paid(self):
         band = ship_behaviour("Thraddash", "Pkunk").band
         self.assertEqual((band.near, band.far, band.back_off), (700.0, 1200.0, False))
-        for opponent in ("Mmrnmrhm", "Orz", "Spathi", "Thraddash", "Vux", "ZoqFotPik"):
+        for opponent in ("Mmrnmrhm", "Spathi", "Thraddash", "Vux", "ZoqFotPik"):
             with self.subTest(opponent=opponent):
                 earlier = ship_behaviour("Thraddash", opponent)
                 back_off = opponent != "ZoqFotPik"  # predictive after the tolerance check
                 band = earlier.band
                 self.assertEqual((band.near, band.far, band.back_off), (900.0, 1400.0, back_off))
                 self.assertEqual(earlier.weapons[0].range_fraction, 1400.0 / 1620.0)
+        # Against the Orz no band, with the same weapons (the recheck after
+        # the user notes).
+        orz = ship_behaviour("Thraddash", "Orz")
+        self.assertIsNone(orz.band)
+        self.assertEqual(orz.weapons[0].range_fraction, 1400.0 / 1620.0)
 
     def test_the_slylandro_closes_inside_the_lightnings_reach(self):
         band = ship_behaviour("Slylandro", "Spathi").band

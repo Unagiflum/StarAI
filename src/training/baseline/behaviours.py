@@ -297,7 +297,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 ("Androsynth", "KohrAh", "Vux"), {"band": Band(200.0, 400.0, approach_speed=60.0)}
             ),
             # Against the Thraddash, pass 3.
-            **dict.fromkeys(("Slylandro", "Spathi", "Thraddash", "ZoqFotPik"), {"band": None}),
+            **dict.fromkeys(("Slylandro", "Spathi", "Thraddash"), {"band": None}),
+            # Recheck after the user notes: against the Zoq-Fot-Pik, which no
+            # longer lunges, a back-off band at 0.7-1 of the laser's reach.
+            "ZoqFotPik": {"band": Band(280.0, 400.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
         },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: keep up
@@ -459,7 +462,8 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         weapons=(None, WeaponUse(FIRE_AIMED, aim=False)),
         opponents={
             # Pass 2: off or farther.
-            **dict.fromkeys(("Arilou", "Chmmr", "Pkunk", "Slylandro", "Umgah", "Utwig"), {"band": None}),
+            # The Umgah's dropped after the user notes (it caps its runs).
+            **dict.fromkeys(("Arilou", "Chmmr", "Pkunk", "Slylandro", "Utwig"), {"band": None}),
             # The mirror keeps the base band: it cycled through no band (pass
             # 2) and a band at the gun's reach (pass 3) and back; flown
             # together, the base band ranks best.
@@ -528,7 +532,9 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         opponents={
             **{
                 name: {"band": Band(700.0, 1100.0)}
-                for name in ("KzerZa", "Orz", "Shofixti", "Spathi")
+                # The mirror's dropped after the user notes (marines
+                # heading home no longer count).
+                for name in ("KzerZa", "Shofixti", "Spathi")
             },
             # Against these it counts marines heading home after all: per
             # opponent the counting rule dealt clearly more (seeds 100-119).
@@ -726,7 +732,12 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 # The Spathi: recheck round 1 made the band predictive and
                 # round 3 went back (a cycle; back-off ranks better flown
                 # together).
-                for name in ("Mmrnmrhm", "Orz", "Spathi", "Thraddash", "Vux")
+                for name in ("Mmrnmrhm", "Spathi", "Thraddash", "Vux")
+            },
+            # Recheck after the user notes: against the Orz, no band.
+            "Orz": {
+                "band": None,
+                "weapons": (WeaponUse(FIRE_AIMED, range_fraction=1400.0 / 1620.0, reserve=8.0), None),
             },
             # Recheck after the tolerance check: the same band, predictive.
             "ZoqFotPik": {
@@ -794,7 +805,7 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 {"band": Band(650.0, 1170.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             ),
             **dict.fromkeys(
-                ("Ilwrath", "Pkunk", "Slylandro", "Supox", "Syreen", "Umgah", "Utwig"), {"band": None}
+                ("Ilwrath", "Pkunk", "Slylandro", "Supox", "Syreen", "Utwig"), {"band": None}
             ),
             # No band against the Zoq-Fot-Pik after the tolerance check.
             "ZoqFotPik": {"band": None},
