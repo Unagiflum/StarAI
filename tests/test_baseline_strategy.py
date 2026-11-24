@@ -2315,6 +2315,12 @@ class ShipRuleTests(unittest.TestCase):
         self.assertFalse(self._vux(_seen(15.0, 300.0)).plan.a1)
         self.assertFalse(self._vux(_seen(0.0, 800.0)).plan.a1)
 
+    def test_vux_laser_goes_through_the_fire_gate_of_its_special_weapon_use(self):
+        gated = dataclasses.replace(SHIP_BEHAVIOURS["Vux"], weapons=(WeaponUse(FIRE_SPECIAL, fire_share=1e-9), None))
+        with mock.patch.dict(SHIP_BEHAVIOURS, {"Vux": gated}):
+            self.assertFalse(self._vux(_seen(6.0, 300.0)).plan.a1)
+        self.assertTrue(self._vux(_seen(6.0, 300.0)).plan.a1)
+
     def test_vux_closes_on_a_crippled_opponent_from_its_blind_side(self):
         crippled = {"enemy_thrust": 15.0, "enemy_turn_wait": 5.0}
 

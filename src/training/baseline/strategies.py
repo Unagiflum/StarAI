@@ -28,6 +28,7 @@ from src.training.baseline.engine import (
     BaselineContext,
     StrategyFunction,
     _smallest_positive_root,
+    fire_gate_open,
 )
 from src.training.baseline.behaviours import ARILOU_TELEPORT_SECONDS, SHIP_BEHAVIOURS
 from src.training.baseline.observation_view import bearing_of, wrap_degrees
@@ -2017,10 +2018,13 @@ def _vux(ctx: BaselineContext, *, slingshot: bool, hold_beam: bool) -> None:
     if enemy is None:
         return
     disabled = _vux_disabled(ctx)
-    # Laser: whenever the hull crosses the beam within reach.
+    # Laser: whenever the hull crosses the beam within reach, through the
+    # fire gate when the entry's weapon 1 (a ``special`` use) sets a share.
     tolerance = math.degrees(math.atan2(TYPICAL_HULL_RADIUS, max(1.0, enemy.distance)))
     in_reach = enemy.distance <= VUX_BURST_DISTANCE
-    if in_reach and abs(enemy.bearing) <= tolerance:
+    use = ctx.behaviour.weapon_use(1)
+    share = 1.0 if use is None else use.fire_share
+    if in_reach and abs(enemy.bearing) <= tolerance and fire_gate_open(enemy.distance, enemy.bearing, share):
         ctx.a1(True)
     # A Chmmr satellite crossing the beam takes the hit instead.
     if ctx.satellite_on_beam(0.0, ctx.weapon(1).range + SATELLITE_HIT_RADIUS):
