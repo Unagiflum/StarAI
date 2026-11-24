@@ -25,7 +25,7 @@ SPECIALS = {
     "Mmrnmrhm": ("Mycon", ("mmrnmrhm_attack",), ("face_opponent",), "mmrnmrhm_forms"),
     "Melnorme": ("Mycon", ("melnorme_charge",), ("melnorme_aim",), None),
     "Mycon": ("Spathi", ("mycon_regenerate",), ("gravity_whip_when_slow", "mycon_plasmoid"), None),
-    "Orz": ("Chmmr", ("orz_marines",), ("orz_turret",), None),
+    "Orz": ("Chmmr", ("orz_chmmr_dash", "orz_marines"), ("orz_turret",), None),
     "Pkunk": ("Mycon", ("pkunk_insult", "pkunk_pass"), ("pkunk_gun",), None),
     "Shofixti": ("Mycon", ("shofixti_glory",), (), None),
     "Slylandro": ("Chmmr", ("slylandro_harvest", "slylandro_low_harvest"), (), None),

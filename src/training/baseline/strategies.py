@@ -202,6 +202,14 @@ ORZ_CHMMR_MARINE_SATELLITES = 1
 # the Orz into its laser) and near the turret's reach of a satellite.
 ORZ_CHMMR_NEAR = 1550.0
 ORZ_CHMMR_FAR = 1800.0
+# Dash-in bursts at a Chmmr's satellites (``orz_chmmr_dash``): from its
+# band, with this much battery (three rounds) dash in to this distance from
+# the Chmmr, then run out to the retreat distance; the turret fires at a
+# satellite only from within the fire distance or on the way out.
+ORZ_DASH_BATTERY = 18.0
+ORZ_DASH_DISTANCE = 900.0
+ORZ_DASH_FIRE_DISTANCE = 1000.0
+ORZ_DASH_RETREAT = 1250.0
 # Opponents whose shots are too tough to shoot down and must be dodged:
 # the Orz aims with the hull alone, its turret kept as it is, which the
 # arena shows dodges them better.
@@ -2479,10 +2487,53 @@ def _orz_marines(ctx: BaselineContext) -> None:
         ctx.a2(True)
 
 
+def _orz_chmmr_dash(
+    ctx: BaselineContext,
+    *,
+    battery: float = ORZ_DASH_BATTERY,
+    distance: float = ORZ_DASH_DISTANCE,
+    fire_distance: float = ORZ_DASH_FIRE_DISTANCE,
+    retreat: float = ORZ_DASH_RETREAT,
+) -> None:
+    """Special against a Chmmr with satellites left: dash-in bursts.
+
+    Holding off (its band), it saves the battery; with ``battery`` it
+    dashes at the Chmmr to ``distance``, then runs straight out to
+    ``retreat`` and holds off again. The turret (``orz_turret``) holds fire
+    while holding off, and on the way in until within ``fire_distance``,
+    so the burst is fired close, where rounds survive the satellites'
+    lasers to hit.
+    """
+
+    values = ctx.memory.values
+    if ctx.enemy is None or ctx.enemy_name != "Chmmr" or ctx.enemy_block.chmmr_satellites <= 0:
+        values["orz_dash"] = "hold"
+        values["orz_hold_fire"] = False
+        return
+    state = values.get("orz_dash", "hold")
+    if state == "hold" and ctx.me.battery >= battery:
+        state = "dash"
+    if state == "dash" and ctx.distance <= distance:
+        state = "retreat"
+    if state == "retreat" and ctx.distance >= retreat:
+        state = "hold"
+    values["orz_dash"] = state
+    if state == "dash":
+        values["orz_hold_fire"] = ctx.distance > fire_distance
+        ctx.approach_opponent()
+    elif state == "retreat":
+        values["orz_hold_fire"] = False
+        ctx.steer(wrap_degrees(ctx.enemy.bearing + 180.0))
+    else:
+        values["orz_hold_fire"] = True
+
+
 def _orz_turret(ctx: BaselineContext) -> None:
     """Late special: turret shots at the weakest Chmmr satellite in reach,
-    else at the opponent within range (``_orz_aim``)."""
+    else at the opponent within range (``_orz_aim``). It aims but holds
+    fire while ``orz_chmmr_dash`` says so."""
 
+    fire = not ctx.memory.values.get("orz_hold_fire", False)
     satellites = ctx.chmmr_satellites()
     shot = ctx.satellite_shot(1) if satellites else None
     if shot is not None:
@@ -2491,13 +2542,13 @@ def _orz_turret(ctx: BaselineContext) -> None:
             ctx.weapon(1).pointing_tolerance,
             math.degrees(math.atan2(SATELLITE_HIT_RADIUS, max(1.0, satellite.distance))),
         )
-        if _orz_aim(ctx, bearing, tolerance):
+        if _orz_aim(ctx, bearing, tolerance) and fire:
             ctx.a1(True)
         return
     bearing = ctx.aim_bearing(1)
     if bearing is None:
         return
-    if _orz_aim(ctx, bearing) and ctx.in_range(1):
+    if _orz_aim(ctx, bearing) and ctx.in_range(1) and fire:
         ctx.a1(True)
 
 
@@ -2682,6 +2733,7 @@ SPECIAL_RULES: dict[str, StrategyFunction] = {
     "mmrnmrhm_attack": _mmrnmrhm_attack,
     "mycon_plasmoid": _mycon_plasmoid,
     "mycon_regenerate": _mycon_regenerate,
+    "orz_chmmr_dash": _orz_chmmr_dash,
     "orz_marines": _orz_marines,
     "orz_turret": _orz_turret,
     "pkunk_gun": _pkunk_gun,

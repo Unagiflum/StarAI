@@ -3221,6 +3221,46 @@ class OrzTurretTests(unittest.TestCase):
         self.assertIsNone(context.plan.turn)
         self.assertIsNone(context.plan.a2)
 
+    def test_dashes_in_at_a_chmmr_with_a_burst_ready_then_runs_out(self):
+        from src.training.baseline.strategies import (
+            ORZ_DASH_BATTERY,
+            ORZ_DASH_DISTANCE,
+            ORZ_DASH_FIRE_DISTANCE,
+            ORZ_DASH_RETREAT,
+            SPECIAL_RULES,
+        )
+
+        memory = BaselineMemory()
+        dash = SPECIAL_RULES["orz_chmmr_dash"]
+
+        def step(distance, battery, satellites=3, bearing=20.0):
+            context = self._context(_seen(bearing, distance), enemy_name="Chmmr", battery=battery, memory=memory)
+            context.view.enemy_block.chmmr_satellites = satellites
+            heading = _first_steer(context, dash)
+            return heading, memory.values["orz_dash"], memory.values["orz_hold_fire"]
+
+        # Holding off, it saves the battery: no steering, no fire.
+        self.assertEqual(step(1300.0, ORZ_DASH_BATTERY - 1.0), (None, "hold", True))
+        # A burst ready: dash at the Chmmr, holding fire until close.
+        self.assertEqual(step(1300.0, ORZ_DASH_BATTERY), (20.0, "dash", True))
+        self.assertEqual(step(ORZ_DASH_FIRE_DISTANCE - 10.0, ORZ_DASH_BATTERY), (20.0, "dash", False))
+        # At the dash distance, run straight out, firing.
+        heading, state, hold = step(ORZ_DASH_DISTANCE - 10.0, 12.0)
+        self.assertEqual((state, hold), ("retreat", False))
+        self.assertAlmostEqual(heading, -160.0)
+        self.assertEqual(step(ORZ_DASH_RETREAT - 10.0, 6.0)[1], "retreat")
+        self.assertEqual(step(ORZ_DASH_RETREAT + 10.0, 6.0), (None, "hold", True))
+        # With the satellites down it leaves the band and the turret alone.
+        self.assertEqual(step(1300.0, ORZ_DASH_BATTERY, satellites=0), (None, "hold", False))
+
+    def test_the_turret_aims_but_holds_fire_while_the_dash_says_so(self):
+        for hold in (False, True):
+            with self.subTest(hold=hold):
+                context = self._context(_seen(0.0, 1000.0), turret=0.0)
+                context.memory.values["orz_hold_fire"] = hold
+                strategy_module.SPECIAL_RULES["orz_turret"](context)
+                self.assertEqual(bool(context.plan.a1), not hold)
+
     def test_runs_from_a_kited_opponent_and_fires_back_with_the_turret(self):
         chaser = _seen(180.0, 800.0, closing=30.0)
         turning = self._context(chaser, enemy_name="KzerZa")
