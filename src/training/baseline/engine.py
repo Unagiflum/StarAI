@@ -1650,6 +1650,20 @@ class BaselineContext:
                 far = max(far, min(cap, near + band.min_width))
         return near, far
 
+    def current_band(self) -> Band | None:
+        """The ship's band now: its ``satellite_band`` against a Chmmr with
+        more than ``satellite_band_above`` satellites left, else its
+        ``band``."""
+
+        behaviour = self.behaviour
+        if (
+            behaviour.satellite_band is not None
+            and self.enemy_name == "Chmmr"
+            and self.enemy_block.chmmr_satellites > behaviour.satellite_band_above
+        ):
+            return behaviour.satellite_band
+        return behaviour.band
+
     def hold_band(
         self,
         band: Band | tuple[float, float] | None = None,
@@ -1657,13 +1671,14 @@ class BaselineContext:
     ) -> bool:
         """Hold the opponent within a distance band, by ``keep_standoff``.
 
-        The band is ``band`` or else the ship's ``band``
-        (``behaviours.SHIP_BEHAVIOURS``); with neither, it does nothing.
+        The band is ``band`` or else the ship's current band
+        (``current_band``, from ``behaviours.SHIP_BEHAVIOURS``); with
+        neither, it does nothing.
         Runs from a closer, closes in from beyond the far edge, and within
         the band takes the band's posture. True while running.
         """
 
-        band = band or self.behaviour.band
+        band = band or self.current_band()
         if band is None or self.enemy is None:
             return False
         if not isinstance(band, Band):

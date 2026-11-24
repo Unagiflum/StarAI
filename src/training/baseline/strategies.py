@@ -1217,7 +1217,7 @@ def supox(ctx: BaselineContext) -> None:
         # The planet rule is flying the ship; A2 would turn its turns into slides.
         ctx.a2(False)
     else:
-        band = ctx.behaviour.band
+        band = ctx.current_band()
         near, far = ctx.band_limits(band) if band is not None else _supox_band(ctx)
         error = ctx.aim_error(1)
         aimed = error is not None and abs(error) <= SUPOX_SLIDE_AIM_TOLERANCE

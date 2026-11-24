@@ -167,6 +167,10 @@ class ShipBehaviour:
     Distance band:
         ``band``: the ``Band`` ``hold_band`` keeps the opponent in; None
         leaves it off.
+        ``satellite_band``: against a Chmmr with more than
+        ``satellite_band_above`` satellites left, the band held in place of
+        ``band``; once they are shot down, ``band`` again. None holds
+        ``band`` throughout.
     Weapons:
         ``weapons``: a ``WeaponUse`` (or None, unused) for weapon 1, then
         weapon 2.
@@ -202,6 +206,8 @@ class ShipBehaviour:
     recharge_resume: float | None = None
     recharge_run_offset: float = 180.0
     band: Band | None = None
+    satellite_band: Band | None = None
+    satellite_band_above: int = 0
     weapons: tuple[WeaponUse | None, ...] = ()
     keep_moving: bool = True
     keep_moving_takes_aim: bool = False

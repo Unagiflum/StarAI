@@ -973,6 +973,24 @@ class BehaviourSchemaTests(unittest.TestCase):
         self.assertEqual(context.band_limits(Band(5000.0, 6000.0, outside_reach_margin=0.0)), (5000.0, 6000.0))
         self.assertEqual(context.band_limits(Band(500.0, None)), (500.0, math.inf))
 
+    def test_a_satellite_band_holds_while_the_chmmr_has_satellites_left(self):
+        base = Band(907.2, 1296.0)
+        standoff = Band(1250.0, 1450.0)
+
+        def band_against(enemy_name, satellites, above=0):
+            context = _rule_context("Orz", enemy=_seen(0.0, 1000.0), enemy_name=enemy_name)
+            context.view.enemy_block.chmmr_satellites = satellites
+            context.behaviour = dataclasses.replace(
+                context.behaviour, band=base, satellite_band=standoff, satellite_band_above=above
+            )
+            return context.current_band()
+
+        self.assertIs(band_against("Chmmr", 3), standoff)
+        self.assertIs(band_against("Chmmr", 1), standoff)
+        self.assertIs(band_against("Chmmr", 0), base)
+        self.assertIs(band_against("Chmmr", 1, above=1), base)
+        self.assertIs(band_against("Spathi", 3), base)
+
     def test_a_reach_cap_keeps_the_band_within_my_own_reach(self):
         # Capped at 0.95 of the Supox gun, the band is the Supox's own rule
         # (``_supox_band``): outside a shorter reach while the gun still
