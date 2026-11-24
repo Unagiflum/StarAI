@@ -498,7 +498,8 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 for name in ("Arilou", "KzerZa", "Orz", "Shofixti", "Spathi")
             },
             # Recheck after the tolerance check: nearer against the Yehat;
-            # against the Chmmr the base band, not 1,550-1,800.
+            # against the Chmmr the base band, not 1,550-1,800 (dealing more,
+            # taking far more).
             "Yehat": {"band": Band(490.0, 770.0)},
             # Pass 3: the same band, backing off.
             "Druuge": {"band": Band(700.0, 1100.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
@@ -557,7 +558,8 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # degrees off the bearing inside 150, in place of approach_range to the
     # lightning's reach: the lightning lands far more often from close in.
     # Its Chmmr rule (circling 700-850 out) was dropped after the tolerance
-    # check: the base entry dealt more. Constant speed, so keep moving is off. λ is low: among the fastest
+    # check: the base entry dealt more, though it takes far more. Constant
+    # speed, so keep moving is off. λ is low: among the fastest
     # ships, and the tractor can't hold it, so it can always run.
     "Slylandro": ShipBehaviour(
         harm_taken_weight=0.25,
@@ -603,7 +605,8 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # and steers 110 degrees off inside 200. Pass 1's close-in and crew-pod
     # specials, and its gun on the half-step aim keeping the song's battery,
     # held a full battery all fight and dealt half as much. Its Chmmr rule
-    # was dropped after the tolerance check: the base entry dealt more.
+    # was dropped after the tolerance check: the base entry dealt more,
+    # though it takes far more.
     # λ is middling: it can't outrun the fast
     # ships.
     "Syreen": ShipBehaviour(
