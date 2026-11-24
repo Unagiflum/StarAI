@@ -70,6 +70,11 @@ ACTION_INDEX_BY_MASK = {action.mask: index for index, action in enumerate(ACTION
 TURN_LEFT = -1
 TURN_NONE = 0
 TURN_RIGHT = 1
+# A heading change smaller than this, in degrees, is no turn (for inferring
+# confusion); while confused, thrust only with the nose within this many
+# degrees of the bearing the steering wants.
+CONFUSION_MIN_TURN = 1.0
+CONFUSED_THRUST_TOLERANCE = 45.0
 
 # Heading offsets used by the shared behaviors, in degrees.
 APPROACH_ANGLE_OFFSET = 45.0
@@ -220,10 +225,12 @@ OVERSPEED_COAST_ANGLE = 45.0
 class ControlPlan:
     """First-claim-wins control values for one decision."""
 
-    __slots__ = ("turn", "thrust", "a1", "a2")
+    __slots__ = ("turn", "thrust", "a1", "a2", "bearing")
 
     def __init__(self) -> None:
         self.turn: int | None = None
+        # The bearing the claimed turn steers toward, when one was given.
+        self.bearing: float | None = None
         self.thrust: bool | None = None
         self.a1: bool | None = None
         self.a2: bool | None = None
@@ -291,10 +298,14 @@ class BaselineMemory:
 
         self.previous_heading = None
         self.previous_turn_state = TURN_NONE
+        self.confused = False
 
     def reset_episode(self) -> None:
         self.previous_heading: float | None = None
         self.previous_turn_state = TURN_NONE
+        # Whether the nose spins whatever the turn keys say (Melnorme
+        # confusion), inferred from the headings seen.
+        self.confused = False
         self.previous_crew: float | None = None
         self.sides: dict[str, int] = {}
         self.touched_sides: set[str] = set()
@@ -303,6 +314,13 @@ class BaselineMemory:
     def begin_decision(self, view: ObservationView) -> None:
         turn_state = _held_turn_state(view)
         heading = view.me.heading
+        if self.previous_heading is not None:
+            change = wrap_degrees(heading - self.previous_heading)
+            if abs(change) < CONFUSION_MIN_TURN:
+                self.confused = False
+            elif turn_state == TURN_NONE or (change > 0.0) != (turn_state == TURN_RIGHT):
+                # Turned with no key held, or against the key held.
+                self.confused = True
         if self.previous_heading is not None and turn_state != TURN_NONE:
             turned = abs(wrap_degrees(heading - self.previous_heading))
             if turned > 0.0:
@@ -863,7 +881,10 @@ class BaselineContext:
     def point_at(self, bearing: float | None) -> bool:
         if bearing is None:
             return False
-        return self.plan.claim_turn(self.turn_toward(bearing))
+        claimed = self.plan.claim_turn(self.turn_toward(bearing))
+        if claimed:
+            self.plan.bearing = float(bearing)
+        return claimed
 
     def steer(self, bearing: float | None, thrust: bool = True, brake: bool = False) -> bool:
         """Claim turning and thrust to head toward ``bearing``.
@@ -875,6 +896,7 @@ class BaselineContext:
         if bearing is None or self.plan.steering_claimed:
             return False
         self.plan.claim_turn(self.turn_toward(bearing))
+        self.plan.bearing = float(bearing)
         if thrust and not brake and not self.thrust_helps(bearing):
             thrust = False
         if self.ship_name == "Slylandro":
@@ -1379,6 +1401,20 @@ class BaselineContext:
             if self.ship_name == "Orz":
                 # Weapon 1 with weapon 2 launches a marine instead.
                 self.a2(False)
+        return True
+
+    def hold_thrust_while_confused(self) -> bool:
+        """With ``confusion_aware``, while confused keep thrust only while
+        the spinning nose points within ``CONFUSED_THRUST_TOLERANCE`` of the
+        bearing the steering wants; with no bearing, no thrust. True when it
+        held thrust back."""
+
+        if not self.behaviour.confusion_aware or not self.memory.confused or not self.plan.thrust:
+            return False
+        bearing = self.plan.bearing
+        if bearing is not None and abs(wrap_degrees(bearing)) <= CONFUSED_THRUST_TOLERANCE:
+            return False
+        self.plan.thrust = False
         return True
 
     def keep_moving(self) -> bool:

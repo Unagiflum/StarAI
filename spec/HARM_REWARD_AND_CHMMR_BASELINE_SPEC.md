@@ -1304,6 +1304,24 @@ this order:
    planet 0.07 times a fight and the Yehat 0.06, about a third of a crew a
    fight, too little for a shield rule to show in the harm ranking. **No
    rule change.**
+10. **Confused by the Melnorme.** A confused ship spins one way every
+    frame whatever its turn keys say; thrust and weapon 1 still work and
+    weapon 2 doesn't. Against the Slylandro, Chmmr, Mmrnmrhm, Mycon,
+    Spathi, Utwig, Yehat and Chenjesu the Melnorme kept its opponent
+    confused about a third of the fight. The observation has no
+    confusion field, so `BaselineMemory` infers it: the heading changed
+    with no turn key held, or against the key held, and it ends when the
+    heading holds still (against the Yehat it matched 539 of 542 confused
+    decisions with 2 false alarms; it can't tell a spin the way the held
+    key turns). With the new table field `confusion_aware`, a confused
+    ship thrusts only while the nose points within 45 degrees of the
+    bearing its steering wants (`ControlPlan.bearing`), and not at all
+    with no bearing; aimed weapons already fire as the nose sweeps past.
+    Screened per ship against the Melnorme, it was clearly ahead only for
+    the Pkunk (2.61 harm dealt a fight to 2.32 on seeds 100–119), clearly
+    behind for the Slylandro (its constant speed makes thrust a reverse)
+    and tied for the rest. **Kept** for the Pkunk against the Melnorme
+    only. Results: `confusion_aware_*`.
 
 ---
 

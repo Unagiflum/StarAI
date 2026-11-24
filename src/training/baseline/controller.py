@@ -63,6 +63,7 @@ class BaselineController:
         if view.enemy is not None:
             self._strategy(context)
             context.keep_moving()
+            context.hold_thrust_while_confused()
         self.memory.end_decision(view)
         return context.plan.action_index()
 

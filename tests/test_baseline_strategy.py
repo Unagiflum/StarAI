@@ -247,6 +247,61 @@ class TurningTests(unittest.TestCase):
         self.assertEqual(context.turn_toward(90.0), TURN_RIGHT)
 
 
+class ConfusionTests(unittest.TestCase):
+    @staticmethod
+    def _view(heading, *, held=None):
+        view = mock.Mock()
+        view.me.heading = heading
+        view.me.held.side_effect = lambda control: control == held
+        return view
+
+    def test_a_turn_no_key_asked_for_reads_as_confusion(self):
+        memory = BaselineMemory()
+        memory.begin_decision(self._view(0.0))
+        memory.begin_decision(self._view(22.5))
+        self.assertTrue(memory.confused)
+        # Spinning right against a held left key.
+        memory.begin_decision(self._view(45.0, held="left"))
+        self.assertTrue(memory.confused)
+        # A still nose ends it.
+        memory.begin_decision(self._view(45.0))
+        self.assertFalse(memory.confused)
+        # Turning the way the key asks is no confusion.
+        memory.begin_decision(self._view(67.5, held="right"))
+        self.assertFalse(memory.confused)
+
+    def test_a_confusion_aware_ship_thrusts_only_with_the_nose_near_its_course(self):
+        def thrusting(bearing, *, aware=True, confused=True):
+            context = _rule_context("Yehat", enemy=_seen(0.0, 1000.0))
+            context.memory.confused = confused
+            context.behaviour = dataclasses.replace(ship_behaviour("Yehat"), confusion_aware=aware)
+            context.steer(bearing)
+            context.hold_thrust_while_confused()
+            return context.plan.thrust
+
+        self.assertTrue(thrusting(30.0))
+        self.assertFalse(thrusting(120.0))
+        self.assertTrue(thrusting(120.0, aware=False))
+        self.assertTrue(thrusting(120.0, confused=False))
+
+        # With thrust and no course to judge it by, none.
+        context = _rule_context("Yehat", enemy=_seen(0.0, 1000.0))
+        context.memory.confused = True
+        context.behaviour = dataclasses.replace(ship_behaviour("Yehat"), confusion_aware=True)
+        context.plan.claim_thrust(True)
+        self.assertTrue(context.hold_thrust_while_confused())
+        self.assertFalse(context.plan.thrust)
+
+    def test_only_the_pkunk_minds_confusion_and_only_against_the_melnorme(self):
+        from src.training.baseline.arena import SHIP_TYPE_CATALOG_ORDER
+
+        self.assertTrue(ship_behaviour("Pkunk", "Melnorme").confusion_aware)
+        self.assertFalse(ship_behaviour("Pkunk", "Mycon").confusion_aware)
+        for ship in SHIP_TYPE_CATALOG_ORDER:
+            if ship != "Pkunk":
+                self.assertFalse(ship_behaviour(ship, "Melnorme").confusion_aware, ship)
+
+
 class StrategyTests(unittest.TestCase):
     def test_every_ship_has_a_strategy(self):
         self.assertEqual(set(STRATEGIES), set(SHIP_TYPE_CATALOG_ORDER))

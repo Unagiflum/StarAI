@@ -184,6 +184,10 @@ class ShipBehaviour:
         ``coast_above_top_speed``: coast rather than thrust above top
         speed. Across every ship the arena showed no gain, so only the
         afterburner ship uses it.
+    Confusion:
+        ``confusion_aware``: while confused (by a Melnorme), when the nose
+        spins whatever the turn keys say, thrust only while the nose
+        points near the bearing the steering wants.
     Evaluation:
         ``harm_taken_weight``: λ, the weight on harm taken in the arena's λ
         score, which only breaks near-ties in harm dealt. Set explicitly
@@ -212,6 +216,7 @@ class ShipBehaviour:
     keep_moving: bool = True
     keep_moving_takes_aim: bool = False
     coast_above_top_speed: bool = False
+    confusion_aware: bool = False
     harm_taken_weight: float = 0.5
     opponents: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
@@ -560,6 +565,10 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 ("Androsynth", "Spathi"), {"band": Band(195.0, 455.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}
             ),
             "Syreen": {"band": Band(105.0, 245.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            # Confused by the Melnorme, it thrusts only with the spinning
+            # nose near its course (user note, 2026-11-24): 2.61 harm dealt
+            # a fight to 2.32 on seeds 100-119. No other ship gained.
+            "Melnorme": {"confusion_aware": True},
         },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: the
