@@ -104,8 +104,7 @@ class WeaponUse:
     the nose; without it, it fires only when already on target.
     ``satellites`` aims at the Chmmr satellite ``satellite_shot`` picks
     while one is in reach. ``tolerance`` overrides the aim tolerance, in
-    degrees; on a launched weapon it holds the launch until the gun points
-    within it of the target, so the shot needn't turn round. A defending weapon presses when an enemy object will touch
+    degrees. A defending weapon presses when an enemy object will touch
     the ship within ``threat_seconds``, or, with ``on_crew_loss``, when crew
     was lost since the last decision. ``fire_share`` below 1 lets an aimed
     or launched shot that would fire go ahead only on that share of

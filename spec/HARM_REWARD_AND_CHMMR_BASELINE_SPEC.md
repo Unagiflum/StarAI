@@ -1227,6 +1227,15 @@ this order:
    the back-off band dealt clearly less. Against the Earthling, whose point
    defence shoots them down, fighters dealt clearly less, so it stays a
    counter. Results: `kzerza_fighters_*`.
+3. **Spathi rear missile against the Vux.** It launched the rear missile,
+   which had to turn round, while facing the Vux. A launch tolerance (the
+   tail within 45, 90 or 135 degrees of the opponent) was tied with the
+   entry; no missile dealt clearly less. Running tail-on from a closer
+   (run offset 180) with the 90-degree tolerance led on the tuning seeds
+   (+0.20 harm dealt) but was tied on seeds 100–119 (+0.11, interval
+   −0.03 to +0.25); tail-on alone and nearer or farther tail-on bands were
+   tied or behind. **No change**; the tolerance code was not kept.
+   Results: `spathi_missile_*`, `spathi_vux2_*`.
 
 ---
 
