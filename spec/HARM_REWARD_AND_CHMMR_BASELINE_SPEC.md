@@ -1322,6 +1322,15 @@ this order:
     behind for the Slylandro (its constant speed makes thrust a reverse)
     and tied for the rest. **Kept** for the Pkunk against the Melnorme
     only. Results: `confusion_aware_*`.
+11. **Orz decoys against the Chmmr.** Satellites shoot the enemy object
+    with the least HP first; a round has 2 HP and a marine 3, so rounds in
+    flight draw the zaps. Marines launched with 2 or 3 satellites still up
+    (the entry waits for 1), only while 1 or 2 rounds were in flight, or
+    regardless, from the standoff band or nearer, changed harm dealt by at
+    most +0.02 a fight (0.65) while harm taken rose up to 0.38 from 0.23;
+    none ranked higher. Lowest-HP targeting was already the turret's
+    rule, and the dash-in bursts were screened earlier. **No change**; the
+    rule lives only in `orz_decoy.py`.
 
 ---
 
