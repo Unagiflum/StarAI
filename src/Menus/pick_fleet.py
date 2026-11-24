@@ -52,54 +52,170 @@ FLEET_CONTROL_WEIGHTS = {
 }
 
 
-AI_TOGGLE_LABEL = "AI"
-BASELINE_AI_TOGGLE_LABEL = "Base AI"
+TRAINED_AI_LABEL = "Trained AI"
+BASELINE_AI_LABEL = "Base AI"
+HUMAN_LABEL = "Human"
+# Slider stops from left to right. A click on the slider picks the nearest
+# stop; a click elsewhere on the button moves one stop right, wrapping, so it
+# keeps the old cycle of human -> trained AI -> baseline AI -> human.
+AI_SELECTOR_STOPS = (
+    (TRAINED_AI_LABEL, True),
+    (BASELINE_AI_LABEL, FLEET_AI_MODE_BASELINE),
+    (HUMAN_LABEL, False),
+)
+HUMAN_STOP = len(AI_SELECTOR_STOPS) - 1
 
 
-class AIModeToggleButton(ui_button.ToggleButton):
-    """AI switch that cycles human -> trained AI -> baseline AI -> human."""
+class AIModeToggleButton(ui_button.Button):
+    """Three-stop selector for a player: trained AI, baseline AI or human."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.baseline = False
+    def __init__(
+        self,
+        x,
+        y,
+        width,
+        height,
+        text=None,
+        callback=None,
+        initial_state=False,
+        bg_color=ui.MENU_BUTTON_COLOR,
+        hover_color=ui.MENU_BUTTON_COLOR_HI,
+        text_color=ui.WHITE,
+    ):
+        super().__init__(
+            x, y, width, height, "", callback, bg_color, hover_color, text_color
+        )
+        self.stop = HUMAN_STOP
+        self.set_setting(initial_state)
 
     def set_setting(self, setting) -> None:
-        self.is_on = bool(setting)
-        self.baseline = setting == FLEET_AI_MODE_BASELINE
-        self._refresh_label()
+        if setting == FLEET_AI_MODE_BASELINE:
+            self.stop = 1
+        elif setting:
+            self.stop = 0
+        else:
+            self.stop = HUMAN_STOP
 
     def handle_event(self, event, sound_manager=None):
         if not self.enabled:
             return
-        if event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos):
-            if sound_manager:
-                sound_manager.play_sound("menu")
-            if not self.is_on:
-                self.is_on, self.baseline = True, False
-            elif not self.baseline:
-                self.baseline = True
-            else:
-                self.is_on, self.baseline = False, False
-            self._refresh_label()
-            if self.callback:
-                self.callback(self.value)
+        if event.type != pygame.MOUSEBUTTONDOWN or not self.rect.collidepoint(
+            event.pos
+        ):
+            return
+        if sound_manager:
+            sound_manager.play_sound("menu")
+        if self._slider_band().collidepoint(event.pos):
+            self.stop = self._nearest_stop(event.pos[0])
+        else:
+            self.stop = (self.stop + 1) % len(AI_SELECTOR_STOPS)
+        if self.callback:
+            self.callback(self.value)
 
-    def _refresh_label(self) -> None:
-        self.text = (
-            BASELINE_AI_TOGGLE_LABEL if self.is_on and self.baseline else AI_TOGGLE_LABEL
-        )
+    @property
+    def text(self) -> str:
+        return AI_SELECTOR_STOPS[self.stop][0]
+
+    @text.setter
+    def text(self, _value) -> None:
+        # The label always names the selected stop.
+        pass
+
+    @property
+    def is_on(self) -> bool:
+        return self.stop != HUMAN_STOP
+
+    @property
+    def baseline(self) -> bool:
+        return AI_SELECTOR_STOPS[self.stop][1] == FLEET_AI_MODE_BASELINE
 
     @property
     def value(self):
         """``False`` for a human, ``True`` for trained AI, or ``"baseline"``."""
 
-        if not self.is_on:
-            return False
-        return FLEET_AI_MODE_BASELINE if self.baseline else True
+        return AI_SELECTOR_STOPS[self.stop][1]
 
     @property
     def ai_mode(self) -> str:
         return FLEET_AI_MODE_BASELINE if self.baseline else FLEET_AI_MODE_TRAINED
+
+    @property
+    def _knob_radius(self) -> int:
+        return max(4, self.rect.height // 8)
+
+    def _stop_positions(self) -> list[int]:
+        padding = max(self._knob_radius * 2, self.rect.width // 8)
+        left = self.rect.left + padding
+        right = self.rect.right - padding
+        last = len(AI_SELECTOR_STOPS) - 1
+        return [round(left + (right - left) * index / last) for index in range(last + 1)]
+
+    def _slider_center_y(self) -> int:
+        return self.rect.bottom - 2 * self._knob_radius
+
+    def _label_center_y(self) -> int:
+        """Centre of the space above the slider's knob."""
+
+        return (self.rect.top + self._slider_center_y() - self._knob_radius) // 2
+
+    def _slider_band(self) -> pygame.Rect:
+        """The lower part of the button, where a click picks a stop."""
+
+        top = self._slider_center_y() - 2 * self._knob_radius
+        return pygame.Rect(
+            self.rect.left, top, self.rect.width, self.rect.bottom - top
+        )
+
+    def _nearest_stop(self, x) -> int:
+        positions = self._stop_positions()
+        return min(range(len(positions)), key=lambda index: abs(positions[index] - x))
+
+    def draw(self, surface, font, mouse_pos=None):
+        if not self.enabled:
+            color = (*ui.DARK_GREY, 255)
+        else:
+            if mouse_pos is None:
+                mouse_pos = pygame.mouse.get_pos()
+            color = (
+                self.hover_color if self.rect.collidepoint(mouse_pos) else self.bg_color
+            )
+        button_surface = pygame.Surface(self.rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(
+            button_surface, color, button_surface.get_rect(), border_radius=5
+        )
+        surface.blit(button_surface, self.rect)
+
+        slider_y = self._slider_center_y()
+        text_color = self.text_color if self.enabled else ui.LIGHT_GREY
+        text_surf = font.render(self.text, True, text_color)
+        surface.blit(
+            text_surf,
+            text_surf.get_rect(center=(self.rect.centerx, self._label_center_y())),
+        )
+
+        positions = self._stop_positions()
+        radius = self._knob_radius
+        line_half = max(1, radius // 3)
+        pygame.draw.rect(
+            surface,
+            ui.SLIDER_LINE,
+            pygame.Rect(
+                positions[0],
+                slider_y - line_half,
+                positions[-1] - positions[0],
+                2 * line_half,
+            ),
+        )
+        for x in positions:
+            pygame.draw.circle(
+                surface, ui.SLIDER_LINE, (x, slider_y), line_half + 2
+            )
+        pygame.draw.circle(
+            surface,
+            ui.HANDLE_COLOR if self.enabled else ui.GREY,
+            (positions[self.stop], slider_y),
+            radius,
+        )
 
 
 def fleet_control_rects(column_start, top, width, height, gap):
@@ -424,8 +540,11 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     # Create UI components
 
     left_column_start = int(0.033 * const.SCREEN_WIDTH)
-    top_button_start = int(0.1 * const.SCREEN_HEIGHT)
-    top_button_height = int(0.0375 * const.SCREEN_HEIGHT)
+    # The control row fills the space between the title and the fleets, tall
+    # enough for the AI selector's label and slider; the fleets stay put.
+    fleet_top = int(0.15 * const.SCREEN_HEIGHT)
+    top_button_start = int(0.0875 * const.SCREEN_HEIGHT)
+    top_button_height = fleet_top - ui.button_spaceV - top_button_start
 
     right_column_start = int(const.SCREEN_WIDTH // 2 + (0.016 * const.SCREEN_WIDTH))
     columns = {1: left_column_start, 2: right_column_start}
@@ -439,7 +558,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
         )
         for player in (1, 2)
     }
-    fleet_top = top_button_start + top_button_height + 2 * ui.button_spaceV
     fleets = ui_box.create_player_fleet_panels(
         columns,
         fleet_top,
@@ -450,8 +568,6 @@ def run(screen: pygame.Surface, menu_sound_manager=None, audio_service=None):
     ai_toggles = {
         player: AIModeToggleButton(
             *control_rects[player]["ai"],
-            AI_TOGGLE_LABEL,
-            initial_state=False,
             bg_color=(*const.P1_COLOR, 75) if player == 1 else (*const.P2_COLOR, 75),
             hover_color=(
                 (*const.P1_COLOR, 255) if player == 1 else (*const.P2_COLOR, 255)

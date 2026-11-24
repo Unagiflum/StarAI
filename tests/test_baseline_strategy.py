@@ -3624,7 +3624,9 @@ class BattleModeBaselineTests(unittest.TestCase):
         from src.Menus.pick_fleet import AIModeToggleButton
 
         pygame.font.init()
-        toggle = AIModeToggleButton(0, 0, 120, 30, "AI")
+        toggle = AIModeToggleButton(0, 0, 120, 54)
+        self.assertEqual((toggle.value, toggle.text), (False, "Human"))
+        # A click on the label, above the slider, steps through the modes.
         click = pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=(5, 5), button=1)
 
         values = []
@@ -3634,8 +3636,36 @@ class BattleModeBaselineTests(unittest.TestCase):
 
         self.assertEqual(
             values,
-            [(True, "AI"), ("baseline", "Base AI"), (False, "AI")],
+            [(True, "Trained AI"), ("baseline", "Base AI"), (False, "Human")],
         )
+
+    def test_fleet_ai_slider_click_selects_the_nearest_stop(self):
+        from src.Menus.pick_fleet import AIModeToggleButton
+
+        toggle = AIModeToggleButton(0, 0, 120, 54)
+        slider_y = 54 - 8
+        picked = []
+        for x in (2, 60, 118, 60, 2):
+            toggle.handle_event(
+                pygame.event.Event(
+                    pygame.MOUSEBUTTONDOWN, pos=(x, slider_y), button=1
+                )
+            )
+            picked.append(toggle.value)
+
+        self.assertEqual(picked, [True, "baseline", False, "baseline", True])
+
+    def test_fleet_ai_selector_loads_saved_settings(self):
+        from src.Menus.pick_fleet import AIModeToggleButton
+
+        toggle = AIModeToggleButton(0, 0, 120, 54)
+        for setting, text in (
+            (True, "Trained AI"),
+            ("baseline", "Base AI"),
+            (False, "Human"),
+        ):
+            toggle.set_setting(setting)
+            self.assertEqual((toggle.value, toggle.text), (setting, text))
 
 
 class TrainAIBaselineSettingsTests(unittest.TestCase):

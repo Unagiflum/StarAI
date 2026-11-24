@@ -873,6 +873,7 @@ class BattleSimulation:
             ship.current_hp = ship.max_hp
             ship.currently_alive = True
             reset_ship_controls(ship)
+            self._release_player_keys(ship.player)
 
         entering_ships = list(ships)
         trail_styles = {ship: ship.rebirth_entry_trail_style() for ship in ships}
@@ -893,6 +894,22 @@ class BattleSimulation:
             self.frame_id,
             trail_styles=trail_styles,
         )
+
+    def _release_player_keys(self, player):
+        """Mark a player's keys released after their ship's controls reset.
+
+        Actions reach a ship only when a key's state changes, so a key still
+        marked held would never press the reset control again. An AI that
+        kept holding its keys through a rebirth would leave the ship idle.
+        """
+        key_states = getattr(self, "key_states", None)
+        settings = getattr(self, "settings", None)
+        if not key_states or not settings:
+            return
+        for control in CONTROL_NAMES:
+            key = settings.get(f"Player {player}: {control}")
+            if key in key_states:
+                key_states[key] = False
 
     def select_next_round(self, selected):
         if not selected or not all(selected):

@@ -230,6 +230,68 @@ class PkunkRebirthTests(unittest.TestCase):
             for operation in audio.operations
         ))
 
+    def test_controls_held_through_rebirth_reach_the_reborn_ship(self):
+        ship = create_ship("Pkunk", 1)
+        opponent = create_ship("Earthling", 2)
+        ship.position = [100, 100]
+        opponent.position = [4000, 4000]
+        audio = LongDurationRecordingAudioService()
+        rng = mock.Mock()
+        rng.random.return_value = 0
+        rng.randint.return_value = 7
+        rng.uniform.return_value = 0
+        ship.audio_service = audio
+        ship.rng = rng
+
+        battle_module = importlib.import_module("src.Battle.battle")
+        simulation = BattleSimulation.__new__(BattleSimulation)
+        simulation.player1 = ship
+        simulation.player2 = opponent
+        simulation.world = World([ship, opponent])
+        simulation.frame_id = 20
+        simulation.aftermath = None
+        simulation.sound_enabled = True
+        simulation.audio = audio
+        simulation.rng = rng
+        simulation.entry = None
+        simulation.entry_animations_enabled = True
+        simulation.needs_selection = False
+        simulation.settings = {
+            f"Player {player}: {control}": f"{player}-{control}"
+            for player in (1, 2)
+            for control in battle_module.CONTROL_NAMES
+        }
+        simulation.key_states = simulation._initial_key_states()
+
+        # The AI holds the same keys before, through and after the death.
+        held = {"forward": True, "left": True, "action1": True}
+        simulation.apply_actions({1: held})
+        self.assertTrue(ship.thrust_active)
+        ship.current_hp = 0
+
+        with mock.patch.object(
+            battle_module,
+            "random_position_away_from",
+            return_value=(2000, 2500),
+        ):
+            simulation._update_aftermath()
+            while (
+                simulation.aftermath is not None
+                and ship in simulation.aftermath.pending_rebirths
+            ):
+                simulation.frame_id += 1
+                simulation.apply_actions({1: held})
+                simulation._update_aftermath()
+
+        self.assertTrue(ship.currently_alive)
+        simulation.apply_actions({1: held})
+
+        self.assertTrue(ship.thrust_active)
+        self.assertTrue(ship.turn_left_active)
+        self.assertTrue(ship.action1_active)
+        self.assertFalse(ship.turn_right_active)
+        self.assertFalse(ship.action2_active)
+
     def test_round_start_preserves_rebirth_chance_when_reset_is_disabled(self):
         ship = create_ship("Pkunk", 1)
         ship.rebirth_count = 3
