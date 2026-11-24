@@ -577,10 +577,20 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         harm_taken_weight=0.5,
         specials=("supox_slides",),
         band=Band(400.0, 700.0, outside_reach_margin=150.0, reach_cap=0.95),
-        opponents=dict.fromkeys(
-            ("Ilwrath", "Pkunk", "Shofixti", "ZoqFotPik"),
-            {"band": Band(756.0, 1080.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
-        ),
+        opponents={
+            **dict.fromkeys(
+                ("Ilwrath", "Pkunk", "Shofixti"),
+                {"band": Band(756.0, 1080.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            ),
+            # Against the capped band (its per-opponent sweep): farther,
+            # nearer, or in the mirror no table band (its own 600-900 rule);
+            # the Zoq-Fot-Pik override dropped.
+            "KohrAh": {"band": Band(520.0, 910.0, outside_reach_margin=150.0, reach_cap=0.95)},
+            **dict.fromkeys(
+                ("Melnorme", "Utwig"), {"band": Band(280.0, 490.0, outside_reach_margin=150.0, reach_cap=0.95)}
+            ),
+            "Supox": {"band": None},
+        },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: sing
     # within 300 when the song can take crew, collect crew pods, and with
