@@ -1218,6 +1218,15 @@ this order:
    extra dealt. Blazing in only within 600, 800, 1,000, 1,200, 1,500 or
    2,000 dealt less, the more so the nearer; the battery needed (70–100%)
    made no difference within 800. Results: `androsynth_kohrah*`.
+2. **Kzer-Za fighters against their listed counters.** The Thraddash and
+   Earthling had been in `KZER_ZA_FIGHTER_COUNTERS` since the first
+   baseline, unmeasured; against the Thraddash the Kzer-Za waited, and both
+   sides dealt little. **Kept** against the Thraddash: fighters
+   (`kzer_za_fighters_always`), 0.85 harm dealt a fight to 0.43 and 0.41
+   taken to 0.35, clearly ahead on both measures on seeds 100–119; adding
+   the back-off band dealt clearly less. Against the Earthling, whose point
+   defence shoots them down, fighters dealt clearly less, so it stays a
+   counter. Results: `kzerza_fighters_*`.
 
 ---
 

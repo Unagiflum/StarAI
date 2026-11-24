@@ -104,7 +104,8 @@ class WeaponUse:
     the nose; without it, it fires only when already on target.
     ``satellites`` aims at the Chmmr satellite ``satellite_shot`` picks
     while one is in reach. ``tolerance`` overrides the aim tolerance, in
-    degrees. A defending weapon presses when an enemy object will touch
+    degrees; on a launched weapon it holds the launch until the gun points
+    within it of the target, so the shot needn't turn round. A defending weapon presses when an enemy object will touch
     the ship within ``threat_seconds``, or, with ``on_crew_loss``, when crew
     was lost since the last decision. ``fire_share`` below 1 lets an aimed
     or launched shot that would fire go ahead only on that share of
@@ -418,20 +419,27 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # opponents (or as much, taking less), so the band is kept only against
     # the other nine; pass 3 dropped it against the Utwig, which had dropped
     # its own band against the Kzer-Za. Tolerance check: the gun fires
-    # within 15 degrees, in place of 11.25. λ is high: the slowest ship
+    # within 15 degrees, in place of 11.25. Against the Thraddash, listed
+    # as a fighter counter since the first baseline, fighters launch after
+    # all (user note, 2026-11-24): they deal 0.85 harm a fight to 0.43,
+    # clearly ahead on seeds 100-119; against the Earthling they deal
+    # clearly less, so it stays a counter. λ is high: the slowest ship
     # with the most crew, it can't stall.
     "KzerZa": ShipBehaviour(
         harm_taken_weight=1.0,
         specials=("kzer_za_fighters",),
         weapons=(WeaponUse(FIRE_AIMED, tolerance=15.0), None),
-        opponents=dict.fromkeys(
-            ("Arilou", "Chenjesu", "Earthling", "Ilwrath", "KohrAh", "Umgah", "Vux"),
-            {
-                "band": Band(
-                    0.0, 1000.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, run_offset=110.0, back_off=True
-                )
-            },
-        ),
+        opponents={
+            **dict.fromkeys(
+                ("Arilou", "Chenjesu", "Earthling", "Ilwrath", "KohrAh", "Umgah", "Vux"),
+                {
+                    "band": Band(
+                        0.0, 1000.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, run_offset=110.0, back_off=True
+                    )
+                },
+            ),
+            "Thraddash": {"specials": ("kzer_za_fighters_always",)},
+        },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: the
     # charged shot (a special) released on target, aimed late; confusion

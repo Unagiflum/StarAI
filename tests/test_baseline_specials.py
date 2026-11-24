@@ -183,6 +183,21 @@ class PerOpponentOverrideTests(unittest.TestCase):
                 else:
                     self.assertIsNone(band)
 
+    def test_the_kzer_za_launches_fighters_at_the_thraddash_but_not_the_earthling(self):
+        from tests.test_baseline_strategy import _rule_context, _seen
+
+        def launches(opponent):
+            context = _rule_context("KzerZa", enemy=_seen(0.0, 1500.0), enemy_name=opponent, battery=42.0)
+            context.view.me.kzer_za_fighters = 0
+            context.view.me.crew = 42
+            strategies.shared(context)
+            return bool(context.plan.a2)
+
+        self.assertEqual(ship_behaviour("KzerZa", "Thraddash").specials, ("kzer_za_fighters_always",))
+        self.assertTrue(launches("Thraddash"))
+        self.assertFalse(launches("Earthling"))
+        self.assertTrue(launches("Mycon"))
+
     def test_the_pkunk_band_moves_per_opponent_and_keeps_its_wide_aim(self):
         edges = lambda opponent: (lambda b: (b.near, b.far))(ship_behaviour("Pkunk", opponent).band)
         self.assertEqual(edges("Mycon"), (150.0, 350.0))
