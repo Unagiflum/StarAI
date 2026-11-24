@@ -1644,9 +1644,10 @@ class BaselineContext:
         far = math.inf if band.far is None else float(band.far)
         if band.outside_reach_margin is not None and self.enemy is not None:
             outside = self.enemy_reach() + TYPICAL_HULL_RADIUS + band.outside_reach_margin
-            if outside > near:
+            cap = math.inf if band.reach_cap is None else self.weapon(1).range * band.reach_cap
+            if near < outside <= cap - band.min_width:
                 near = outside
-                far = max(far, near + band.min_width)
+                far = max(far, min(cap, near + band.min_width))
         return near, far
 
     def hold_band(

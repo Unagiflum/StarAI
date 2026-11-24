@@ -50,7 +50,11 @@ class Band:
     ``near`` and ``far`` are centre distances. With ``outside_reach_margin``
     set, ``near`` rises to just outside the opponent's own reach (its
     weapons' reach plus a hull plus the margin) when that is farther, and
-    ``far`` with it to keep ``min_width``. ``far`` of None never closes in:
+    ``far`` with it to keep ``min_width``. With ``reach_cap`` set as well,
+    that rise is taken only while it leaves ``min_width`` within
+    ``reach_cap`` of my weapon 1's reach, and ``far`` rises no farther than
+    that cap: against a longer reach the band stays at ``near``-``far``
+    rather than holding the ship out of its own range. ``far`` of None never closes in:
     the band is "as far as possible". ``approach_speed`` caps the closing
     speed when coming in from beyond ``far``. ``inside`` is the posture
     within the band (``BAND_INSIDE_POSTURES``). ``run_offset`` is the
@@ -65,6 +69,7 @@ class Band:
     far: float | None
     outside_reach_margin: float | None = None
     min_width: float = 150.0
+    reach_cap: float | None = None
     approach_speed: float = BAND_APPROACH_SPEED
     inside: str = BAND_INSIDE_FREE
     run_offset: float = 180.0

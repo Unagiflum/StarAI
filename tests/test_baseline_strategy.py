@@ -973,6 +973,21 @@ class BehaviourSchemaTests(unittest.TestCase):
         self.assertEqual(context.band_limits(Band(5000.0, 6000.0, outside_reach_margin=0.0)), (5000.0, 6000.0))
         self.assertEqual(context.band_limits(Band(500.0, None)), (500.0, math.inf))
 
+    def test_a_reach_cap_keeps_the_band_within_my_own_reach(self):
+        # Capped at 0.95 of the Supox gun, the band is the Supox's own rule
+        # (``_supox_band``): outside a shorter reach while the gun still
+        # reaches, else 600-900.
+        capped = Band(600.0, 900.0, outside_reach_margin=150.0, reach_cap=0.95)
+        uncapped = Band(600.0, 900.0, outside_reach_margin=150.0)
+        moved = 0
+        for opponent in ("Earthling", "Shofixti", "Mycon", "Spathi", "Chmmr", "Druuge", "Melnorme"):
+            with self.subTest(opponent=opponent):
+                context = self._with("Supox", ShipBehaviour(), enemy=_seen(0.0, 2000.0), enemy_name=opponent)
+                self.assertEqual(context.band_limits(capped), strategy_module._supox_band(context))
+                self.assertLessEqual(context.band_limits(capped)[1], 0.95 * weapon_spec("Supox", 1).range)
+                moved += context.band_limits(uncapped) != context.band_limits(capped)
+        self.assertGreater(moved, 0)
+
     def test_band_without_a_far_edge_never_closes_in(self):
         context = self._with("Spathi", ShipBehaviour(band=Band(500.0, None)), enemy=_seen(0.0, 5000.0))
 
