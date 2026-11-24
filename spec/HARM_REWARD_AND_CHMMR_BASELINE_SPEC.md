@@ -1236,6 +1236,14 @@ this order:
    −0.03 to +0.25); tail-on alone and nearer or farther tail-on bands were
    tied or behind. **No change**; the tolerance code was not kept.
    Results: `spathi_missile_*`, `spathi_vux2_*`.
+4. **Zoq-Fot-Pik against the Arilou.** It dealt nothing and died about
+   eight times a fight. **Kept:** no lunge (`zoq_fot_pik_lunge` dropped
+   against the Arilou): 0.37 harm dealt a fight to 0.03 and 0.60 taken to
+   4.81, clearly ahead on both measures on seeds 100–119. Holding just
+   outside the laser's 400 as well (back-off bands from 300, 450 or 500 to
+   the gun's 864) was level with no lunge alone (450–864: 0.34 dealt on
+   seeds 100–119); with the lunge kept, such a band changed nothing, and
+   with neither lunge nor tongue it dealt less. Results: `zoq_arilou*`.
 
 ---
 

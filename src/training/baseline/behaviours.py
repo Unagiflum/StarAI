@@ -812,7 +812,11 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # Below 30% battery it keeps out of reach; otherwise a back-off band
     # closes in at full speed to the gun's 864 and steers 110 degrees off
     # only inside 100, where approach_range backed off inside 605. Against
-    # the Orz it keeps that earlier band. λ is middling: it outruns only
+    # the Orz it keeps that earlier band. Against the Arilou (user note,
+    # 2026-11-24) it doesn't lunge: lunging took it into the laser about
+    # eight times a fight. Without it, it deals 0.37 harm a fight to 0.03
+    # and takes 0.60 to 4.81 on seeds 100-119; holding just outside the
+    # laser's reach as well added nothing. λ is middling: it outruns only
     # the slow ships.
     "ZoqFotPik": ShipBehaviour(
         harm_taken_weight=0.5,
@@ -822,6 +826,7 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         weapons=(WeaponUse(FIRE_AIMED, tolerance=30.0, reserve=7.0), None),
         opponents={
             "Orz": {"band": Band(604.8, 864.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+            "Arilou": {"specials": ("zoq_fot_pik_tongue",)},
             # Pass 2: nearer or farther.
             "Melnorme": {"band": Band(70.0, 604.8, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             "ZoqFotPik": {"band": Band(130.0, 1123.2, approach_speed=math.inf, run_offset=110.0, back_off=True)},

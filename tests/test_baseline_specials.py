@@ -136,6 +136,9 @@ class MovedShipTests(unittest.TestCase):
         self.assertEqual((behaviour.band.near, behaviour.band.far), (100.0, 864.0))
         self.assertEqual(behaviour.recharge_battery, 3.0)
         self.assertEqual(ship_behaviour("ZoqFotPik", "Orz").band.near, 604.8)
+        # It doesn't lunge into the Arilou's laser.
+        self.assertEqual(ship_behaviour("ZoqFotPik", "Arilou").specials, ("zoq_fot_pik_tongue",))
+        self.assertIn("zoq_fot_pik_lunge", ship_behaviour("ZoqFotPik", "Mycon").specials)
         # It chases the Spathi, with no recharging.
         spathi = ship_behaviour("ZoqFotPik", "Spathi")
         self.assertEqual((spathi.band.far, spathi.band.inside), (600.0, "chase"))
