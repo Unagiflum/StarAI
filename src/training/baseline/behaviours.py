@@ -315,8 +315,14 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         band=Band(0.0, 600.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, back_off=True),
         weapons=(WeaponUse(FIRE_AIMED, tolerance=45.0), None),
         opponents={
-            # Pass 2: farther, predictive or off.
-            "Yehat": {"band": Band(0.0, 780.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, back_off=True)},
+            # Pass 2: farther, predictive or off. Tolerance check: against
+            # the Yehat the laser keeps half a turn step (22.5 degrees),
+            # against the Mmrnmrhm it fires within 30.
+            "Yehat": {
+                "band": Band(0.0, 780.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, back_off=True),
+                "weapons": (WeaponUse(FIRE_AIMED), None),
+            },
+            "Mmrnmrhm": {"weapons": (WeaponUse(FIRE_AIMED, tolerance=30.0), None)},
             # Pass 3: farther again in the mirror.
             "Chmmr": {"band": Band(0.0, 1014.0, approach_speed=math.inf, inside=BAND_INSIDE_FACE, back_off=True)},
             "Melnorme": {"band": Band(0.0, 600.0, approach_speed=60.0, inside=BAND_INSIDE_FACE)},

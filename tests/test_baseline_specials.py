@@ -204,6 +204,11 @@ class PerOpponentOverrideTests(unittest.TestCase):
         for ship, tolerance in tolerances.items():
             with self.subTest(ship=ship):
                 self.assertEqual(ship_behaviour(ship, "Mycon").weapons[0].tolerance, tolerance)
+        # The Chmmr's laser keeps half a turn step against the Yehat, and
+        # fires within 30 degrees against the Mmrnmrhm.
+        self.assertIsNone(ship_behaviour("Chmmr", "Yehat").weapons[0].tolerance)
+        self.assertEqual(ship_behaviour("Chmmr", "Yehat").band.far, 780.0)
+        self.assertEqual(ship_behaviour("Chmmr", "Mmrnmrhm").weapons[0].tolerance, 30.0)
         # The Zoq-Fot-Pik's gun is a table weapon keeping the tongue's battery.
         zoq = ship_behaviour("ZoqFotPik", "Mycon")
         self.assertEqual(zoq.late_specials, ())
