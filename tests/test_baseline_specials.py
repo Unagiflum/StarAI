@@ -186,6 +186,15 @@ class PerOpponentOverrideTests(unittest.TestCase):
                 else:
                     self.assertIsNone(band)
 
+    def test_the_pkunk_band_moves_per_opponent_and_keeps_its_wide_aim(self):
+        edges = lambda opponent: (lambda b: (b.near, b.far))(ship_behaviour("Pkunk", opponent).band)
+        self.assertEqual(edges("Mycon"), (150.0, 350.0))
+        self.assertEqual(edges("Spathi"), (195.0, 455.0))
+        self.assertEqual(edges("Syreen"), (105.0, 245.0))
+        self.assertEqual(ship_behaviour("Pkunk", "Syreen").weapons[0].tolerance, 45.0)
+        # The Arilou flies its base band against the retuned Pkunk.
+        self.assertIs(ship_behaviour("Arilou", "Pkunk").band, ship_behaviour("Arilou").band)
+
     def test_a_band_override_keeps_the_opponents_other_overrides(self):
         arilou = ship_behaviour("Arilou", "Chmmr")
         self.assertEqual(arilou.specials, ("arilou_chmmr",))

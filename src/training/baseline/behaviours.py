@@ -268,7 +268,7 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             },
             # Pass 2 (and the Chmmr's band): nearer, predictive, off or farther.
             **dict.fromkeys(
-                ("Pkunk", "Utwig", "Yehat"),
+                ("Utwig", "Yehat"),
                 {"band": Band(140.0, 280.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             ),
             **dict.fromkeys(
@@ -370,7 +370,9 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         opponents={
             # Pass 2: predictive or off.
             **dict.fromkeys(("Chenjesu", "Slylandro"), {"band": Band(0.0, 300.0, approach_speed=60.0)}),
-            **dict.fromkeys(("KzerZa", "Pkunk"), {"band": None}),
+            "KzerZa": {"band": None},
+            # Against the retuned Pkunk: predictive at 0.7-1 of its 180 reach.
+            "Pkunk": {"band": Band(126.0, 180.0, approach_speed=60.0)},
         },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: gas when
@@ -481,14 +483,15 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         opponents={
             **{
                 name: {"band": Band(700.0, 1100.0)}
-                for name in ("Arilou", "KzerZa", "Orz", "Pkunk", "Shofixti", "Spathi", "Syreen", "Yehat")
+                for name in ("Arilou", "KzerZa", "Orz", "Shofixti", "Spathi", "Syreen", "Yehat")
             },
             # Pass 3: the same band, backing off.
             "Druuge": {"band": Band(700.0, 1100.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             "Chmmr": {"band": Band(1550.0, 1800.0)},
             # Pass 2: predictive, off or nearer.
             "KohrAh": {"band": Band(907.2, 1296.0, approach_speed=60.0)},
-            **dict.fromkeys(("Slylandro", "Supox"), {"band": None}),
+            # Against the retuned Pkunk too.
+            **dict.fromkeys(("Pkunk", "Slylandro", "Supox"), {"band": None}),
             "Umgah": {"band": Band(635.04, 907.2, approach_speed=math.inf, run_offset=110.0, back_off=True)},
         },
     ),
@@ -505,6 +508,11 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         specials=("pkunk_insult",),
         band=Band(150.0, 350.0, approach_speed=math.inf, run_offset=110.0, back_off=True),
         weapons=(WeaponUse(FIRE_AIMED, tolerance=45.0), None),
+        # Per opponent (the pass 2 sweep): farther or nearer.
+        opponents={
+            **dict.fromkeys(("Androsynth", "Spathi"), {"band": Band(195.0, 455.0, approach_speed=math.inf, run_offset=110.0, back_off=True)}),
+            "Syreen": {"band": Band(105.0, 245.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
+        },
     ),
     # Pass 1 at the default perception delay, by the harm ranking: the
     # glory device a special, the gun aimed; from an empty battery it
