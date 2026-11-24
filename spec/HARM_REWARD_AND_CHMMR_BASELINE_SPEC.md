@@ -1244,6 +1244,19 @@ this order:
    the gun's 864) was level with no lunge alone (450–864: 0.34 dealt on
    seeds 100–119); with the lunge kept, such a band changed nothing, and
    with neither lunge nor tongue it dealt less. Results: `zoq_arilou*`.
+5. **Yehat bursts at the Chmmr's satellites.** The Yehat fires two shots a
+   frame for 1 battery, against about one satellite zap a frame, so a
+   full-battery burst might outrun the shoot-downs. Candidates aimed at
+   the satellites, held a ring at 620–850 while they were up, and saved
+   the battery for bursts (from full or 80%), with and without the shield.
+   Every one dealt clearly less than the entry (1.35 a fight): aiming at
+   satellites 0.44–0.58, holding the ring 0.06–0.12. Even in bursts 8% of
+   its shots reached a satellite; 44% were lasered down and about 30%
+   missed (they live 10 frames against fast-orbiting targets), and about
+   1.9 satellites stayed up on average. The entry's harm comes from
+   closing in on the Chmmr itself (0.96 a fight in kills). **No change**;
+   the burst rule was not kept. Results: `yehat_chmmr_*`,
+   `yehat_chmmr_probe.py`.
 
 ---
 
