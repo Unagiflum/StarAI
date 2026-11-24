@@ -211,6 +211,15 @@ class PerOpponentOverrideTests(unittest.TestCase):
             with self.subTest(ship=ship):
                 self.assertIsNone(ship_behaviour(ship, "Mycon").weapons[0].tolerance)
 
+    def test_the_orz_stands_off_a_chmmr_while_it_has_satellites(self):
+        # The user's choice over the harm ranking (Phase 6, after the
+        # tolerance check): far less harm taken for a little less dealt.
+        chmmr = ship_behaviour("Orz", "Chmmr")
+        self.assertEqual((chmmr.satellite_band.near, chmmr.satellite_band.far), (1250.0, 1450.0))
+        self.assertEqual((chmmr.band.near, chmmr.band.far, chmmr.band.back_off), (1085.0, 1260.0, False))
+        self.assertEqual(chmmr.specials, ("orz_marines",))
+        self.assertIsNone(ship_behaviour("Orz", "Mycon").satellite_band)
+
     def test_a_band_override_keeps_the_opponents_other_overrides(self):
         arilou = ship_behaviour("Arilou", "Chmmr")
         self.assertEqual(arilou.specials, ("arilou_chmmr",))

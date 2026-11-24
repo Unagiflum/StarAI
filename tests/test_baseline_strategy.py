@@ -2620,6 +2620,7 @@ class ChmmrMatchupMoreTests(unittest.TestCase):
         enemy = _seen(0.0, 1000.0)
         objects = tuple(_satellite(enemy, angle) for angle in (90.0, 210.0, 330.0)[:satellites])
         context = _rule_context("Orz", enemy=enemy, enemy_name="Chmmr", enemy_objects=objects)
+        context.view.enemy_block.chmmr_satellites = satellites
         context.view.me.orz_marines = 0
         context.view.me.crew = 16.0
         context.view.me.orz_turret_bearing = 0.0

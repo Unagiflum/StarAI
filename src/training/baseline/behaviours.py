@@ -491,8 +491,12 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # (a special) and the turret late. A back-off band closes in at full
     # speed to the gun's 1,296 and steers 110 degrees off the bearing inside
     # 907, as approach_range did; kiting opponents are held at 700-1,100.
-    # Level with the earlier rules.
-    # λ is middling: it can't outrun the fast ships.
+    # Level with the earlier rules. Against a Chmmr, by the user's choice
+    # over the harm ranking: hold 1,250-1,450 off while it has satellites,
+    # then 1,085-1,260 (predictive). It deals 0.66 harm a fight to the 0.86
+    # of the base band but takes 0.2, not 9.9: its rounds can't clear the
+    # satellites, from afar or in dashes, and closing in gets it dragged
+    # into the laser. λ is middling: it can't outrun the fast ships.
     "Orz": ShipBehaviour(
         harm_taken_weight=0.5,
         specials=("orz_marines",),
@@ -503,10 +507,9 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
                 name: {"band": Band(700.0, 1100.0)}
                 for name in ("Arilou", "KzerZa", "Orz", "Shofixti", "Spathi")
             },
-            # Recheck after the tolerance check: nearer against the Yehat;
-            # against the Chmmr the base band, not 1,550-1,800 (dealing more,
-            # taking far more).
+            # Recheck after the tolerance check: nearer against the Yehat.
             "Yehat": {"band": Band(490.0, 770.0)},
+            "Chmmr": {"satellite_band": Band(1250.0, 1450.0), "band": Band(1085.0, 1260.0)},
             # Pass 3: the same band, backing off.
             "Druuge": {"band": Band(700.0, 1100.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             # Pass 2: predictive, off or nearer.
