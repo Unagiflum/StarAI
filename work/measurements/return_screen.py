@@ -85,7 +85,7 @@ def settings(ship, opponent):
     current = replace(ship_behaviour(ship, opponent), opponents={})
     group = {"default": None}
     if (ship, opponent) == ("Spathi", "Yehat"):
-        group["missile_range"] = replace(current, band=None, specials=("spathi_return_to_missile_range",))
+        group["missile_range"] = replace(current, band=None, specials=("aimed_864",))
     elif (ship, opponent) == ("Utwig", "Spathi"):
         band = Band(756.0, 1080.0, approach_speed=60.0)
         group.update({

@@ -1127,9 +1127,16 @@ def _spathi_approach(ctx: BaselineContext) -> None:
         ctx.avoid_opponent()
 
 
-def _spathi_return_to_missile_range(ctx: BaselineContext) -> None:
-    """Turn onto the gun lead and close until the rear missile can reach."""
-    if ctx.plan.steering_claimed or ctx.me.battery < ctx.spec.a1_cost or ctx.in_range(2):
+def _spathi_return_to_gun_range(ctx: BaselineContext) -> None:
+    """Give Utwig two seconds to close, then steer back on the gun lead."""
+    if ctx.enemy is None:
+        return
+    if ctx.in_range(1):
+        ctx.memory.values.pop("spathi_out_of_range", None)
+        return
+    frames = ctx.memory.values.get("spathi_out_of_range", 0) + 1
+    ctx.memory.values["spathi_out_of_range"] = frames
+    if frames < 2 * const.FPS or ctx.plan.steering_claimed or ctx.me.battery < ctx.spec.a1_cost:
         return
     aim = ctx.aim_bearing(1)
     if aim is not None:
@@ -2833,7 +2840,7 @@ SPECIAL_RULES: dict[str, StrategyFunction] = {
     "shofixti_glory": _shofixti_glory,
     "slylandro_harvest": _slylandro_harvest,
     "slylandro_low_harvest": _slylandro_low_harvest,
-    "spathi_return_to_missile_range": _spathi_return_to_missile_range,
+    "spathi_return_to_gun_range": _spathi_return_to_gun_range,
     "supox_slides": _supox_slides,
     "shield_glory": _shield_glory,
     "syreen_close_in": _syreen_close_in,

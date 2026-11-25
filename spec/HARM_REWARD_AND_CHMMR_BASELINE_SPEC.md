@@ -1172,6 +1172,9 @@ and 9000–9099 for any confirmation.
 Also compare both Utwig bands against the original Spathi on the same
 6000–6099 seeds used against the returning Spathi. This supplies the
 missing comparison if the Spathi change has to be reconsidered.
+Against that original Spathi, Utwig's usual band gained +0.313 harm
+[+0.210, +0.416] over its former band (1.163 vs 0.850), but both had long
+quiet spells (40.88 s vs 50.00 s).
 
 All four delays cleared both controls in selection, with means of 0.545,
 0.839, 0.746 and 0.637 harm for waits of one through four seconds. The
@@ -1182,6 +1185,30 @@ wins, recheck Utwig's usual band, its former opponent-specific band and
 the other five reciprocal settings on seeds 10000–10019. Use 11000–11099
 for a challenger that qualifies, or a paired check of the current and
 former bands if the current rule leads.
+
+**Promote the two-second Spathi return against Utwig.** While Utwig is
+within Spathi gun range (1,080 units), the counter resets. If Utwig stays
+beyond reach for 48 observed frames, Spathi turns onto the gun lead and
+closes when it has battery for a shot. Dodges keep first claim on steering.
+On 9000–9099 the gain was +0.579 [+0.505, +0.653] vs the original Spathi
+and +0.621 [+0.548, +0.695] vs its immediate return. The delayed ship
+destroyed more opponents and more often survived the full 50 s.
+
+| Spathi vs the 500–900 Utwig, 400 deployments each | Harm per starting Spathi | P90 longest quiet spell | More than 10 s / 400 | Utwig destroyed | Spathi alive at 50 s / 400 |
+|---|---:|---:|---:|---:|---:|
+| Original rule | 0.298 | 32.79 s | 220 | 96 | 89 |
+| Immediate return to 864 | 0.255 | 3.67 s | 0 | 79 | 1 |
+| Two-second wait, then return to 1,080 | **0.877** | **5.67 s** | **1** | **311** | **164** |
+
+Use `c88c36f` to reproduce the post-promotion audit, Spathi follow-ups
+and confirmation. The first command below is the decisive selection.
+
+```text
+python -m work.measurements.return_screen Spathi Utwig --first 8100 --seeds 20 --variants default no_band delay_1 delay_2 delay_3 delay_4 cross_864_90 cross_864_135 cross_1350_90 cross_1350_135 --csv spathi_delays.csv
+python -m work.measurements.return_screen Spathi Utwig --first 9000 --seeds 100 --variants default no_band delay_2 --csv spathi_confirm.csv
+python -m work.measurements.return_screen Utwig Spathi --first 6000 --seeds 100 --variants default former_band --csv utwig_immediate.csv
+python -m work.measurements.return_screen Utwig Spathi --original-spathi-opponent --first 6000 --seeds 100 --variants default former_band --csv utwig_original.csv
+```
 
 #### Respawn scoring used for the earlier passes
 

@@ -694,7 +694,7 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             # Pass 2: back-off, farther or off.
             "Chenjesu": {"band": Band(756.0, 1080.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             "Pkunk": {"band": Band(982.8, 1404.0, approach_speed=60.0)},
-            "Utwig": {"band": None, "specials": ("spathi_return_to_missile_range",)},
+            "Utwig": {"band": None, "specials": ("spathi_return_to_gun_range",)},
             "Yehat": {"band": None},
             # The mirror and the Thraddash keep the base band: pass 2
             # dropped it and a recheck went back (cycles; the band ranks
@@ -785,7 +785,7 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # (against the Shofixti also wherever its blast would kill); the bolts
     # are aimed. A back-off band closes in at full speed to 900 and steers
     # 110 degrees off inside 500, nearer than the bolts' 1,080 that
-    # approach_range held. The Spathi's return to missile range made this
+    # approach_range held. The Spathi's return to firing range made this
     # same 500-900 band win against it. Against a Chmmr, keep the earlier
     # rule. Tolerance check: the bolts fire within 15 degrees,
     # in place of 11.25, dealing 13% more. λ is middling: heavy and no
