@@ -34,6 +34,7 @@ from src.training.coordinated_simulation import (
     advance_coordinated_window_frame,
     finish_coordinated_window,
     new_coordinated_battle,
+    window_bootstrap_observation,
 )
 from src.training.observation import build_observation_context, encode_observation
 from src.training.cpu_contracts import (
@@ -492,6 +493,7 @@ class CoordinatedSimulationWorker:
             else None
         )
         self._clear_decision_state()
+        bootstrap_observation = None
         if not runtime.complete:
             observation_started_at = (
                 time.perf_counter() if timing_seconds is not None else 0.0
@@ -502,6 +504,13 @@ class CoordinatedSimulationWorker:
                     timing_seconds,
                     "observation_encode",
                     observation_started_at,
+                )
+        else:
+            final_observation = window_bootstrap_observation(runtime)
+            if final_observation is not None:
+                bootstrap_observation = pack_observation(
+                    final_observation,
+                    finite_validated=True,
                 )
         audio_started_at = time.perf_counter() if timing_seconds is not None else 0.0
         audio_events = self._drain_audio_events(include=bool(command.capture_audio))
@@ -520,6 +529,7 @@ class CoordinatedSimulationWorker:
             audio_events=audio_events,
             display_frames_ready=display_frames_ready,
             torch_imported="torch" in sys.modules,
+            bootstrap_observation=bootstrap_observation,
         )
         if timing_seconds is not None:
             _add_worker_timing(timing_seconds, "worker_step", step_started_at)
@@ -626,6 +636,7 @@ class CoordinatedSimulationWorker:
         result = finish_coordinated_window(
             runtime,
             timing_seconds=timing_seconds,
+            bootstrap_value=float(getattr(command, "bootstrap_value", 0.0)),
         )
         mature_sample_chunks = collector.drain_pending_chunks()
         self._runtime = None

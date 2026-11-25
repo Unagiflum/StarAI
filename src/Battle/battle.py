@@ -190,6 +190,20 @@ def _add_collision_timing_counts(timing_seconds, metrics):
     )
 
 
+class _TrainingRebirth:
+    """A training ship between death and rebirth.
+
+    The wreck is hidden at ``hide_frame``, its final explosion; the ship then
+    re-enters ``PKUNK_REBIRTH_PAUSE_FRAMES`` later, at ``ready_frame``.
+    """
+
+    __slots__ = ("hide_frame", "ready_frame")
+
+    def __init__(self, hide_frame):
+        self.hide_frame = int(hide_frame)
+        self.ready_frame = None
+
+
 class FixedStepScheduler:
     """Accumulate wall time for a fixed-rate simulation."""
 
@@ -282,6 +296,10 @@ class BattleSimulation:
         self._training_opponent_absent_until_frame: int | None = None
         self._training_suspended_opponent_objects: tuple = ()
         self.training_post_death_completed = False
+        # Off by default so the baseline arena keeps ordinary respawns; the
+        # training loops switch it on with enable_training_rebirth().
+        self.training_rebirth_enabled = False
+        self._training_pending_rebirths: dict = {}
         if getattr(self, "training_mode", False):
             self._prepare_training_spawn(self.player1)
             self._prepare_training_spawn(self.player2)
@@ -562,19 +580,28 @@ class BattleSimulation:
             if ship.current_hp <= 0 and ship.currently_alive
         ]
         if getattr(self, "training_mode", False):
-            if newly_dead and self.training_opponent_absent:
+            reborn = (
+                [ship for ship in newly_dead if self._attempt_rebirth(ship)]
+                if getattr(self, "training_rebirth_enabled", False)
+                else []
+            )
+            permanent = [ship for ship in newly_dead if ship not in reborn]
+            if reborn:
+                self._start_training_rebirths(reborn)
+            if permanent and self.training_opponent_absent:
                 self._restore_training_opponent(completed=False)
-            if newly_dead:
-                self._start_training_deaths(newly_dead)
-                self._respawn_training_ships(newly_dead)
+            if permanent:
+                self._start_training_deaths(permanent)
+                self._respawn_training_ships(permanent)
                 if (
-                    tuple(sorted(ship.player for ship in newly_dead)) == (2,)
+                    tuple(sorted(ship.player for ship in permanent)) == (2,)
                     and self.player1.currently_alive
                     and self.player1.current_hp > 0
                 ):
                     self._suspend_training_opponent()
             else:
                 self._complete_training_post_death_if_ready()
+            self._advance_training_rebirths()
             self._update_training_death_effects()
             return
         reborn_ships = [ship for ship in newly_dead if self._attempt_rebirth(ship)]
@@ -647,6 +674,68 @@ class BattleSimulation:
             )
             if self.visual_effects_enabled:
                 self._training_pending_explosions.extend(schedule)
+
+    def enable_training_rebirth(self, enabled=True):
+        """Let training Pkunk roll for rebirth as in a real battle."""
+        self.training_rebirth_enabled = bool(enabled)
+
+    @property
+    def training_rebirth_pending(self):
+        """Whether a training ship is dead but awaiting rebirth, so the battle
+        goes on although that ship is not alive."""
+        return bool(getattr(self, "_training_pending_rebirths", None))
+
+    def training_ship_absent(self, player):
+        """Whether a player's ship is out of play: awaiting rebirth or entering."""
+        ship = self.player1 if int(player) == 1 else self.player2
+        if ship in getattr(self, "_training_pending_rebirths", {}):
+            return True
+        entry = getattr(self, "entry", None)
+        return entry is not None and ship in entry.entering_ships
+
+    def _start_training_rebirths(self, ships):
+        """Follow a real battle's rebirth: the wreck explodes, is hidden with
+        its weapons, and the ship re-enters after the rebirth pause."""
+        for ship in ships:
+            ship.current_hp = 0
+            ship.currently_alive = False
+            ship.reset_controls()
+            if hasattr(ship, "position") and hasattr(ship, "previous_position"):
+                ship.previous_position = ship.position.copy()
+            with use_audio_service(self.audio):
+                BattleEffect.play_ship_death()
+            schedule = battle_aftermath.create_ship_explosion_schedule(
+                ship,
+                self.frame_id,
+                self.rng,
+            )
+            if self.visual_effects_enabled:
+                self._training_pending_explosions.extend(schedule)
+            self._training_pending_rebirths[ship] = _TrainingRebirth(
+                hide_frame=schedule[-1].frame,
+            )
+        battle_aftermath.release_dead_opponents(self.world, ships)
+
+    def _advance_training_rebirths(self):
+        if not getattr(self, "_training_pending_rebirths", None):
+            return
+        ready = []
+        for ship, pending in self._training_pending_rebirths.items():
+            if pending.ready_frame is None and self.frame_id >= pending.hide_frame:
+                battle_aftermath.hide_dead_ship(ship, self.world)
+                pending.ready_frame = self.frame_id + const.PKUNK_REBIRTH_PAUSE_FRAMES
+            if pending.ready_frame is not None and self.frame_id >= pending.ready_frame:
+                ready.append(ship)
+        if not ready:
+            return
+        for ship in ready:
+            del self._training_pending_rebirths[ship]
+            ship.complete_rebirth()
+        self._reenter_reborn_ships(ready)
+        self.world.add_all(ready)
+        self.player1.opponent = self.player2
+        self.player2.opponent = self.player1
+        battle_aftermath.restore_reborn_opponents(self.world, ready)
 
     def _update_training_death_effects(self):
         ready = [
@@ -734,10 +823,15 @@ class BattleSimulation:
             killer_player = getattr(source_owner, "player", None)
             if killer_player is not None and killer_player != ship.player:
                 credited_killers.add(killer_player)
+        # A ship awaiting rebirth keeps its place, like a living one.
         living_ships = [
             ship
             for ship in (self.player1, self.player2)
-            if ship not in dead_ships and ship.currently_alive and ship.current_hp > 0
+            if ship not in dead_ships
+            and (
+                (ship.currently_alive and ship.current_hp > 0)
+                or ship in getattr(self, "_training_pending_rebirths", {})
+            )
         ]
         dead_by_player = {ship.player: ship for ship in dead_ships}
         for ship in dead_ships:

@@ -18,7 +18,8 @@ from src.toroidal import wrapped_delta
 
 
 class KzerZaA2(Ability):
-    survives_parent_cleanup = True
+    # Fighters are removed with their dead carrier, like every other weapon.
+    # UQM lets them fight on, but their harm could then be credited to no ship.
     LAUNCHING = "launching"
     ATTACKING = "attacking"
     RETURNING = "returning"

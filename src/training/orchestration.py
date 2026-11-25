@@ -29,6 +29,12 @@ from src.training.contracts import (
     action_for_index,
 )
 from src.training.coordinated_contracts import TrainingEpisodeResult
+from src.training.coordinated_simulation import (
+    enable_training_rebirth,
+    keeps_battle,
+    reward_trajectory_ends,
+    trainee_out_of_play,
+)
 from src.training.causal_credit import CausalRewardDiagnostics, REWARD_MODE_LEGACY
 from src.training.cpu_contracts import (
     DEFAULT_MINIBATCH_SIZE,
@@ -70,6 +76,7 @@ from src.training.rewards import (
 )
 from src.training.contracts import DEFAULT_NEW_MODEL_VALUE_HEAD
 from src.training.value_network import (
+    bootstrap_state_value,
     ValueNetworkConfig,
     build_optimizer,
     build_value_network,
@@ -600,6 +607,7 @@ def run_training_round(
     if resources is not None:
         simulation_kwargs["resources"] = resources
     simulation = simulation_factory(None, trainee, opponent_ship, **simulation_kwargs)
+    enable_training_rebirth(simulation)
     _initialize_training_simulation_ships(simulation, rng)
     if _battle_view_enabled(battle_view_enabled):
         _emit_progress(
@@ -659,7 +667,8 @@ def run_training_round(
             self_ship,
             enemy_ship,
         )
-        if not selection.held:
+        emits_sample = not selection.held and not trainee_out_of_play(simulation)
+        if emits_sample:
             action_counts[selection.action_index] += 1
         decision = decision_frame_from_battle_state(
             frame_id=simulation.frame_id + 1,
@@ -679,7 +688,7 @@ def run_training_round(
         staged_index = pipeline.stage_decision(
             decision,
             trajectory_id=ledger.active_trajectory_id,
-            emit_sample=not selection.held,
+            emit_sample=emits_sample,
         )
         event_start = len(ledger.events)
         actions = {
@@ -697,6 +706,10 @@ def run_training_round(
             elapsed_frames=state["frame_id"],
             frame_limit=config.match_time_limit,
         )
+        if terminal_reason == "timeout":
+            # The round's end is a time cut, not a death: the loop ends here
+            # and the final flush completes the open returns.
+            terminal = False
         training_deaths = set(getattr(simulation, "training_episode_deaths", ()))
         if (
             terminal
@@ -720,9 +733,11 @@ def run_training_round(
             )
             terminal = False
             terminal_reason = "post_death"
-        can_continue = bool(training_deaths) and state["frame_id"] < config.match_time_limit
-        reward_terminal = terminal and (
-            not causal_lifecycle or 1 in training_deaths or not can_continue
+        reward_terminal = reward_trajectory_ends(
+            simulation,
+            terminal,
+            terminal_reason,
+            causal_lifecycle=causal_lifecycle,
         )
         events = tuple(ledger.events[event_start:])
         outcome = frame_outcome_from_battle_state(
@@ -840,30 +855,19 @@ def run_training_round(
             if callable(reset_span):
                 reset_span()
             post_death_episode = None
-            if handled_post_death:
-                pipeline = StagedTrajectoryPipeline(
-                    gamma=config.gamma,
-                    reward_weights=config.reward_weights,
-                    mode=config.reward_mode,
-                )
-                baseline_opponent_controller.reset()
-                episode_start_frame = state["frame_id"]
-                episode_mature_count = 0
-                episode_return_sum = 0.0
-                episode_component_sums = {
-                    component: 0.0 for component in REWARD_COMPONENTS
-                }
-                continue
-            if not training_deaths:
-                terminal_seen = True
-                ledger.close_reward_trajectory()
-                break
-            if state["frame_id"] >= config.match_time_limit:
-                terminal_seen = True
-                ledger.close_reward_trajectory()
-                break
+            continues = handled_post_death or keeps_battle(
+                simulation,
+                terminal_reason,
+                causal_lifecycle=causal_lifecycle,
+            )
             if reward_terminal:
                 ledger.close_reward_trajectory()
+            if not continues or (
+                reward_terminal and state["frame_id"] >= config.match_time_limit
+            ):
+                terminal_seen = True
+                break
+            if reward_terminal:
                 pipeline = StagedTrajectoryPipeline(
                     gamma=config.gamma,
                     reward_weights=config.reward_weights,
@@ -883,6 +887,10 @@ def run_training_round(
             pipeline,
             simulation,
             replay_buffer,
+            bootstrap_value=bootstrap_state_value(
+                getattr(trainee_policy, "model", None),
+                _bootstrap_observation(pipeline, simulation),
+            ),
         )
         mature_count += len(mature_samples)
         episode_mature_count += len(mature_samples)
@@ -926,7 +934,10 @@ def run_training_round(
                 deaths=deaths,
             )
         if causal_lifecycle:
-            pending_episodes.append(boundary)
+            # An episode that closed on the round's last frame leaves no
+            # empty timeout episode behind it.
+            if not (pending_episodes and episode_start_frame >= simulation.frame_id):
+                pending_episodes.append(boundary)
             episode_results.extend(
                 finalize_pending_episodes(pending_episodes, mature_samples)
             )
@@ -1068,17 +1079,46 @@ def _round_terminal_state(simulation, *, elapsed_frames: int, frame_limit: int):
         return True, "timeout"
     if aftermath is not None:
         return True, "resolved"
+    if bool(getattr(simulation, "training_rebirth_pending", False)):
+        return False, "pending_rebirth"
     if not _ship_alive(simulation.player1) or not _ship_alive(simulation.player2):
         return True, "resolved"
     return False, "running"
+
+
+def _bootstrap_observation(
+    pipeline: StagedTrajectoryPipeline,
+    simulation,
+) -> tuple[float, ...] | None:
+    """The final state whose value completes returns cut by the round's end,
+    or None when nothing is cut or the trainee is out of play."""
+    if not pipeline.pending_count:
+        return None
+    if not _ship_alive(simulation.player1) or trainee_out_of_play(simulation):
+        return None
+    return tuple(
+        encode_observation(
+            simulation.player1,
+            simulation.player2,
+            frame_id=simulation.frame_id,
+            game_objects=simulation.world,
+        )
+    )
 
 
 def _flush_timeout_frame(
     pipeline: StagedTrajectoryPipeline,
     simulation,
     replay_buffer: TrainingReplayBuffer,
+    *,
+    bootstrap_value: float = 0.0,
 ) -> tuple[MatureTrainingSample, ...]:
-    mature_samples = tuple(pipeline.flush_pending(end_frame_id=simulation.frame_id))
+    mature_samples = tuple(
+        pipeline.flush_pending(
+            end_frame_id=simulation.frame_id,
+            bootstrap_value=float(bootstrap_value),
+        )
+    )
     replay_buffer.extend(mature_samples)
     return mature_samples
 

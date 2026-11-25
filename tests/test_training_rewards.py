@@ -885,6 +885,73 @@ class WeightAwareRewardTests(unittest.TestCase):
         self.assertEqual(sample.weighted_components, {REWARD_KILL_ENEMY: 2.0})
         self.assertEqual(sample.return_value, 2.0)
 
+    def _three_frames_with_a_kill_on_the_second(self, pipeline):
+        ship_death = TrainingBattleEvent(
+            frame_id=2,
+            event_type=EVENT_SHIP_DIED,
+            target=self.enemy,
+        )
+        for frame in (1, 2, 3):
+            pipeline.add_frame(
+                decision(frame, self.trainee, self.enemy),
+                outcome(frame, events=(ship_death,) if frame == 2 else ()),
+            )
+
+    def test_time_cut_flush_completes_short_returns_with_the_bootstrap_value(self):
+        pipeline = StagedTrajectoryPipeline(
+            gamma=0.5,
+            reward_weights={REWARD_KILL_ENEMY: 1.0},
+        )
+        self._three_frames_with_a_kill_on_the_second(pipeline)
+
+        samples = pipeline.flush_pending(end_frame_id=3, bootstrap_value=8.0)
+
+        # Rewards 0.5, 1, 0 plus 0.5 ** frames left * 8.
+        self.assertEqual([s.return_value for s in samples], [1.5, 3.0, 4.0])
+        self.assertEqual([s.bootstrap_return for s in samples], [1.0, 2.0, 4.0])
+        self.assertTrue(all(s.time_truncated for s in samples))
+        self.assertEqual(
+            [s.weighted_components for s in samples],
+            [{REWARD_KILL_ENEMY: 0.5}, {REWARD_KILL_ENEMY: 1.0}, {REWARD_KILL_ENEMY: 0.0}],
+        )
+
+    def test_flush_without_a_bootstrap_value_treats_the_end_as_final(self):
+        pipeline = StagedTrajectoryPipeline(
+            gamma=0.5,
+            reward_weights={REWARD_KILL_ENEMY: 1.0},
+        )
+        self._three_frames_with_a_kill_on_the_second(pipeline)
+
+        samples = pipeline.flush_pending(end_frame_id=3)
+
+        self.assertEqual([s.return_value for s in samples], [0.5, 1.0, 0.0])
+        self.assertFalse(any(s.time_truncated for s in samples))
+        self.assertEqual([s.bootstrap_return for s in samples], [0.0, 0.0, 0.0])
+
+    def test_death_terminal_returns_get_no_bootstrap(self):
+        pipeline = StagedTrajectoryPipeline(
+            gamma=0.5,
+            reward_weights={REWARD_KILL_ENEMY: 1.0},
+        )
+        pipeline.add_frame(
+            decision(1, self.trainee, self.enemy),
+            outcome(1),
+        )
+        samples = pipeline.add_frame(
+            decision(2, self.trainee, self.enemy),
+            outcome(2, terminal=True),
+        )
+
+        self.assertEqual([s.return_value for s in samples], [0.0, 0.0])
+        self.assertFalse(any(s.time_truncated for s in samples))
+
+    def test_bootstrap_value_must_be_finite(self):
+        pipeline = StagedTrajectoryPipeline(gamma=0.5, reward_weights={})
+        pipeline.add_frame(decision(1, self.trainee, self.enemy), outcome(1))
+
+        with self.assertRaises(ValueError):
+            pipeline.flush_pending(end_frame_id=1, bootstrap_value=float("nan"))
+
     def test_all_zero_weight_components_produce_empty_reward_samples(self):
         pipeline = StagedTrajectoryPipeline(gamma=0.0, reward_weights={})
         sample = pipeline.add_frame(

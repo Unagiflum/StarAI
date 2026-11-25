@@ -173,6 +173,18 @@ def predict_action_values_read_only(model, observations):
         return model(tensor)
 
 
+def bootstrap_state_value(model, observation) -> float:
+    """Greedy value of one state: its best action value, or 0 without a model.
+
+    Training adds it, discounted, to returns that a window's end cut short,
+    so a cut while the trainee lives does not read as a death.
+    """
+    if observation is None or not callable(getattr(model, "parameters", None)):
+        return 0.0
+    values = predict_action_values_read_only(model, [tuple(observation)])
+    return float(values.max().item())
+
+
 def selected_action_regression_loss(model, observations, action_indices, returns):
     """Compute mean-squared error for only the selected action output.
 

@@ -1114,7 +1114,7 @@ class ShipActionCharacterizationTests(unittest.TestCase):
         self.assertTrue(fighter.update())
         self.assertFalse(fighter.update())
 
-    def test_kzerza_fighter_survives_carrier_cleanup_until_round_cleanup(self):
+    def test_kzerza_fighter_is_removed_with_its_dead_carrier(self):
         carrier = create_ship("KzerZa", 1)
         fighter = create_ability("KzerZaA2", carrier)
         carrier.current_hp = 0
@@ -1123,9 +1123,8 @@ class ShipActionCharacterizationTests(unittest.TestCase):
 
         hide_dead_ship(carrier, game_objects)
 
-        self.assertTrue(fighter.currently_alive)
-        self.assertIsNone(fighter.parent)
-        self.assertIn(fighter, game_objects)
+        self.assertFalse(fighter.currently_alive)
+        self.assertNotIn(fighter, game_objects)
 
     def test_supox_secondary_changes_movement_controls_without_action_cost(self):
         ship = create_ship("Supox", 1)

@@ -54,6 +54,7 @@ from src.training.coordinated_simulation import (
     create_coordinated_window_runtime as _create_coordinated_window_runtime,
     finish_coordinated_window as _finish_coordinated_window,
     new_coordinated_battle as _new_coordinated_battle,
+    window_bootstrap_observation as _window_bootstrap_observation,
 )
 from src.training.observation_transfer import unpack_observation_array
 from src.training.episode_metrics import PendingCombatEpisode, finalize_pending_episodes
@@ -140,6 +141,7 @@ from src.training.session import (
     training_metrics_row_for_evaluation_batch,
 )
 from src.training.value_network import (
+    bootstrap_state_value,
     build_optimizer,
     build_value_network,
     predict_action_values_read_only,
@@ -684,6 +686,7 @@ class _WorkerWindowRuntime:
     frame_count: int = 0
     trainee_observation: Any | None = None
     opponent_observation: Any | None = None
+    bootstrap_observation: Any | None = None
 
 
 class _WorkerRuntimeError(RuntimeError):
@@ -1644,6 +1647,10 @@ class CoordinatedTrainingSession:
                     result = _finish_coordinated_window(
                         window,
                         timing_seconds=timing_seconds,
+                        bootstrap_value=bootstrap_state_value(
+                            getattr(window.policy, "model", None),
+                            _window_bootstrap_observation(window),
+                        ),
                     )
                     results[window.state.record.instance_id].append(result)
                     with self._lock:
@@ -2020,6 +2027,19 @@ class CoordinatedTrainingSession:
                                     "for a completed window"
                                 )
                             _clear_worker_decision_state(window)
+                            final_observation = getattr(
+                                frame_result,
+                                "bootstrap_observation",
+                                None,
+                            )
+                            window.bootstrap_observation = (
+                                unpack_observation_array(
+                                    final_observation,
+                                    validate_finite=False,
+                                )
+                                if final_observation is not None
+                                else None
+                            )
                         else:
                             _retain_worker_decision_state(
                                 window,
@@ -2063,6 +2083,10 @@ class CoordinatedTrainingSession:
                         FinishWindowCommand(
                             record_id=window.state.record.instance_id,
                             round_index=window.round_index,
+                            bootstrap_value=bootstrap_state_value(
+                                getattr(window.policy, "model", None),
+                                window.bootstrap_observation,
+                            ),
                         )
                     )
                 for window in active_windows:

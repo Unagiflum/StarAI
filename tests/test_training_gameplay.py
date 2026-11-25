@@ -69,6 +69,117 @@ class TrainingGameplayTests(unittest.TestCase):
         self.assertIsNot(simulation.player1, old_pkunk)
         self.assertEqual(simulation.training_episode_deaths, (1,))
 
+    def _rebirth_timeline(self, simulation, pkunk):
+        """Frames from death to wreck hidden, to rebirth, to controllable."""
+        pkunk.attempt_rebirth = mock.Mock(return_value=True)
+        for _ in range(3):
+            simulation.step(actions={1: {}, 2: {}})
+        pkunk.current_hp = 0
+        start = simulation.frame_id
+        hidden = reborn = None
+        for _ in range(300):
+            simulation.step(actions={1: {}, 2: {}})
+            elapsed = simulation.frame_id - start
+            if hidden is None and pkunk not in simulation.world.objects:
+                hidden = elapsed
+            if reborn is None and pkunk.currently_alive:
+                reborn = elapsed
+            entry = simulation.entry
+            if reborn is not None and (entry is None or pkunk not in entry.entering_ships):
+                return hidden, reborn, elapsed
+        self.fail("the Pkunk was not reborn")
+
+    def test_training_pkunk_rebirth_matches_a_real_battle(self):
+        audio = RecordingAudioService()
+        real = BattleSimulation(
+            None,
+            create_ship("Pkunk", 1, audio_service=audio),
+            create_ship("Earthling", 2, audio_service=audio),
+            audio_service=audio,
+            rng=random.Random(5),
+            include_stars=False,
+        )
+        training, _audio = self.create_simulation(trainee="Pkunk", seed=5)
+        training.enable_training_rebirth()
+
+        real_timeline = self._rebirth_timeline(real, real.player1)
+        training_pkunk = training.player1
+        training_timeline = self._rebirth_timeline(training, training_pkunk)
+
+        self.assertEqual(training_timeline, real_timeline)
+        hidden, reborn, _controllable = training_timeline
+        self.assertEqual(reborn - hidden, const.PKUNK_REBIRTH_PAUSE_FRAMES)
+        self.assertIs(training.player1, training_pkunk)
+        self.assertEqual(training_pkunk.current_hp, training_pkunk.max_hp)
+        self.assertEqual(training_pkunk.current_energy, training_pkunk.max_energy)
+
+    def test_training_trainee_rebirth_is_not_a_death_and_keeps_its_opponent(self):
+        simulation, _audio = self.create_simulation(trainee="Pkunk")
+        simulation.enable_training_rebirth()
+        pkunk = simulation.player1
+        opponent = simulation.player2
+        pkunk.attempt_rebirth = mock.Mock(return_value=True)
+        pkunk.current_hp = 0
+
+        state = simulation.step(actions={1: {}, 2: {}})
+
+        pkunk.attempt_rebirth.assert_called_once_with()
+        self.assertEqual(state["training_episode_deaths"], ())
+        self.assertIs(simulation.player1, pkunk)
+        self.assertIs(simulation.player2, opponent)
+        self.assertFalse(pkunk.currently_alive)
+        self.assertTrue(simulation.training_rebirth_pending)
+        self.assertTrue(simulation.training_ship_absent(1))
+        self.assertFalse(simulation.training_ship_absent(2))
+
+    def test_training_opponent_pkunk_rebirth_skips_the_replacement_pause(self):
+        simulation, _audio = self.create_simulation(opponent="Pkunk")
+        simulation.enable_training_rebirth()
+        trainee = simulation.player1
+        pkunk = simulation.player2
+        pkunk.attempt_rebirth = mock.Mock(return_value=True)
+        pkunk.current_hp = 0
+        pkunk.last_lethal_damage_source = SimpleNamespace(parent=trainee)
+
+        state = simulation.step(actions={1: {}, 2: {}})
+
+        self.assertEqual(state["training_episode_deaths"], ())
+        self.assertEqual(state["training_episode_kills"], ())
+        self.assertFalse(state["training_opponent_absent"])
+        self.assertIs(simulation.player2, pkunk)
+        self.assertTrue(simulation.training_ship_absent(2))
+
+    def test_training_pkunk_failed_rebirth_roll_respawns_normally(self):
+        simulation, _audio = self.create_simulation(trainee="Pkunk")
+        simulation.enable_training_rebirth()
+        old_pkunk = simulation.player1
+        old_pkunk.attempt_rebirth = mock.Mock(return_value=False)
+        old_pkunk.current_hp = 0
+
+        state = simulation.step(actions={1: {}, 2: {}})
+
+        old_pkunk.attempt_rebirth.assert_called_once_with()
+        self.assertEqual(state["training_episode_deaths"], (1,))
+        self.assertIsNot(simulation.player1, old_pkunk)
+        self.assertFalse(simulation.training_ship_absent(1))
+
+    def test_opponent_death_during_trainee_rebirth_keeps_the_trainee(self):
+        simulation, _audio = self.create_simulation(trainee="Pkunk")
+        simulation.enable_training_rebirth()
+        pkunk = simulation.player1
+        old_opponent = simulation.player2
+        pkunk.attempt_rebirth = mock.Mock(return_value=True)
+        pkunk.current_hp = 0
+        simulation.step(actions={1: {}, 2: {}})
+        old_opponent.current_hp = 0
+
+        state = simulation.step(actions={1: {}, 2: {}})
+
+        self.assertEqual(state["training_episode_deaths"], (2,))
+        self.assertIs(simulation.player1, pkunk)
+        self.assertIsNot(simulation.player2, old_opponent)
+        self.assertTrue(simulation.training_ship_absent(1))
+
     def test_training_kill_requires_trainee_owned_lethal_source(self):
         simulation, _audio = self.create_simulation()
         trainee = simulation.player1

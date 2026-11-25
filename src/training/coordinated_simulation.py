@@ -32,6 +32,7 @@ from src.training.cpu_contracts import (
     single_controller_opponent_plan,
 )
 from src.training.episode_metrics import PendingCombatEpisode, finalize_pending_episodes
+from src.training.observation import encode_observation
 from src.training.replay_contracts import ActionSelection
 from src.training.rewards import (
     MatureTrainingSample,
@@ -128,6 +129,55 @@ def initialize_training_simulation_ships(simulation, rng) -> None:
         ship.current_hp = max(1, math.ceil(float(rng.random()) * start_hp))
 
 
+def enable_training_rebirth(simulation) -> None:
+    """Let Pkunk roll for rebirth as in a real battle, where supported."""
+    enable = getattr(simulation, "enable_training_rebirth", None)
+    if callable(enable):
+        enable()
+
+
+def trainee_out_of_play(simulation) -> bool:
+    """Whether the trainee awaits rebirth or is entering, so its controls do
+    nothing and the frame yields no sample."""
+    absent = getattr(simulation, "training_ship_absent", None)
+    return bool(absent(1)) if callable(absent) else False
+
+
+def keeps_battle(simulation, terminal_reason: str, *, causal_lifecycle: bool) -> bool:
+    """Whether a terminal frame continues in the same battle.
+
+    Respawns keep the battle. In causal modes the trainee that outlived its
+    opponent also keeps flying against the replacement.
+    """
+    if getattr(simulation, "training_episode_deaths", ()):
+        return True
+    return causal_lifecycle and terminal_reason == "post_death_complete"
+
+
+def reward_trajectory_ends(
+    simulation,
+    terminal: bool,
+    terminal_reason: str,
+    *,
+    causal_lifecycle: bool,
+) -> bool:
+    """Whether a terminal frame ends the trainee's reward trajectory.
+
+    Causal trajectories end only at the trainee's death or when the battle is
+    replaced. The window's end is a time cut, completed by the final flush.
+    """
+    if not terminal:
+        return False
+    if not causal_lifecycle:
+        return True
+    deaths = set(getattr(simulation, "training_episode_deaths", ()))
+    return 1 in deaths or not keeps_battle(
+        simulation,
+        terminal_reason,
+        causal_lifecycle=causal_lifecycle,
+    )
+
+
 def new_coordinated_battle(
     config: TrainingOrchestrationConfig,
     opponent: OpponentSpec,
@@ -158,6 +208,7 @@ def new_coordinated_battle(
     set_visual_effects = getattr(simulation, "set_visual_effects_enabled", None)
     if callable(set_visual_effects):
         set_visual_effects(bool(config.display_on))
+    enable_training_rebirth(simulation)
     initialize_training_simulation_ships(simulation, rng)
     return (
         simulation,
@@ -231,7 +282,8 @@ def advance_coordinated_window_frame(
     self_ship = simulation.player1
     enemy_ship = simulation.player2
     selection = guard_training_selection(selection, self_ship, enemy_ship)
-    if not selection.held:
+    emits_sample = not selection.held and not trainee_out_of_play(simulation)
+    if emits_sample:
         runtime.action_counts[selection.action_index] += 1
     opponent_controls = guard_computer_controls(
         opponent_controls,
@@ -257,7 +309,7 @@ def advance_coordinated_window_frame(
     staged_index = runtime.pipeline.stage_decision(
         decision,
         trajectory_id=runtime.ledger.active_trajectory_id,
-        emit_sample=not selection.held,
+        emit_sample=emits_sample,
     )
     add_timing_seconds(timing_seconds, "reward_decision", reward_decision_started_at)
     event_start = len(runtime.ledger.events)
@@ -297,9 +349,11 @@ def advance_coordinated_window_frame(
         terminal = False
         terminal_reason = "post_death"
     causal_lifecycle = config.reward_mode != REWARD_MODE_LEGACY
-    can_continue = bool(training_deaths) and runtime.frames_consumed < runtime.frame_limit
-    reward_terminal = terminal and (
-        not causal_lifecycle or 1 in training_deaths or not can_continue
+    reward_terminal = reward_trajectory_ends(
+        simulation,
+        terminal,
+        terminal_reason,
+        causal_lifecycle=causal_lifecycle,
     )
     events = tuple(runtime.ledger.events[event_start:])
     add_timing_seconds(timing_seconds, "reward_terminal", terminal_started_at)
@@ -356,16 +410,24 @@ def advance_coordinated_window_frame(
     add_timing_seconds(timing_seconds, "reward", reward_started_at)
     raise_if_stop_requested(stop_requested)
     if terminal:
+        keep_battle = keeps_battle(
+            simulation,
+            terminal_reason,
+            causal_lifecycle=causal_lifecycle,
+        )
         record_coordinated_terminal_episode(
             runtime,
             terminal_reason=terminal_reason,
             mature_samples=mature_samples,
             reward_terminal=reward_terminal,
         )
-        if runtime.frames_consumed < runtime.frame_limit:
+        # A trajectory still open at the window's end keeps its battle and
+        # starts a fresh episode record, so the final flush completes it.
+        if runtime.frames_consumed < runtime.frame_limit or not reward_terminal:
             reset_coordinated_window_battle(
                 runtime,
                 reward_terminal=reward_terminal,
+                keep_battle=keep_battle,
                 rng=rng,
                 simulation_factory=simulation_factory,
                 audio_service=audio_service,
@@ -401,6 +463,7 @@ def record_coordinated_terminal_episode(
         finalize_coordinated_post_death_episode(
             runtime,
             mature_samples=mature_samples,
+            reward_terminal=reward_terminal,
         )
         return
     win, loss, draw = classify_round_outcome(runtime.simulation, terminal_reason)
@@ -454,6 +517,7 @@ def finalize_coordinated_post_death_episode(
     runtime: CoordinatedWindowRuntime,
     *,
     mature_samples: Sequence[MatureTrainingSample],
+    reward_terminal: bool = True,
 ) -> None:
     pending = runtime.post_death_episode
     if pending is None:
@@ -475,11 +539,12 @@ def finalize_coordinated_post_death_episode(
     config = runtime.state.record.config
     if config.reward_mode != REWARD_MODE_LEGACY:
         runtime.pending_episodes.append(boundary)
-        runtime.episode_results.extend(
-            finalize_pending_episodes(runtime.pending_episodes, mature_samples)
-        )
-        runtime.pending_episodes.clear()
-        runtime.ledger.close_reward_trajectory()
+        if reward_terminal:
+            runtime.episode_results.extend(
+                finalize_pending_episodes(runtime.pending_episodes, mature_samples)
+            )
+            runtime.pending_episodes.clear()
+            runtime.ledger.close_reward_trajectory()
     else:
         runtime.episode_results.append(TrainingEpisodeResult(
             opponent=boundary.opponent,
@@ -515,9 +580,12 @@ def reset_coordinated_window_battle(
     audio_service: Any,
     resources: Any | None = None,
     ship_factory: Callable[..., Any] = create_ship,
+    keep_battle: bool | None = None,
 ) -> None:
     config = runtime.state.record.config
-    if getattr(runtime.simulation, "training_episode_deaths", ()):
+    if keep_battle is None:
+        keep_battle = bool(getattr(runtime.simulation, "training_episode_deaths", ()))
+    if keep_battle:
         if reward_terminal:
             runtime.pipeline = StagedTrajectoryPipeline(
                 gamma=config.gamma,
@@ -549,11 +617,43 @@ def reset_coordinated_window_battle(
     runtime.episode_needs_timeout = True
 
 
+def window_bootstrap_observation(
+    runtime: CoordinatedWindowRuntime,
+) -> tuple[float, ...] | None:
+    """The final state whose value completes returns cut by the window's end.
+
+    None when nothing is cut, or when the trainee is out of play and its
+    observation would not describe a ship the network has learned to value.
+    """
+    if not runtime.complete or not runtime.episode_needs_timeout:
+        return None
+    if not runtime.pipeline.pending_count:
+        return None
+    simulation = runtime.simulation
+    if not ship_alive(simulation.player1) or trainee_out_of_play(simulation):
+        return None
+    return tuple(
+        encode_observation(
+            simulation.player1,
+            simulation.player2,
+            frame_id=simulation.frame_id,
+            game_objects=simulation.world,
+        )
+    )
+
+
 def finish_coordinated_window(
     runtime: CoordinatedWindowRuntime,
     *,
     timing_seconds: dict[str, float] | None = None,
+    bootstrap_value: float = 0.0,
 ) -> CoordinatedFixedFrameWindowResult:
+    """Close the window.
+
+    Returns still open at its end were cut by time, not by a death, so each
+    is completed with ``bootstrap_value``: the trainee network's value of the
+    final state from ``window_bootstrap_observation``.
+    """
     components = runtime.state.components
     if components is None:
         raise RuntimeError("coordinated components were not loaded")
@@ -561,7 +661,10 @@ def finish_coordinated_window(
         reward_started_at = timing_started_at(timing_seconds)
         flush_started_at = timing_started_at(timing_seconds)
         mature_samples = tuple(
-            runtime.pipeline.flush_pending(end_frame_id=runtime.simulation.frame_id)
+            runtime.pipeline.flush_pending(
+                end_frame_id=runtime.simulation.frame_id,
+                bootstrap_value=float(bootstrap_value),
+            )
         )
         add_timing_seconds(timing_seconds, "reward_flush", flush_started_at)
         replay_started_at = timing_started_at(timing_seconds)
@@ -590,19 +693,25 @@ def finish_coordinated_window(
                 mature_samples=mature_samples,
             )
         elif runtime.state.record.config.reward_mode != REWARD_MODE_LEGACY:
-            runtime.pending_episodes.append(
-                PendingCombatEpisode(
-                    opponent=runtime.opponent,
-                    start_frame_id=runtime.episode_start_frame,
-                    end_frame_id=runtime.simulation.frame_id,
-                    terminal_reason="timeout",
-                    win=win,
-                    loss=loss,
-                    draw=draw,
-                    kills=kills,
-                    deaths=deaths,
+            # An episode that closed on the window's last frame leaves no
+            # empty timeout episode behind it.
+            if not (
+                runtime.pending_episodes
+                and runtime.episode_start_frame >= runtime.simulation.frame_id
+            ):
+                runtime.pending_episodes.append(
+                    PendingCombatEpisode(
+                        opponent=runtime.opponent,
+                        start_frame_id=runtime.episode_start_frame,
+                        end_frame_id=runtime.simulation.frame_id,
+                        terminal_reason="timeout",
+                        win=win,
+                        loss=loss,
+                        draw=draw,
+                        kills=kills,
+                        deaths=deaths,
+                    )
                 )
-            )
             runtime.episode_results.extend(
                 finalize_pending_episodes(runtime.pending_episodes, mature_samples)
             )
@@ -660,6 +769,8 @@ def permanent_terminal_state(simulation) -> tuple[bool, str]:
         return False, "pending_rebirth"
     if aftermath is not None:
         return True, "resolved"
+    if bool(getattr(simulation, "training_rebirth_pending", False)):
+        return False, "pending_rebirth"
     if not ship_alive(simulation.player1) or not ship_alive(simulation.player2):
         return True, "resolved"
     return False, "running"

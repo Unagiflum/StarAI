@@ -105,6 +105,9 @@ class DisplayBufferSpec:
 class FinishWindowCommand:
     record_id: int
     round_index: int
+    # The trainee network's value of the final state, completing returns the
+    # window's end cut short (see FrameSteppedResult.bootstrap_observation).
+    bootstrap_value: float = 0.0
     name: str = COMMAND_FINISH_WINDOW
 
 
@@ -165,6 +168,9 @@ class FrameSteppedResult:
     audio_events: tuple[tuple[Any, ...], ...] = ()
     display_frames_ready: int = 0
     torch_imported: bool = False
+    # On the window's last frame: the final state, for the parent to value,
+    # when returns still open there need completing. Not a decision state.
+    bootstrap_observation: PackedObservation | None = None
     name: str = RESULT_FRAME_STEPPED
 
 

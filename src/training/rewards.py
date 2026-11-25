@@ -207,6 +207,11 @@ class MatureTrainingSample:
     end_frame_id: int
     actual_frame_count: int
     terminal_truncated: bool = False
+    # Set when the window's end, not a death, cut the return short. The
+    # return then includes ``bootstrap_return``: the discounted network value
+    # of the final state, which stands in for the reward the cut removed.
+    time_truncated: bool = False
+    bootstrap_return: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -835,16 +840,33 @@ class StagedTrajectoryPipeline:
             self._shadow_components[offset : offset + _REWARD_COMPONENT_COUNT]
         )
 
-    def flush_pending(self, *, end_frame_id: int) -> list[MatureTrainingSample]:
+    def flush_pending(
+        self,
+        *,
+        end_frame_id: int,
+        bootstrap_value: float | None = None,
+    ) -> list[MatureTrainingSample]:
+        """Finalize the open trajectory.
+
+        Pass ``bootstrap_value`` when the window's end cuts the trajectory
+        while the trainee lives: each return shorter than the cutoff then adds
+        ``gamma ** frames * bootstrap_value``, and is marked time-truncated.
+        Without it the end is treated as final, as for a stop request.
+        """
         if self._closed:
             raise RuntimeError("cannot flush after trajectory closure")
-        return self._finalize(end_frame_id=end_frame_id, terminal=True)
+        return self._finalize(
+            end_frame_id=end_frame_id,
+            terminal=True,
+            bootstrap_value=bootstrap_value,
+        )
 
     def _finalize(
         self,
         *,
         end_frame_id: int,
         terminal: bool,
+        bootstrap_value: float | None = None,
     ) -> list[MatureTrainingSample]:
         started_at = time.perf_counter()
         if self._outcome_count != self.pending_count:
@@ -860,6 +882,7 @@ class StagedTrajectoryPipeline:
             frame_count=frame_count,
             end_frame_id=end_frame_id,
             terminal=terminal,
+            bootstrap_value=bootstrap_value,
         )
         shadow_samples: list[MatureTrainingSample] = []
         shadow_comparison = None
@@ -875,6 +898,7 @@ class StagedTrajectoryPipeline:
                 frame_count=frame_count,
                 end_frame_id=end_frame_id,
                 terminal=terminal,
+                bootstrap_value=bootstrap_value,
             )
             shadow_comparison = summarize_shadow_returns(samples, shadow_samples)
 
@@ -927,10 +951,15 @@ class StagedTrajectoryPipeline:
         frame_count: int,
         end_frame_id: int,
         terminal: bool,
+        bootstrap_value: float | None = None,
     ) -> list[MatureTrainingSample]:
         observation_size = int(self._observation_size or 0)
         samples: list[MatureTrainingSample] = []
         horizon = self.discount_cutoff_frames
+        time_cut = bootstrap_value is not None
+        value = float(bootstrap_value or 0.0)
+        if not math.isfinite(value):
+            raise ValueError("bootstrap_value must be finite")
         for index in range(frame_count):
             if not self._sample_flags[index]:
                 continue
@@ -946,6 +975,7 @@ class StagedTrajectoryPipeline:
                 ),
                 action_index=int(self._actions[index]),
             )
+            cut = time_cut and actual_frame_count < horizon
             samples.append(
                 _sample_from_component_vector(
                     decision,
@@ -956,6 +986,10 @@ class StagedTrajectoryPipeline:
                     terminal_truncated=terminal and actual_frame_count < horizon,
                     observation_normalized=True,
                     enabled_components=self.enabled_reward_components,
+                    time_truncated=cut,
+                    bootstrap_return=(
+                        self.gamma ** actual_frame_count * value if cut else 0.0
+                    ),
                 )
             )
         return samples
@@ -1925,6 +1959,8 @@ def _sample_from_component_vector(
     terminal_truncated: bool = False,
     observation_normalized: bool = False,
     enabled_components: Iterable[str] | None = None,
+    time_truncated: bool = False,
+    bootstrap_return: float = 0.0,
 ) -> MatureTrainingSample:
     enabled = (
         _ALL_REWARD_COMPONENTS
@@ -1948,13 +1984,15 @@ def _sample_from_component_vector(
             else tuple(float(value) for value in start_decision.observation)
         ),
         action_index=int(start_decision.action_index),
-        return_value=sum(weighted.values()),
+        return_value=sum(weighted.values()) + float(bootstrap_return),
         component_values=component_values,
         weighted_components=weighted,
         start_frame_id=start_decision.frame_id,
         end_frame_id=int(end_frame_id),
         actual_frame_count=int(actual_frame_count),
         terminal_truncated=bool(terminal_truncated),
+        time_truncated=bool(time_truncated),
+        bootstrap_return=float(bootstrap_return),
     )
 
 

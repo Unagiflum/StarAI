@@ -50,6 +50,10 @@ from src.training.coordinated import (
     select_opponent_controls_for_windows,
     run_coordinated_fixed_frame_window,
 )
+from src.training.coordinated_simulation import (
+    finish_coordinated_window,
+    permanent_terminal_state,
+)
 from src.training.process_worker import (
     _BELOW_NORMAL_PRIORITY_CLASS,
     _NORMAL_PRIORITY_CLASS,
@@ -1314,6 +1318,113 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
                 rng_seed=rng_seed,
             )
         )
+
+    def _run_worker_window(self, worker, config, *, bootstrap_value=0.0):
+        self._start_window(worker, config=config)
+        steps = [
+            worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+            for _ in range(config.match_time_limit)
+        ]
+        finished = worker.handle(
+            FinishWindowCommand(9, 1, bootstrap_value=bootstrap_value)
+        )
+        replay = TrainingReplayBuffer(32)
+        for chunk in finished.mature_sample_chunks:
+            replay.extend(chunk)
+        return steps, finished, replay
+
+    def test_causal_survivor_keeps_its_battle_and_trajectory_after_a_kill(self):
+        factory = ScriptedSimulationFactory(({"post_death_frames": 1},))
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=4,
+            gamma=0.0,
+            reward_mode="causal",
+        )
+
+        steps, finished, replay = self._run_worker_window(
+            self._worker(simulation_factory=factory),
+            config,
+        )
+
+        self.assertEqual(len(factory.created), 1)
+        self.assertEqual(
+            finished.result.reward_diagnostics.finalized_trajectory_lengths,
+            [4],
+        )
+        episodes = finished.result.episode_results
+        self.assertEqual([episode.win for episode in episodes], [True, False])
+        self.assertEqual(episodes[1].terminal_reason, "timeout")
+        self.assertEqual([episode.mature_samples for episode in episodes], [2, 2])
+        self.assertEqual(len(replay), 4)
+        self.assertTrue(all(step.mature_samples == () for step in steps))
+
+    def test_legacy_kill_still_ends_the_battle_after_the_pause(self):
+        factory = ScriptedSimulationFactory(({"post_death_frames": 1}, {}))
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=4,
+            gamma=0.0,
+            reward_mode="legacy",
+        )
+
+        self._run_worker_window(self._worker(simulation_factory=factory), config)
+
+        self.assertEqual(len(factory.created), 2)
+
+    def test_window_end_returns_add_the_discounted_final_state_value(self):
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=3,
+            gamma=0.5,
+            reward_mode="causal",
+        )
+
+        steps, _finished, cut = self._run_worker_window(
+            self._worker(), config, bootstrap_value=2.0
+        )
+        _steps, _finished, plain = self._run_worker_window(
+            self._worker(), config, bootstrap_value=0.0
+        )
+
+        self.assertEqual([step.bootstrap_observation is None for step in steps], [True, True, False])
+        self.assertEqual(
+            [round(a.return_value - b.return_value, 6) for a, b in zip(cut, plain)],
+            [0.25, 0.5, 1.0],
+        )
+
+    def test_training_rebirth_pause_does_not_end_the_battle(self):
+        simulation = SimpleNamespace(
+            player1=SimpleNamespace(currently_alive=False, current_hp=0),
+            player2=SimpleNamespace(currently_alive=True, current_hp=10),
+            aftermath=None,
+            training_rebirth_pending=True,
+        )
+
+        self.assertEqual(
+            permanent_terminal_state(simulation),
+            (False, "pending_rebirth"),
+        )
+
+    def test_trainee_out_of_play_yields_no_samples_or_bootstrap_state(self):
+        factory = ScriptedSimulationFactory(({},))
+        worker = self._worker(simulation_factory=factory)
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=3,
+            gamma=0.5,
+            reward_mode="causal",
+        )
+        self._start_window(worker, config=config)
+        steps = [worker.handle(StepFrameCommand(9, 1, 0, False, {}))]
+        # The trainee then awaits rebirth for the rest of the window.
+        factory.created[0].training_ship_absent = lambda player: player == 1
+        steps += [worker.handle(StepFrameCommand(9, 1, 0, False, {})) for _ in range(2)]
+        finished = worker.handle(FinishWindowCommand(9, 1))
+
+        self.assertIsNone(steps[-1].bootstrap_observation)
+        self.assertEqual(sum(len(chunk) for chunk in finished.mature_sample_chunks), 1)
+        self.assertEqual(sum(finished.result.action_counts), 1)
 
     def test_start_window_and_observation_use_worker_local_state(self):
         worker = self._worker()
@@ -2603,6 +2714,91 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
 
         self.assertTrue(all(client.shutdown_called for client in clients))
 
+    def test_worker_backed_finish_sends_the_value_of_the_final_state(self):
+        clients = []
+        final_observation = (0.25,) * OBSERVATION_INPUT_SIZE
+
+        class FinalStateClient(FakeWorkerClient):
+            def send(self, command):
+                super().send(command)
+                result = self.results[-1] if self.results else None
+                if command.name == COMMAND_STEP_FRAME and result.complete:
+                    self.results[-1] = replace(
+                        result,
+                        bootstrap_observation=pack_observation(final_observation),
+                    )
+
+        def worker_factory(**kwargs):
+            client = FinalStateClient(**kwargs)
+            clients.append(client)
+            return client
+
+        model = object()
+
+        def component_builder(_record):
+            return CoordinatedRuntimeComponents(
+                model=model,
+                optimizer=object(),
+                replay_buffer=TrainingReplayBuffer(32),
+            )
+
+        session = CoordinatedTrainingSession(
+            (
+                _record(
+                    1,
+                    "Earthling",
+                    batch_grouping=99,
+                    match_time_limit=2,
+                    epsilon=1.0,
+                    gamma=0.0,
+                ),
+                _record(
+                    2,
+                    "Androsynth",
+                    batch_grouping=99,
+                    match_time_limit=2,
+                    epsilon=1.0,
+                    gamma=0.0,
+                ),
+            ),
+            component_builder=component_builder,
+            run_batches=True,
+            coordinated_cpu_workers_enabled=True,
+            worker_client_factory=worker_factory,
+        )
+        for state in session._states.values():
+            state.components = component_builder(state.record)
+
+        with (
+            mock.patch(
+                "src.training.coordinated.simple_opponent_schedule",
+                return_value=(OpponentSpec("Earthling"),),
+            ),
+            mock.patch("src.training.coordinated.append_coordinated_batch_timing_csv"),
+            mock.patch(
+                "src.training.coordinated.bootstrap_state_value",
+                return_value=2.5,
+            ) as state_value,
+        ):
+            self.assertTrue(session._run_one_coordinated_batch())
+
+        finish_commands = [
+            command
+            for client in clients
+            for command in client.sent_commands
+            if command.name == "FINISH_WINDOW"
+        ]
+        self.assertEqual(
+            [command.bootstrap_value for command in finish_commands],
+            [2.5, 2.5],
+        )
+        for valued_model, valued_observation in (
+            call.args for call in state_value.call_args_list
+        ):
+            self.assertIs(valued_model, model)
+            self.assertEqual(tuple(valued_observation), final_observation)
+        session._shutdown_persistent_cpu_workers()
+
     def test_worker_backed_inference_keeps_full_tuple_after_early_completion(self):
         class StaggeredWorkerClient(FakeWorkerClient):
             def send(self, command):
@@ -2771,6 +2967,55 @@ class CoordinatedWorkerBackedFrameLoopTests(unittest.TestCase):
 
 
 class CoordinatedFrameLoopTests(unittest.TestCase):
+    def test_in_process_finish_completes_returns_with_the_final_state_value(self):
+        model = object()
+
+        def component_builder(_record):
+            return CoordinatedRuntimeComponents(
+                model=model,
+                optimizer=object(),
+                replay_buffer=TrainingReplayBuffer(32),
+            )
+
+        session = CoordinatedTrainingSession(
+            (
+                _record(1, "Earthling", batch_grouping=99, match_time_limit=2, epsilon=1.0),
+                _record(2, "Androsynth", batch_grouping=99, match_time_limit=2, epsilon=1.0),
+            ),
+            component_builder=component_builder,
+            simulation_factory=ScriptedSimulationFactory(()),
+            run_batches=True,
+        )
+        for state in session._states.values():
+            state.components = component_builder(state.record)
+
+        with (
+            mock.patch(
+                "src.training.coordinated.simple_opponent_schedule",
+                return_value=(OpponentSpec("Earthling"),),
+            ),
+            mock.patch("src.training.coordinated.append_coordinated_batch_timing_csv"),
+            mock.patch(
+                "src.training.coordinated.bootstrap_state_value",
+                return_value=1.5,
+            ) as state_value,
+            mock.patch(
+                "src.training.coordinated._finish_coordinated_window",
+                wraps=finish_coordinated_window,
+            ) as finish,
+        ):
+            self.assertTrue(session._run_one_coordinated_batch())
+
+        self.assertEqual(
+            [call.kwargs["bootstrap_value"] for call in finish.call_args_list],
+            [1.5, 1.5],
+        )
+        for valued_model, valued_observation in (
+            call.args for call in state_value.call_args_list
+        ):
+            self.assertIs(valued_model, model)
+            self.assertEqual(len(valued_observation), OBSERVATION_INPUT_SIZE)
+
     def test_batch_advances_records_frame_by_frame(self):
         step_log = []
         replay_buffers = {}

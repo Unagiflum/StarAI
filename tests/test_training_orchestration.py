@@ -587,6 +587,93 @@ class TrainingRoundTests(unittest.TestCase):
         self.assertEqual(result.episode_results[0].mature_samples, 4)
         self.assertEqual(result.episode_results[1].terminal_reason, "timeout")
 
+    def _post_death_round(self, reward_mode):
+        result = run_training_round(
+            opponent=OpponentSpec("Earthling"),
+            trainee_policy=FixedPolicy(0),
+            replay_buffer=TrainingReplayBuffer(capacity=16),
+            config=TrainingOrchestrationConfig(
+                trainee_ship="Earthling",
+                match_time_limit=5,
+                gamma=0.0,
+                reward_mode=reward_mode,
+            ),
+            rng=random.Random(1),
+            simulation_factory=PostDeathOutcomeSimulation,
+            battle_view_enabled=lambda: False,
+        )
+        return result.reward_diagnostics.finalized_trajectory_lengths
+
+    def test_causal_survivor_keeps_its_trajectory_against_the_replacement(self):
+        self.assertEqual(self._post_death_round("causal"), [5])
+
+    def test_legacy_trajectory_still_ends_after_the_kill_pause(self):
+        self.assertEqual(self._post_death_round("legacy"), [4, 1])
+
+    def _timeout_round_returns(self, state_value):
+        replay = TrainingReplayBuffer(capacity=16)
+        with mock.patch(
+            "src.training.orchestration.bootstrap_state_value",
+            return_value=state_value,
+        ) as valued:
+            result = run_training_round(
+                opponent=OpponentSpec("Earthling"),
+                trainee_policy=FixedPolicy(0),
+                replay_buffer=replay,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    match_time_limit=3,
+                    gamma=0.5,
+                ),
+                rng=random.Random(1),
+            )
+        self.assertEqual(result.terminal_reason, "timeout")
+        _model, observation = valued.call_args.args
+        self.assertEqual(len(observation), OBSERVATION_INPUT_SIZE)
+        return [sample.return_value for sample in replay]
+
+    def test_round_end_completes_returns_with_the_final_state_value(self):
+        cut = self._timeout_round_returns(2.0)
+        plain = self._timeout_round_returns(0.0)
+
+        self.assertEqual(
+            [round(a - b, 6) for a, b in zip(cut, plain)],
+            [0.25, 0.5, 1.0],
+        )
+
+    def test_trainee_out_of_play_frames_yield_no_samples(self):
+        class AbsentAfterFirstFrame(RespawningOutcomeSimulation):
+            def step(self, actions=None):
+                self.frame_id += 1
+                self.training_episode_deaths = ()
+                return {"frame_id": self.frame_id}
+
+            def training_ship_absent(self, player):
+                return player == 1 and self.frame_id >= 1
+
+        replay = TrainingReplayBuffer(capacity=16)
+        with mock.patch(
+            "src.training.orchestration.bootstrap_state_value",
+            return_value=0.0,
+        ) as valued:
+            result = run_training_round(
+                opponent=OpponentSpec("Earthling"),
+                trainee_policy=FixedPolicy(0),
+                replay_buffer=replay,
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    match_time_limit=3,
+                    gamma=0.5,
+                ),
+                rng=random.Random(1),
+                simulation_factory=AbsentAfterFirstFrame,
+                battle_view_enabled=lambda: False,
+            )
+
+        self.assertEqual(len(replay), 1)
+        self.assertEqual(sum(result.action_counts), 1)
+        self.assertIsNone(valued.call_args.args[1])
+
     def test_terminal_timeout_flushes_every_pending_sample(self):
         replay = TrainingReplayBuffer(capacity=16)
         config = TrainingOrchestrationConfig(
@@ -663,6 +750,23 @@ class TrainingRoundTests(unittest.TestCase):
             simulation,
             elapsed_frames=999,
             frame_limit=1,
+        )
+
+        self.assertFalse(terminal)
+        self.assertEqual(reason, "pending_rebirth")
+
+    def test_training_rebirth_pause_is_not_a_resolved_round(self):
+        simulation = SimpleNamespace(
+            player1=SimpleNamespace(currently_alive=False, current_hp=0),
+            player2=SimpleNamespace(currently_alive=True, current_hp=10),
+            aftermath=None,
+            training_rebirth_pending=True,
+        )
+
+        terminal, reason = _round_terminal_state(
+            simulation,
+            elapsed_frames=5,
+            frame_limit=10,
         )
 
         self.assertFalse(terminal)
