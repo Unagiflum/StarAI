@@ -10,7 +10,7 @@ from pathlib import Path
 
 from src import const
 from src.training.baseline import arena, deployment_pilot as pilot
-from src.training.baseline.behaviours import Band, ship_behaviour
+from src.training.baseline.behaviours import BAND_INSIDE_FACE, Band, ship_behaviour
 from src.training.baseline.strategies import SPECIAL_RULES
 
 
@@ -39,7 +39,20 @@ def init_worker():
 def settings(ship, opponent):
     current = replace(ship_behaviour(ship, opponent), opponents={})
     group = {"default": None}
-    if ship == "Spathi":
+    if (ship, opponent) == ("Spathi", "Yehat"):
+        group["missile_range"] = replace(current, band=None, specials=("spathi_return_to_missile_range",))
+    elif (ship, opponent) == ("Utwig", "Spathi"):
+        band = Band(756.0, 1080.0, approach_speed=60.0)
+        group.update({
+            "earlier": None,
+            "base_band": replace(current, band=ship_behaviour("Utwig").band),
+            "no_band": replace(current, band=None),
+            "near": replace(current, band=Band(529.2, 756.0, approach_speed=60.0)),
+            "far": replace(current, band=Band(982.8, 1404.0, approach_speed=60.0)),
+            "face": replace(current, band=replace(band, inside=BAND_INSIDE_FACE)),
+        })
+    elif (ship, opponent) == ("Spathi", "Utwig"):
+        current = replace(current, specials=())
         group["approach"] = None
         for near, far in ((0, 1080), (0, 864), (0, 648), (0, 432), (320, 648)):
             name = f"band_{near}_{far}"

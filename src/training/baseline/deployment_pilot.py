@@ -1,8 +1,8 @@
-"""Paired fleet-deployment pilot for Orz–Chmmr and Spathi–Utwig.
+"""Paired fleet-deployment pilot for the screened projectile matchups.
 
 Run from the repository root with python -m src.training.baseline.deployment_pilot.
-Both scores come from the same battle. These two evaluated ships' weapons and
-marines are removed with their owner. Their death frame closes the final
+Both scores come from the same battle. The evaluated ships' weapons and
+marines are removed with their owner, so the death frame closes the final
 exchange. The training arena's ordinary respawns cannot model a Pkunk rebirth.
 """
 
@@ -27,7 +27,7 @@ from src.training.harm import HARM_DAMAGE_ENEMY, HARM_KILL_ENEMY, HarmTracker
 SEED_BLOCKS = {"selection": range(20), "confirmation": range(1000, 1020)}
 PRESSURE_LOOKAHEAD = const.FPS / 2
 PACE_LIMIT = 10 * const.FPS
-PILOT_PAIRS = (("Orz", "Chmmr"), ("Spathi", "Utwig"))
+PILOT_PAIRS = {("Orz", "Chmmr"), ("Spathi", "Utwig"), ("Utwig", "Spathi"), ("Spathi", "Yehat")}
 
 
 def pilot_settings():
@@ -177,8 +177,8 @@ class PilotResult:
 
 def measure(match):
     if (match.ship, match.opponent) not in PILOT_PAIRS:
-        raise ValueError("Deployment and pressure attribution in this pilot cover Orz–Chmmr and Spathi–Utwig.")
-    deployment = Deployment(facing_shield=match.opponent == "Utwig")
+        raise ValueError(f"Deployment and pressure attribution have not been verified for {match.ship} vs {match.opponent}.")
+    deployment = Deployment(facing_shield=match.opponent in ("Utwig", "Yehat"))
     legacy = arena.run_match(match, on_step=deployment.on_step)
     totals = deployment.harm.totals
     return PilotResult(

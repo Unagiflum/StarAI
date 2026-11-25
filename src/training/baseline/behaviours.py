@@ -694,8 +694,8 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
             # Pass 2: back-off, farther or off.
             "Chenjesu": {"band": Band(756.0, 1080.0, approach_speed=math.inf, run_offset=110.0, back_off=True)},
             "Pkunk": {"band": Band(982.8, 1404.0, approach_speed=60.0)},
-            # No band against the Yehat after the tolerance check.
-            **dict.fromkeys(("Utwig", "Yehat"), {"band": None}),
+            "Utwig": {"band": None, "specials": ("spathi_return_to_missile_range",)},
+            "Yehat": {"band": None},
             # The mirror and the Thraddash keep the base band: pass 2
             # dropped it and a recheck went back (cycles; the band ranks
             # better flown together).

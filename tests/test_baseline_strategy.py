@@ -3121,6 +3121,28 @@ class SpathiBandTests(unittest.TestCase):
             context = self._context(far, battery=battery)
             self.assertIsNotNone(_first_steer(context, STRATEGIES["Spathi"]))
 
+    def test_returns_to_missile_range_on_gun_lead_against_the_utwig(self):
+        for bearing, thrust in ((55.0, True), (-65.0, False)):
+            with self.subTest(bearing=bearing):
+                ctx = self._context(_seen(bearing, 1200.0), enemy_name="Utwig", battery=2.0)
+                STRATEGIES["Spathi"](ctx)
+                self.assertAlmostEqual(ctx.plan.bearing, ctx.aim_bearing(1))
+                self.assertIs(ctx.plan.thrust, thrust)
+
+    def test_return_releases_thrust_in_missile_range_or_below_gun_cost(self):
+        for distance, battery in ((864.0, 8.0), (1200.0, 1.0)):
+            with self.subTest(distance=distance, battery=battery):
+                ctx = self._context(_seen(0.0, distance), enemy_name="Utwig", battery=battery)
+                STRATEGIES["Spathi"](ctx)
+                self.assertIsNone(ctx.plan.thrust)
+
+    def test_return_yields_to_a_dodge(self):
+        ctx = self._context(_seen(0.0, 1200.0), enemy_name="Utwig")
+        ctx.steer(95.0, thrust=False)
+        STRATEGIES["Spathi"](ctx)
+        self.assertEqual(ctx.plan.bearing, 95.0)
+        self.assertIs(ctx.plan.thrust, False)
+
     def test_fires_the_gun_ahead_and_the_rear_missile_behind(self):
         ahead = self._context(_seen(0.0, 800.0))
         STRATEGIES["Spathi"](ahead)

@@ -1042,6 +1042,37 @@ to a paired confirmation against the incumbent on 100 fresh seeds
 (2000–2099). If a matchup override changes, recheck the opponent's
 reciprocal override against the promoted rule.
 
+The aimed returns at 432, 648 and 864 dealt 1.549, 1.412 and 1.572 harm
+per starting Spathi on selection. The flanking approach dealt 1.569.
+All four stayed under the 10 s pace limit in every fight. The five
+distance-band alternatives dealt 0.019–0.194. The incumbent dealt 0.220.
+The 864-unit return had the highest eligible mean and went to confirmation.
+The differences among the top aimed settings were small on selection.
+
+| Spathi vs Utwig, seeds 2000–2099 | Harm per starting Spathi | P90 longest quiet spell | More than 10 s / 400 | Utwigs destroyed | Spathi alive at 50 s / 400 |
+|---|---:|---:|---:|---:|---:|
+| Previous rule | 0.180 | 34.46 s | 228 | 54 | 148 |
+| Return on gun lead to rear-missile range | **1.609** | **4.33 s** | **0** | **590** | **336** |
+
+**Promote the return against Utwig.** The paired gain was +1.429 harm per
+deployment (95% CI +1.349 to +1.509). The starting Spathi can destroy
+multiple Utwigs. Its own replacement never contributes to this score.
+There were 880 selection fights and 800 confirmation fights. To reproduce
+both blocks with the opponent and incumbent as tested, use commit `4e638c0`.
+
+```text
+python -m work.measurements.return_screen Spathi Utwig --first 0 --seeds 20 --csv select.csv
+python -m work.measurements.return_screen Spathi Utwig --first 2000 --seeds 100 --variants default aimed_864 --csv confirm.csv
+```
+
+The next test flies Utwig against this promoted Spathi. Compare its
+756–1,080 predictive band with its base band, no band, nearer and farther
+predictive bands, facing the opponent inside the current band, and its
+earlier strategy. Use seeds 0–19 for selection and 3000–3099 for any
+confirmation. Also test whether the winning Spathi rule transfers to
+Yehat, the other shield opponent it met with the same no-band strategy.
+Compare that one rule directly on 0–19 and, if eligible, 4000–4099.
+
 #### Respawn scoring used for the earlier passes
 
 Baselines are training opponents and the trainee's teacher in baseline phases,

@@ -29,6 +29,7 @@ SPECIALS = {
     "Pkunk": ("Mycon", ("pkunk_insult", "pkunk_pass"), ("pkunk_gun",), None),
     "Shofixti": ("Mycon", ("shofixti_glory",), (), None),
     "Slylandro": ("Chmmr", ("slylandro_harvest", "slylandro_low_harvest"), (), None),
+    "Spathi": ("Utwig", ("spathi_return_to_missile_range",), (), None),
     "Supox": ("Chmmr", ("supox_slides",), (), None),
     "Syreen": ("Chmmr", ("syreen_song", "syreen_pods", "syreen_close_in", "syreen_chmmr"), ("syreen_gun",), None),
     "Utwig": ("Chmmr", ("utwig_chmmr",), (), None),
