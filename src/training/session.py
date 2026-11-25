@@ -80,6 +80,8 @@ GROUPED_METRICS_CSV_HEADER = (
     "Loss",
     "Average Loss",
     "Time per batch (s)",
+    "Harm per life",
+    "Average Harm per life",
 )
 EVALUATION_METRICS_CSV_HEADER = (
     "Batch",
@@ -94,6 +96,7 @@ EVALUATION_METRICS_CSV_HEADER = (
     "Third action",
     "Third action share",
     "Time (s)",
+    "Harm per life",
 )
 EVALUATION_LOG_PREFIX = "E"
 _LEGACY_EVALUATION_LOG_PREFIX = "EVAL"
@@ -135,6 +138,14 @@ class BatchMetrics:
     learning_rate: float
     average_loss: float
     batch_seconds: float = 0.0
+    # Raw lasting harm the trainee dealt and the trainee lives that played:
+    # harm per life is the deployment score the baseline screen uses.
+    harm_dealt: float = 0.0
+    trainee_lives: int = 0
+
+    @property
+    def harm_per_life(self) -> float:
+        return self.harm_dealt / self.trainee_lives if self.trainee_lives else 0.0
 
     @property
     def average_kills(self) -> float:
@@ -159,10 +170,16 @@ class EvaluationMetrics:
     average_match_score: float
     action_shares: tuple[tuple[int, float], ...] = ()
     batch_seconds: float = 0.0
+    harm_dealt: float = 0.0
+    trainee_lives: int = 0
 
     @property
     def kill_death_ratio(self) -> float:
         return self.kills / max(1, self.deaths)
+
+    @property
+    def harm_per_life(self) -> float:
+        return self.harm_dealt / self.trainee_lives if self.trainee_lives else 0.0
 
 
 def is_evaluation_batch(batch_number: int, batch_grouping: int) -> bool:
@@ -273,6 +290,8 @@ def evaluation_metrics_from_batch_result(
         average_match_score=metrics.average_match_score,
         action_shares=shares,
         batch_seconds=max(0.0, float(batch_seconds)),
+        harm_dealt=metrics.harm_dealt,
+        trainee_lives=metrics.trainee_lives,
     )
 
 
@@ -287,7 +306,8 @@ def format_evaluation_summary_line(metrics: EvaluationMetrics) -> str:
         f"{EVALUATION_LOG_PREFIX} {metrics.batch:8d} | "
         f"{metrics.kills:4d}K{'':12s}{metrics.deaths:4d}D "
         f"KD: {metrics.kill_death_ratio:5.2f} | "
-        f"Score: {metrics.average_match_score:7.3f} ||   "
+        f"Score: {metrics.average_match_score:7.3f}{'':10s} | "
+        f"Harm/life: {metrics.harm_per_life:7.3f} ||   "
         f"Actions: {actions:<{_EVALUATION_ACTION_BLOCK_WIDTH}s}|| "
         f"{format_batch_duration(metrics.batch_seconds)}"
     )
@@ -309,6 +329,8 @@ def append_evaluation_metrics_csv(path: Path, metrics: EvaluationMetrics) -> Non
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not path.exists() or path.stat().st_size == 0
+    if not write_header:
+        _upgrade_metrics_csv_header(path, EVALUATION_METRICS_CSV_HEADER)
     action_cells: list[str] = []
     for slot_index in range(EVALUATION_TOP_ACTION_COUNT):
         if slot_index < len(metrics.action_shares):
@@ -329,6 +351,7 @@ def append_evaluation_metrics_csv(path: Path, metrics: EvaluationMetrics) -> Non
                 f"{metrics.average_match_score:.4f}",
                 *action_cells,
                 f"{metrics.batch_seconds:.0f}",
+                f"{metrics.harm_per_life:.4f}",
             )
         )
 
@@ -382,6 +405,8 @@ def batch_metrics_to_metadata(metrics: BatchMetrics) -> dict[str, Any]:
         "learning_rate": metrics.learning_rate,
         "average_loss": metrics.average_loss,
         "batch_seconds": metrics.batch_seconds,
+        "harm_dealt": metrics.harm_dealt,
+        "trainee_lives": metrics.trainee_lives,
     }
 
 
@@ -396,6 +421,8 @@ def batch_metrics_from_metadata(value: Mapping[str, Any]) -> BatchMetrics:
         learning_rate=float(value["learning_rate"]),
         average_loss=float(value["average_loss"]),
         batch_seconds=float(value.get("batch_seconds", 0.0)),
+        harm_dealt=float(value.get("harm_dealt", 0.0)),
+        trainee_lives=int(value.get("trainee_lives", 0)),
     )
 
 
@@ -556,6 +583,14 @@ def metrics_from_batch_result(
         learning_rate=float(learning_rate),
         average_loss=float(result.average_loss or 0.0),
         batch_seconds=max(0.0, float(batch_seconds)),
+        harm_dealt=sum(
+            float(getattr(round_result, "harm_dealt", 0.0))
+            for round_result in result.round_results
+        ),
+        trainee_lives=sum(
+            int(getattr(round_result, "trainee_lives", 0))
+            for round_result in result.round_results
+        ),
     )
 
 
@@ -575,6 +610,8 @@ def rolling_metrics(history: tuple[BatchMetrics, ...], grouping: int) -> BatchMe
         learning_rate=latest.learning_rate,
         average_loss=sum(item.average_loss for item in window) / count,
         batch_seconds=sum(item.batch_seconds for item in window),
+        harm_dealt=sum(item.harm_dealt for item in window),
+        trainee_lives=sum(item.trainee_lives for item in window),
     )
 
 
@@ -591,6 +628,7 @@ def format_batch_summary_line(metrics: BatchMetrics, rolling: BatchMetrics) -> s
         f"{metrics.kills:4d}K ({rolling.average_kills:7.2f}), "
         f"{metrics.deaths:4d}D ({rolling.average_deaths:7.2f}) | "
         f"Score: {metrics.average_match_score:7.3f} ({rolling.average_match_score:7.3f}) | "
+        f"Harm/life: {metrics.harm_per_life:7.3f} ({rolling.harm_per_life:7.3f}) | "
         f"Epsilon: {metrics.epsilon:.5f} | "
         f"LR: {metrics.learning_rate:.5f} | "
         f"Loss: {metrics.average_loss:7.4f} ({rolling.average_loss:7.4f}) | "
@@ -626,6 +664,8 @@ def append_grouped_metrics_csv(
                 f"{metrics.average_loss:.4f}",
                 f"{rolling.average_loss:.4f}",
                 f"{rolling.average_batch_seconds:.0f}",
+                f"{metrics.harm_per_life:.4f}",
+                f"{rolling.harm_per_life:.4f}",
             )
         )
 
@@ -664,15 +704,26 @@ def reconcile_grouped_metrics_csv(
 
 
 def _upgrade_grouped_metrics_csv_header(path: Path) -> None:
+    _upgrade_metrics_csv_header(path, GROUPED_METRICS_CSV_HEADER)
+
+
+def _upgrade_metrics_csv_header(path: Path, header: tuple[str, ...]) -> None:
+    """Extend a file written with an older, shorter header to ``header``.
+
+    Columns are only ever added at the end, so an older header is a prefix of
+    the current one; its rows gain empty cells for the new columns.
+    """
     with path.open("r+", newline="", encoding="utf-8") as file:
         rows = list(csv.reader(file))
-        old_header = GROUPED_METRICS_CSV_HEADER[:-1]
-        if not rows or tuple(rows[0]) != old_header:
+        if not rows:
             return
-        rows[0] = list(GROUPED_METRICS_CSV_HEADER)
+        old_header = tuple(rows[0])
+        if len(old_header) >= len(header) or header[: len(old_header)] != old_header:
+            return
+        rows[0] = list(header)
         for row in rows[1:]:
             if len(row) == len(old_header):
-                row.append("")
+                row.extend([""] * (len(header) - len(old_header)))
         file.seek(0)
         writer = csv.writer(file)
         writer.writerows(rows)

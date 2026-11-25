@@ -40,6 +40,7 @@ from src.training.rewards import (
     StagedTrajectoryPipeline,
     decision_frame_from_battle_state,
     frame_outcome_from_battle_state,
+    harm_dealt_by_trainee,
 )
 
 
@@ -69,6 +70,13 @@ class CoordinatedWindowRuntime:
         default_factory=lambda: [0] * ACTION_OUTPUT_SIZE
     )
     rng: Any | None = None
+    # Harm banked from earlier battles of this window; the current battle's
+    # harm is read from its ledger at the finish.
+    harm_dealt: float = 0.0
+    trainee_lives: int = 1
+    # Set by the last step when the trainee came back into play after a
+    # rebirth, so its next decision starts fresh rather than held.
+    trainee_reentered: bool = False
 
     def __post_init__(self) -> None:
         if self.opponent_plan is None:
@@ -282,7 +290,8 @@ def advance_coordinated_window_frame(
     self_ship = simulation.player1
     enemy_ship = simulation.player2
     selection = guard_training_selection(selection, self_ship, enemy_ship)
-    emits_sample = not selection.held and not trainee_out_of_play(simulation)
+    was_out_of_play = trainee_out_of_play(simulation)
+    emits_sample = not selection.held and not was_out_of_play
     if emits_sample:
         runtime.action_counts[selection.action_index] += 1
     opponent_controls = guard_computer_controls(
@@ -324,6 +333,13 @@ def advance_coordinated_window_frame(
     )
     add_timing_seconds(timing_seconds, "simulation", simulation_started_at)
     runtime.frames_consumed += 1
+    runtime.trainee_reentered = was_out_of_play and not trainee_out_of_play(simulation)
+    if runtime.trainee_reentered:
+        # A decision held from out of play would carry into the first frames
+        # back, which then yield no sample: decide afresh instead.
+        reset_span = getattr(runtime.policy, "reset_exploration_span", None)
+        if callable(reset_span):
+            reset_span()
     reward_started_at = timing_started_at(timing_seconds)
     terminal_started_at = timing_started_at(timing_seconds)
     terminal, terminal_reason = permanent_terminal_state(simulation)
@@ -381,7 +397,7 @@ def advance_coordinated_window_frame(
     mature_count = len(mature_samples)
     runtime.total_mature_count += mature_count
     runtime.episode_mature_count += mature_count
-    sample_return = sum(sample.return_value for sample in mature_samples)
+    sample_return = sum(sample.reward_return for sample in mature_samples)
     runtime.return_sum += sample_return
     runtime.episode_return_sum += sample_return
     accumulate_weighted_components(
@@ -586,6 +602,8 @@ def reset_coordinated_window_battle(
     if keep_battle is None:
         keep_battle = bool(getattr(runtime.simulation, "training_episode_deaths", ()))
     if keep_battle:
+        if 1 in set(getattr(runtime.simulation, "training_episode_deaths", ())):
+            runtime.trainee_lives += 1
         if reward_terminal:
             runtime.pipeline = StagedTrajectoryPipeline(
                 gamma=config.gamma,
@@ -594,6 +612,9 @@ def reset_coordinated_window_battle(
             )
         runtime.baseline_controller = BaselineOpponentController()
     else:
+        # A new battle brings a new trainee; bank the old battle's harm.
+        runtime.harm_dealt += harm_dealt_by_trainee(runtime.ledger)
+        runtime.trainee_lives += 1
         (
             runtime.simulation,
             runtime.ledger,
@@ -673,7 +694,7 @@ def finish_coordinated_window(
         accumulate_started_at = timing_started_at(timing_seconds)
         runtime.total_mature_count += len(mature_samples)
         runtime.episode_mature_count += len(mature_samples)
-        sample_return = sum(sample.return_value for sample in mature_samples)
+        sample_return = sum(sample.reward_return for sample in mature_samples)
         runtime.return_sum += sample_return
         runtime.episode_return_sum += sample_return
         accumulate_weighted_components(
@@ -754,6 +775,8 @@ def finish_coordinated_window(
         ),
         reward_diagnostics=runtime.ledger.diagnostics,
         action_counts=tuple(runtime.action_counts),
+        harm_dealt=runtime.harm_dealt + harm_dealt_by_trainee(runtime.ledger),
+        trainee_lives=runtime.trainee_lives,
     )
 
 

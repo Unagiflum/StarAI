@@ -530,6 +530,7 @@ class CoordinatedSimulationWorker:
             display_frames_ready=display_frames_ready,
             torch_imported="torch" in sys.modules,
             bootstrap_observation=bootstrap_observation,
+            trainee_reentered=bool(runtime.trainee_reentered),
         )
         if timing_seconds is not None:
             _add_worker_timing(timing_seconds, "worker_step", step_started_at)

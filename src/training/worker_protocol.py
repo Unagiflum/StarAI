@@ -171,6 +171,9 @@ class FrameSteppedResult:
     # On the window's last frame: the final state, for the parent to value,
     # when returns still open there need completing. Not a decision state.
     bootstrap_observation: PackedObservation | None = None
+    # The trainee came back into play after a rebirth on this step, so the
+    # parent drops any held action and decides afresh.
+    trainee_reentered: bool = False
     name: str = RESULT_FRAME_STEPPED
 
 

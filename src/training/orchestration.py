@@ -73,6 +73,7 @@ from src.training.rewards import (
     StagedTrajectoryPipeline,
     decision_frame_from_battle_state,
     frame_outcome_from_battle_state,
+    harm_dealt_by_trainee,
 )
 from src.training.contracts import DEFAULT_NEW_MODEL_VALUE_HEAD
 from src.training.value_network import (
@@ -104,6 +105,10 @@ class TrainingRoundResult:
     episode_results: tuple[TrainingEpisodeResult, ...] = ()
     reward_diagnostics: CausalRewardDiagnostics | None = None
     action_counts: tuple[int, ...] = ()
+    # Raw lasting harm the trainee dealt, and the trainee lives that played
+    # (each round starts one; each permanent death with time left adds one).
+    harm_dealt: float = 0.0
+    trainee_lives: int = 0
 
 
 @dataclass(frozen=True)
@@ -650,6 +655,7 @@ def run_training_round(
     next_display_frame_time = time.perf_counter()
     baseline_opponent_controller = BaselineOpponentController()
     action_counts = [0] * ACTION_OUTPUT_SIZE
+    trainee_lives = 1
 
     for match_frame in range(config.match_time_limit):
         abort_if_requested()
@@ -667,7 +673,8 @@ def run_training_round(
             self_ship,
             enemy_ship,
         )
-        emits_sample = not selection.held and not trainee_out_of_play(simulation)
+        was_out_of_play = trainee_out_of_play(simulation)
+        emits_sample = not selection.held and not was_out_of_play
         if emits_sample:
             action_counts[selection.action_index] += 1
         decision = decision_frame_from_battle_state(
@@ -701,6 +708,12 @@ def run_training_round(
             ),
         }
         state = simulation.step(actions=actions)
+        if was_out_of_play and not trainee_out_of_play(simulation):
+            # Back in play after a rebirth: decide afresh rather than carry a
+            # decision held from out of play, whose frames yield no sample.
+            reset_span = getattr(trainee_policy, "reset_exploration_span", None)
+            if callable(reset_span):
+                reset_span()
         terminal, terminal_reason = _round_terminal_state(
             simulation,
             elapsed_frames=state["frame_id"],
@@ -756,7 +769,7 @@ def run_training_round(
         replay_buffer.extend(mature_samples)
         mature_count += len(mature_samples)
         episode_mature_count += len(mature_samples)
-        sample_return = sum(sample.return_value for sample in mature_samples)
+        sample_return = sum(sample.reward_return for sample in mature_samples)
         return_sum += sample_return
         episode_return_sum += sample_return
         _accumulate_weighted_components(
@@ -867,6 +880,8 @@ def run_training_round(
             ):
                 terminal_seen = True
                 break
+            if 1 in training_deaths:
+                trainee_lives += 1
             if reward_terminal:
                 pipeline = StagedTrajectoryPipeline(
                     gamma=config.gamma,
@@ -894,7 +909,7 @@ def run_training_round(
         )
         mature_count += len(mature_samples)
         episode_mature_count += len(mature_samples)
-        sample_return = sum(sample.return_value for sample in mature_samples)
+        sample_return = sum(sample.reward_return for sample in mature_samples)
         return_sum += sample_return
         episode_return_sum += sample_return
         _accumulate_weighted_components(
@@ -978,6 +993,8 @@ def run_training_round(
         episode_results=tuple(episode_results),
         reward_diagnostics=ledger.diagnostics,
         action_counts=tuple(action_counts),
+        harm_dealt=harm_dealt_by_trainee(ledger),
+        trainee_lives=trainee_lives,
     )
 
 

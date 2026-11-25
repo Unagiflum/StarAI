@@ -2055,7 +2055,11 @@ class CoordinatedTrainingSession:
                             "observation",
                             observed_at,
                         )
-                        if frame_result.terminal_episode is not None:
+                        if frame_result.terminal_episode is not None or getattr(
+                            frame_result,
+                            "trainee_reentered",
+                            False,
+                        ):
                             window.policy.reset_exploration_span()
                         if frame_result.audio_events:
                             self._relay_audio_events(record_id, frame_result.audio_events)

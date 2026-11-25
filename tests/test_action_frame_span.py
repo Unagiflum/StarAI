@@ -498,17 +498,19 @@ class EvaluationHelperTests(unittest.TestCase):
 
         self.assertEqual(
             evaluation_line,
-            "E      200 |   19K              11D KD:  1.73 | Score:   0.028 ||   "
+            "E      200 |   19K              11D KD:  1.73 | Score:   0.028           | "
+            "Harm/life:   0.000 ||   "
             "Actions: [___1_]  35% | [↑___2]  32% | [↑←_12]  24%"
             "            ||   0h:03m:53s",
         )
         self.assertEqual(
             training_line,
             "#      198 |   11K (  11.10),   20D (  22.90) | Score:   0.000 ( -0.009) | "
+            "Harm/life:   0.000 (  0.000) | "
             "Epsilon: 0.10000 | LR: 0.00030 | Loss:  0.0359 ( 0.0292) |   0h:04m:04s",
         )
         self.assertEqual(len(evaluation_line), len(training_line))
-        for marker in ("|", "K", "D", "Score:"):
+        for marker in ("|", "K", "D", "Score:", "Harm/life:"):
             self.assertEqual(evaluation_line.index(marker), training_line.index(marker))
 
     def test_training_row_averages_only_the_current_group(self):

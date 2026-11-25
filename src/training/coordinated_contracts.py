@@ -37,3 +37,7 @@ class CoordinatedFixedFrameWindowResult:
     component_totals: Mapping[str, float] = field(default_factory=dict)
     reward_diagnostics: CausalRewardDiagnostics | None = None
     action_counts: tuple[int, ...] = ()
+    # Raw lasting harm the trainee dealt, and the trainee lives that played
+    # (each window starts one; each permanent death with time left adds one).
+    harm_dealt: float = 0.0
+    trainee_lives: int = 0

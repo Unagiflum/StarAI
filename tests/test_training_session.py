@@ -3,6 +3,7 @@ import json
 import threading
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -40,11 +41,16 @@ from src.training.replay import (
 )
 from src.training.render_view import freeze_battle_view
 from src.training.session import (
+    EVALUATION_METRICS_CSV_HEADER,
+    GROUPED_METRICS_CSV_HEADER,
     BatchMetrics,
+    EvaluationMetrics,
     SimulationSpeedTracker,
     TrainingSession,
     TrainingSessionStatus,
+    append_evaluation_metrics_csv,
     append_grouped_metrics_csv,
+    batch_metrics_from_metadata,
     batch_metrics_history_from_metadata,
     batch_metrics_to_metadata,
     format_batch_summary_line,
@@ -241,8 +247,23 @@ class TrainingMetricsTests(unittest.TestCase):
         self.assertEqual(
             format_batch_summary_line(metrics, rolling),
             "#       86 |    2K (   2.31),    4D (   3.62) | "
-            "Score:   0.809 (  0.819) | Epsilon: 0.26545 | "
+            "Score:   0.809 (  0.819) | Harm/life:   0.000 (  0.000) | "
+            "Epsilon: 0.26545 | "
             "LR: 0.00030 | Loss:  1.2658 ( 1.2658) |   0h:30m:04s",
+        )
+
+    def test_batch_summary_reports_harm_per_trainee_life(self):
+        metrics = BatchMetrics(
+            86, 2, 4, 1, 0.809, 0.1, 0.0003, 1.2, harm_dealt=3.0, trainee_lives=4
+        )
+        rolling = BatchMetrics(
+            86, 20, 40, 10, 0.8, 0.1, 0.0003, 1.2, harm_dealt=25.0, trainee_lives=40
+        )
+
+        self.assertAlmostEqual(metrics.harm_per_life, 0.75)
+        self.assertIn(
+            "Harm/life:   0.750 (  0.625) |",
+            format_batch_summary_line(metrics, rolling),
         )
 
     def test_simulation_speed_tracks_each_100_frame_interval(self):
@@ -309,6 +330,32 @@ class TrainingMetricsTests(unittest.TestCase):
         self.assertEqual(metrics.batch_count, 1)
         self.assertAlmostEqual(metrics.average_match_score, 6.0)
         self.assertAlmostEqual(metrics.average_loss, 0.3)
+
+    def test_metrics_sum_harm_and_lives_across_rounds(self):
+        result = TrainingBatchResult(
+            completed_rounds=2,
+            replay_size=0,
+            optimization_losses=(),
+            round_results=(
+                replace(_round_result(1.0), harm_dealt=1.5, trainee_lives=2),
+                replace(_round_result(1.0), harm_dealt=0.5, trainee_lives=1),
+            ),
+        )
+
+        metrics = metrics_from_batch_result(
+            result,
+            batch=3,
+            epsilon=0.1,
+            learning_rate=0.001,
+        )
+        rolling = rolling_metrics(
+            (replace(metrics, harm_dealt=1.0, trainee_lives=5), metrics),
+            grouping=2,
+        )
+
+        self.assertEqual((metrics.harm_dealt, metrics.trainee_lives), (2.0, 3))
+        self.assertAlmostEqual(metrics.harm_per_life, 2.0 / 3.0)
+        self.assertEqual((rolling.harm_dealt, rolling.trainee_lives), (3.0, 8))
 
     def test_metrics_do_not_infer_kills_or_deaths_from_outcomes(self):
         result = TrainingBatchResult(
@@ -381,15 +428,18 @@ class TrainingMetricsTests(unittest.TestCase):
                     "Batch", "Kills", "Average Kills", "Deaths",
                     "Average Deaths", "Score", "Average Score", "Epsilon",
                     "Learning Rate", "Loss", "Average Loss",
-                    "Time per batch (s)",
+                    "Time per batch (s)", "Harm per life",
+                    "Average Harm per life",
                 ],
                 [
                     "1000", "2", "2.31", "4", "3.62", "34.300", "33.300",
                     "0.00200", "0.000100", "0.0500", "0.0400", "259",
+                    "0.0000", "0.0000",
                 ],
                 [
                     "2000", "5", "2.50", "3", "3.50", "35.000", "34.000",
                     "0.00300", "0.000200", "0.0600", "0.0500", "258",
+                    "0.0000", "0.0000",
                 ],
             ],
         )
@@ -412,6 +462,7 @@ class TrainingMetricsTests(unittest.TestCase):
             [
                 "50", "4", "4.00", "3", "3.00", "12.500", "11.500",
                 "0.10000", "0.001000", "0.2500", "0.2000", "30",
+                "0.0000", "0.0000",
             ],
         )
 
@@ -454,9 +505,86 @@ class TrainingMetricsTests(unittest.TestCase):
             with path.open(newline="", encoding="utf-8") as file:
                 rows = list(csv.reader(file))
 
-        self.assertEqual(rows[0][-1], "Time per batch (s)")
+        self.assertEqual(
+            rows[0][-3:],
+            ["Time per batch (s)", "Harm per life", "Average Harm per life"],
+        )
+        self.assertEqual(rows[1][-3:], ["", "", ""])
+        self.assertEqual(rows[2][-3:], ["259", "0.0000", "0.0000"])
+
+    def test_csv_append_adds_harm_columns_to_a_file_with_batch_times(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Earthling-01.csv"
+            with path.open("w", newline="", encoding="utf-8") as file:
+                csv.writer(file).writerows(
+                    (
+                        GROUPED_METRICS_CSV_HEADER[:-2],
+                        ("50", "4", "4.00", "3", "3.00", "12.5", "11.5",
+                         "0.10000", "0.001000", "0.2500", "0.2000", "30"),
+                    )
+                )
+
+            append_grouped_metrics_csv(
+                path,
+                BatchMetrics(
+                    100, 3, 4, 1, 0.2, 0.4, 0.0003, 0.1, 259.0,
+                    harm_dealt=1.0, trainee_lives=2,
+                ),
+                BatchMetrics(
+                    100, 30, 40, 10, 0.2, 0.4, 0.0003, 0.1, 2590.0,
+                    harm_dealt=6.0, trainee_lives=20,
+                ),
+            )
+
+            with path.open(newline="", encoding="utf-8") as file:
+                rows = list(csv.reader(file))
+
+        self.assertEqual(tuple(rows[0]), GROUPED_METRICS_CSV_HEADER)
+        self.assertEqual(rows[1][-3:], ["30", "", ""])
+        self.assertEqual(rows[2][-2:], ["0.5000", "0.3000"])
+
+    def test_evaluation_csv_adds_harm_column_to_an_older_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Earthling-01-eval.csv"
+            with path.open("w", newline="", encoding="utf-8") as file:
+                csv.writer(file).writerows(
+                    (
+                        EVALUATION_METRICS_CSV_HEADER[:-1],
+                        ("10", "1", "2", "0.500", "0.1000",
+                         "", "", "", "", "", "", "30"),
+                    )
+                )
+
+            append_evaluation_metrics_csv(
+                path,
+                EvaluationMetrics(
+                    20, 2, 1, 0.2, batch_seconds=31.0,
+                    harm_dealt=1.5, trainee_lives=3,
+                ),
+            )
+
+            with path.open(newline="", encoding="utf-8") as file:
+                rows = list(csv.reader(file))
+
+        self.assertEqual(tuple(rows[0]), EVALUATION_METRICS_CSV_HEADER)
         self.assertEqual(rows[1][-1], "")
-        self.assertEqual(rows[2][-1], "259")
+        self.assertEqual(rows[2][-1], "0.5000")
+
+    def test_batch_metrics_keep_harm_through_metadata(self):
+        metrics = BatchMetrics(
+            12, 9, 10, 1, 42.5, 0.1, 0.001, 0.25, harm_dealt=2.5, trainee_lives=5
+        )
+
+        self.assertEqual(
+            batch_metrics_from_metadata(batch_metrics_to_metadata(metrics)),
+            metrics,
+        )
+        legacy = batch_metrics_to_metadata(metrics)
+        del legacy["harm_dealt"], legacy["trainee_lives"]
+        self.assertEqual(
+            batch_metrics_from_metadata(legacy).trainee_lives,
+            0,
+        )
 
     def test_batch_metrics_history_round_trips_through_metadata(self):
         metrics = BatchMetrics(12, 9, 10, 1, 42.5, 0.1, 0.001, 0.25)
@@ -1890,6 +2018,7 @@ class TrainingSessionTests(unittest.TestCase):
             [
                 "3", "0", "0.00", "0", "0.00", "20.000", "15.000",
                 "0.10000", "0.001000", "0.1000", "0.1000", "0",
+                "0.0000", "0.0000",
             ],
         )
         self.assertEqual(evaluation_rows[-1][:5], ["3", "0", "0", "0.000", "30.0000"])

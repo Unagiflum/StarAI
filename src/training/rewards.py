@@ -19,6 +19,8 @@ from src.training.causal_credit import (
     REWARD_MODES,
 )
 from src.training.harm import (
+    HARM_DAMAGE_ENEMY,
+    HARM_KILL_ENEMY,
     HARM_REWARD_COMPONENTS,
     HarmTracker,
 )
@@ -212,6 +214,30 @@ class MatureTrainingSample:
     # of the final state, which stands in for the reward the cut removed.
     time_truncated: bool = False
     bootstrap_return: float = 0.0
+
+    @property
+    def reward_return(self) -> float:
+        """The return from rewards alone, without the bootstrap estimate.
+
+        Reported returns use it, so metrics never include the network's own
+        value of the final state.
+        """
+        return self.return_value - self.bootstrap_return
+
+
+def harm_dealt_by_trainee(ledger) -> float:
+    """Raw lasting harm the trainee has dealt in a ledger's battle.
+
+    Phase 5 damage and kill credit before the reward weights, in the units of
+    the baseline screen's deployment harm.
+    """
+    tracker = getattr(ledger, "harm_tracker", None)
+    if tracker is None:
+        return 0.0
+    return float(
+        tracker.totals.get(HARM_DAMAGE_ENEMY, 0.0)
+        + tracker.totals.get(HARM_KILL_ENEMY, 0.0)
+    )
 
 
 @dataclass(frozen=True)
@@ -729,6 +755,10 @@ class StagedTrajectoryPipeline:
                 )
         if self._harm_enabled:
             self._add_harm_components(decision, outcome, ledger)
+        elif ledger is not None:
+            # Measure harm for the metrics under every scheme; the amounts
+            # reach the reward only when the harm scheme is enabled.
+            self.harm_tracker_for(ledger).contributions(decision, outcome)
         self._outcome_count += 1
         if outcome.terminal:
             return self._finalize(end_frame_id=outcome.frame_id, terminal=True)

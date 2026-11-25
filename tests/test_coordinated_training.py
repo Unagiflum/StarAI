@@ -51,8 +51,16 @@ from src.training.coordinated import (
     run_coordinated_fixed_frame_window,
 )
 from src.training.coordinated_simulation import (
+    advance_coordinated_window_frame,
+    create_coordinated_window_runtime,
     finish_coordinated_window,
     permanent_terminal_state,
+)
+from src.training.harm import (
+    HARM_DAMAGE_ENEMY,
+    HARM_DAMAGE_TAKEN,
+    HARM_KILL_ENEMY,
+    HarmTracker,
 )
 from src.training.process_worker import (
     _BELOW_NORMAL_PRIORITY_CLASS,
@@ -1392,6 +1400,120 @@ class CoordinatedProcessWorkerWindowTests(unittest.TestCase):
             [round(a.return_value - b.return_value, 6) for a, b in zip(cut, plain)],
             [0.25, 0.5, 1.0],
         )
+
+    def test_window_reports_harm_and_lives_across_battles(self):
+        factory = ScriptedSimulationFactory(({"post_death_frames": 1}, {}))
+        worker = self._worker(simulation_factory=factory)
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=4,
+            gamma=0.0,
+            reward_mode="legacy",
+        )
+        self._start_window(worker, config=config)
+        first_tracker = HarmTracker()
+        first_tracker.totals[HARM_DAMAGE_ENEMY] = 0.75
+        first_tracker.totals[HARM_KILL_ENEMY] = 1.0
+        first_tracker.totals[HARM_DAMAGE_TAKEN] = 9.0
+        worker._runtime.ledger.harm_tracker = first_tracker
+        for _ in range(2):
+            worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+        # The kill's pause ended, so legacy mode began a new battle.
+        second_tracker = HarmTracker()
+        second_tracker.totals[HARM_DAMAGE_ENEMY] = 0.25
+        worker._runtime.ledger.harm_tracker = second_tracker
+        for _ in range(2):
+            worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+        finished = worker.handle(FinishWindowCommand(9, 1))
+
+        self.assertEqual(len(factory.created), 2)
+        self.assertAlmostEqual(finished.result.harm_dealt, 2.0)
+        self.assertEqual(finished.result.trainee_lives, 2)
+
+    def test_reported_returns_leave_out_the_bootstrap(self):
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=3,
+            gamma=0.5,
+            reward_mode="causal",
+        )
+
+        _steps, cut, _replay = self._run_worker_window(
+            self._worker(), config, bootstrap_value=4.0
+        )
+        _steps, plain, _replay = self._run_worker_window(
+            self._worker(), config, bootstrap_value=0.0
+        )
+
+        self.assertAlmostEqual(cut.result.total_return, plain.result.total_return)
+        self.assertEqual(cut.result.trainee_lives, 1)
+
+    def test_reentry_after_rebirth_is_reported_for_a_fresh_decision(self):
+        factory = ScriptedSimulationFactory(({},))
+        worker = self._worker(simulation_factory=factory)
+        config = TrainingOrchestrationConfig(
+            trainee_ship="Earthling",
+            match_time_limit=4,
+            gamma=0.0,
+        )
+        self._start_window(worker, config=config)
+        simulation = factory.created[0]
+        # Out of play until the second step brings the trainee back.
+        simulation.training_ship_absent = (
+            lambda player: player == 1 and simulation.frame_id < 2
+        )
+        first = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+        back = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+        later = worker.handle(StepFrameCommand(9, 1, 0, False, {}))
+
+        self.assertFalse(first.trainee_reentered)
+        self.assertTrue(back.trainee_reentered)
+        self.assertFalse(later.trainee_reentered)
+
+    def test_in_process_reentry_drops_the_held_action(self):
+        factory = ScriptedSimulationFactory(({},))
+        policy = FixedPolicy(0)
+        components = CoordinatedRuntimeComponents(
+            model=object(),
+            optimizer=object(),
+            replay_buffer=TrainingReplayBuffer(16),
+        )
+        state = SimpleNamespace(
+            record=_record(1, "Earthling", match_time_limit=3, gamma=0.0),
+            components=components,
+        )
+        runtime = create_coordinated_window_runtime(
+            state=state,
+            opponent=OpponentSpec("Earthling"),
+            policy=policy,
+            rng=random.Random(1),
+            simulation_factory=factory,
+            audio_service=None,
+            ship_factory=fake_ship,
+        )
+        simulation = factory.created[0]
+        simulation.training_ship_absent = (
+            lambda player: player == 1 and simulation.frame_id < 2
+        )
+
+        def advance():
+            advance_coordinated_window_frame(
+                runtime,
+                rng=random.Random(1),
+                simulation_factory=factory,
+                audio_service=None,
+                observation=(0.0,) * OBSERVATION_INPUT_SIZE,
+                selection=ActionSelection(0, exploratory=False),
+                opponent_controls={},
+                ship_factory=fake_ship,
+            )
+
+        advance()
+        self.assertEqual(policy.reset_count, 0)
+        advance()
+        self.assertEqual(policy.reset_count, 1)
+        advance()
+        self.assertEqual(policy.reset_count, 1)
 
     def test_training_rebirth_pause_does_not_end_the_battle(self):
         simulation = SimpleNamespace(

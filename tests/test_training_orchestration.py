@@ -641,6 +641,96 @@ class TrainingRoundTests(unittest.TestCase):
             [0.25, 0.5, 1.0],
         )
 
+    def test_round_counts_a_life_for_each_trainee_death_with_time_left(self):
+        class TraineeDiesOnFrames(RespawningOutcomeSimulation):
+            def step(self, actions=None):
+                self.frame_id += 1
+                self.training_episode_deaths = (1,) if self.frame_id in (1, 3) else ()
+                return {"frame_id": self.frame_id}
+
+        result = run_training_round(
+            opponent=OpponentSpec("Earthling"),
+            trainee_policy=FixedPolicy(0),
+            replay_buffer=TrainingReplayBuffer(capacity=16),
+            config=TrainingOrchestrationConfig(
+                trainee_ship="Earthling",
+                match_time_limit=3,
+                gamma=0.0,
+            ),
+            rng=random.Random(1),
+            simulation_factory=TraineeDiesOnFrames,
+            battle_view_enabled=lambda: False,
+        )
+
+        # The start, plus the death on frame 1; the death on the last frame
+        # leaves no time for another life.
+        self.assertEqual(result.trainee_lives, 2)
+
+    def test_round_reports_harm_and_returns_without_the_bootstrap(self):
+        def run(state_value):
+            with mock.patch(
+                "src.training.orchestration.bootstrap_state_value",
+                return_value=state_value,
+            ):
+                return run_training_round(
+                    opponent=OpponentSpec("Earthling"),
+                    trainee_policy=FixedPolicy(0),
+                    replay_buffer=TrainingReplayBuffer(capacity=16),
+                    config=TrainingOrchestrationConfig(
+                        trainee_ship="Earthling",
+                        match_time_limit=3,
+                        gamma=0.5,
+                    ),
+                    rng=random.Random(1),
+                )
+
+        cut = run(3.0)
+        plain = run(0.0)
+
+        self.assertAlmostEqual(cut.total_return, plain.total_return)
+        self.assertEqual(cut.trainee_lives, 1)
+        self.assertEqual(cut.harm_dealt, 0.0)
+
+    def test_reentry_after_rebirth_drops_the_held_action(self):
+        class BackOnSecondFrame(RespawningOutcomeSimulation):
+            def step(self, actions=None):
+                self.frame_id += 1
+                self.training_episode_deaths = ()
+                return {"frame_id": self.frame_id}
+
+            def training_ship_absent(self, player):
+                return player == 1 and self.frame_id < 2
+
+        class CountingPolicy(FixedPolicy):
+            def __init__(self, action_index):
+                super().__init__(action_index)
+                self.reset_count = 0
+
+            def reset_exploration_span(self):
+                self.reset_count += 1
+
+        policy = CountingPolicy(0)
+        with mock.patch(
+            "src.training.orchestration.bootstrap_state_value",
+            return_value=0.0,
+        ):
+            run_training_round(
+                opponent=OpponentSpec("Earthling"),
+                trainee_policy=policy,
+                replay_buffer=TrainingReplayBuffer(capacity=16),
+                config=TrainingOrchestrationConfig(
+                    trainee_ship="Earthling",
+                    match_time_limit=4,
+                    gamma=0.0,
+                ),
+                rng=random.Random(1),
+                simulation_factory=BackOnSecondFrame,
+                battle_view_enabled=lambda: False,
+            )
+
+        # Once on re-entry; the round's end adds nothing for a causal timeout.
+        self.assertEqual(policy.reset_count, 1)
+
     def test_trainee_out_of_play_frames_yield_no_samples(self):
         class AbsentAfterFirstFrame(RespawningOutcomeSimulation):
             def step(self, actions=None):

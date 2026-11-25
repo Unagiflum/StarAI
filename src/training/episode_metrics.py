@@ -52,7 +52,7 @@ def finalize_pending_episodes(
                 break
             sample_index += 1
             count += 1
-            return_sum += float(sample.return_value)
+            return_sum += float(getattr(sample, "reward_return", sample.return_value))
             for component in REWARD_COMPONENTS:
                 component_sums[component] += float(
                     sample.weighted_components.get(component, 0.0)
@@ -86,7 +86,7 @@ def _finalize_pending_episodes_compatibility(boundaries, samples):
         component_sums = {component: 0.0 for component in REWARD_COMPONENTS}
         return_sum = 0.0
         for sample in grouped:
-            return_sum += float(sample.return_value)
+            return_sum += float(getattr(sample, "reward_return", sample.return_value))
             for component in REWARD_COMPONENTS:
                 component_sums[component] += float(
                     sample.weighted_components.get(component, 0.0)
