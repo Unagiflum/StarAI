@@ -890,6 +890,160 @@ Each will be added when the first ship that needs it moves.
 
 ### Evaluation
 
+#### Screening by fleet ship committed (2026-11-24)
+
+For the first screen, measure the lasting enemy harm attributable to **one
+ship selected from the fleet**. Each seed and starting condition contributes
+one observation. Use this objective from the first comparison, including
+challengers screened out by the old method. Keep the 50-second respawn score
+alongside it to show which decisions change.
+
+- Start both sides in the existing strong/weak matrix. A survivor keeps its
+  crew, equipment and condition when the next opponent of the screened type
+  enters with its side's assigned starting condition. Tally Phase 5 damage
+  and kill credit through the survivor's final exchange. Credit effects
+  already in flight to their original ship. An ordinary replacement starts
+  a different deployment.
+- Use one 1,200-frame cap across the deployment. A ship still alive at the
+  cap supplies the harm observed so far. Report that share, especially when
+  interpreting long-lived strategies. Elapsed time earns zero harm.
+- A Pkunk deployment includes its original hull and every natural rebirth.
+  The successive conditional chances are 70%, 21%, 6.3%, and so on. This
+  gives 1.8564 hulls on average. A successful roll restores full crew and
+  battery even from a weak start. Carry the spent rebirths into the next
+  opponent. A failed roll records one fleet elimination. Sum outgoing harm
+  across the deployment and retain Phase 5's half weights for crew damage to
+  the Pkunk and individual Pkunk hull destructions. Record the fleet
+  elimination as a diagnostic. Use the game's rebirth on either side and
+  pair hidden rolls by seed, cell, side, deployment and attempt number. A screen involving Pkunk
+  requires battle-mode rebirth handling. The training arena issues fresh
+  replacements on every destruction.
+- Measure pace by each deployment's **longest stretch without a credible
+  attack** by the evaluated ship. Include the opening and trailing gaps and
+  the entire active span of a ship that never attacks. Pause the inactivity
+  clock when either side is unavailable, including forced re-entry. A hit,
+  a defended attack or a shot on course to hit can sustain pressure while
+  kiting. A launch out of reach earns nothing. Report the 90th percentile
+  of these longest gaps and the share with no credible attack.
+- For this pilot, preselect a **10 active second** limit on the 90th
+  percentile (nearest rank). This is a pacing target to test in play. Rank
+  pace-eligible settings by mean deployment harm. A challenger needs a
+  clear gain on the paired confirmation fights (95% interval excludes zero
+  and difference exceeds 5% of the larger mean) to displace an eligible
+  incumbent. An eligible challenger to an incumbent that misses the pace
+  target must also be at least tied on deployment harm in both blocks.
+  If every setting misses the pace target, or the pace-eligible settings
+  clearly sacrifice harm, retain the incumbent for review. Report the harm
+  leader and the measured gap even when the incumbent misses the target.
+
+**First screen.** Fly Orz against Chmmr and Spathi against Utwig with the
+current opponent rules, 64 directions, five-frame perception delay and all
+four starting cells. Use seeds 0–19 for selection and fresh seeds
+1000–1019 for confirmation. Rerun the alternatives on both seed blocks so
+both ranking methods can be audited. This pilot uses the 20-seed paired
+matchup protocol from the play notes. Broader rollout can proceed one
+matchup at a time using the existing paired screening rounds.
+
+| Evaluated ship | Settings flown against the current opponent |
+|---|---|
+| Orz vs Chmmr | Incumbent satellite standoff, base 907–1,296 band, former 1,550–1,800 standoff, registered 900-unit dash from the incumbent band |
+| Spathi vs Utwig | Incumbent without a band, base 756–1,080 band, former 900–1,300 anti-Utwig band (from `40b7228`), earlier approach-and-recharge strategy |
+
+All band challengers use the current weapons and shared rules. For these
+two matchups, an active pressure frame is a credited hit, a shield-absorbed
+shot, a hostile marine aboard, or an outgoing damaging shot on course to
+touch the enemy hull or a live Chmmr satellite within the next 12 frames.
+An outbound marine must threaten the enemy ship itself. Project current
+relative velocity on the wrapped arena, use both collision radii and limit
+the projection to the shot's remaining lifespan. Treat an intercept as an
+opportunity that could force a response. The quiet clock pauses during the
+forced wait for the next opponent. The game removes the Orz's and Spathi's
+weapons when their owner dies, so the pilot can extract both scores from
+one replay, including the fatal frame. The historic respawn total continues
+to frame 1,200.
+
+#### First fleet-deployment screen results (2026-11-24)
+
+**Retain both incumbents for review.** Four settings per matchup flew on
+20 selection seeds and 20 disjoint confirmation seeds, each in all four
+cells, for 1,280 fights. Each table entry covers 80 fights per seed block.
+The difference is confirmation deployment harm minus the incumbent's on
+the same seed and cell, with its paired 95% interval. The final two columns
+count confirmation deployments. A surviving ship could deal additional
+harm beyond the cap.
+
+| Ship and setting | Selection harm per deployment | Selection P90 gap | Confirmation harm with respawns | Confirmation harm per deployment | Paired difference [95% CI] | Confirmation P90 gap | No threat / 80 | Alive at cap / 80 |
+|---|---:|---:|---:|---:|---|---:|---:|---:|
+| Orz incumbent standoff | 0.607 | 11.83 s | 0.682 | **0.635** | reference | 10.08 s | 0 | 65 |
+| Orz base band | 0.174 | 4.50 s | **0.850** | 0.143 | −0.492 [−0.646, −0.338] | 3.96 s | 1 | 0 |
+| Orz far band | 0.311 | 46.75 s | 0.312 | 0.296 | −0.339 [−0.459, −0.219] | 48.29 s | 5 | 73 |
+| Orz dash | 0.270 | 6.58 s | 0.659 | 0.231 | −0.404 [−0.538, −0.271] | 6.96 s | 4 | 1 |
+| Spathi incumbent, no band | 0.220 | 42.21 s | **0.320** | **0.208** | reference | 34.42 s | 2 | 28 |
+| Spathi base band | 0.106 | 11.46 s | 0.123 | 0.050 | −0.158 [−0.252, −0.064] | 12.21 s | 0 | 12 |
+| Spathi old standoff | 0.029 | 36.42 s | 0.014 | 0.014 | −0.194 [−0.286, −0.102] | 36.50 s | 1 | 79 |
+| Spathi earlier approach | 0.157 | 12.58 s | 0.135 | 0.122 | −0.086 [−0.190, +0.017] | 11.12 s | 0 | 73 |
+
+Confirmation harm per deployment by starting condition, 20 fights per
+cell. The first letter describes the evaluated ship and the second its
+opponent (S = strong, W = weak).
+
+| Ship and setting | SS | SW | WS | WW |
+|---|---:|---:|---:|---:|
+| Orz incumbent standoff | 0.005 | 1.473 | 0.002 | 1.060 |
+| Orz base band | 0.016 | 0.412 | 0.009 | 0.135 |
+| Orz far band | 0.003 | 0.964 | 0.000 | 0.218 |
+| Orz dash | 0.017 | 0.856 | 0.005 | 0.044 |
+| Spathi incumbent, no band | 0.077 | 0.421 | 0.064 | 0.271 |
+| Spathi base band | 0.055 | 0.127 | 0.009 | 0.010 |
+| Spathi old standoff | 0.017 | 0.017 | 0.011 | 0.012 |
+| Spathi earlier approach | 0.059 | 0.196 | 0.058 | 0.176 |
+
+**Orz vs Chmmr.** With respawns, the base band deals 0.169 more harm
+[+0.061, +0.276], which wins the old comparison. Its starting Orz lasts
+7.26 s on average, and all 80 are lost before the cap. Under the deployment
+score the incumbent leads it by 0.492. Against weak Chmmrs (one satellite)
+the incumbent deals 1.267 vs 0.274 harm per deployment. The 40 starting
+Orz destroy 84 weak opponents. Against strong Chmmrs the corresponding means are 0.003
+and 0.012, with zero kills for either. The incumbent's confirmation P90
+misses the pace target by two frames (242 vs 240). Both faster challengers
+clearly lose deployment harm. Short gaps can also reflect an early death.
+
+**Spathi vs Utwig.** The incumbent leads on mean harm under both scores,
+but has a 34.42 s P90 quiet gap. The older approach cuts that to 11.12 s
+and puts the Utwig under pressure in all 80 confirmation fights. Its harm
+difference is inconclusive and it misses the pace target in both blocks.
+The old standoff survives 79 of 80 fights to the cap while dealing only
+0.014 harm per deployment. All four settings exceed the pace target.
+
+Reproduce from the repository root using the baseline at `d6f4bc9` with
+the pilot runner. Its CSV records each setting, seed, cell, both scores,
+active and pressure frames, longest gap, opponent ships destroyed and the
+deployment's end frame and cap status.
+
+```text
+python -m src.training.baseline.deployment_pilot --workers 20 --csv deployment_pilot.csv
+```
+
+#### Spathi's return to firing range
+
+Keep the Orz standoff. Against Utwig, compare the current Spathi and its
+earlier approach with two ways of returning after a dodge. Both give the
+existing planet and projectile avoidance first claim, and use the current
+guns. One closes in at an angle when the battery has the three units needed
+for a rear missile, with outer distances of 432, 648, 864 or 1,080. Also try
+veering away inside 320 with the 648 outer distance. The other turns onto
+the gun's lead when it has the two units for a gunshot, thrusts once facing
+within 60 degrees, and releases steering within 432, 648 or 864. A fourth
+aimed version approaches off the Utwig's nose outside 648.
+
+Select on seeds 0–19 in all four cells using the deployment and pace rules
+above. Take the eligible challenger with the highest mean deployment harm
+to a paired confirmation against the incumbent on 100 fresh seeds
+(2000–2099). If a matchup override changes, recheck the opponent's
+reciprocal override against the promoted rule.
+
+#### Respawn scoring used for the earlier passes
+
 Baselines are training opponents and the trainee's teacher in baseline phases,
 so they should engage. Judging by wins and losses rewards stalling: a timeout
 counts as a non-loss. The first Spathi move showed this. Timeouts rose from 116
@@ -1504,6 +1658,7 @@ Recorded 2026-11-20.
 | D9 | Reward schemes | Classic and Harm both kept, switched by a slider at the top of the Rewards pane. |
 | D10 | Crew gains and losses | Opponent: for every opponent, the trainee is credited only for new lows it causes; gains and losses it didn't cause just move the low-water mark. Trainee: the penalty follows the crew level, so every loss is penalised and every gain credited, netting to the real change in crew. |
 | D11 | Perception delay | Recorded 2026-11-21. Computer controllers see enemy objects only once they are N frames old: a Game Play setting, 0–24, default 5. Ships, own objects, neutral objects and own state are not delayed. Game-rule targeting (Chmmr satellites, Earthling point defence, homing) still sees the live world. Chosen over a delay on everything, which would mistime every aim and dodge, and over UQM's random gate, which would bind only the baseline and not trained networks. |
+| D12 | Baseline screening | Recorded 2026-11-24. Score lasting harm per fleet ship, including its natural Pkunk rebirths, and check the longest gap between credible attacks. The first paired screen retained the Orz and Spathi incumbents for pace review. See “First fleet-deployment screen results”. |
 
 ---
 
