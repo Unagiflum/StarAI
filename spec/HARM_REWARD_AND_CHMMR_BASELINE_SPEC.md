@@ -1015,8 +1015,8 @@ difference is inconclusive and it misses the pace target in both blocks.
 The old standoff survives 79 of 80 fights to the cap while dealing only
 0.014 harm per deployment. All four settings exceed the pace target.
 
-Reproduce from the repository root using the baseline at `d6f4bc9` with
-the pilot runner. Its CSV records each setting, seed, cell, both scores,
+Reproduce from the repository root at `4e638c0`, which includes the pilot
+runner and the baseline from `d6f4bc9`. Its CSV records each setting, seed, cell, both scores,
 active and pressure frames, longest gap, opponent ships destroyed and the
 deployment's end frame and cap status.
 
@@ -1072,6 +1072,53 @@ earlier strategy. Use seeds 0–19 for selection and 3000–3099 for any
 confirmation. Also test whether the winning Spathi rule transfers to
 Yehat, the other shield opponent it met with the same no-band strategy.
 Compare that one rule directly on 0–19 and, if eligible, 4000–4099.
+
+#### Utwig's response and the Spathi transfer to Yehat
+
+With the promoted Spathi at `3716565`, the Utwig selection screen gave
+the following results. Each row covers the same 80 starting deployments.
+
+| Utwig strategy against Spathi | Harm per starting Utwig | P90 longest quiet spell | More than 10 s / 80 |
+|---|---:|---:|---:|
+| Current 756–1,080 predictive band | 0.159 | 38.67 s | 71 |
+| Earlier strategy | 0.627 | 21.58 s | 63 |
+| Usual 500–900 band | **1.912** | **9.00 s** | **8** |
+| No band | 5.258 | 10.79 s | 9 |
+| Nearer 529–756 band | 0.573 | 26.54 s | 57 |
+| Farther 983–1,404 band | 0.027 | 45.25 s | 79 |
+| Face Spathi within the current band | 0.085 | 40.33 s | 70 |
+
+Only the usual band qualified for confirmation. If it wins, test Spathi
+against the new Utwig with the previous no-band strategy, the earlier
+approach, the 432- and 648-unit aimed returns, the flanking pass and
+the 0–1,080 band. Use the same 0–19 selection seeds, then 5000–5099 for
+any confirmation.
+
+**Promote Utwig's usual 500–900 band against Spathi.** The 100 fresh
+confirmation seeds gave a paired gain of +1.906 harm per starting Utwig
+(95% CI +1.771 to +2.040). Removing the Spathi-specific band makes the
+Utwig use its standard movement and preserves its shield and firing rules.
+
+| Utwig vs promoted Spathi, seeds 3000–3099 | Harm per starting Utwig | P90 longest quiet spell | More than 10 s / 400 | Spathi destroyed | Utwig alive at 50 s / 400 |
+|---|---:|---:|---:|---:|---:|
+| Previous 756–1,080 band | 0.094 | 38.12 s | 362 | 32 | 15 |
+| Usual 500–900 band | **2.000** | **9.67 s** | **34** | **807** | **185** |
+
+To reproduce the reciprocal selection and confirmation or the Yehat
+transfer, use the following commands at `3716565`.
+
+```text
+python -m work.measurements.return_screen Utwig Spathi --first 0 --seeds 20 --csv utwig_select.csv
+python -m work.measurements.return_screen Utwig Spathi --first 3000 --seeds 100 --variants default base_band --csv utwig_confirm.csv
+python -m work.measurements.return_screen Spathi Yehat --first 0 --seeds 20 --csv yehat_select.csv
+```
+
+**Keep the existing Spathi vs Yehat rule.** On the direct transfer test,
+harm fell from 0.097 to 0.016 per starting Spathi (paired difference
+−0.080, 95% CI −0.135 to −0.026). The P90 gap fell from 31.21 s to
+3.00 s. All 80 Spathi using the new maneuver died before the cap, with
+zero kills. The incumbent destroyed five Yehats and 16 Spathi survived.
+The transfer failed the selection rule, so it received no confirmation.
 
 #### Respawn scoring used for the earlier passes
 

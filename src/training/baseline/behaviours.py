@@ -785,9 +785,9 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
     # (against the Shofixti also wherever its blast would kill); the bolts
     # are aimed. A back-off band closes in at full speed to 900 and steers
     # 110 degrees off inside 500, nearer than the bolts' 1,080 that
-    # approach_range held. Against the Spathi it keeps that earlier band
-    # (756-1,080), which deals more than twice the harm; against a Chmmr,
-    # the earlier rule. Tolerance check: the bolts fire within 15 degrees,
+    # approach_range held. The Spathi's return to missile range made this
+    # same 500-900 band win against it. Against a Chmmr, keep the earlier
+    # rule. Tolerance check: the bolts fire within 15 degrees,
     # in place of 11.25, dealing 13% more. λ is middling: heavy and no
     # faster than most, it can't run.
     "Utwig": ShipBehaviour(
@@ -796,8 +796,6 @@ SHIP_BEHAVIOURS: dict[str, ShipBehaviour] = {
         weapons=(WeaponUse(FIRE_AIMED, tolerance=15.0), WeaponUse(FIRE_DEFEND, threat_seconds=0.2, on_crew_loss=True)),
         opponents={
             "Shofixti": {"specials": ("shield_glory",), "band": None},
-            # Pass 3: the earlier band, predictive.
-            "Spathi": {"band": Band(756.0, 1080.0, approach_speed=60.0)},
             "Chmmr": {"specials": ("utwig_chmmr",), "band": None, "weapons": ()},
             # Pass 2 (and the Shofixti's band): farther, off or predictive.
             **dict.fromkeys(

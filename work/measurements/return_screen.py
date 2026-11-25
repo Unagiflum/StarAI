@@ -53,6 +53,7 @@ def settings(ship, opponent):
         })
     elif (ship, opponent) == ("Spathi", "Utwig"):
         current = replace(current, specials=())
+        group["no_band"] = replace(current, band=None)
         group["approach"] = None
         for near, far in ((0, 1080), (0, 864), (0, 648), (0, 432), (320, 648)):
             name = f"band_{near}_{far}"

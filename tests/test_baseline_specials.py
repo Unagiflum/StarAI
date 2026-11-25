@@ -112,8 +112,7 @@ class MovedShipTests(unittest.TestCase):
     def test_the_utwig_holds_inside_its_bolts_reach(self):
         band = ship_behaviour("Utwig", "Mycon").band
         self.assertEqual((band.near, band.far, band.back_off), (500.0, 900.0, True))
-        spathi = ship_behaviour("Utwig", "Spathi").band
-        self.assertEqual((spathi.near, spathi.far, spathi.back_off), (756.0, 1080.0, False))
+        self.assertEqual(ship_behaviour("Utwig", "Spathi").band, band)
         self.assertEqual(ship_behaviour("Utwig", "Shofixti").specials, ("shield_glory",))
 
     def test_the_yehat_flies_its_table_defaults_against_the_chmmr(self):

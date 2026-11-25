@@ -43,7 +43,7 @@ def pilot_settings():
         ("Spathi", "Utwig"): {
             "default": None,
             "base_band": replace(ship_behaviour("Spathi"), opponents={}),
-            "old_standoff": replace(spathi, opponents={}, band=Band(900, 1300, approach_speed=60)),
+            "old_standoff": replace(spathi, opponents={}, specials=(), band=Band(900, 1300, approach_speed=60)),
             "approach": None,
         },
     }
