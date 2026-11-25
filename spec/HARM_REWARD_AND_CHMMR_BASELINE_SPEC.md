@@ -1120,6 +1120,69 @@ harm fell from 0.097 to 0.016 per starting Spathi (paired difference
 zero kills. The incumbent destroyed five Yehats and 16 Spathi survived.
 The transfer failed the selection rule, so it received no confirmation.
 
+After both sides have settled, measure each ship's current rule against
+its pre-screen rule, facing the final opponent in both cases. Reserve
+seeds 6000–6099 and all four starting cells for this comparison. This
+reports the effect of each change with both ships' responses in play.
+
+#### Spathi recheck and the final matchup
+
+With both changes in place at `dea8653`, the 864-unit return led on harm
+against Utwig in the second recheck round. No challenger qualified for
+confirmation. The matchup settled with both promoted rules in play.
+
+| Spathi strategy against the final Utwig | Harm per starting Spathi | P90 longest quiet spell |
+|---|---:|---:|
+| Return on gun lead to 864 | **0.302** | 3.79 s |
+| Previous rule | 0.269 | 33.38 s |
+| Earlier approach | 0.239 | 10.12 s |
+| Return on gun lead to 432 | 0.189 | 3.38 s |
+| Return on gun lead to 648 | 0.263 | 3.71 s |
+| Flanking pass at 648 | 0.195 | 4.12 s |
+| 0–1,080 band | 0.241 | 7.88 s |
+
+On seeds 6000–6099 both ships faced their updated opponent. Each row
+compares 400 paired deployments. A positive harm difference favors the
+promoted rule. The quiet spell is the 90th percentile in active seconds.
+
+| Ship | Previous harm | Promoted harm | Difference [95% CI] | Previous quiet spell | Promoted quiet spell | Previous / promoted survivors at 50 s |
+|---|---:|---:|---|---:|---:|---:|
+| Spathi vs updated Utwig | 0.317 | 0.246 | −0.071 [−0.130, −0.012] | 38.33 s | 3.75 s | 109 / 3 |
+| Utwig vs returning Spathi | 0.124 | 1.940 | +1.816 [+1.683, +1.949] | 37.46 s | 9.54 s | 11 / 183 |
+
+Utwig's promotion held. Spathi at 864 met pace in all 400 fights, but
+the final Utwig reversed its harm advantage. Follow up with longer returns
+(1,080, 1,350, 1,620, 2,160 or 2,700) and returns to gun range that turn
+away from a predicted close pass (432, 648 or 864 clearance, at 120 or
+160 degrees). Select on fresh seeds 7000–7019 against both the live
+864-unit return and the pre-screen rule. Require eligible pace, a clear
+harm gain over the live return and at least tied harm with the original.
+Confirm the highest eligible mean on 8000–8099 against both controls.
+
+No wider return qualified. The 2,700-unit return raised harm by +0.130
+[+0.007, +0.253] but had a 16.54 s quiet spell. At 2,160 it dealt 0.324
+vs 0.298 with a 9.83 s gap and an inconclusive harm difference. The six
+predictive turns dealt 0.036–0.247. A final selection tests responses
+to actual engagement: give the opponent 1, 2, 3 or 4 seconds to come back
+within gun range before closing, or cross its firing arc at 90 or 135
+degrees when inside 864 or 1,350 and its nose is within 45 degrees.
+Use fresh seeds 8100–8119, the same two controls and promotion criteria,
+and 9000–9099 for any confirmation.
+
+Also compare both Utwig bands against the original Spathi on the same
+6000–6099 seeds used against the returning Spathi. This supplies the
+missing comparison if the Spathi change has to be reconsidered.
+
+All four delays cleared both controls in selection, with means of 0.545,
+0.839, 0.746 and 0.637 harm for waits of one through four seconds. The
+four attempts to cross Utwig's nose dealt 0.045–0.160. The two-second
+delay led, at +0.620 [+0.450, +0.790] vs the immediate return and +0.531
+[+0.358, +0.704] vs the original rule. It went to confirmation. If it
+wins, recheck Utwig's usual band, its former opponent-specific band and
+the other five reciprocal settings on seeds 10000–10019. Use 11000–11099
+for a challenger that qualifies, or a paired check of the current and
+former bands if the current rule leads.
+
 #### Respawn scoring used for the earlier passes
 
 Baselines are training opponents and the trainee's teacher in baseline phases,
