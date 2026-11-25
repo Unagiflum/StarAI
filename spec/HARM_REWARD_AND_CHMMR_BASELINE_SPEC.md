@@ -898,6 +898,13 @@ one observation. Use this objective from the first comparison, including
 challengers screened out by the old method. Keep the 50-second respawn score
 alongside it to show which decisions change.
 
+**Current matchup decisions.** Keep Orz's satellite standoff against Chmmr.
+Spathi waits two seconds outside gun range before returning against Utwig
+(`f5e3873`), and keeps its previous rule against Yehat. Utwig uses its
+usual 500–900 band against Spathi (`dea8653`). Utwig pacing is still open
+against the two-second return. No screened Utwig setting met the 10 s
+limit in the last reciprocal round.
+
 - Start both sides in the existing strong/weak matrix. A survivor keeps its
   crew, equipment and condition when the next opponent of the screened type
   enters with its side's assigned starting condition. Tally Phase 5 damage
@@ -1125,11 +1132,12 @@ its pre-screen rule, facing the final opponent in both cases. Reserve
 seeds 6000–6099 and all four starting cells for this comparison. This
 reports the effect of each change with both ships' responses in play.
 
-#### Spathi recheck and the final matchup
+#### Spathi recheck against the 500–900 Utwig
 
 With both changes in place at `dea8653`, the 864-unit return led on harm
 against Utwig in the second recheck round. No challenger qualified for
-confirmation. The matchup settled with both promoted rules in play.
+confirmation. That round kept the immediate return for the independent
+comparison below.
 
 | Spathi strategy against the final Utwig | Harm per starting Spathi | P90 longest quiet spell |
 |---|---:|---:|
@@ -1192,7 +1200,9 @@ beyond reach for 48 observed frames, Spathi turns onto the gun lead and
 closes when it has battery for a shot. Dodges keep first claim on steering.
 On 9000–9099 the gain was +0.579 [+0.505, +0.653] vs the original Spathi
 and +0.621 [+0.548, +0.695] vs its immediate return. The delayed ship
-destroyed more opponents and more often survived the full 50 s.
+put Utwig under pressure in all 400 fights, destroyed more opponents and
+more often survived the full 50 s. Five original Spathi and one immediate
+return completed their deployments without a credible attack.
 
 | Spathi vs the 500–900 Utwig, 400 deployments each | Harm per starting Spathi | P90 longest quiet spell | More than 10 s / 400 | Utwig destroyed | Spathi alive at 50 s / 400 |
 |---|---:|---:|---:|---:|---:|
@@ -1208,6 +1218,48 @@ python -m work.measurements.return_screen Spathi Utwig --first 8100 --seeds 20 -
 python -m work.measurements.return_screen Spathi Utwig --first 9000 --seeds 100 --variants default no_band delay_2 --csv spathi_confirm.csv
 python -m work.measurements.return_screen Utwig Spathi --first 6000 --seeds 100 --variants default former_band --csv utwig_immediate.csv
 python -m work.measurements.return_screen Utwig Spathi --original-spathi-opponent --first 6000 --seeds 100 --variants default former_band --csv utwig_original.csv
+```
+
+#### Utwig recheck against the two-second Spathi
+
+The last reciprocal screen used the gameplay at `f5e3873`. All seven
+Utwig settings exceeded the 10 s pace limit on seeds 10000–10019.
+Utwig therefore retains its usual 500–900 band for review. The no-band
+option missed by 14 frames and led on harm. Include it in the fresh
+comparison with the two bands to quantify the tradeoff.
+
+| Utwig setting, 80 selection fights each | Harm per starting Utwig | P90 longest quiet spell | More than 10 s / 80 |
+|---|---:|---:|---:|
+| Usual 500–900 band | 0.780 | 17.46 s | 40 |
+| Former 756–1,080 band | 0.228 | 50.00 s | 78 |
+| Earlier strategy | 0.169 | 41.29 s | 61 |
+| No band | 4.661 | 10.58 s | 10 |
+| Nearer 529–756 band | 0.310 | 34.58 s | 74 |
+| Farther 983–1,404 band | 0.005 | 50.00 s | 79 |
+| Face Spathi within the former band | 0.142 | 50.00 s | 77 |
+
+On fresh seeds 11000–11099, the usual band retained a +0.627 harm gain
+[+0.534, +0.721] over the former band. Flying without a band beat the
+usual band by +3.777 [+3.643, +3.911] and shortened its quiet spells.
+Its P90 still missed the limit by 26 frames, with 62 of 400 deployments
+exceeding ten active seconds. It put Spathi under pressure in all 400
+fights. Ten Utwig using the usual band and 131 using the former band
+completed their deployments without a credible attack. No further rule
+qualified for promotion.
+
+| Utwig vs the two-second Spathi, 400 deployments each | Harm per starting Utwig | P90 longest quiet spell | More than 10 s / 400 | Spathi destroyed | Utwig alive at 50 s / 400 |
+|---|---:|---:|---:|---:|---:|
+| Former 756–1,080 band | 0.150 | 50.00 s | 391 | 47 | 217 |
+| Committed 500–900 band | 0.778 | 20.12 s | 235 | 305 | 160 |
+| No band | 4.555 | 11.08 s | 62 | 1,865 | 356 |
+
+Reproduce this last round at `f5e3873`. The full follow-up after the
+initial pilot comprised 10,960 simulated fights, plus 16 production replay
+checks for each of the three successive gameplay changes.
+
+```text
+python -m work.measurements.return_screen Utwig Spathi --first 10000 --seeds 20 --variants default former_band earlier no_band near far face --csv utwig_last_select.csv
+python -m work.measurements.return_screen Utwig Spathi --first 11000 --seeds 100 --variants default former_band no_band --csv utwig_last_check.csv
 ```
 
 #### Respawn scoring used for the earlier passes
